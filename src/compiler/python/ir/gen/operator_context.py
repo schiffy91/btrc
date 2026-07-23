@@ -22,8 +22,9 @@ def operator_context(gen, *, fresh_temp=None) -> OperatorLoweringContext:
     temp_factory = fresh_temp or getattr(gen, "fresh_temp", None)
     if temp_factory is None:
         raise CodegenError("typed operator lowering requires a temp allocator")
+    helper_registry = getattr(gen, "helpers", None)
     return OperatorLoweringContext(
-        use_helper=getattr(gen, "use_helper", None),
+        use_helper=helper_registry.use if helper_registry is not None else None,
         fresh_temp=temp_factory,
         class_table=getattr(analyzed, "class_table", {}),
         interface_table=getattr(analyzed, "interface_table", {}),

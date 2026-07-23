@@ -57,9 +57,8 @@ def runtime_name(gen, type_expr) -> str:
         return STRING_RUNTIME_NAME
     if is_mutex_type(gen, type_expr):
         return MUTEX_RUNTIME_NAME
-    from .ownership import managed_type_name
 
-    return managed_type_name(gen, _canonical(gen, type_expr))
+    return gen.ownership.managed_type_name(_canonical(gen, type_expr))
 
 
 def managed_local_value_type(type_expr, emitted_name: str | None):
@@ -73,7 +72,7 @@ def managed_local_value_type(type_expr, emitted_name: str | None):
 
 def retain_value(gen, value, type_expr):
     if is_string_type(gen, type_expr):
-        gen.use_helper("__btrc_string_retain")
+        gen.helpers.use("__btrc_string_retain")
         return IRCall(
             callee="__btrc_string_retain",
             args=[value],
@@ -104,7 +103,7 @@ def adopt_edge_value(gen, value, type_expr, owner):
 
 def release_value(gen, value, type_expr):
     if is_string_type(gen, type_expr):
-        gen.use_helper("__btrc_string_release")
+        gen.helpers.use("__btrc_string_release")
         return IRCall(
             callee="__btrc_string_release",
             args=[value],
@@ -172,7 +171,7 @@ def flush_released_values(gen, *type_exprs):
 
 def release_emitted_value(gen, value, emitted_name: str):
     if emitted_name == STRING_RUNTIME_NAME:
-        gen.use_helper("__btrc_string_release")
+        gen.helpers.use("__btrc_string_release")
         return IRCall(
             callee="__btrc_string_release",
             args=[value],
@@ -194,7 +193,7 @@ def cleanup_destroy_symbol(emitted_name: str) -> str:
 def destroy_symbol(gen, type_expr) -> str:
     """Return the direct destructor/callback for one concrete managed value."""
     if is_string_type(gen, type_expr):
-        gen.use_helper("__btrc_string_release_cleanup")
+        gen.helpers.use("__btrc_string_release_cleanup")
         return "__btrc_string_release_cleanup"
     from .arc_ops import destroy_name
 

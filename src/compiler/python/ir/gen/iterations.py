@@ -27,10 +27,10 @@ from .iteration_strings import lower_string_for_in as _lower_string_for_in
 from .types import mangle_generic_type, type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def _lower_for_in(gen: IRGenerator, node) -> list[IRStmt]:
+def _lower_for_in(gen: IRLowerer, node) -> list[IRStmt]:
     """Lower for-in to C-style for loop."""
     from .statements import _lower_loop_body
 
@@ -212,7 +212,7 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
     return stmts
 
 
-def _iter_value_c(gen: IRGenerator, t) -> str:
+def _iter_value_c(gen: IRLowerer, t) -> str:
     c_type = type_to_c(t)
     if t and t.base in gen.analyzed.class_table and not c_type.endswith("*"):
         return f"{c_type}*"

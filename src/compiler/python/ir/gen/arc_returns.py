@@ -20,10 +20,10 @@ from .try_stack import pop_try_frames
 
 if TYPE_CHECKING:
     from ...ast_nodes import ReturnStmt
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_return(gen: IRGenerator, node: ReturnStmt) -> list[IRStmt]:
+def lower_return(gen: IRLowerer, node: ReturnStmt) -> list[IRStmt]:
     """Lower one return while enforcing the managed-value return ABI.
 
     A btrc function or method returning a class value always gives its caller
@@ -179,29 +179,29 @@ def _borrows_from_owned_local(gen, expression) -> bool:
     return False
 
 
-def _emit_return_try_pop(gen: IRGenerator) -> list[IRStmt]:
+def _emit_return_try_pop(gen: IRLowerer) -> list[IRStmt]:
     """Discard cleanups and pop try levels bypassed by a return."""
     return _emit_try_pop(gen, gen.in_try_depth)
 
 
-def _emit_return_cleanup_discard(gen: IRGenerator) -> list[IRStmt]:
+def _emit_return_cleanup_discard(gen: IRLowerer) -> list[IRStmt]:
     """Forget this function's registered slots after ordinary ARC release."""
     from .cleanup_scopes import cleanup_scope_exit
 
     return cleanup_scope_exit(gen, gen.get_return_cleanup_marker())
 
 
-def _emit_try_pop(gen: IRGenerator, depth: int) -> list[IRStmt]:
+def _emit_try_pop(gen: IRLowerer, depth: int) -> list[IRStmt]:
     """Discard cleanup registrations and pop ``depth`` active try frames."""
     if depth <= 0:
         return []
     stmts: list[IRStmt] = []
     # A try without managed locals has no registered cleanup level to discard.
-    if gen._used_helpers & {
+    if gen.helpers.roots & {
         "__btrc_register_cleanup",
         "__btrc_register_direct_cleanup",
     }:
-        gen.use_helper("__btrc_discard_cleanups")
+        gen.helpers.use("__btrc_discard_cleanups")
         level = IRVar(name="__btrc_try_top")
         if depth > 1:
             level = IRBinOp(
@@ -222,7 +222,7 @@ def _emit_try_pop(gen: IRGenerator, depth: int) -> list[IRStmt]:
     return stmts
 
 
-def _maybe_launder_return(gen: IRGenerator, value):
+def _maybe_launder_return(gen: IRLowerer, value):
     """Prevent setjmp branch folding for managed returns inside try/catch."""
     if gen.in_trycatch_depth <= 0:
         return value
@@ -231,7 +231,7 @@ def _maybe_launder_return(gen: IRGenerator, value):
 
     if not is_managed_type(gen, return_type):
         return value
-    gen.use_helper("__btrc_launder")
+    gen.helpers.use("__btrc_launder")
     laundered = IRCall(
         callee="__btrc_launder",
         args=[value],

@@ -1,5 +1,7 @@
 """Target-directed ownership conversion for hosted C string results."""
 
+from contextlib import contextmanager
+
 from ...ast_nodes import CallExpr, Identifier
 from ...hosted_abi import (
     DEALLOC_FREE,
@@ -19,6 +21,85 @@ COPY = "copy"
 REJECT = "reject"
 
 
+class HostedResultLowerer:
+    """Own target-directed hosted-result requests for one lowering run."""
+
+    def __init__(self, context) -> None:
+        self.context = context
+        self._requests = context.hosted_result_conversion_requests
+
+    def conversion_mode(
+        self,
+        expression,
+        target_type,
+        source_type,
+    ) -> str | None:
+        return _conversion_mode(
+            self.context.analyzed,
+            expression,
+            target_type,
+            source_type,
+        )
+
+    def requires_target_conversion(
+        self,
+        expression,
+        target_type,
+        source_type,
+    ) -> bool:
+        from ...string_conversion import requires_class_to_string
+
+        analyzed = self.context.analyzed
+        target = canonical_type(target_type, analyzed.typedef_table)
+        source = canonical_type(source_type, analyzed.typedef_table)
+        class_conversion = requires_class_to_string(
+            analyzed.class_table,
+            target,
+            source,
+            canonicalize=lambda value: canonical_type(
+                value,
+                analyzed.typedef_table,
+            ),
+        )
+        return class_conversion or self.conversion_mode(
+            expression,
+            target_type,
+            source_type,
+        ) in {ADOPT, COPY}
+
+    @contextmanager
+    def request(self, expression, mode: str, target_type):
+        key = id(expression)
+        missing = object()
+        previous = self._requests.get(key, missing)
+        self._requests[key] = (mode, target_type)
+        try:
+            yield
+        finally:
+            if previous is missing:
+                self._requests.pop(key, None)
+            else:
+                self._requests[key] = previous
+
+    def requested_conversion(self, expression):
+        return self._requests.get(id(expression))
+
+    def lower_conversion(self, lowered, mode: str):
+        if mode == COPY:
+            self.context.helpers.use("__btrc_strdup")
+            lowered = IRCall(
+                callee="__btrc_strdup",
+                args=[lowered],
+                helper_ref="__btrc_strdup",
+            )
+        self.context.helpers.use("__btrc_str_track")
+        return IRCall(
+            callee="__btrc_str_track",
+            args=[lowered],
+            helper_ref="__btrc_str_track",
+        )
+
+
 def hosted_string_conversion_mode(
     gen,
     expression,
@@ -26,8 +107,22 @@ def hosted_string_conversion_mode(
     source_type,
 ) -> str | None:
     """Classify raw-char-pointer to managed-string conversion."""
-    target = canonical_type(target_type, gen.analyzed.typedef_table)
-    source = canonical_type(source_type, gen.analyzed.typedef_table)
+    return _conversion_mode(
+        gen.analyzed,
+        expression,
+        target_type,
+        source_type,
+    )
+
+
+def _conversion_mode(
+    analyzed,
+    expression,
+    target_type,
+    source_type,
+) -> str | None:
+    target = canonical_type(target_type, analyzed.typedef_table)
+    source = canonical_type(source_type, analyzed.typedef_table)
     if not _managed_string(target) or not _raw_c_string(source):
         return None
     if not isinstance(expression, CallExpr) or not isinstance(
@@ -35,7 +130,7 @@ def hosted_string_conversion_mode(
         Identifier,
     ):
         return REJECT
-    if id(expression) not in gen.analyzed.hosted_call_ids:
+    if id(expression) not in analyzed.hosted_call_ids:
         return REJECT
     name = expression.callee.name
     spec = hosted_function(name)
@@ -65,13 +160,13 @@ def hosted_string_conversion_mode(
 
 def lower_hosted_string_conversion(gen, lowered, mode: str):
     if mode == COPY:
-        gen.use_helper("__btrc_strdup")
+        gen.helpers.use("__btrc_strdup")
         lowered = IRCall(
             callee="__btrc_strdup",
             args=[lowered],
             helper_ref="__btrc_strdup",
         )
-    gen.use_helper("__btrc_str_track")
+    gen.helpers.use("__btrc_str_track")
     return IRCall(
         callee="__btrc_str_track",
         args=[lowered],
@@ -81,7 +176,12 @@ def lower_hosted_string_conversion(gen, lowered, mode: str):
 
 def requested_hosted_string_conversion(gen, expression):
     """Return the target-directed conversion active while lowering a call."""
-    requests = getattr(gen, "_hosted_result_conversion_requests", None)
+    context = getattr(gen, "context", None)
+    requests = (
+        context.hosted_result_conversion_requests
+        if context is not None
+        else getattr(gen, "_hosted_result_conversion_requests", None)
+    )
     return requests.get(id(expression)) if requests is not None else None
 
 
@@ -111,6 +211,7 @@ __all__ = [
     "ADOPT",
     "COPY",
     "REJECT",
+    "HostedResultLowerer",
     "hosted_string_conversion_mode",
     "lower_hosted_string_conversion",
     "requested_hosted_string_conversion",

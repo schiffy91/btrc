@@ -13,7 +13,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .call_boundary import CallOperand, sequence_call_boundary
+from .call_boundary import CallOperand
 from .prepared_values import prepare_normal_value, prepared_value_pin_flags
 from .types import mangle_generic_type, type_to_c
 
@@ -117,15 +117,10 @@ def _prepared_effect(gen, values, build):
                 lowered=value.value,
             )
         )
-    return sequence_call_boundary(
-        gen,
-        operands,
+    return gen.ownership.boundaries.sequence(operands,
         lower_expr=lambda _node: None,
         build_call=build,
         result_c_type=None,
-        fresh_temp=gen.fresh_temp,
-        cleanup_active=gen.exception_cleanup_active(),
-        record_decl=gen._func_var_decls.append,
     )
 
 
@@ -134,7 +129,7 @@ def _collection_storage(gen, type_expr, mangled, prefix):
         c_type=CType(text=f"{mangled}*"),
         name=gen.fresh_temp(prefix),
     )
-    gen._func_var_decls.append(temporary)
+    gen.context.function_declarations.append(temporary)
     declarations = [temporary]
     collection = IRVar(name=temporary.name)
     sequence = [
@@ -160,7 +155,7 @@ def _collection_storage(gen, type_expr, mangled, prefix):
             c_type=CType(text=f"{mangled}*"),
             name=gen.fresh_temp("__btrc_collection_result"),
         )
-        gen._func_var_decls.append(result_decl)
+        gen.context.function_declarations.append(result_decl)
         declarations.append(result_decl)
         result = IRVar(name=result_decl.name)
     return declarations, sequence, collection, result

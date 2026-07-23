@@ -11,11 +11,11 @@ from .parameters import lower_named_source_type_param, lower_source_param
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 def emit_class_callable_declarations(
-    gen: IRGenerator,
+    gen: IRLowerer,
     declaration: ClassDecl,
     class_info: ClassInfo,
 ) -> None:

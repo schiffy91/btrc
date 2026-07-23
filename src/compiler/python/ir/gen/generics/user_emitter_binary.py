@@ -132,7 +132,7 @@ def _lower_prepared_overload(emitter, expression):
 
     left = prepare_generic_value(emitter, expression.left, left_type)
     right = prepare_generic_value(emitter, expression.right, expected)
-    from ..call_boundary import CallOperand, sequence_call_boundary
+    from ..call_boundary import CallOperand
     from ..evaluation_order import borrowed_value_can_be_pinned
 
     operands = [
@@ -158,9 +158,7 @@ def _lower_prepared_overload(emitter, expression):
         ),
     ]
     result_type = emitter._resolve_expr_type(expression)
-    return sequence_call_boundary(
-        emitter._gen,
-        operands,
+    return emitter._boundary_ownership.boundaries.sequence(operands,
         lower_expr=lambda _node: None,
         build_call=lambda values: lower_overloaded_values(
             emitter._gen,
@@ -172,9 +170,6 @@ def _lower_prepared_overload(emitter, expression):
         ),
         result_c_type=emitter.iter_value_c(result_type),
         result_type=result_type,
-        fresh_temp=emitter._fresh_temp,
-        cleanup_active=emitter._exception_cleanup_active(),
-        record_decl=emitter._func_var_decls.append,
         activate_cleanup=emitter._activate_cleanup_registration,
         result_owned=emitter._owns_expr(expression),
     )

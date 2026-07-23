@@ -7,7 +7,7 @@ from .callable_provenance import BORROWED_RETURN, snapshot_callable_flow
 
 def begin_callable_loop_capture(owner):
     """Capture callable states reaching break/continue in one loop body."""
-    capture = (frozenset(owner._callable_return_abis), [], [])
+    capture = (frozenset(owner.context.callable_return_abis), [], [])
     owner._callable_loop_captures.append(capture)
     return capture
 

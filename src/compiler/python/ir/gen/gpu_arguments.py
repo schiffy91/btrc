@@ -19,8 +19,8 @@ from ..nodes import (
 
 if TYPE_CHECKING:
     from ...ast_nodes import FunctionDecl
-    from .generator import IRGenerator
     from .gpu_host import GpuHostLowering
+    from .lowerer import IRLowerer
 
 
 @dataclass
@@ -35,7 +35,7 @@ class GpuArgumentPlan:
 
 
 def prepare_gpu_arguments(
-    gen: IRGenerator,
+    gen: IRLowerer,
     declaration: FunctionDecl,
     ast_args: list,
     arg_names: list[str],
@@ -233,7 +233,7 @@ def bare_array_length(argument: IRExpr) -> IRExpr:
     )
 
 
-def bare_array_argument_length(gen: IRGenerator, argument, lowered_argument: IRExpr | None = None) -> IRExpr:
+def bare_array_argument_length(gen: IRLowerer, argument, lowered_argument: IRExpr | None = None) -> IRExpr:
     """Preserve a real C array's extent before its value decays to a pointer."""
 
     if isinstance(argument, Identifier):
@@ -264,7 +264,7 @@ def bare_array_argument_length(gen: IRGenerator, argument, lowered_argument: IRE
     raise CodegenError(f"GPU array argument '{name}' has no provable capacity in this scope")
 
 
-def backed_global_array(gen: IRGenerator, name: str) -> bool:
+def backed_global_array(gen: IRLowerer, name: str) -> bool:
     """Whether a file-scope source array has complete physical C backing."""
 
     global_type = gen.analyzed.global_var_types.get(name)
@@ -280,7 +280,7 @@ def backed_global_array(gen: IRGenerator, name: str) -> bool:
     )
 
 
-def backed_static_field(gen: IRGenerator, target) -> bool:
+def backed_static_field(gen: IRLowerer, target) -> bool:
     """Whether a class-access array field owns aggregate/fixed backing."""
 
     if not isinstance(target, FieldAccessExpr) or not isinstance(target.obj, Identifier):

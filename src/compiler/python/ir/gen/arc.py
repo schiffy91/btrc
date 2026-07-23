@@ -26,10 +26,10 @@ from .managed_local import ManagedLocal
 
 if TYPE_CHECKING:
     from ...ast_nodes import ReleaseStmt
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def _get_destroy_name(gen: IRGenerator, type_expr, cls_name: str) -> str:
+def _get_destroy_name(gen: IRLowerer, type_expr, cls_name: str) -> str:
     """Get the terminal destroy function name for a managed class value."""
     from .types import is_generic_class_type, mangle_generic_type
 
@@ -40,7 +40,7 @@ def _get_destroy_name(gen: IRGenerator, type_expr, cls_name: str) -> str:
     return f"{cls_name}_destroy"
 
 
-def _destroy_fn_for_managed(gen: IRGenerator, cls_name: str) -> str:
+def _destroy_fn_for_managed(gen: IRLowerer, cls_name: str) -> str:
     """Get the terminal destructor name for a managed class type.
 
     Always returns ``{cls_name}_destroy``. Lifecycle behavior is explicit in a
@@ -53,7 +53,7 @@ def _destroy_fn_for_managed(gen: IRGenerator, cls_name: str) -> str:
 
 def _emit_scope_release(
     managed: list[ManagedLocal],
-    gen: IRGenerator | None = None,
+    gen: IRLowerer | None = None,
     *,
     force: bool = True,
 ) -> list[IRStmt]:
@@ -72,7 +72,7 @@ def _emit_scope_release(
         if local.cleanup_kind == "thread":
             from .thread_values import consume_thread_handle
 
-            gen.use_helper("__btrc_thread_free")
+            gen.helpers.use("__btrc_thread_free")
             stmts.append(
                 IRExprStmt(
                     expr=IRCall(
@@ -93,7 +93,7 @@ def _emit_scope_release(
             name=gen.fresh_temp("__btrc_scope_released"),
             init=IRVar(name=local_c_name),
         )
-        gen._func_var_decls.append(value_decl)
+        gen.context.function_declarations.append(value_decl)
         stmts.extend(
             [
                 value_decl,
@@ -136,24 +136,24 @@ def _emitted_value_c_type(type_name: str) -> str:
     return f"struct {type_name}*"
 
 
-def _emit_return_release(gen: IRGenerator, returned_var: str | None) -> list[IRStmt]:
+def _emit_return_release(gen: IRLowerer, returned_var: str | None) -> list[IRStmt]:
     """Emit rc-- for all managed vars across all scopes, except the returned var."""
     returned_c_name = gen.source_binding_c_name(returned_var) if returned_var is not None else None
     managed = [local for local in gen.get_all_managed_vars() if (local.c_name or local.name) != returned_c_name]
     return _emit_scope_release(managed, gen)
 
 
-def _emit_control_exit_release(gen: IRGenerator, targets: set[str]) -> list[IRStmt]:
+def _emit_control_exit_release(gen: IRLowerer, targets: set[str]) -> list[IRStmt]:
     """Release managed locals exited by the nearest matching target."""
     return _emit_scope_release(gen.get_control_managed_vars(targets), gen, force=True)
 
 
-def _lower_release(gen: IRGenerator, node: ReleaseStmt) -> list[IRStmt]:
+def _lower_release(gen: IRLowerer, node: ReleaseStmt) -> list[IRStmt]:
     """Lower an explicit typed ownership release and flush boundary."""
     return lower_release_expression(gen, node.expr)
 
 
-def lower_release_expression(gen: IRGenerator, expression) -> list[IRStmt]:
+def lower_release_expression(gen: IRLowerer, expression) -> list[IRStmt]:
     """Clear and release one analyzed physical managed slot."""
     expr = lower_expr(gen, expression)
     expr_type = gen.analyzed.node_types.get(id(expression))
@@ -187,7 +187,7 @@ def lower_release_expression(gen: IRGenerator, expression) -> list[IRStmt]:
         init=IRAddressOf(expr=expr),
     )
     slot = IRDeref(expr=IRVar(name=slot_name))
-    gen._func_var_decls.append(slot_decl)
+    gen.context.function_declarations.append(slot_decl)
     stmts = [*owner_decls, slot_decl]
     if edge_owner is not None and is_arc_type(gen, expr_type):
         stmts.append(
@@ -209,7 +209,7 @@ def lower_release_expression(gen: IRGenerator, expression) -> list[IRStmt]:
             name=value_name,
             init=slot,
         )
-        gen._func_var_decls.append(value_decl)
+        gen.context.function_declarations.append(value_decl)
         release = release_edge_value if edge_owner is not None else release_value
         stmts.extend(
             [

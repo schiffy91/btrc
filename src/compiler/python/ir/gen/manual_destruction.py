@@ -34,7 +34,7 @@ def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
         name=slot_name,
         init=IRAddressOf(expr=target),
     )
-    gen._func_var_decls.append(slot_decl)
+    gen.context.function_declarations.append(slot_decl)
 
     if is_arc_type(gen, type_expr):
         from .arc_ops import arc_type_descriptor
@@ -42,7 +42,7 @@ def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
 
         helper = "__btrc_arc_destroy_edge" if edge_owner is not None else "__btrc_arc_destroy_slot"
         access = ensure_arc_slot_adapter(gen, CType(text=value_c))
-        gen.use_helper(helper)
+        gen.helpers.use(helper)
         args = [
             IRCast(target_type=CType(text="volatile void*"), expr=IRVar(name=slot_name)),
             IRFunctionRef(name=access),
@@ -67,7 +67,7 @@ def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
         name=value_name,
         init=IRDeref(expr=IRVar(name=slot_name)),
     )
-    gen._func_var_decls.append(value_decl)
+    gen.context.function_declarations.append(value_decl)
     slot = IRDeref(expr=IRVar(name=slot_name))
     value = IRVar(name=value_name)
 

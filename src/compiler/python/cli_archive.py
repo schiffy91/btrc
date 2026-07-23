@@ -9,7 +9,7 @@ from .artifacts.stdlib.publisher import StdlibArchivePublisher
 from .cli_diagnostics import format_error
 from .frontend.stdlib import StdlibRepository
 from .ir.gen.errors import CodegenError
-from .ir.gen.generator import generate_ir
+from .ir.gen.lowerer import IRLowerer
 from .lexer import Lexer, LexerError
 from .parser.core import ParseError
 from .parser.parser import Parser
@@ -60,7 +60,11 @@ def build_stdlib_archive(out_dir: str) -> None:
         raise SystemExit(1)
 
     try:
-        ir_module = generate_ir(analyzed, debug=False, source_file="<stdlib>")
+        ir_module = IRLowerer(
+            analyzed,
+            debug=False,
+            source_file="<stdlib>",
+        ).lower()
         storage = ArtifactStorage()
         publication = ArtifactPublisher(storage)
         build_archive(

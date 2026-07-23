@@ -8,7 +8,7 @@ import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     IRCall,
     IRCast,
@@ -28,7 +28,7 @@ COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(nam
 def _generate_ir(source: str):
     analyzed = _analyze(source)
     assert not analyzed.errors
-    return IRGenerator(analyzed).generate()
+    return IRLowerer(analyzed).lower()
 
 
 def _analyze(source: str):

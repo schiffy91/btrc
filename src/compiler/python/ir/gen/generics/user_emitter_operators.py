@@ -122,7 +122,6 @@ class _UserGenericOperatorMixin:
         )
         result = None
         if target_nodes:
-            from ..assignment_result_ownership import virtual_assignment_rhs_owns_result
             from .user_index_targets import prepared_generic_index_targets
 
             result_type = self._resolve_expr_type(expression)
@@ -132,13 +131,9 @@ class _UserGenericOperatorMixin:
             prepared_targets = prepared_generic_index_targets(self, expression)
             rhs_supplies_result = bool(
                 expression.op == "="
-                and virtual_assignment_rhs_owns_result(
-                    self._gen,
+                and self._virtual_assignment_rhs_owns_result(
                     expression.target,
                     expression.value,
-                    type_of=self._resolve_expr_type,
-                    owns=self._owns_expr,
-                    direct_property=self._direct_property_target,
                 )
             )
             sequenced = self._sequence_owned_nodes(
@@ -241,14 +236,12 @@ class _UserGenericOperatorMixin:
                 self._gen,
                 node,
                 plan,
+                ownership=self._boundary_ownership,
                 lower_value=self._assignment_value,
                 coerce=lambda target_type, source_type, value: upcast_class_pointer(
                     self._gen, target_type, source_type, value
                 ),
                 render_type=self.iter_value_c,
-                fresh_temp=self._fresh_temp,
-                cleanup_active=self._exception_cleanup_active(),
-                record_decl=self._func_var_decls.append,
                 owns_result=self._owns_expr,
                 prepare=lambda value, target_type: _prepare_generic_assignment(
                     self,

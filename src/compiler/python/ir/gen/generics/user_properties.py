@@ -200,10 +200,14 @@ def _setter_body(gen, emitter, prop, resolved, property_c, backing, value_name):
 def _custom_accessor_body(emitter, name, prop, prefix, statements):
     previous = emitter._current_property_backing
     emitter._current_property_backing = name if property_needs_backing(prop) else None
+    if hasattr(emitter, "context"):
+        emitter.context.current_property_backing = emitter._current_property_backing
     try:
         return IRBlock(stmts=prefix + emitter.emit_stmts(statements))
     finally:
         emitter._current_property_backing = previous
+        if hasattr(emitter, "context"):
+            emitter.context.current_property_backing = previous
 
 
 def _void_use(name):

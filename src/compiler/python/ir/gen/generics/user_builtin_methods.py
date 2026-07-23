@@ -34,7 +34,7 @@ def lower_generic_builtin_method(
                 call_args.append(IRLiteral(text="NULL"))
             helper_ref = callee if callee.startswith("__btrc_") else None
             if helper_ref:
-                gen.use_helper(helper_ref)
+                gen.helpers.use(helper_ref)
             call = IRCall(
                 callee=callee,
                 args=call_args,

@@ -6,15 +6,7 @@ from ..callable_provenance import (
     AMBIGUOUS_RETURN,
     BORROWED_RETURN,
     OWNED_RETURN,
-    begin_callable_scope,
-    begin_exceptional_callable_capture,
-    finish_callable_scope,
-    finish_exceptional_callable_capture,
-    join_callable_flows,
     join_return_abis,
-    lower_isolated_callable_flow,
-    restore_callable_flow,
-    snapshot_callable_flow,
 )
 
 
@@ -26,6 +18,87 @@ def reset_generic_callable_state(emitter) -> None:
     emitter._callable_exception_captures = []
     emitter._callable_loop_captures = []
     emitter._callable_parameters_seeded = False
+    _sync_boundary_state(emitter)
+
+
+def begin_callable_scope(emitter):
+    """Open one generic lexical callback-provenance scope."""
+    enclosing = (
+        emitter._callable_return_abis.copy(),
+        emitter._callable_types.copy(),
+    )
+    emitter._callable_scope_declarations.append(set())
+    return enclosing
+
+
+def finish_callable_scope(emitter, enclosing) -> None:
+    """Drop inner callback declarations and keep outer-slot mutations."""
+    enclosing_abis, enclosing_types = enclosing
+    declared = emitter._callable_scope_declarations.pop()
+    current = emitter._callable_return_abis
+    result = enclosing_abis.copy()
+    for name in enclosing_abis.keys() - declared:
+        result[name] = current.get(name, enclosing_abis[name])
+    emitter._callable_return_abis = result
+    emitter._callable_types = enclosing_types
+    _sync_boundary_state(emitter)
+
+
+def begin_exceptional_callable_capture(emitter):
+    """Capture callback states reachable through a generic-body throw."""
+    capture = (frozenset(emitter._callable_return_abis), [])
+    emitter._callable_exception_captures.append(capture)
+    record_generic_exceptional_callable_flow(emitter)
+    return capture
+
+
+def finish_exceptional_callable_capture(emitter, capture):
+    """Close a properly nested generic exceptional-flow capture."""
+    if not emitter._callable_exception_captures or emitter._callable_exception_captures[-1] is not capture:
+        raise RuntimeError("callable exceptional-flow captures must be properly nested")
+    emitter._callable_exception_captures.pop()
+    return capture[1]
+
+
+def snapshot_callable_flow(emitter) -> dict[str, str]:
+    return emitter._callable_return_abis.copy()
+
+
+def restore_callable_flow(emitter, state: dict[str, str]) -> None:
+    emitter._callable_return_abis = state.copy()
+    _sync_boundary_state(emitter)
+
+
+def join_callable_flows(emitter, *states: dict[str, str]) -> None:
+    """Install the conservative join of generic callback control paths."""
+    if not states:
+        return
+    keys = set().union(*(state.keys() for state in states))
+    joined = {}
+    for name in keys:
+        values = {state.get(name, BORROWED_RETURN) for state in states}
+        joined[name] = values.pop() if len(values) == 1 else AMBIGUOUS_RETURN
+    emitter._callable_return_abis = joined
+    _sync_boundary_state(emitter)
+
+
+def lower_isolated_callable_flow(emitter, lower):
+    """Lower one generic control path and return its callback exit state."""
+    incoming = snapshot_callable_flow(emitter)
+    try:
+        lowered = lower()
+        outgoing = snapshot_callable_flow(emitter)
+    finally:
+        restore_callable_flow(emitter, incoming)
+    return lowered, outgoing
+
+
+def _sync_boundary_state(emitter) -> None:
+    context = getattr(emitter, "context", None)
+    if context is None:
+        return
+    context.callable_return_abis = emitter._callable_return_abis
+    context.callable_types = emitter._callable_types
 
 
 def seed_borrowed_callable_parameters(emitter) -> None:

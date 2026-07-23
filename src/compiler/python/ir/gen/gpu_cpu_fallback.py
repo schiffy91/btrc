@@ -33,7 +33,7 @@ from .parameters import lower_source_param, source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 _OUTPUT_CAPACITY_MESSAGE = '"[btrc-gpu] output capacity is smaller than dispatch length\\n"'
 
@@ -45,7 +45,7 @@ class _SourceSignature:
     array_lengths: dict[str, str]
 
 
-def emit_gpu_cpu_fallback(gen: IRGenerator, decl: FunctionDecl) -> None:
+def emit_gpu_cpu_fallback(gen: IRLowerer, decl: FunctionDecl) -> None:
     """Emit one worker invocation plus the host loop for every GPU kernel."""
 
     if decl.body is None:
@@ -122,7 +122,7 @@ def emit_gpu_cpu_fallback(gen: IRGenerator, decl: FunctionDecl) -> None:
     )
 
 
-def lower_gpu_cpu_item_return(gen: IRGenerator, node: ReturnStmt):
+def lower_gpu_cpu_item_return(gen: IRLowerer, node: ReturnStmt):
     """Lower an output-kernel return to its scalar worker result."""
 
     output_type = getattr(gen, "_gpu_cpu_item_output_type", None)
@@ -140,7 +140,7 @@ def lower_gpu_cpu_item_return(gen: IRGenerator, node: ReturnStmt):
         length_name = lengths.get(node.value.name)
         if length_name is None:
             raise CodegenError(f"whole-array @gpu return '{node.value.name}' has no source length")
-        gen.use_helper("__btrc_gpu_index_check")
+        gen.helpers.use("__btrc_gpu_index_check")
         value = IRIndex(
             obj=lower_expr(gen, node.value),
             index=IRCall(
@@ -179,7 +179,7 @@ def _output_element_type(decl: FunctionDecl):
 
 
 def _lower_item_body(
-    gen: IRGenerator,
+    gen: IRLowerer,
     decl: FunctionDecl,
     array_lengths: dict[str, str],
     output_type,
@@ -187,11 +187,11 @@ def _lower_item_body(
 ) -> IRBlock:
     from .statements import lower_block
 
-    previous_index = getattr(gen, "_gpu_cpu_index", None)
+    previous_index = gen.context.gpu_cpu_index
     previous_lengths = getattr(gen, "_gpu_cpu_array_lengths", None)
     previous_output = getattr(gen, "_gpu_cpu_item_output_type", None)
     with isolated_function_context(gen, return_c_type, output_type or decl.return_type):
-        gen._gpu_cpu_index = "__gid"
+        gen.context.gpu_cpu_index = "__gid"
         gen._gpu_cpu_array_lengths = array_lengths
         gen._gpu_cpu_item_output_type = output_type
         try:
@@ -202,7 +202,7 @@ def _lower_item_body(
                 callable_bindings=decl.params,
             )
         finally:
-            gen._gpu_cpu_index = previous_index
+            gen.context.gpu_cpu_index = previous_index
             gen._gpu_cpu_array_lengths = previous_lengths
             gen._gpu_cpu_item_output_type = previous_output
 

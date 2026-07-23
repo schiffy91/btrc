@@ -17,21 +17,15 @@ from ..nodes import (
 )
 from .arc_ops import release_if_present
 from .arguments import arg_names_for, bind_arg_nodes_to_params
-from .arguments_arc import plan_call_operands
-from .call_boundary import sequence_call_boundary
 from .optional_call_temporaries import optional_call_temp
 from .optional_values import optional_zero_value
-from .ownership import owns_result
 from .types import type_to_c
 
 
 def lower_optional_method_call(gen, node: CallExpr):
     """Lower ``receiver?.method(args)`` with lazy managed arguments."""
     assert isinstance(node.callee, FieldAccessExpr) and node.callee.optional
-    from .call_effects import (
-        callable_for_call,
-        owned_transfer_param_indices,
-    )
+    from ...ownership_effects import owned_transfer_param_indices
     from .expressions import lower_expr
 
     receiver_node = node.callee.obj
@@ -50,15 +44,13 @@ def lower_optional_method_call(gen, node: CallExpr):
             right=lower_expr(gen, receiver_node),
         )
     ]
-    declaration = callable_for_call(gen, node)
-    from .call_contracts import resolved_params_for_call
-
-    params = resolved_params_for_call(gen, node)
+    declaration = gen.calls.resolver.declaration(node)
+    params = gen.calls.resolver.resolved_params(node)
     plain_callee = replace(node.callee, optional=False)
     plain_node = replace(node, callee=plain_callee)
-    from .callable_fields import callable_field_signature
-
-    callable_field = callable_field_signature(gen, node.callee) is not None
+    callable_field = (
+        gen.calls.resolver.callable_field_signature(node.callee) is not None
+    )
     from .evaluation_order import has_observable_effect
 
     has_later_operand = any(
@@ -84,8 +76,7 @@ def lower_optional_method_call(gen, node: CallExpr):
             owned_local_type=gen.managed_local_type,
         ),
     )
-    operands, needs_boundary = plan_call_operands(
-        gen,
+    operands, needs_boundary = gen.calls.operands.plan(
         params,
         node.args,
         arg_names_for(node, len(node.args)),
@@ -97,22 +88,22 @@ def lower_optional_method_call(gen, node: CallExpr):
     result_type = gen.analyzed.node_types.get(id(node))
 
     def lower_guarded_operand(value):
-        previous = gen._owning_temp_overrides.get(id(receiver_node))
-        gen._owning_temp_overrides[id(receiver_node)] = receiver
+        previous = gen.context.owning_overrides.get(id(receiver_node))
+        gen.context.owning_overrides[id(receiver_node)] = receiver
         try:
             return lower_expr(gen, plain_callee if value is node.callee else value)
         finally:
             if previous is None:
-                gen._owning_temp_overrides.pop(id(receiver_node), None)
+                gen.context.owning_overrides.pop(id(receiver_node), None)
             else:
-                gen._owning_temp_overrides[id(receiver_node)] = previous
+                gen.context.owning_overrides[id(receiver_node)] = previous
 
     def build_call(overrides):
         all_overrides = {id(receiver_node): receiver, **overrides}
         if id(node.callee) in overrides:
             all_overrides[id(plain_callee)] = overrides[id(node.callee)]
-        previous = {key: gen._owning_temp_overrides.get(key) for key in all_overrides}
-        gen._owning_temp_overrides.update(all_overrides)
+        previous = {key: gen.context.owning_overrides.get(key) for key in all_overrides}
+        gen.context.owning_overrides.update(all_overrides)
         try:
             from .methods import lower_method_call
 
@@ -120,22 +111,17 @@ def lower_optional_method_call(gen, node: CallExpr):
         finally:
             for key, value in previous.items():
                 if value is None:
-                    gen._owning_temp_overrides.pop(key, None)
+                    gen.context.owning_overrides.pop(key, None)
                 else:
-                    gen._owning_temp_overrides[key] = value
+                    gen.context.owning_overrides[key] = value
 
     if needs_boundary:
-        call = sequence_call_boundary(
-            gen,
-            operands,
+        call = gen.ownership.boundaries.sequence(operands,
             lower_expr=lower_guarded_operand,
             build_call=build_call,
             result_c_type=(type_to_c(result_type) if result_type is not None else None),
-            fresh_temp=gen.fresh_temp,
-            cleanup_active=gen.exception_cleanup_active(),
-            record_decl=gen._func_var_decls.append,
             result_type=result_type,
-            result_owned=owns_result(gen, node),
+            result_owned=gen.ownership.owns_result(node),
         )
     else:
         call = build_call({})
@@ -146,7 +132,7 @@ def lower_optional_method_call(gen, node: CallExpr):
         result_type,
         receiver_suffix,
         declarations,
-        result_owned=owns_result(gen, node),
+        result_owned=gen.ownership.owns_result(node),
     )
     prelude.append(
         IRTernary(
@@ -176,7 +162,7 @@ def _receiver_cleanup(
     pin_borrowed,
 ):
     receiver = IRVar(name=receiver_decl.name)
-    owned = bool(receiver_type is not None and owns_result(gen, receiver_node))
+    owned = bool(receiver_type is not None and gen.ownership.owns_result(receiver_node))
     from .evaluation_order import borrowed_value_can_be_pinned
     from .managed_values import is_managed_type
 

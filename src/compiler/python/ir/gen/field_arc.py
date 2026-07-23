@@ -35,10 +35,10 @@ from .managed_values import (
 from .types import is_generic_class_type, mangle_generic_type, type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
+def lower_managed_field_assignment(gen: IRLowerer, node: AssignExpr):
     """Return a sequenced assignment expression, or ``None`` if unmanaged."""
     if not isinstance(node.target, FieldAccessExpr):
         return None
@@ -60,7 +60,7 @@ def lower_managed_field_assignment(gen: IRGenerator, node: AssignExpr):
     field_name = node.target.field
     field = class_info.fields.get(field_name)
     backing_property = bool(
-        field is None and isinstance(node.target.obj, SelfExpr) and gen.current_property_backing == field_name
+        field is None and isinstance(node.target.obj, SelfExpr) and gen.context.current_property_backing == field_name
     )
     prop = class_info.properties.get(field_name) if backing_property else None
     if field is None and prop is None:
@@ -217,7 +217,7 @@ def _lower_managed_field_compound(
         transfer_before_commit=class_edge,
         c_type=type_to_c,
         fresh_temp=gen.fresh_temp,
-        record_decl=gen._func_var_decls.append,
+        record_decl=gen.context.function_declarations.append,
         cleanup_active=gen.exception_cleanup_active(),
     )
     return IRStmtExpr(
@@ -241,7 +241,7 @@ def _temp_decl(gen, prefix: str, c_type: str, init) -> IRVarDecl:
         name=gen.fresh_temp(prefix),
         init=init,
     )
-    gen._func_var_decls.append(declaration)
+    gen.context.function_declarations.append(declaration)
     return declaration
 
 
@@ -260,9 +260,8 @@ def _lower_value(gen, value, field_type):
 
 
 def _is_owned_value(gen, value) -> bool:
-    from .ownership import owns_result
 
-    return owns_result(gen, value)
+    return gen.ownership.owns_result(value)
 
 
 def _static_managed_field_type(gen, target):

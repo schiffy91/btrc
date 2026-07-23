@@ -17,7 +17,7 @@ from .arc_type_names import destroy_name
 
 def retain_if_present(gen, value) -> IRCall:
     """Retain a nullable class value and yield a scalar expression."""
-    gen.use_helper("__btrc_arc_retain")
+    gen.helpers.use("__btrc_arc_retain")
     return IRCall(
         callee="__btrc_arc_retain",
         helper_ref="__btrc_arc_retain",
@@ -27,7 +27,7 @@ def retain_if_present(gen, value) -> IRCall:
 
 def retain_edge_if_present(gen, value, owner) -> IRCall:
     """Retain a value stored into a persistent managed graph edge."""
-    gen.use_helper("__btrc_arc_retain_edge")
+    gen.helpers.use("__btrc_arc_retain_edge")
     return IRCall(
         callee="__btrc_arc_retain_edge",
         helper_ref="__btrc_arc_retain_edge",
@@ -38,7 +38,7 @@ def retain_edge_if_present(gen, value, owner) -> IRCall:
 def adopt_edge_if_present(gen, value, owner) -> IRCall:
     """Convert an existing external +1 into an owned graph edge."""
     helper = "__btrc_arc_adopt_edge"
-    gen.use_helper(helper)
+    gen.helpers.use(helper)
     return IRCall(
         callee=helper,
         helper_ref=helper,
@@ -49,7 +49,7 @@ def adopt_edge_if_present(gen, value, owner) -> IRCall:
 def unlink_edge_if_present(gen, value, owner=None) -> IRCall:
     """Invalidate the old incoming-edge witness before unpublishing a slot."""
     helper = "__btrc_arc_unlink_edge"
-    gen.use_helper(helper)
+    gen.helpers.use(helper)
     return IRCall(
         callee=helper,
         helper_ref=helper,
@@ -62,7 +62,7 @@ def arc_type_descriptor(gen, type_expr):
     from .managed_values import is_mutex_type
 
     if is_mutex_type(gen, type_expr):
-        gen.use_helper("__btrc_mutex_arc_type")
+        gen.helpers.use("__btrc_mutex_arc_type")
         return IRAddressOf(expr=IRVar(name="__btrc_mutex_arc_descriptor"))
     from .cycle_metadata import visitor_for_type
 
@@ -89,7 +89,7 @@ def emitted_type_descriptor(gen, emitted_name: str):
     from .managed_values import MUTEX_RUNTIME_NAME
 
     if emitted_name == MUTEX_RUNTIME_NAME:
-        gen.use_helper("__btrc_mutex_arc_type")
+        gen.helpers.use("__btrc_mutex_arc_type")
         return IRAddressOf(expr=IRVar(name="__btrc_mutex_arc_descriptor"))
     from .arc_cycles import managed_visitor_symbol
 
@@ -114,7 +114,7 @@ def emitted_type_descriptor(gen, emitted_name: str):
 def release_if_present(gen, value, type_expr) -> IRCall:
     """Release one typed owner and buffer any graph-bearing survivor/root."""
     helper = "__btrc_arc_release" if type_release_can_enqueue(gen, type_expr) else "__btrc_arc_release_acyclic"
-    gen.use_helper(helper)
+    gen.helpers.use(helper)
     return IRCall(
         callee=helper,
         helper_ref=helper,
@@ -125,7 +125,7 @@ def release_if_present(gen, value, type_expr) -> IRCall:
 def release_edge_if_present(gen, value, type_expr, replacement=None) -> IRCall:
     """Release one persistent edge using its static fallback descriptor."""
     helper = "__btrc_arc_release_edge"
-    gen.use_helper(helper)
+    gen.helpers.use(helper)
     return IRCall(
         callee=helper,
         helper_ref=helper,
@@ -148,7 +148,7 @@ def replace_edge(gen, slot, replacement, type_expr, owner, *, adopt: bool) -> IR
         gen,
         CType(text=value_c_type(type_expr, gen.analyzed.class_table, type_to_c)),
     )
-    gen.use_helper(helper)
+    gen.helpers.use(helper)
     return IRCall(
         callee=helper,
         helper_ref=helper,
@@ -169,7 +169,7 @@ def replace_edge(gen, slot, replacement, type_expr, owner, *, adopt: bool) -> IR
 def release_emitted(gen, value, emitted_name: str) -> IRCall:
     """Release one scope-tracked owner by its concrete emitted type name."""
     helper = "__btrc_arc_release" if emitted_release_can_enqueue(gen, emitted_name) else "__btrc_arc_release_acyclic"
-    gen.use_helper(helper)
+    gen.helpers.use(helper)
     return IRCall(
         callee=helper,
         helper_ref=helper,
@@ -179,7 +179,7 @@ def release_emitted(gen, value, emitted_name: str) -> IRCall:
 
 def flush_cycles(gen) -> IRCall:
     """Flush buffered ownership-loss candidates at an observable boundary."""
-    gen.use_helper("__btrc_flush_cycles")
+    gen.helpers.use("__btrc_flush_cycles")
     return IRCall(
         callee="__btrc_flush_cycles",
         helper_ref="__btrc_flush_cycles",
@@ -189,11 +189,11 @@ def flush_cycles(gen) -> IRCall:
 
 def poll_cycles(gen) -> IRCall:
     """Collect only after the deduplicated suspect queue reaches its bound."""
-    gen.use_helper("__btrc_poll_cycles")
+    gen.helpers.use("__btrc_poll_cycles")
     # The optimizer installs the program-exit force boundary after function
     # reachability is known, so keep its sibling definition available until
     # dead-helper elimination can see whether that boundary was installed.
-    gen.use_helper("__btrc_flush_cycles")
+    gen.helpers.use("__btrc_flush_cycles")
     return IRCall(
         callee="__btrc_poll_cycles",
         helper_ref="__btrc_poll_cycles",
@@ -257,7 +257,7 @@ def flush_release_batch(gen, *, types=(), emitted_names=()) -> IRCall | None:
 
 def invalidate_cycle_proof(gen, value) -> IRCall:
     """Invalidate cached topology/liveness after an owned-slot mutation."""
-    gen.use_helper("__btrc_arc_invalidate")
+    gen.helpers.use("__btrc_arc_invalidate")
     return IRCall(
         callee="__btrc_arc_invalidate",
         helper_ref="__btrc_arc_invalidate",

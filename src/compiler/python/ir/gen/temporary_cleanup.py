@@ -43,12 +43,12 @@ def cleanup_registration(
         name=fresh_temp(prefix),
         init=IRLiteral(text="false"),
     )
-    gen._func_var_decls.append(flag_decl)
+    gen.context.function_declarations.append(flag_decl)
     flag = IRVar(name=flag_decl.name)
     emitted_name = runtime_name(gen, type_expr)
     destroy = cleanup_destroy_symbol(emitted_name)
     if emitted_name == STRING_RUNTIME_NAME:
-        gen.use_helper(destroy)
+        gen.helpers.use(destroy)
     from .cleanup_slots import register_cleanup_slot
 
     register = register_cleanup_slot(

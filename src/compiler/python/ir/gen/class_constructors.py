@@ -40,10 +40,10 @@ from .types import is_generic_class_type, mangle_generic_type
 if TYPE_CHECKING:
     from ...analyzer.core import ClassInfo
     from ...ast_nodes import ClassDecl
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> None:
+def emit_constructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> None:
     """Emit ``Class_init`` and allocating ``Class_new`` functions."""
     name = decl.name
     constructor = cls_info.constructor
@@ -122,7 +122,7 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
     if constructor and constructor.body:
         from .statements import lower_block
 
-        gen._func_var_decls = []
+        gen.context.function_declarations = []
         gen.current_return_c_type = "void"
         init_stmts.extend(
             lower_block(
@@ -159,7 +159,7 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
             ),
         ),
     )
-    gen.use_helper("__btrc_safe_calloc")
+    gen.helpers.use("__btrc_safe_calloc")
     cleanup_before, cleanup_after = constructor_cleanup_guard(gen, self_declaration)
     new_stmts = [
         self_declaration,
@@ -186,7 +186,7 @@ def emit_constructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> 
     )
 
 
-def _lower_field_init(gen: IRGenerator, field: FieldDecl):
+def _lower_field_init(gen: IRLowerer, field: FieldDecl):
     from .expressions import lower_expr
 
     initializer = field.initializer
@@ -201,5 +201,5 @@ def _lower_field_init(gen: IRGenerator, field: FieldDecl):
     return lower_expr(gen, initializer)
 
 
-def _is_managed_field(gen: IRGenerator, field: FieldDecl) -> bool:
+def _is_managed_field(gen: IRLowerer, field: FieldDecl) -> bool:
     return is_managed_type(gen, field.type)

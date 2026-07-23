@@ -44,10 +44,10 @@ from .thread_values import thread_result_disposal_args
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_spawn(gen: IRGenerator, node):
+def lower_spawn(gen: IRLowerer, node):
     """Lower a SpawnExpr to IR that spawns a thread.
 
     Returns __btrc_thread_t* — the opaque thread handle.
@@ -55,7 +55,7 @@ def lower_spawn(gen: IRGenerator, node):
     fn = node.fn
 
     # Registering the helper also pulls in its required runtime headers.
-    gen.use_helper("__btrc_thread_spawn")
+    gen.helpers.use("__btrc_thread_spawn")
 
     if not isinstance(fn, LambdaExpr):
         # Non-lambda spawn — treat as function pointer
@@ -117,7 +117,7 @@ def lower_spawn(gen: IRGenerator, node):
 
     # Build the spawn expression
     if has_captures:
-        gen.use_helper("__btrc_safe_realloc")
+        gen.helpers.use("__btrc_safe_realloc")
         # Hoist only an inert declaration. Allocation, field initialization,
         # retains, and spawn remain expression-local so a short-circuited or
         # unchosen branch cannot perform them.
@@ -191,7 +191,7 @@ def lower_spawn(gen: IRGenerator, node):
 
 
 def _spawn_call(
-    gen: IRGenerator,
+    gen: IRLowerer,
     fn_expr: IRExpr,
     result_type,
     capture_arg: IRExpr | None = None,
@@ -260,7 +260,7 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type
     capture_abis = [
         (
             capture,
-            gen._callable_return_abis.get(capture.name, BORROWED_RETURN),
+            gen.context.callable_return_abis.get(capture.name, BORROWED_RETURN),
         )
         for capture in fn.captures
     ]

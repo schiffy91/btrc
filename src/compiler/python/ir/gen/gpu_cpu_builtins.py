@@ -8,11 +8,11 @@ from ...gpu_builtins import WGSL_CALL_BUILTINS, WGSL_FLOAT_UNARY_BUILTINS
 from ..nodes import IRBinOp, IRCall, IRTernary
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_gpu_cpu_builtin(gen: IRGenerator, name: str, ast_args: list, ir_args: list):
-    if not getattr(gen, "_gpu_cpu_index", None) or name not in WGSL_CALL_BUILTINS:
+def lower_gpu_cpu_builtin(gen: IRLowerer, name: str, ast_args: list, ir_args: list):
+    if not gen.context.gpu_cpu_index or name not in WGSL_CALL_BUILTINS:
         return None
     argument_types = [gen.analyzed.node_types.get(id(argument)) for argument in ast_args]
     base = argument_types[0].base if argument_types and argument_types[0] is not None else "float"

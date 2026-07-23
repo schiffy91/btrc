@@ -15,10 +15,10 @@ from .user_emitter import _UserGenericEmitter
 from .user_methods import _emit_user_generic_methods
 
 if TYPE_CHECKING:
-    from ..generator import IRGenerator
+    from ..lowerer import IRLowerer
 
 
-def _register_transitive_generic_deps(gen: IRGenerator, cls_info, type_map: dict[str, TypeExpr]):
+def _register_transitive_generic_deps(gen: IRLowerer, cls_info, type_map: dict[str, TypeExpr]):
     """Scan resolved field types for generic class references and register them.
 
     When List<string> has a field of type ListNode<T>, resolving T->string
@@ -39,7 +39,7 @@ def _register_transitive_generic_deps(gen: IRGenerator, cls_info, type_map: dict
                 _register_if_generic(gen, resolved, method.generic_params)
 
 
-def _register_if_generic(gen: IRGenerator, t: TypeExpr, unresolved=()):
+def _register_if_generic(gen: IRLowerer, t: TypeExpr, unresolved=()):
     """Register a resolved type as a generic instance if it's a generic class."""
     if not t or not t.generic_args or type_references_names(t, unresolved):
         return
@@ -52,7 +52,7 @@ def _register_if_generic(gen: IRGenerator, t: TypeExpr, unresolved=()):
             instances.append(args_tuple)
 
 
-def _emit_user_generic_instance(gen: IRGenerator, base_name: str, args: list[TypeExpr], seen: set | None = None):
+def _emit_user_generic_instance(gen: IRLowerer, base_name: str, args: list[TypeExpr], seen: set | None = None):
     """Emit a user-defined generic class instance (struct + methods).
 
     The `seen` set tracks already-emitted mangled names. When field types

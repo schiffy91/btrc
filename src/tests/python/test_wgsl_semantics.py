@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_gpu_dispatch_failures import COMPILERS, _compile_with_gpu_stubs
@@ -28,7 +28,7 @@ def _errors(source: str) -> list[str]:
 def _shader(source: str) -> str:
     analyzed = _analyze(source)
     assert not analyzed.errors
-    [kernel] = IRGenerator(analyzed).generate().gpu_kernels
+    [kernel] = IRLowerer(analyzed).lower().gpu_kernels
     return kernel.wgsl_source
 
 

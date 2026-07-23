@@ -8,10 +8,10 @@ from ...ast_nodes import AssignExpr
 from ..nodes import IRExpr
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
+def lower_assignment_expr(gen: IRLowerer, node: AssignExpr) -> IRExpr:
     """Lower one assignment after enforcing aggregate/operand ownership."""
     from .aggregate_ownership import reject_shallow_store
     from .callable_boundaries import reject_erasing_callable_assignment
@@ -31,7 +31,6 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
         property_projection,
     )
     from .managed_values import is_managed_type
-    from .ownership import owns_result
 
     def type_of(expression):
         return gen.analyzed.node_types.get(id(expression))
@@ -39,7 +38,7 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     target_nodes = assignment_target_operands(
         node.target,
         stabilize_receiver=lambda receiver: bool(
-            owns_result(gen, receiver)
+            gen.ownership.owns_result(receiver)
             or is_managed_type(gen, type_of(receiver))
             or property_projection(
                 receiver,
@@ -50,25 +49,16 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     )
     lowered = None
     if target_nodes:
-        from .assignment_ownership import virtual_assignment_target
-        from .assignment_result_ownership import virtual_assignment_rhs_owns_result
-        from .ownership_boundary import sequence_owned_operands
-
         result_type = None if _is_gpu_output_assignment(gen, node) else gen.analyzed.node_types.get(id(node))
         prepared_targets = _prepared_index_targets(gen, node)
         rhs_supplies_result = bool(
             node.op == "="
-            and virtual_assignment_target(gen, node.target)
-            and virtual_assignment_rhs_owns_result(
-                gen,
+            and gen.ownership.effects.virtual_assignment_owns(
                 node.target,
                 node.value,
-                type_of=type_of,
-                owns=lambda value: owns_result(gen, value),
             )
         )
-        sequenced = sequence_owned_operands(
-            gen,
+        sequenced = gen.ownership.sequence_operands(
             target_nodes,
             build=lambda: _lower_plain_assignment(gen, node),
             result_type=result_type,
@@ -77,7 +67,7 @@ def lower_assignment_expr(gen: IRGenerator, node: AssignExpr) -> IRExpr:
                 target_nodes,
                 type_of=type_of,
                 is_managed=lambda type_expr: is_managed_type(gen, type_expr),
-                owns=lambda expression: owns_result(gen, expression),
+                owns=lambda expression: gen.ownership.owns_result(expression),
             ),
             promote_result=bool(is_managed_type(gen, result_type) and not rhs_supplies_result),
             prepared_values=prepared_targets,
@@ -128,7 +118,7 @@ def _prepared_index_targets(gen, node):
     }
 
 
-def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
+def _lower_plain_assignment(gen: IRLowerer, node: AssignExpr) -> IRExpr:
     """Lower one assignment after any owning target is stabilized."""
     # Array-returning GPU dispatch writes through an existing array/collection
     # target; it does not rebind a managed collection owner.  Recognize that
@@ -155,7 +145,7 @@ def _lower_plain_assignment(gen: IRGenerator, node: AssignExpr) -> IRExpr:
     return lower_assignment(generator_update_context(gen), node)
 
 
-def _lower_gpu_assignment(gen: IRGenerator, node: AssignExpr):
+def _lower_gpu_assignment(gen: IRLowerer, node: AssignExpr):
     if not _is_gpu_output_assignment(gen, node):
         return None
     from .expressions import lower_expr
@@ -170,7 +160,7 @@ def _lower_gpu_assignment(gen: IRGenerator, node: AssignExpr):
     )
 
 
-def _is_gpu_output_assignment(gen: IRGenerator, node: AssignExpr) -> bool:
+def _is_gpu_output_assignment(gen: IRLowerer, node: AssignExpr) -> bool:
     if not isinstance(node, AssignExpr) or node.op != "=":
         return False
     from ...ast_nodes import CallExpr

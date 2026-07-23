@@ -9,7 +9,7 @@ from .thread_values import consume_thread_handle, unbox_thread_result
 def lower_thread_method(gen, obj, method_name, obj_type):
     if method_name != "join":
         return IRCall(callee=f"__btrc_thread_{method_name}", args=[obj])
-    gen.use_helper("__btrc_thread_join")
+    gen.helpers.use("__btrc_thread_join")
     return_type = obj_type.generic_args[0] if obj_type.generic_args else None
     call = IRCall(
         callee="__btrc_thread_join",

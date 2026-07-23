@@ -23,11 +23,11 @@ from .value_boxes import (
 )
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 def box_thread_result(
-    gen: IRGenerator,
+    gen: IRLowerer,
     expr,
     result_type: TypeExpr | None,
 ):
@@ -47,7 +47,7 @@ def box_thread_result(
 
 
 def unbox_thread_result(
-    gen: IRGenerator,
+    gen: IRLowerer,
     payload_call,
     result_type: TypeExpr | None,
 ):
@@ -69,7 +69,7 @@ def unbox_thread_result(
     )
 
 
-def consume_thread_handle(gen: IRGenerator, obj):
+def consume_thread_handle(gen: IRLowerer, obj):
     """Move an addressable handle out of its source slot exactly once."""
     return consume_addressable_handle(
         gen,
@@ -80,7 +80,7 @@ def consume_thread_handle(gen: IRGenerator, obj):
 
 
 def thread_result_disposal_args(
-    gen: IRGenerator,
+    gen: IRLowerer,
     result_type: TypeExpr | None,
 ):
     """Describe how scope cleanup must dispose an unclaimed thread result."""
@@ -118,12 +118,12 @@ def thread_result_disposal_args(
     return [null, zero, null, null]
 
 
-def _disposal_callback(gen: IRGenerator, name: str):
-    gen.use_helper(name)
+def _disposal_callback(gen: IRLowerer, name: str):
+    gen.helpers.use(name)
     return IRFunctionRef(name=name)
 
 
-def _requires_box(gen: IRGenerator, type_expr: TypeExpr) -> bool:
+def _requires_box(gen: IRLowerer, type_expr: TypeExpr) -> bool:
     # ISO C does not define conversions between function pointers and void*.
     if type_expr.base == "__fn_ptr":
         return True

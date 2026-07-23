@@ -11,10 +11,10 @@ from .parameters import lower_source_param
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
+def emit_function_decl(gen: IRLowerer, decl: FunctionDecl):
     """Lower a top-level FunctionDecl to an IRFunctionDef or forward decl."""
     # @gpu functions are lowered to WGSL kernels, plus a CPU-loop fallback so
     # they run on the CPU when no GPU is available.
@@ -51,7 +51,7 @@ def emit_function_decl(gen: IRGenerator, decl: FunctionDecl):
 
     from .statements import lower_block
 
-    gen._func_var_decls = []
+    gen.context.function_declarations = []
     previous_return_type = gen.current_return_type
     previous_return_c_type = gen.current_return_c_type
     previous_return_owned = gen.current_return_owned

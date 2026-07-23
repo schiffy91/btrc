@@ -11,10 +11,10 @@ from ..type_resolution import substitute_concrete_type
 from ..types import mangle_generic_type
 
 if TYPE_CHECKING:
-    from ..generator import IRGenerator
+    from ..lowerer import IRLowerer
 
 
-def emit_generic_instances(gen: IRGenerator):
+def emit_generic_instances(gen: IRLowerer):
     """Emit all monomorphized generic class types and their methods.
 
     ALL generic classes (stdlib and user-defined) go through user.py.

@@ -9,8 +9,8 @@ from typing import TYPE_CHECKING, Any
 from ..nodes import IRExpr
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
     from .gpu_outputs import GpuOutputTarget
+    from .lowerer import IRLowerer
 
 
 @dataclass(frozen=True)
@@ -30,13 +30,12 @@ class GpuHostLowering:
     activate_cleanup: Callable[[], None]
 
 
-def ordinary_gpu_host(gen: IRGenerator) -> GpuHostLowering:
+def ordinary_gpu_host(gen: IRLowerer) -> GpuHostLowering:
     """Build the ordinary, analyzer-backed host-expression adapter."""
 
     from .gpu_arguments import bare_array_argument_length
     from .gpu_outputs import assignment_target
     from .managed_values import is_managed_type
-    from .ownership import owns_result
     from .types import type_to_c
 
     def lower_argument(expression, overrides):
@@ -45,7 +44,7 @@ def ordinary_gpu_host(gen: IRGenerator) -> GpuHostLowering:
 
         return evaluate_with_operand_overrides(
             overrides,
-            values=gen._owning_temp_overrides,
+            values=gen.context.owning_overrides,
             operation=lambda: lower_expr(gen, expression),
         )
 
@@ -64,11 +63,11 @@ def ordinary_gpu_host(gen: IRGenerator) -> GpuHostLowering:
             lowered,
         ),
         owns_result=lambda expression: bool(
-            id(expression) not in gen._owning_temp_overrides and owns_result(gen, expression)
+            id(expression) not in gen.context.owning_overrides and gen.ownership.owns_result(expression)
         ),
         is_managed=lambda type_expr: is_managed_type(gen, type_expr),
-        override_value=lambda expression: gen._owning_temp_overrides.get(id(expression)),
-        record_declaration=gen._func_var_decls.append,
+        override_value=lambda expression: gen.context.owning_overrides.get(id(expression)),
+        record_declaration=gen.context.function_declarations.append,
         cleanup_active=gen.exception_cleanup_active,
         activate_cleanup=gen.mark_cleanup_registration,
     )

@@ -24,7 +24,7 @@ def stabilize_persistent_slot(
     resolve_type = resolve_type or (lambda node: gen.analyzed.node_types.get(id(node)))
     render_type = render_type or type_to_c
     fresh_temp = fresh_temp or gen.fresh_temp
-    record_decl = record_decl or gen._func_var_decls.append
+    record_decl = record_decl or gen.context.function_declarations.append
 
     owner_node = None
     owner_expr = None

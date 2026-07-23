@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from ...index_protocol import indexed_protocol
 from ..nodes import IRCommaExpr
-from .call_boundary import CallOperand, sequence_call_boundary
+from .call_boundary import CallOperand
 from .managed_values import is_managed_type
 
 
@@ -15,12 +15,10 @@ def lower_virtual_store_boundary(
     node,
     plan,
     *,
+    ownership,
     lower_value,
     coerce,
     render_type: Callable,
-    fresh_temp: Callable,
-    cleanup_active: bool,
-    record_decl: Callable,
     owns_result: Callable,
     prepare=None,
     activate_cleanup=None,
@@ -74,16 +72,12 @@ def lower_virtual_store_boundary(
     # produced +1 or target-directed conversion created +1. The outer target
     # boundary recognizes that contract and does not promote it a second time.
     result_owned = bool(is_managed_type(gen, plan.value_type) or owns_result(node.value) or prepared.converted)
-    boundary = sequence_call_boundary(
-        gen,
+    boundary = ownership.boundaries.sequence(
         [operand],
         lower_expr=lambda _value: None,
         build_call=build_store,
         result_c_type=render_type(plan.value_type),
         result_type=plan.value_type,
-        fresh_temp=fresh_temp,
-        cleanup_active=cleanup_active,
-        record_decl=record_decl,
         promote_result=result_owned,
         activate_cleanup=activate_cleanup,
         result_owned=result_owned,

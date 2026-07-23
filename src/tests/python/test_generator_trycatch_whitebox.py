@@ -4,7 +4,7 @@ declaration, so a single program can't drive every branch of the recursive
 detector — call the helpers directly on parsed function bodies instead."""
 
 from src.compiler.python.ast_nodes import FunctionDecl
-from src.compiler.python.ir.gen.generator import (
+from src.compiler.python.ir.gen.lowerer import (
     _block_uses_trycatch,
     _stmt_uses_trycatch,
 )

@@ -25,7 +25,7 @@ def register_exception_cleanup(
 
     destroy = cleanup_destroy_symbol(type_name)
     if type_name == STRING_RUNTIME_NAME:
-        emitter._gen.use_helper(destroy)
+        emitter._gen.helpers.use(destroy)
         statements.append(
             IRExprStmt(
                 expr=register_cleanup_slot(

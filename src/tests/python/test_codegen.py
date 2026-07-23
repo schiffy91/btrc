@@ -11,7 +11,7 @@ import re
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -27,7 +27,7 @@ def emit_c(source: str) -> str:
     program = Parser(tokens).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, f"analyzer errors: {analyzed.errors}"
-    ir_module = IRGenerator(analyzed).generate()
+    ir_module = IRLowerer(analyzed).lower()
     ir_module = optimize(ir_module)
     return CEmitter().emit(ir_module)
 

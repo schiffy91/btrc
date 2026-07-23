@@ -26,7 +26,7 @@ class _UserGenericExceptionMixin:
     def _throw_stmt(self, statement):
         if self._gen:
             self._gen.require_runtime_include("setjmp.h")
-            self._gen.use_helper("__btrc_throw")
+            self._gen.helpers.use("__btrc_throw")
         return [
             IRExprStmt(
                 expr=IRCall(
@@ -43,9 +43,9 @@ class _UserGenericExceptionMixin:
         if not self._gen:
             raise CodegenError("generic try/catch lowering requires a generator")
         self._gen.require_runtime_include("setjmp.h")
-        self._gen.use_helper("__btrc_trycatch_globals")
-        self._gen.use_helper("__btrc_push_try")
-        self._gen.use_helper("__btrc_throw")
+        self._gen.helpers.use("__btrc_trycatch_globals")
+        self._gen.helpers.use("__btrc_push_try")
+        self._gen.helpers.use("__btrc_throw")
         self._trycatch_depth += 1
         try:
             return self._try_catch_inner(statement)
@@ -97,8 +97,8 @@ class _UserGenericExceptionMixin:
                 from ....ast_nodes import TypeExpr
                 from ..iteration_bindings import IterationBinding
 
-                self._gen.use_helper("__btrc_strdup")
-                self._gen.use_helper("__btrc_str_track")
+                self._gen.helpers.use("__btrc_strdup")
+                self._gen.helpers.use("__btrc_str_track")
                 catch_bindings.append(
                     IterationBinding(
                         name=statement.catch_var,

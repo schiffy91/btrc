@@ -23,10 +23,10 @@ from .types import type_to_c
 
 if TYPE_CHECKING:
     from ...ast_nodes import TypeExpr
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def is_subclass(gen: IRGenerator, sub: str | None, base: str | None) -> bool:
+def is_subclass(gen: IRLowerer, sub: str | None, base: str | None) -> bool:
     """True if `base` is a (transitive) parent class of `sub`."""
     if not sub or not base:
         return False
@@ -43,7 +43,7 @@ def is_subclass(gen: IRGenerator, sub: str | None, base: str | None) -> bool:
 
 
 def upcast_class_pointer(
-    gen: IRGenerator, target_type: TypeExpr | None, source_type: TypeExpr | None, value: IRExpr
+    gen: IRLowerer, target_type: TypeExpr | None, source_type: TypeExpr | None, value: IRExpr
 ) -> IRExpr:
     """Wrap `value` in an explicit ``(Base*)`` cast for a Derived→Base upcast.
 

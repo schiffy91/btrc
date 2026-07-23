@@ -40,12 +40,12 @@ from .user_destructors import (
 from .user_field_initializers import emit_generic_field_initializers
 
 if TYPE_CHECKING:
-    from ..generator import IRGenerator
+    from ..lowerer import IRLowerer
     from .user_emitter import _UserGenericEmitter
 
 
 def emit_generic_lifecycle(
-    gen: IRGenerator,
+    gen: IRLowerer,
     base_name: str,
     mangled: str,
     args: list[TypeExpr],
@@ -187,7 +187,7 @@ def _emit_new(gen, mangled, ctor, ctor_params) -> IRFunctionDef:
             ),
         ),
     )
-    gen.use_helper("__btrc_safe_calloc")
+    gen.helpers.use("__btrc_safe_calloc")
     cleanup_before, cleanup_after = constructor_cleanup_guard(gen, self_declaration)
     return IRFunctionDef(
         name=f"{mangled}_new",
@@ -228,7 +228,7 @@ def _emit_destroy(
         ),
     )
     if field_releases:
-        gen.use_helper("__btrc_mark_destroyed")
+        gen.helpers.use("__btrc_mark_destroyed")
         body_stmts.append(
             IRExprStmt(
                 expr=IRCall(

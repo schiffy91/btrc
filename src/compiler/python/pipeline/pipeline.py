@@ -16,7 +16,7 @@ from ..frontend.stdlib import StdlibRepository
 from ..frontend.visibility import FrontendVisibilityError
 from ..ir.emitter import CEmitter
 from ..ir.gen.errors import CodegenError
-from ..ir.gen.generator import generate_ir
+from ..ir.gen.lowerer import IRLowerer
 from ..ir.optimizer import optimize
 from ..lexer import LexerError
 from ..parser.core import ParseError
@@ -40,7 +40,7 @@ class CompilerPipeline:
         resolver: SourceResolver | None = None,
         parser: FrontendParser | None = None,
         analyzer_factory: Callable[[], SemanticAnalyzer] = SemanticAnalyzer,
-        lowerer: Callable = generate_ir,
+        lowerer_factory: Callable[..., IRLowerer] = IRLowerer,
         optimizer: Callable = optimize,
         emitter_factory: Callable[[], CEmitter] = CEmitter,
         archive_consumer: StdlibArchiveConsumer | None = None,
@@ -49,7 +49,7 @@ class CompilerPipeline:
         self.resolver = resolver or SourceResolver(stdlib)
         self.parser = parser or FrontendParser(stdlib)
         self._analyzer_factory = analyzer_factory
-        self._lowerer = lowerer
+        self._lowerer_factory = lowerer_factory
         self._optimizer = optimizer
         self._emitter_factory = emitter_factory
         self._archive_consumer = archive_consumer or StdlibArchiveConsumer(stdlib)
@@ -115,14 +115,14 @@ class CompilerPipeline:
             split_spaces=split_source_spaces,
         )
         start = time.perf_counter()
-        module = self._lowerer(
+        module = self._lowerer_factory(
             analyzed,
             debug=options.debug,
             source_file=filename,
             freestanding=options.freestanding,
             line_map=line_map,
             declaration_line_map=declaration_line_map,
-        )
+        ).lower()
         self._timed(profile, "ir_gen", start)
         return module
 

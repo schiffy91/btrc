@@ -16,14 +16,16 @@ def lower_generic_sizeof(emitter, operand):
         return IRSizeof(operand=CType(text=emitter.iter_value_c(expression_type)))
 
     emitter._unevaluated_depth += 1
+    emitter._boundary_ownership.context.unevaluated_depth += 1
     if emitter._gen is not None:
-        emitter._gen._unevaluated_depth += 1
+        emitter._gen.context.unevaluated_depth += 1
     try:
         return IRSizeof(operand=emitter._expr(operand.expr))
     finally:
         emitter._unevaluated_depth -= 1
+        emitter._boundary_ownership.context.unevaluated_depth -= 1
         if emitter._gen is not None:
-            emitter._gen._unevaluated_depth -= 1
+            emitter._gen.context.unevaluated_depth -= 1
 
 
 __all__ = ["lower_generic_sizeof"]

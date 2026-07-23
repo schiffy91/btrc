@@ -12,10 +12,10 @@ from ..nodes import (
 )
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def _activate_cleanup_slot(gen: IRGenerator, var_name: str, stmts: list[IRStmt]):
+def _activate_cleanup_slot(gen: IRLowerer, var_name: str, stmts: list[IRStmt]):
     gen.mark_cleanup_registration()
     from .cleanup_slots import require_cleanup_slot_declaration
 
@@ -23,7 +23,7 @@ def _activate_cleanup_slot(gen: IRGenerator, var_name: str, stmts: list[IRStmt])
 
 
 def maybe_register_cleanup(
-    gen: IRGenerator,
+    gen: IRLowerer,
     var_name: str,
     cls_name: str,
     stmts: list[IRStmt],
@@ -57,7 +57,7 @@ def maybe_register_cleanup(
 
 
 def maybe_register_direct_cleanup(
-    gen: IRGenerator,
+    gen: IRLowerer,
     var_name: str,
     cleanup_fn: str,
     stmts: list[IRStmt],
@@ -67,7 +67,7 @@ def maybe_register_direct_cleanup(
         return
 
     declaration = _activate_cleanup_slot(gen, var_name, stmts)
-    gen.use_helper(cleanup_fn)
+    gen.helpers.use(cleanup_fn)
     from .cleanup_slots import register_cleanup_slot
 
     stmts.append(

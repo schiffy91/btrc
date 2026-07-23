@@ -22,11 +22,11 @@ from ..nodes import (
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 def box_exact_value(
-    gen: IRGenerator,
+    gen: IRLowerer,
     expr,
     type_expr: TypeExpr | None,
     *,
@@ -37,7 +37,7 @@ def box_exact_value(
     if canonical is None or is_scalar_void(canonical):
         return IRLiteral(text="NULL")
 
-    gen.use_helper("__btrc_safe_realloc")
+    gen.helpers.use("__btrc_safe_realloc")
     storage_c = value_storage_c_type(canonical)
     box_name = gen.fresh_temp(f"{prefix}_box")
     value_name = gen.fresh_temp(f"{prefix}_value")
@@ -74,7 +74,7 @@ def box_exact_value(
 
 
 def unbox_exact_value(
-    gen: IRGenerator,
+    gen: IRLowerer,
     payload_call,
     type_expr: TypeExpr | None,
     *,
@@ -116,7 +116,7 @@ def unbox_exact_value(
 
 
 def canonical_value_type(
-    gen: IRGenerator,
+    gen: IRLowerer,
     type_expr: TypeExpr | None,
 ) -> TypeExpr | None:
     """Resolve typedefs while preserving use-site pointer and qualifiers."""

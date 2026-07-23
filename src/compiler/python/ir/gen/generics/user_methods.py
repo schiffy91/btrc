@@ -35,11 +35,11 @@ from .user_lifecycle import emit_generic_lifecycle
 from .user_properties import emit_generic_properties
 
 if TYPE_CHECKING:
-    from ..generator import IRGenerator
+    from ..lowerer import IRLowerer
 
 
 def _emit_user_generic_methods(
-    gen: IRGenerator, base_name: str, mangled: str, args: list[TypeExpr], type_map: dict[str, TypeExpr], cls_info
+    gen: IRLowerer, base_name: str, mangled: str, args: list[TypeExpr], type_map: dict[str, TypeExpr], cls_info
 ):
     """Emit constructor + methods for a user-defined generic class instance."""
     from ..types import type_to_c as ttc
@@ -106,7 +106,7 @@ def _emit_user_generic_methods(
         if managed_collection:
             install_collection_topology_boundary(gen, func_def)
         if public_collection_method and install_function_cycle_boundary(func_def):
-            gen.use_helper("__btrc_flush_cycles")
+            gen.helpers.use("__btrc_flush_cycles")
         if is_type_incompatible(func_def, first_arg_c):
             skipped.add(mname)
             continue
@@ -146,7 +146,7 @@ def _emit_user_generic_methods(
         if func_def.body:
             all_stmts.extend(func_def.body.stmts)
     for helper in referenced_helpers(all_stmts, SOURCE_RUNTIME_HELPERS):
-        gen.use_helper(helper)
+        gen.helpers.use(helper)
 
 
 def _drop_methods_calling_skipped(

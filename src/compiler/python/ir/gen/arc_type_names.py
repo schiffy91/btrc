@@ -9,7 +9,7 @@ def destroy_name(gen, type_expr) -> str:
     from .managed_values import is_mutex_type
 
     if is_mutex_type(gen, type_expr):
-        gen.use_helper("__btrc_mutex_arc_type")
+        gen.helpers.use("__btrc_mutex_arc_type")
         return "__btrc_mutex_arc_destroy"
     type_expr = canonical_type(type_expr, gen.analyzed.typedef_table) or type_expr
     if is_generic_class_type(type_expr, gen.analyzed.class_table):

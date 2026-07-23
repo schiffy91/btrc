@@ -4,7 +4,7 @@ import dataclasses
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import Identifier
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -39,4 +39,4 @@ def test_parallel_range_binding_is_typed_inside_body():
     uses = [node for node in _walk(program) if isinstance(node, Identifier) and node.name == "index"]
     assert uses
     assert all(analyzed.node_types[id(node)].base == "int" for node in uses)
-    IRGenerator(analyzed).generate()
+    IRLowerer(analyzed).lower()

@@ -9,7 +9,7 @@ import pytest
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -29,7 +29,7 @@ def _analyze(source):
 def _emit(source):
     analyzed = _analyze(source)
     assert analyzed.errors == []
-    module = IRGenerator(analyzed).generate()
+    module = IRLowerer(analyzed).lower()
     return module, CEmitter().emit(optimize(module))
 
 

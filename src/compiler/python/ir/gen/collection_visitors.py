@@ -39,7 +39,7 @@ from .errors import CodegenError
 
 def ensure_cycle_callback_alias(gen) -> None:
     """Root the mutually-recursive typed visitor ABI runtime declaration."""
-    gen.use_helper("__btrc_arc_callback_types")
+    gen.helpers.use("__btrc_arc_callback_types")
 
 
 def slot_visit_stmts(gen, type_expr: TypeExpr, slot: IRExpr) -> list:

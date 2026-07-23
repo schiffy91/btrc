@@ -19,11 +19,11 @@ from ..nodes import (
 )
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 def consume_addressable_handle(
-    gen: IRGenerator,
+    gen: IRLowerer,
     obj,
     *,
     handle_c_type: str,

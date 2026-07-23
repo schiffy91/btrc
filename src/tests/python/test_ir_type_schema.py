@@ -8,7 +8,7 @@ from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.cycle_symbols import cycle_visitor_symbol
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
@@ -33,7 +33,7 @@ def _analyze(source: str):
 
 
 def _generate(source: str):
-    return IRGenerator(_analyze(source)).generate()
+    return IRLowerer(_analyze(source)).lower()
 
 
 @pytest.mark.parametrize(

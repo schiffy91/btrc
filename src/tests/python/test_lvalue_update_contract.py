@@ -12,7 +12,7 @@ import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -183,7 +183,7 @@ def _analyze(source: str):
 def _emit_runtime() -> str:
     analyzed = _analyze(RUNTIME_SOURCE)
     assert not analyzed.errors
-    return CEmitter().emit(optimize(IRGenerator(analyzed).generate()))
+    return CEmitter().emit(optimize(IRLowerer(analyzed).lower()))
 
 
 def test_lvalue_runtime_uses_correct_volatile_declarators():

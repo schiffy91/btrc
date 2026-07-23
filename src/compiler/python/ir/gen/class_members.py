@@ -34,10 +34,10 @@ from .parameters import lower_source_param, source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> str | None:
+def emit_destructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> str | None:
     """Emit ClassName_destroy(self) which frees internal resources."""
     name = decl.name
     dtor = cls_info.methods.get("__del__")
@@ -46,7 +46,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> s
     if dtor and dtor.body:
         from .statements import lower_block
 
-        gen._func_var_decls = []
+        gen.context.function_declarations = []
         previous_return_type = gen.current_return_type
         previous_return_c_type = gen.current_return_c_type
         previous_return_owned = gen.current_return_owned
@@ -83,7 +83,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> s
     # Mark cascade destruction before freeing. The helper itself checks the
     # process-wide unwind scope under the ARC mutation lock.
     if has_owned_field_cleanup:
-        gen.use_helper("__btrc_mark_destroyed")
+        gen.helpers.use("__btrc_mark_destroyed")
         body_stmts.append(
             IRExprStmt(
                 expr=IRCall(
@@ -107,7 +107,7 @@ def emit_destructor(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo) -> s
     return destructor_hook_symbol(name) if hook is not None else None
 
 
-def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
+def emit_method(gen: IRLowerer, decl: ClassDecl, method: MethodDecl):
     """Emit ClassName_methodname(self, ...) as a free function."""
     name = decl.name
     is_static = method.access == "class"
@@ -123,7 +123,7 @@ def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
     if method.body:
         from .statements import lower_block
 
-        gen._func_var_decls = []
+        gen.context.function_declarations = []
         previous_return_type = gen.current_return_type
         previous_return_c_type = gen.current_return_c_type
         previous_return_owned = gen.current_return_owned
@@ -150,7 +150,7 @@ def emit_method(gen: IRGenerator, decl: ClassDecl, method: MethodDecl):
     )
 
 
-def emit_inherited_methods(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo, own_methods: set[str]):
+def emit_inherited_methods(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo, own_methods: set[str]):
     """Emit wrapper functions for inherited methods not overridden."""
     parent_name = cls_info.parent
     while parent_name and parent_name in gen.analyzed.class_table:

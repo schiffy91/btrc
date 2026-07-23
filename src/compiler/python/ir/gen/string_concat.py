@@ -14,7 +14,6 @@ from ..nodes import (
     IRVarDecl,
 )
 from .managed_values import is_string_type, release_value, retain_value
-from .ownership import owns_result
 from .temporary_cleanup import cleanup_registration
 from .types import type_to_c
 
@@ -42,7 +41,7 @@ def lower_long_string_concat(gen, node):
         value = IRVar(name=declaration.name)
         values.append(value)
         leaf_types.append(leaf_type)
-        owned.append(owns_result(gen, leaf))
+        owned.append(gen.ownership.owns_result(leaf))
 
     from .evaluation_order import source_order_pin_flags
 
@@ -190,7 +189,7 @@ def _temporary(gen, prefix: str, c_type: str) -> IRVarDecl:
         name=gen.fresh_temp(prefix),
         init=IRLiteral(text="NULL"),
     )
-    gen._func_var_decls.append(declaration)
+    gen.context.function_declarations.append(declaration)
     return declaration
 
 
@@ -252,8 +251,8 @@ def _release_leaf(gen, value, type_expr, owned: bool, sequence) -> None:
 
 
 def _concat_call(gen, left, right):
-    gen.use_helper("__btrc_strcat")
-    gen.use_helper("__btrc_str_track")
+    gen.helpers.use("__btrc_strcat")
+    gen.helpers.use("__btrc_str_track")
     return IRCall(
         callee="__btrc_str_track",
         args=[

@@ -9,7 +9,7 @@ linear-time, recursion-safe analysis of long binary chains (S0-14).
 import time
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.generator import generate_ir
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRInclude
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -182,7 +182,7 @@ class TestSetjmpInclude:
         analyzed = SemanticAnalyzer().analyze(program)
         return [
             declaration.header
-            for declaration in generate_ir(analyzed).preprocessor_decls
+            for declaration in IRLowerer(analyzed).lower().preprocessor_decls
             if isinstance(declaration, IRInclude)
         ]
 

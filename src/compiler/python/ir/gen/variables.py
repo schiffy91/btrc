@@ -30,10 +30,10 @@ from .type_resolution import canonical_type
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
+def _lower_var_decl(gen: IRLowerer, node: VarDeclStmt) -> list[IRStmt]:
     from ...ast_nodes import BraceInitializer
     from .types import is_generic_class_type, mangle_generic_type
 
@@ -54,7 +54,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         result = lower_array_var_decl(gen, node, _storage_metadata(gen, node))
         if external_declaration:
             result.append(_mark_external_declaration_used(gen.source_binding_c_name(node.name)))
-        gen._fn_ptr_envs.pop(node.name, None)
+        gen.context.callable_environments.pop(node.name, None)
         return result
 
     c_type = type_to_c(node.type) if node.type else "int"
@@ -143,7 +143,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         init=init,
         **_storage_metadata(gen, node),
     )
-    gen._func_var_decls.append(var_decl)
+    gen.context.function_declarations.append(var_decl)
     from .c_array_scopes import declare_c_binding
 
     declare_c_binding(gen, node.name, is_array=False)
@@ -151,7 +151,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     # Every declaration shadows an outer closure binding.  Install a new
     # environment mapping below only when this initializer is itself a
     # capturing lambda.
-    gen._fn_ptr_envs.pop(node.name, None)
+    gen.context.callable_environments.pop(node.name, None)
     from .callable_provenance import bind_local_callable
 
     bind_local_callable(gen, node.name, node.type, node.initializer)
@@ -185,11 +185,10 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
             retain_value,
             runtime_name,
         )
-        from .ownership import owns_result
 
         arc_type = runtime_name(gen, managed_slot_type)
         owns_initializer = bool(
-            node.initializer and (prepared.owned if prepared is not None else owns_result(gen, node.initializer))
+            node.initializer and (prepared.owned if prepared is not None else gen.ownership.owns_result(node.initializer))
         )
         if node.initializer and not owns_initializer:
             result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=binding_c_name), managed_slot_type)))
@@ -212,7 +211,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
         and canonical_type_expr.generic_args
     ):
         gen.register_thread_var(node.name)
-        gen.use_helper("__btrc_thread_free")
+        gen.helpers.use("__btrc_thread_free")
         _maybe_register_direct_cleanup(
             gen,
             binding_c_name,
@@ -223,7 +222,7 @@ def _lower_var_decl(gen: IRGenerator, node: VarDeclStmt) -> list[IRStmt]:
     return result
 
 
-def _storage_metadata(gen: IRGenerator, node: VarDeclStmt) -> dict[str, bool]:
+def _storage_metadata(gen: IRLowerer, node: VarDeclStmt) -> dict[str, bool]:
     from ...qualifier_provenance import effective_outer_volatile
 
     type_expr = node.type
@@ -242,7 +241,7 @@ def _mark_external_declaration_used(name: str) -> IRExprStmt:
     return IRExprStmt(expr=IRSizeof(operand=IRAddressOf(expr=IRVar(name=name))))
 
 
-def _managed_type_name(gen: IRGenerator, type_expr) -> str:
+def _managed_type_name(gen: IRLowerer, type_expr) -> str:
     """Get the correct type name for managed var tracking (mangled for generics)."""
     from .types import is_generic_class_type, mangle_generic_type
 
@@ -252,19 +251,19 @@ def _managed_type_name(gen: IRGenerator, type_expr) -> str:
     return type_expr.base
 
 
-def _is_managed_type(gen: IRGenerator, type_expr) -> bool:
+def _is_managed_type(gen: IRLowerer, type_expr) -> bool:
     from .managed_values import is_managed_type
 
     return is_managed_type(gen, type_expr)
 
 
-def _is_string_type(gen: IRGenerator, type_expr) -> bool:
+def _is_string_type(gen: IRLowerer, type_expr) -> bool:
     from .managed_values import is_string_type
 
     return is_string_type(gen, type_expr)
 
 
-def _is_concrete_managed_type(gen: IRGenerator, type_expr) -> bool:
+def _is_concrete_managed_type(gen: IRLowerer, type_expr) -> bool:
     concrete = canonical_type(type_expr, gen.analyzed.typedef_table)
     if concrete is None or not _is_managed_type(gen, concrete):
         return False

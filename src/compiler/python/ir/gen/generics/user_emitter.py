@@ -63,6 +63,10 @@ class _UserGenericEmitter(
         self._unevaluated_depth = 0
         self._current_property_backing = None
         reset_scope_state(self)
+        if gen is not None:
+            from .user_emitter_boundary import build_boundary_ownership
+
+            self._boundary_ownership = build_boundary_ownership(self, gen)
 
     def _fresh_temp(self, prefix: str = "__tmp") -> str:
         """Generate a unique temporary variable name."""
@@ -117,6 +121,9 @@ class _UserGenericEmitter(
         self._current_property_backing = None
         reset_scope_state(self)
         reset_source_bindings(self, params or ())
+        from .user_emitter_boundary import sync_boundary_context
+
+        sync_boundary_context(self)
         if params:
             for parameter in params:
                 if parameter.type:
@@ -188,7 +195,7 @@ class _UserGenericEmitter(
                     source_binding_c_name(self, e.name),
                 )
             if self._gen and is_source_runtime_helper(e.name) and e.name not in self._var_types:
-                self._gen.use_helper(e.name)
+                self._gen.helpers.use(e.name)
                 return IRFunctionRef(name=e.name)
             if self._gen and e.name in self._gen.analyzed.function_table and e.name not in self._var_types:
                 from ..function_symbols import source_function_c_name

@@ -4,13 +4,12 @@ from __future__ import annotations
 
 from ...ast_nodes import FieldAccessExpr, IndexExpr
 from .errors import CodegenError
-from .ownership import owns_result
 
 
 def reject_owned_elements(gen, elements, aggregate: str) -> None:
     """Reject +1 values that a shallow aggregate cannot later release."""
     for element in elements:
-        if owns_result(gen, element):
+        if gen.ownership.owns_result(element):
             raise CodegenError(
                 f"caller-owned temporary cannot be embedded in {aggregate}; "
                 "aggregate class elements are shallow borrowed references, "
@@ -98,7 +97,7 @@ def _payload_value_requires_owner(gen, parameter, value):
     return in_call_argument_context(
         parameter,
         False,
-        lambda: owns_result(gen, value),
+        lambda: gen.ownership.owns_result(value),
     ) or requires_target_value_conversion(
         gen,
         value,
@@ -110,10 +109,10 @@ def _payload_value_requires_owner(gen, parameter, value):
 def reject_shallow_store(gen, assignment) -> None:
     """Reject replacing shallow aggregate storage with a +1 temporary."""
     target = assignment.target
-    if not isinstance(target, (FieldAccessExpr, IndexExpr)) or not owns_result(
-        gen,
-        assignment.value,
-    ):
+    if not isinstance(
+        target,
+        (FieldAccessExpr, IndexExpr),
+    ) or not gen.ownership.owns_result(assignment.value):
         return
     receiver_type = gen.analyzed.node_types.get(id(target.obj))
     if receiver_type is None:

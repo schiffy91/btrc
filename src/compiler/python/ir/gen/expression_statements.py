@@ -12,7 +12,6 @@ from ...ast_nodes import (
 )
 from ..nodes import CType, IRCall, IRCommaExpr, IRExprStmt, IRStmt, IRVar, IRVarDecl
 from .expressions import lower_expr
-from .ownership import owns_result
 from .types import type_to_c
 
 
@@ -24,7 +23,7 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
         node.expr,
         lower_condition=lambda condition: lower_expr(gen, condition),
         fresh_temp=gen.fresh_temp,
-        record_decl=gen._func_var_decls.append,
+        record_decl=gen.context.function_declarations.append,
         hosted=not gen.freestanding and "assert" not in gen.analyzed.function_table,
     )
     if assertion is not None:
@@ -51,8 +50,8 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
             name=gen.fresh_temp("__btrc_discarded_thread"),
             init=lowered,
         )
-        gen._func_var_decls.append(temporary)
-        gen.use_helper("__btrc_thread_free")
+        gen.context.function_declarations.append(temporary)
+        gen.helpers.use("__btrc_thread_free")
         statements = [
             temporary,
             IRExprStmt(
@@ -63,13 +62,13 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
                 )
             ),
         ]
-    elif owns_result(gen, node.expr) and is_managed_type(gen, result_type):
+    elif gen.ownership.owns_result(node.expr) and is_managed_type(gen, result_type):
         temporary = IRVarDecl(
             c_type=CType(text=type_to_c(result_type)),
             name=gen.fresh_temp("__btrc_discarded"),
             init=lowered,
         )
-        gen._func_var_decls.append(temporary)
+        gen.context.function_declarations.append(temporary)
         value = IRVar(name=temporary.name)
         statements = [temporary]
         statements.append(_release_owned_value(gen, value, result_type))

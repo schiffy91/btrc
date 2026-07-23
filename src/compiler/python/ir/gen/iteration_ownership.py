@@ -12,9 +12,8 @@ def iterable_result_is_owned(gen, expression, type_expr) -> bool:
 
     if not is_managed_type(gen, type_expr):
         return False
-    from .ownership import owns_result
 
-    return owns_result(gen, expression)
+    return gen.ownership.owns_result(expression)
 
 
 def begin_owned_iterable(

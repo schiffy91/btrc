@@ -71,7 +71,7 @@ def visitor_for_type(gen, type_expr: TypeExpr) -> str | None:
     from .managed_values import is_mutex_type
 
     if is_mutex_type(gen, type_expr):
-        gen.use_helper("__btrc_mutex_arc_type")
+        gen.helpers.use("__btrc_mutex_arc_type")
         return "__btrc_mutex_arc_visit"
     if not type_needs_visitor(gen, type_expr, set()):
         return None

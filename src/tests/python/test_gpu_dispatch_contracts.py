@@ -8,7 +8,7 @@ import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -103,7 +103,7 @@ def test_fixed_bound_parameter_output_is_rejected_by_semantics_and_codegen() -> 
     )
     assert any("no provable writable capacity" in error for error in analyzed.errors)
     with pytest.raises(CodegenError, match="no provable writable capacity"):
-        IRGenerator(analyzed).generate()
+        IRLowerer(analyzed).lower()
 
 
 def test_incomplete_extern_output_is_rejected_by_semantics_and_codegen() -> None:
@@ -114,7 +114,7 @@ def test_incomplete_extern_output_is_rejected_by_semantics_and_codegen() -> None
     )
     assert any("no provable writable capacity" in error for error in analyzed.errors)
     with pytest.raises(CodegenError, match="no provable writable capacity"):
-        IRGenerator(analyzed).generate()
+        IRLowerer(analyzed).lower()
 
 
 def test_global_array_alias_input_is_rejected_by_semantics_and_codegen() -> None:
@@ -126,7 +126,7 @@ def test_global_array_alias_input_is_rejected_by_semantics_and_codegen() -> None
     )
     assert any("no provable readable GPU buffer capacity" in error for error in analyzed.errors)
     with pytest.raises(CodegenError, match="has no provable capacity"):
-        IRGenerator(analyzed).generate()
+        IRLowerer(analyzed).lower()
 
 
 def test_unknown_capacity_gpu_array_default_is_rejected_semantically() -> None:

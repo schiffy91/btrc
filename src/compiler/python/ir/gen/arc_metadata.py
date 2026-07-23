@@ -27,7 +27,7 @@ def descriptor_symbol(emitted_name: str) -> str:
 
 def arc_header_field(gen) -> IRStructField:
     """Return the mandatory first field for a managed representation."""
-    gen.use_helper("__btrc_arc_callback_types")
+    gen.helpers.use("__btrc_arc_callback_types")
     gen.module.runtime_roots.add("__btrc_arc_callback_types")
     return IRStructField(
         c_type=CType(text="__btrc_arc_header"),
@@ -99,7 +99,7 @@ def emit_arc_descriptor(
     if emitted_name in emitted:
         return
     emitted.add(emitted_name)
-    gen.use_helper("__btrc_arc_callback_types")
+    gen.helpers.use("__btrc_arc_callback_types")
     gen.module.runtime_roots.add("__btrc_arc_callback_types")
     from .constructor_cleanup import program_uses_exceptions
 
@@ -108,8 +108,8 @@ def emit_arc_descriptor(
     if hook_name is not None:
         guard_name = "__btrc_arc_guard_hook"
         raise_name = "__btrc_throw"
-        gen.use_helper(guard_name)
-        gen.use_helper(raise_name)
+        gen.helpers.use(guard_name)
+        gen.helpers.use(raise_name)
         declaration = IRFunctionDecl(
             name=hook_name,
             return_type=CType(text="void"),
@@ -120,7 +120,7 @@ def emit_arc_descriptor(
             gen.module.function_decls.append(declaration)
     elif program_uses_exceptions(gen):
         raise_name = "__btrc_throw"
-        gen.use_helper(raise_name)
+        gen.helpers.use(raise_name)
     gen.module.global_decls.append(
         IRGlobalDecl(
             c_type=CType(text="const __btrc_arc_type"),

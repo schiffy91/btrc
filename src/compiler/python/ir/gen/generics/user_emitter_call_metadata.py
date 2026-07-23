@@ -88,10 +88,7 @@ class _UserGenericCallMetadataMixin:
     def _params_for_call(self, expression):
         if not self._gen:
             return []
-        from ..call_contracts import resolved_params_for_call
-
-        params = resolved_params_for_call(
-            self._gen,
+        params = self._gen.calls.resolver.resolved_params(
             expression,
             type_of=self._resolve_expr_type,
             resolve_type=self._resolve,

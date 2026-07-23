@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ..call_boundary import CallOperand, sequence_call_boundary
+from ..call_boundary import CallOperand
 from ..evaluation_order import borrowed_value_can_be_pinned, operand_c_type
 from .user_emitter_call_metadata import _UserGenericCallMetadataMixin
 from .user_emitter_ownership import _UserGenericOwnershipMixin
@@ -37,7 +37,7 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
                         name="value",
                     )
                 ]
-        from ..call_effects import owned_transfer_param_indices
+        from ....ownership_effects import owned_transfer_param_indices
 
         operands = self._call_operands(
             params,
@@ -98,16 +98,11 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
                     else:
                         self._arc_type_overrides[key] = value
 
-        return sequence_call_boundary(
-            self._gen,
-            operands,
+        return self._boundary_ownership.boundaries.sequence(operands,
             lower_expr=lower_expr or self._expr,
             build_call=build_with_overrides,
             result_c_type=result_c_type,
             result_type=result_type,
-            fresh_temp=self._fresh_temp,
-            cleanup_active=self._exception_cleanup_active(),
-            record_decl=self._func_var_decls.append,
             promote_result=promote_result,
             activate_cleanup=self._activate_cleanup_registration,
             result_owned=(

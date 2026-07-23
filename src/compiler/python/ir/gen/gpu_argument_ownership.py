@@ -1,8 +1,5 @@
 """ARC cleanup for caller-owned GPU buffer arguments."""
 
-from .call_boundary_cleanup import register_temporary, release_and_clear
-from .managed_values import retain_value
-
 
 def argument_lifetime_cleanup(
     gen,
@@ -17,26 +14,24 @@ def argument_lifetime_cleanup(
     """Protect an owned or pinned collection through dispatch."""
 
     declarations = []
-    prefix = [retain_value(gen, stable, type_expr)] if pin else []
-    register_temporary(
-        gen,
+    prefix = [gen.lifetime.retain_value(stable, type_expr)] if pin else []
+    gen.lifetime.protect_temporary(
         declaration,
         type_expr,
         declarations,
         prefix,
-        gen.fresh_temp,
-        host.cleanup_active(),
         "__btrc_gpu_arg_cleanup",
-        host.activate_cleanup,
+        active=host.cleanup_active(),
+        fresh_temp=gen.fresh_temp,
+        activate_cleanup=host.activate_cleanup,
     )
-    suffix = release_and_clear(
-        gen,
+    suffix = gen.lifetime.release_and_clear(
         stable,
         type_expr,
         declarations,
-        gen.fresh_temp,
-        host.record_declaration,
         c_type,
+        fresh_temp=gen.fresh_temp,
+        record_declaration=host.record_declaration,
     )
     return declarations, prefix, suffix
 

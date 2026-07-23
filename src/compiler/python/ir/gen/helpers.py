@@ -1,15 +1,10 @@
-"""Collect runtime helpers through a validated dependency graph."""
+"""Own runtime-helper selection and dependency materialization."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from ..helpers.core import HelperDef
 from ..helpers.registry import HELPERS
-from ..nodes import IRHelperDecl
-
-if TYPE_CHECKING:
-    from .generator import IRGenerator
+from ..nodes import IRHelperDecl, IRModule
 
 
 def _helper_index() -> tuple[dict[str, tuple[str, HelperDef]], list[str]]:
@@ -60,37 +55,49 @@ def _dependency_order(
     return ordered
 
 
-def helper_decls_for_roots(roots: set[str]) -> list[IRHelperDecl]:
-    """Materialize a dependency-complete, stable helper declaration list."""
+class RuntimeHelperRegistry:
+    """Track one lowering run's helper roots and materialize their closure."""
 
-    index, stable_order = _helper_index()
-    ordered = _dependency_order(roots, index, stable_order)
-    declarations = []
-    for name in ordered:
-        category, definition = index[name]
-        declarations.append(
-            IRHelperDecl(
-                category=category,
-                name=name,
-                c_source=definition.c_source,
-                depends_on=list(definition.depends_on),
-                required_headers=list(definition.required_headers),
+    def __init__(self) -> None:
+        self._roots: set[str] = set()
+        self._index, self._stable_order = _helper_index()
+
+    @property
+    def roots(self) -> frozenset[str]:
+        return frozenset(self._roots)
+
+    def use(self, name: str) -> None:
+        """Register a helper root, rejecting misspellings at the call site."""
+        if name not in self._index:
+            raise ValueError(f"unknown runtime helper: {name}")
+        self._roots.add(name)
+
+    def declarations_for(self, roots: set[str]) -> list[IRHelperDecl]:
+        """Materialize a dependency-complete, stable declaration list."""
+        ordered = _dependency_order(roots, self._index, self._stable_order)
+        declarations = []
+        for name in ordered:
+            category, definition = self._index[name]
+            declarations.append(
+                IRHelperDecl(
+                    category=category,
+                    name=name,
+                    c_source=definition.c_source,
+                    depends_on=list(definition.depends_on),
+                    required_headers=list(definition.required_headers),
+                )
             )
-        )
-    return declarations
+        return declarations
+
+    def materialize(self, module: IRModule, require_header) -> None:
+        """Attach the selected dependency closure to ``module`` exactly once."""
+        if not self._roots:
+            return
+        declarations = self.declarations_for(self._roots)
+        for declaration in declarations:
+            for header in declaration.required_headers:
+                require_header(header)
+        module.helper_decls.extend(declarations)
 
 
-def collect_helpers(gen: IRGenerator) -> None:
-    """Materialize used helpers after validating their dependency graph."""
-
-    if not gen._used_helpers:
-        return
-
-    declarations = helper_decls_for_roots(set(gen._used_helpers))
-    for declaration in declarations:
-        for header in declaration.required_headers:
-            gen.require_runtime_include(header)
-    gen.module.helper_decls.extend(declarations)
-
-
-__all__ = ["collect_helpers", "helper_decls_for_roots"]
+__all__ = ["RuntimeHelperRegistry"]

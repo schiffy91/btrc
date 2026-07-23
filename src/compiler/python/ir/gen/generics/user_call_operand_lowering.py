@@ -77,6 +77,7 @@ def lower_planned_generic_call_operands(
                     emitter._gen,
                     argument,
                     target_type,
+                    ownership=emitter._boundary_ownership,
                     lower_expr=lambda value: lower_generic_call_argument(
                         emitter,
                         param,
@@ -99,9 +100,6 @@ def lower_planned_generic_call_operands(
                         )
                     ),
                     render_type=emitter.iter_value_c,
-                    fresh_temp=emitter._fresh_temp,
-                    cleanup_active=emitter._exception_cleanup_active(),
-                    record_decl=emitter._func_var_decls.append,
                     activate_cleanup=emitter._activate_cleanup_registration,
                 )
 

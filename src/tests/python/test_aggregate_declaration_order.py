@@ -10,7 +10,7 @@ import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -34,7 +34,7 @@ def _has(errors: list[str], fragment: str) -> bool:
 def _emit(source: str) -> str:
     analyzed = _analyze(source)
     assert analyzed.errors == []
-    return CEmitter().emit(optimize(IRGenerator(analyzed).generate()))
+    return CEmitter().emit(optimize(IRLowerer(analyzed).lower()))
 
 
 def _strict_build_and_run(source: str, tmp_path: Path, compiler: str) -> None:

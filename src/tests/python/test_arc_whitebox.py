@@ -12,7 +12,7 @@ from src.compiler.python.ir.gen.arc import (
     _get_destroy_name,
 )
 from src.compiler.python.ir.gen.arc_cycles import lookup_class_info
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -33,7 +33,7 @@ int main() {
 
 def _gen():
     analyzed = SemanticAnalyzer().analyze(Parser(Lexer(_SRC, "<t>").tokenize()).parse())
-    return IRGenerator(analyzed)
+    return IRLowerer(analyzed)
 
 
 def test_get_destroy_name_generic_uses_terminal_destructor():

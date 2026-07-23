@@ -230,9 +230,7 @@ class _ModuleGenerationMixin:
         self.module.function_pointer_typedefs.extend(get_fn_ptr_typedefs())
 
     def _emit_helpers(self):
-        from .helpers import collect_helpers
-
-        collect_helpers(self)
+        self.helpers.materialize(self.module, self.require_runtime_include)
 
     def _emit_tuple_structs(self):
         from .tuple_declarations import emit_tuple_structs

@@ -18,10 +18,10 @@ from .typed_operators import lower_typed_binary, operator_context
 from .types import mangle_generic_type
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
+def _lower_binary(gen: IRLowerer, node: BinaryExpr) -> IRExpr:
     """Lower a binary expression, handling special operators."""
     if node.op == "+":
         from .string_concat import lower_long_string_concat
@@ -35,7 +35,6 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
     if node.op not in {"??", "&&", "||"}:
         from .evaluation_order import operands_require_order
         from .operator_ownership import operator_rhs_keep
-        from .ownership_boundary import sequence_owned_operands
 
         left_type = gen.analyzed.node_types.get(id(node.left))
         right_type = gen.analyzed.node_types.get(id(node.right))
@@ -46,9 +45,7 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
             else []
         )
 
-        sequenced = sequence_owned_operands(
-            gen,
-            [node.left, node.right],
+        sequenced = gen.ownership.sequence_operands([node.left, node.right],
             build=lambda: _lower_binary_plain(gen, node),
             result_type=gen.analyzed.node_types.get(id(node)),
             keep_nodes=keep_nodes,
@@ -62,7 +59,7 @@ def _lower_binary(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
     return _lower_binary_plain(gen, node)
 
 
-def _lower_binary_plain(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
+def _lower_binary_plain(gen: IRLowerer, node: BinaryExpr) -> IRExpr:
     """Lower one binary operation after owned operands are stabilized."""
     from .expressions import lower_expr
 
@@ -70,11 +67,10 @@ def _lower_binary_plain(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
     right = lower_expr(gen, node.right)
 
     if node.op == "??":
-        from .ownership import normalize_owned_branch, owns_result
 
-        if owns_result(gen, node):
-            left = normalize_owned_branch(gen, node.left, left)
-            right = normalize_owned_branch(gen, node.right, right)
+        if gen.ownership.owns_result(node):
+            left = gen.ownership.normalize_branch(node.left, left)
+            right = gen.ownership.normalize_branch(node.right, right)
 
     # Infer types for special handling
     left_type = gen.analyzed.node_types.get(id(node.left))
@@ -103,7 +99,7 @@ def _lower_binary_plain(gen: IRGenerator, node: BinaryExpr) -> IRExpr:
 
 
 def lower_overloaded_binary(
-    gen: IRGenerator, left_node, right_node, op: str, left: IRExpr, right: IRExpr
+    gen: IRLowerer, left_node, right_node, op: str, left: IRExpr, right: IRExpr
 ) -> IRExpr | None:
     """Lower one class binary operation, or return ``None`` if not overloaded."""
 
@@ -113,7 +109,7 @@ def lower_overloaded_binary(
 
 
 def lower_overloaded_values(
-    gen: IRGenerator, left_type, right_type, op: str, left: IRExpr, right: IRExpr
+    gen: IRLowerer, left_type, right_type, op: str, left: IRExpr, right: IRExpr
 ) -> IRExpr | None:
     """Lower one class operation from already-resolved operand types."""
 
@@ -131,7 +127,7 @@ def lower_overloaded_values(
     return IRCall(callee=f"{class_name}_{_operator_method_name(op)}", args=[left, right])
 
 
-def overloaded_binary_method(gen: IRGenerator, left_type, op: str):
+def overloaded_binary_method(gen: IRLowerer, left_type, op: str):
     """Return the source method implementing an overloaded binary operator."""
     magic = _operator_method_name(op)
     if not magic or not left_type:
@@ -173,9 +169,8 @@ def _lower_prepared_overload(gen, node):
         return None
     left = prepare_normal_value(gen, node.left, left_type)
     right = prepare_normal_value(gen, node.right, expected)
-    from .call_boundary import CallOperand, sequence_call_boundary
+    from .call_boundary import CallOperand
     from .evaluation_order import borrowed_value_can_be_pinned
-    from .ownership import owns_result
     from .types import type_to_c
 
     operands = [
@@ -199,9 +194,7 @@ def _lower_prepared_overload(gen, node):
         ),
     ]
 
-    return sequence_call_boundary(
-        gen,
-        operands,
+    return gen.ownership.boundaries.sequence(operands,
         lower_expr=lambda _node: None,
         build_call=lambda values: lower_overloaded_values(
             gen,
@@ -213,10 +206,7 @@ def _lower_prepared_overload(gen, node):
         ),
         result_c_type=type_to_c(gen.analyzed.node_types.get(id(node))),
         result_type=gen.analyzed.node_types.get(id(node)),
-        fresh_temp=gen.fresh_temp,
-        cleanup_active=gen.exception_cleanup_active(),
-        record_decl=gen._func_var_decls.append,
-        result_owned=owns_result(gen, node),
+        result_owned=gen.ownership.owns_result(node),
     )
 
 
@@ -236,20 +226,17 @@ def _operator_method_name(op: str) -> str | None:
     }.get(op)
 
 
-def _lower_unary(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
+def _lower_unary(gen: IRLowerer, node: UnaryExpr) -> IRExpr:
     if node.op in {"++", "--"} and isinstance(
         node.operand,
         (FieldAccessExpr, IndexExpr),
     ):
-        from .ownership_boundary import sequence_owned_operands
 
         target_nodes = [node.operand.obj]
         if isinstance(node.operand, IndexExpr):
             target_nodes.append(node.operand.index)
         result_type = gen.analyzed.node_types.get(id(node))
-        sequenced = sequence_owned_operands(
-            gen,
-            target_nodes,
+        sequenced = gen.ownership.sequence_operands(target_nodes,
             build=lambda: _lower_unary_plain(gen, node),
             result_type=result_type,
             promote_result=bool(is_managed_type(gen, result_type)),
@@ -257,11 +244,8 @@ def _lower_unary(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
         if sequenced is not None:
             return sequenced
     if node.op not in {"++", "--", "&", "*"}:
-        from .ownership_boundary import sequence_owned_operands
 
-        sequenced = sequence_owned_operands(
-            gen,
-            [node.operand],
+        sequenced = gen.ownership.sequence_operands([node.operand],
             build=lambda: _lower_unary_plain(gen, node),
             result_type=gen.analyzed.node_types.get(id(node)),
         )
@@ -270,7 +254,7 @@ def _lower_unary(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
     return _lower_unary_plain(gen, node)
 
 
-def _lower_unary_plain(gen: IRGenerator, node: UnaryExpr) -> IRExpr:
+def _lower_unary_plain(gen: IRLowerer, node: UnaryExpr) -> IRExpr:
     from .expressions import lower_expr
 
     op = node.op

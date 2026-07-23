@@ -4,7 +4,7 @@ import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -26,7 +26,7 @@ def _module(source: str) -> IRModule:
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
-    return IRGenerator(analyzed).generate()
+    return IRLowerer(analyzed).lower()
 
 
 @pytest.mark.parametrize(

@@ -28,7 +28,7 @@ import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.source_provenance import make_ir_source_maps
 from src.tests.corpus_files import language_test_files
@@ -109,12 +109,12 @@ def _transpile_python(btrc_path, btrc_file):
         frontend.source_bundle,
         split_spaces=bool(frontend.stdlib_source and frontend.user_program is not None),
     )
-    ir_module = IRGenerator(
+    ir_module = IRLowerer(
         analyzed,
         source_file=os.path.basename(btrc_file),
         line_map=line_map,
         declaration_line_map=declaration_line_map,
-    ).generate()
+    ).lower()
     ir_module = optimize(ir_module)
     return CEmitter().emit(ir_module)
 

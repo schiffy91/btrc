@@ -10,14 +10,14 @@ from src.compiler.python.ast_nodes import (
     VarDeclStmt,
 )
 from src.compiler.python.ir.gen.collections import lower_list_literal, lower_map_literal
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def _gen_and_inits(src):
     analyzed = SemanticAnalyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
-    gen = IRGenerator(analyzed)
+    gen = IRLowerer(analyzed)
     inits = []
     for d in analyzed.program.declarations:
         if isinstance(d, FunctionDecl) and d.body:

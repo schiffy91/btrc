@@ -49,7 +49,7 @@ def register_cleanup_slot(gen, declaration, cleanup_fn, *, visitor=None, direct=
     declaration.is_volatile = True
 
     helper = _DIRECT_REGISTER if direct else _MANAGED_REGISTER
-    gen.use_helper(helper)
+    gen.helpers.use(helper)
     args = [
         IRCast(
             target_type=CType(text="void*"),

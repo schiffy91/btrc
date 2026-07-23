@@ -11,10 +11,10 @@ from .types import type_to_c
 
 if TYPE_CHECKING:
     from ...ast_nodes import ClassDecl
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def emit_static_fields(gen: IRGenerator, declaration: ClassDecl) -> None:
+def emit_static_fields(gen: IRLowerer, declaration: ClassDecl) -> None:
     from .aggregate_initializers import lower_static_initializer
     from .expressions import lower_expr
 

@@ -1,6 +1,6 @@
-// Baseline: the smallest possible program. Almost the entire auto-included
-// stdlib is unreachable, so this is the headline test for dead-function
-// elimination — funcs_before -> funcs_after should collapse to a handful.
+// Baseline: the smallest possible program. It is the headline check that the
+// core runtime remains small and dead-function elimination does not retain
+// unrelated declarations.
 int main() {
     print("hello");
     return 0;

@@ -1,4 +1,4 @@
-"""Structured full-call ownership sequencing shared by IR generators."""
+"""Structured full-call ownership sequencing."""
 
 from __future__ import annotations
 
@@ -15,16 +15,6 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .call_boundary_cleanup import (
-    register_temporary as _register_temporary,
-)
-from .call_boundary_cleanup import (
-    release_and_clear as _release_and_clear,
-)
-from .call_boundary_cleanup import (
-    temporary as _temporary,
-)
-from .managed_values import is_managed_type, retain_value
 
 
 @dataclass(frozen=True)
@@ -42,171 +32,191 @@ class CallOperand:
     lower_with_overrides: Callable[[dict[int, object]], object] | None = None
 
 
-def sequence_call_boundary(
-    gen,
-    operands: list[CallOperand],
-    *,
-    lower_expr: Callable,
-    build_call: Callable,
-    result_c_type: str | None,
-    result_type=None,
-    opaque_result: bool = False,
-    opaque_result_site=None,
-    fresh_temp: Callable[[str], str],
-    cleanup_active: bool,
-    record_decl: Callable[[IRVarDecl], None],
-    promote_result: bool = False,
-    activate_cleanup: Callable[[], None] | None = None,
-    result_owned: bool = False,
-):
-    """Evaluate operands once, invoke, then release call-owned references."""
-    if getattr(gen, "_unevaluated_depth", 0) > 0:
-        values = {}
-        for operand in operands:
-            values[id(operand.node)] = (
-                operand.lower_with_overrides(values)
-                if operand.lower_with_overrides is not None
-                else operand.lowered
-                if operand.lowered is not None
-                else lower_expr(operand.node)
-            )
-        return build_call(values)
-    declarations = []
-    prefix = []
-    handoffs = []
-    suffix = []
-    overrides = {}
+class CallBoundaryLowerer:
+    """Sequence call operands and their ARC lifetime transitions."""
 
-    for operand in operands:
-        declaration = _temporary(
-            fresh_temp,
-            record_decl,
-            "__btrc_call_operand",
-            operand.c_type,
-        )
-        declarations.append(declaration)
-        value = IRVar(name=declaration.name)
-        lowered = (
-            operand.lower_with_overrides(overrides)
-            if operand.lower_with_overrides is not None
-            else operand.lowered
-            if operand.lowered is not None
-            else lower_expr(operand.node)
-        )
-        prefix.append(
-            IRBinOp(
-                left=value,
-                op="=",
-                right=lowered,
-            )
-        )
-        if operand.owned:
-            _register_temporary(
-                gen,
-                declaration,
-                operand.type_expr,
-                declarations,
-                prefix,
-                fresh_temp,
-                cleanup_active,
-                "__btrc_call_operand_cleanup",
-                activate_cleanup,
-            )
-        if operand.keep or operand.pin:
-            retained_decl = _temporary(
-                fresh_temp,
-                record_decl,
-                "__btrc_kept_operand",
+    def __init__(self, context, lifetime) -> None:
+        self.context = context
+        self.lifetime = lifetime
+
+    def sequence(
+        self,
+        operands: list[CallOperand],
+        *,
+        lower_expr: Callable,
+        build_call: Callable,
+        result_c_type: str | None,
+        result_type=None,
+        opaque_result: bool = False,
+        opaque_result_site=None,
+        promote_result: bool = False,
+        activate_cleanup: Callable[[], None] | None = None,
+        result_owned: bool = False,
+    ):
+        """Evaluate operands once, invoke, then release call-owned values."""
+        if self.context.is_unevaluated:
+            values = {id(operand.node): self._lower_operand(operand, {}, lower_expr) for operand in operands}
+            return build_call(values)
+
+        declarations = []
+        prefix = []
+        handoffs = []
+        suffix = []
+        overrides = {}
+        for operand in operands:
+            declaration = self._temporary(
+                "__btrc_call_operand",
                 operand.c_type,
             )
-            declarations.append(retained_decl)
-            retained = IRVar(name=retained_decl.name)
-            prefix.extend(
-                [
-                    retain_value(gen, value, operand.type_expr),
-                    IRBinOp(left=retained, op="=", right=value),
-                ]
+            declarations.append(declaration)
+            value = IRVar(name=declaration.name)
+            prefix.append(
+                IRBinOp(
+                    left=value,
+                    op="=",
+                    right=self._lower_operand(operand, overrides, lower_expr),
+                )
             )
-            _register_temporary(
-                gen,
-                retained_decl,
-                operand.type_expr,
-                declarations,
-                prefix,
-                fresh_temp,
-                cleanup_active,
-                "__btrc_kept_operand_cleanup",
-                activate_cleanup,
-            )
-            suffix.extend(
-                _release_and_clear(
-                    gen,
-                    retained,
+            if operand.owned:
+                self.lifetime.protect_temporary(
+                    declaration,
                     operand.type_expr,
                     declarations,
-                    fresh_temp,
-                    record_decl,
+                    prefix,
+                    "__btrc_call_operand_cleanup",
+                    activate_cleanup=activate_cleanup,
+                )
+            if operand.keep or operand.pin:
+                retained_decl = self._temporary(
+                    "__btrc_kept_operand",
                     operand.c_type,
                 )
-            )
-        call_value = value
-        if operand.owned:
-            if operand.transferred:
-                handoff_decl = _temporary(
-                    fresh_temp,
-                    record_decl,
-                    "__btrc_transferred_operand",
-                    operand.c_type,
-                )
-                declarations.append(handoff_decl)
-                call_value = IRVar(name=handoff_decl.name)
-                handoffs.extend(
+                declarations.append(retained_decl)
+                retained = IRVar(name=retained_decl.name)
+                prefix.extend(
                     [
-                        IRBinOp(left=call_value, op="=", right=value),
-                        IRBinOp(
-                            left=value,
-                            op="=",
-                            right=IRLiteral(text="NULL"),
-                        ),
+                        self.lifetime.retain_value(value, operand.type_expr),
+                        IRBinOp(left=retained, op="=", right=value),
                     ]
                 )
-            else:
+                self.lifetime.protect_temporary(
+                    retained_decl,
+                    operand.type_expr,
+                    declarations,
+                    prefix,
+                    "__btrc_kept_operand_cleanup",
+                    activate_cleanup=activate_cleanup,
+                )
                 suffix.extend(
-                    _release_and_clear(
-                        gen,
-                        value,
+                    self.lifetime.release_and_clear(
+                        retained,
                         operand.type_expr,
                         declarations,
-                        fresh_temp,
-                        record_decl,
                         operand.c_type,
                     )
                 )
-        overrides[id(operand.node)] = call_value
+            call_value = value
+            if operand.owned:
+                if operand.transferred:
+                    handoff_decl = self._temporary(
+                        "__btrc_transferred_operand",
+                        operand.c_type,
+                    )
+                    declarations.append(handoff_decl)
+                    call_value = IRVar(name=handoff_decl.name)
+                    handoffs.extend(
+                        [
+                            IRBinOp(left=call_value, op="=", right=value),
+                            IRBinOp(
+                                left=value,
+                                op="=",
+                                right=IRLiteral(text="NULL"),
+                            ),
+                        ]
+                    )
+                else:
+                    suffix.extend(
+                        self.lifetime.release_and_clear(
+                            value,
+                            operand.type_expr,
+                            declarations,
+                            operand.c_type,
+                        )
+                    )
+            overrides[id(operand.node)] = call_value
 
-    call = build_call(overrides)
-    sequence = [*prefix, *handoffs]
-    if opaque_result:
+        call = build_call(overrides)
+        sequence = [*prefix, *handoffs]
+        if opaque_result:
+            self._append_opaque_result(
+                sequence,
+                suffix,
+                call,
+                result_c_type,
+                result_type,
+                opaque_result_site,
+            )
+        elif result_c_type is not None and result_c_type != "void":
+            self._append_typed_result(
+                sequence,
+                suffix,
+                declarations,
+                call,
+                result_c_type,
+                result_type,
+                promote_result,
+                activate_cleanup,
+                result_owned,
+            )
+        else:
+            sequence.append(call)
+            sequence.extend(suffix)
+            sequence.append(IRCast(target_type=CType(text="void"), expr=IRLiteral(text="0")))
+        return IRStmtExpr(
+            stmts=declarations,
+            result=IRCommaExpr(expressions=sequence),
+        )
+
+    @staticmethod
+    def _lower_operand(operand, overrides, lower_expr=None):
+        if operand.lower_with_overrides is not None:
+            return operand.lower_with_overrides(overrides)
+        if operand.lowered is not None:
+            return operand.lowered
+        return lower_expr(operand.node)
+
+    @staticmethod
+    def _append_opaque_result(
+        sequence,
+        suffix,
+        call,
+        result_c_type,
+        result_type,
+        source_site,
+    ) -> None:
         if result_c_type is not None or result_type is not None:
             raise ValueError("opaque call result cannot also have a concrete type")
-        if opaque_result_site is None:
+        if source_site is None:
             raise ValueError("opaque call result requires a source site")
         if suffix:
             from .call_operand_diagnostics import reject_opaque_result_cleanup
 
-            reject_opaque_result_cleanup(opaque_result_site)
+            reject_opaque_result_cleanup(source_site)
         sequence.append(call)
-    elif result_c_type is not None and result_c_type != "void":
-        result_decl = _temporary(
-            fresh_temp,
-            record_decl,
-            "__btrc_call_result",
-            result_c_type,
-        )
-        # GCC's -Wclobbered tracks this synthesized result across a later
-        # setjmp even when the declaration's lexical block has ended (notably
-        # Terminal.promptPassword). Stable storage metadata is harmless for
-        # ordinary calls and keeps strict -Werror builds deterministic.
+
+    def _append_typed_result(
+        self,
+        sequence,
+        suffix,
+        declarations,
+        call,
+        result_c_type,
+        result_type,
+        promote_result,
+        activate_cleanup,
+        result_owned,
+    ) -> None:
+        result_decl = self._temporary("__btrc_call_result", result_c_type)
         result_decl.is_volatile = True
         declarations.append(result_decl)
         result = IRVar(name=result_decl.name)
@@ -214,31 +224,23 @@ def sequence_call_boundary(
         if promote_result:
             if result_type is None:
                 raise ValueError("managed result promotion requires its semantic type")
-            sequence.append(retain_value(gen, result, result_type))
+            sequence.append(self.lifetime.retain_value(result, result_type))
         protect_result = bool(
-            cleanup_active
+            self.lifetime.cleanup_active()
             and result_type is not None
             and (result_owned or promote_result)
-            and is_managed_type(gen, result_type)
+            and self.lifetime.is_managed_type(result_type)
         )
         if protect_result:
-            # Operand cleanup runs after the call and may throw. Register the
-            # newly owned result before that suffix, then transfer it through a
-            # cleared handoff slot once cleanup succeeds.
-            _register_temporary(
-                gen,
+            self.lifetime.protect_temporary(
                 result_decl,
                 result_type,
                 declarations,
                 sequence,
-                fresh_temp,
-                cleanup_active,
                 "__btrc_call_result_cleanup",
-                activate_cleanup,
+                activate_cleanup=activate_cleanup,
             )
-            handoff_decl = _temporary(
-                fresh_temp,
-                record_decl,
+            handoff_decl = self._temporary(
                 "__btrc_call_result_handoff",
                 result_c_type,
             )
@@ -259,14 +261,20 @@ def sequence_call_boundary(
             )
         else:
             sequence.append(result)
-    else:
-        sequence.append(call)
-        sequence.extend(suffix)
-        sequence.append(IRCast(target_type=CType(text="void"), expr=IRLiteral(text="0")))
-    return IRStmtExpr(
-        stmts=declarations,
-        result=IRCommaExpr(expressions=sequence),
-    )
+
+    def _temporary(
+        self,
+        prefix: str,
+        c_type: str,
+        init=None,
+    ) -> IRVarDecl:
+        declaration = IRVarDecl(
+            c_type=CType(text=c_type),
+            name=self.context.fresh_temp(prefix),
+            init=init,
+        )
+        self.context.record_declaration(declaration)
+        return declaration
 
 
-__all__ = ["CallOperand", "sequence_call_boundary"]
+__all__ = ["CallBoundaryLowerer", "CallOperand"]

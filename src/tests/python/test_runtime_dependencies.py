@@ -9,7 +9,7 @@ import pytest
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.freestanding import RUNTIME_HEADER
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
@@ -23,7 +23,7 @@ def _generate(source: str):
     program = Parser(Lexer(source, "<runtime-dependencies>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
-    return IRGenerator(analyzed, freestanding=True).generate()
+    return IRLowerer(analyzed, freestanding=True).lower()
 
 
 def test_pure_core_ir_needs_no_runtime_seam():

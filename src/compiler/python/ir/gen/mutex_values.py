@@ -21,10 +21,10 @@ from .value_boxes import (
 
 if TYPE_CHECKING:
     from ...ast_nodes import TypeExpr
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def create_mutex_value(gen: IRGenerator, value, value_type: TypeExpr):
+def create_mutex_value(gen: IRLowerer, value, value_type: TypeExpr):
     """Create a mutex that owns an exact copy of ``value``."""
     canonical = canonical_value_type(gen, value_type)
     if canonical is None:
@@ -39,7 +39,7 @@ def create_mutex_value(gen: IRGenerator, value, value_type: TypeExpr):
         finalize,
         raise_callback,
     ) = _ownership_callbacks(gen, canonical)
-    gen.use_helper("__btrc_mutex_val_create")
+    gen.helpers.use("__btrc_mutex_val_create")
     return IRCall(
         callee="__btrc_mutex_val_create",
         args=[
@@ -63,9 +63,9 @@ def create_mutex_value(gen: IRGenerator, value, value_type: TypeExpr):
     )
 
 
-def get_mutex_value(gen: IRGenerator, mutex, value_type: TypeExpr):
+def get_mutex_value(gen: IRLowerer, mutex, value_type: TypeExpr):
     """Copy the stored value while locked and return one typed value."""
-    gen.use_helper("__btrc_mutex_val_get")
+    gen.helpers.use("__btrc_mutex_val_get")
     payload = IRCall(
         callee="__btrc_mutex_val_get",
         args=[mutex],
@@ -80,13 +80,13 @@ def get_mutex_value(gen: IRGenerator, mutex, value_type: TypeExpr):
 
 
 def set_mutex_value(
-    gen: IRGenerator,
+    gen: IRLowerer,
     mutex,
     value,
     value_type: TypeExpr,
 ):
     """Transfer a newly boxed value to the runtime's locked swap."""
-    gen.use_helper("__btrc_mutex_val_set")
+    gen.helpers.use("__btrc_mutex_val_set")
     return IRCall(
         callee="__btrc_mutex_val_set",
         args=[
@@ -102,7 +102,7 @@ def set_mutex_value(
     )
 
 
-def _ownership_callbacks(gen: IRGenerator, value_type: TypeExpr):
+def _ownership_callbacks(gen: IRLowerer, value_type: TypeExpr):
     from .managed_values import is_class_type, is_string_type
 
     if is_string_type(gen, value_type):
@@ -134,7 +134,7 @@ def _ownership_callbacks(gen: IRGenerator, value_type: TypeExpr):
     return null, null, null, IRLiteral(text="0"), null, null, null, null
 
 
-def _value_access(gen: IRGenerator, value_type: TypeExpr):
+def _value_access(gen: IRLowerer, value_type: TypeExpr):
     from .cleanup_slots import ensure_mutex_value_adapter
 
     name = ensure_mutex_value_adapter(
@@ -144,7 +144,7 @@ def _value_access(gen: IRGenerator, value_type: TypeExpr):
     return IRFunctionRef(name=name)
 
 
-def _slot_access(gen: IRGenerator, value_type: TypeExpr):
+def _slot_access(gen: IRLowerer, value_type: TypeExpr):
     from .cleanup_slots import ensure_arc_slot_adapter
 
     name = ensure_arc_slot_adapter(
@@ -154,8 +154,8 @@ def _slot_access(gen: IRGenerator, value_type: TypeExpr):
     return IRFunctionRef(name=name)
 
 
-def _callback(gen: IRGenerator, name: str):
-    gen.use_helper(name)
+def _callback(gen: IRLowerer, name: str):
+    gen.helpers.use(name)
     return IRFunctionRef(name=name)
 
 

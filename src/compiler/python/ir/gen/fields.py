@@ -32,14 +32,12 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
+def _lower_field_access(gen: IRLowerer, node: FieldAccessExpr) -> IRExpr:
     """Lower field access, handling optional chaining and special types."""
     from .managed_values import is_managed_type
-    from .ownership import owns_result, projection_is_owned_call
-    from .ownership_boundary import sequence_owned_operands
 
     result_type = gen.analyzed.node_types.get(id(node))
     from ...class_storage import custom_property_getter
@@ -53,23 +51,22 @@ def _lower_field_access(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
 
     dependencies = borrowed_projection_owner_operands(
         node.obj,
-        owns=lambda expression: owns_result(gen, expression),
-        overridden=lambda expression: id(expression) in gen._owning_temp_overrides,
+        owns=lambda expression: gen.ownership.owns_result(expression),
+        overridden=lambda expression: id(expression) in gen.context.owning_overrides,
     )
-    sequenced = sequence_owned_operands(
-        gen,
+    sequenced = gen.ownership.sequence_operands(
         [*dependencies, node.obj],
         build=lambda: _lower_field_access_plain(gen, node),
         result_type=result_type,
         pin_nodes=[node.obj] if custom_getter else [],
-        promote_result=bool(is_managed_type(gen, result_type) and not projection_is_owned_call(gen, node)),
+        promote_result=bool(is_managed_type(gen, result_type) and not gen.ownership.projection_is_owned_call(node)),
     )
     if sequenced is not None:
         return sequenced
     return _lower_field_access_plain(gen, node)
 
 
-def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr:
+def _lower_field_access_plain(gen: IRLowerer, node: FieldAccessExpr) -> IRExpr:
     """Lower one field access after any owning receiver is stabilized."""
     from .expressions import lower_expr
 
@@ -83,7 +80,7 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
     # `self.property`.  All external reads still call the public getter.
     from ...ast_nodes import SelfExpr
 
-    if isinstance(node.obj, SelfExpr) and gen.current_property_backing == node.field:
+    if isinstance(node.obj, SelfExpr) and gen.context.current_property_backing == node.field:
         return IRFieldAccess(
             obj=obj,
             field=f"_prop_{node.field}",
@@ -182,7 +179,7 @@ def _lower_field_access_plain(gen: IRGenerator, node: FieldAccessExpr) -> IRExpr
     return record_array_projection(field, gen.analyzed.node_types.get(id(node)))
 
 
-def receiver_uses_arrow(gen: IRGenerator, receiver_type, *, explicit: bool = False) -> bool:
+def receiver_uses_arrow(gen: IRLowerer, receiver_type, *, explicit: bool = False) -> bool:
     """Choose C member syntax from the receiver's concrete storage shape."""
     if explicit:
         return True
@@ -228,14 +225,12 @@ def _optional_zero(gen, result_type):
     return optional_zero_value(gen, result_type)
 
 
-def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
+def _lower_index(gen: IRLowerer, node: IndexExpr) -> IRExpr:
     """Lower index expression: list[i] → List_get(list, i), map[k] → Map_get(map, k)."""
     from .managed_values import is_managed_type
-    from .ownership import owns_result, projection_is_owned_call
-    from .ownership_boundary import sequence_owned_operands
 
     result_type = gen.analyzed.node_types.get(id(node))
-    projection_call = projection_is_owned_call(gen, node)
+    projection_call = gen.ownership.projection_is_owned_call(node)
     receiver_type = gen.analyzed.node_types.get(id(node.obj))
     protocol_getter = indexed_protocol_info(
         receiver_type,
@@ -246,11 +241,10 @@ def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
 
     dependencies = borrowed_projection_owner_operands(
         node.obj,
-        owns=lambda expression: owns_result(gen, expression),
-        overridden=lambda expression: id(expression) in gen._owning_temp_overrides,
+        owns=lambda expression: gen.ownership.owns_result(expression),
+        overridden=lambda expression: id(expression) in gen.context.owning_overrides,
     )
-    sequenced = sequence_owned_operands(
-        gen,
+    sequenced = gen.ownership.sequence_operands(
         [*dependencies, node.obj, node.index],
         build=lambda: _lower_index_plain(gen, node),
         result_type=result_type,
@@ -263,7 +257,7 @@ def _lower_index(gen: IRGenerator, node: IndexExpr) -> IRExpr:
     return _lower_index_plain(gen, node)
 
 
-def _lower_index_plain(gen: IRGenerator, node: IndexExpr) -> IRExpr:
+def _lower_index_plain(gen: IRLowerer, node: IndexExpr) -> IRExpr:
     """Lower one index projection after its receiver is stabilized."""
     from .expressions import lower_expr
 
@@ -272,7 +266,7 @@ def _lower_index_plain(gen: IRGenerator, node: IndexExpr) -> IRExpr:
     obj_type = gen.analyzed.node_types.get(id(node.obj))
     gpu_lengths = getattr(gen, "_gpu_cpu_array_lengths", None)
     if gpu_lengths and isinstance(node.obj, Identifier) and node.obj.name in gpu_lengths:
-        gen.use_helper("__btrc_gpu_index_check")
+        gen.helpers.use("__btrc_gpu_index_check")
         index = IRCall(
             callee="__btrc_gpu_index_check",
             args=[index, IRVar(name=gpu_lengths[node.obj.name])],

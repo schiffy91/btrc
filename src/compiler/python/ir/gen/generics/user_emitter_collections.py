@@ -49,7 +49,6 @@ def lower_collection_literal(emitter, target: str, literal, target_type=None):
             target_type,
             "__btrc_collection_cleanup",
             active=True,
-            fresh_temp=emitter._fresh_temp,
             activate_cleanup=(lambda: _activate_cleanup_registration(emitter)),
         )
         declarations.extend(cleanup_decls)
@@ -107,7 +106,7 @@ def lower_collection_literal(emitter, target: str, literal, target_type=None):
 
 
 def _prepared_effect(emitter, values, build):
-    from ..call_boundary import CallOperand, sequence_call_boundary
+    from ..call_boundary import CallOperand
     from ..prepared_values import prepare_generic_value, prepared_value_pin_flags
 
     prepared = [
@@ -141,15 +140,10 @@ def _prepared_effect(emitter, values, build):
                 lowered=value.value,
             )
         )
-    return sequence_call_boundary(
-        emitter._gen,
-        operands,
+    return emitter._boundary_ownership.boundaries.sequence(operands,
         lower_expr=lambda _node: None,
         build_call=build,
         result_c_type=None,
-        fresh_temp=emitter._fresh_temp,
-        cleanup_active=emitter._exception_cleanup_active(),
-        record_decl=emitter._func_var_decls.append,
         activate_cleanup=emitter._activate_cleanup_registration,
     )
 

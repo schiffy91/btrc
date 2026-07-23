@@ -126,9 +126,9 @@ def _capture_disposer(
         )
     ]
     if adapters:
-        gen.use_helper("__btrc_arc_guard_hook")
-        gen.use_helper("__btrc_raise_captured")
-        gen.use_helper("__btrc_throw")
+        gen.helpers.use("__btrc_arc_guard_hook")
+        gen.helpers.use("__btrc_raise_captured")
+        gen.helpers.use("__btrc_throw")
         body.extend(
             [
                 IRVarDecl(

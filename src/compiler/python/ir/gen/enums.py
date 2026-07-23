@@ -29,10 +29,10 @@ from .parameters import lower_source_param, source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def emit_enum_decls(gen: IRGenerator):
+def emit_enum_decls(gen: IRLowerer):
     """Emit all enum declarations."""
     for decl in gen.analyzed.program.declarations:
         if isinstance(decl, EnumDecl):
@@ -41,7 +41,7 @@ def emit_enum_decls(gen: IRGenerator):
             _emit_rich_enum(gen, decl)
 
 
-def _emit_enum(gen: IRGenerator, decl: EnumDecl):
+def _emit_enum(gen: IRLowerer, decl: EnumDecl):
     """Emit a simple enum and, for named enums, its toString helper."""
     # Build enum definition
     values = []
@@ -104,7 +104,7 @@ def _enum_value_name(enum_name: str, value_name: str) -> str:
     return f"{enum_name}_{value_name}" if enum_name else value_name
 
 
-def _emit_rich_enum(gen: IRGenerator, decl: RichEnumDecl):
+def _emit_rich_enum(gen: IRLowerer, decl: RichEnumDecl):
     """Emit a rich enum as tag IREnumDef + data structs + tagged union + ctors."""
     name = decl.name
 

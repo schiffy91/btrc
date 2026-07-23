@@ -53,11 +53,11 @@ from .expressions import lower_expr
 from .variables import _lower_var_decl
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 def lower_block(
-    gen: IRGenerator,
+    gen: IRLowerer,
     block: Block | None,
     *,
     iteration_bindings=(),
@@ -70,7 +70,7 @@ def lower_block(
         return IRBlock()
     local_bindings = tuple(local_bindings)
     iteration_bindings = tuple(iteration_bindings)
-    enclosing_closures = gen._fn_ptr_envs.copy()
+    enclosing_closures = gen.context.callable_environments.copy()
     from .callable_provenance import (
         begin_callable_scope,
         bind_borrowed_callable,
@@ -125,12 +125,12 @@ def lower_block(
         gen._c_array_scopes.pop()
         gen.pop_local_ownership_scope()
         gen.pop_cleanup_scope()
-        gen._fn_ptr_envs = enclosing_closures
+        gen.context.callable_environments = enclosing_closures
         finish_callable_scope(gen, enclosing_callables)
     return IRBlock(stmts=stmts)
 
 
-def _emit_line_marker(gen: IRGenerator, ast_stmt, out: list) -> None:
+def _emit_line_marker(gen: IRLowerer, ast_stmt, out: list) -> None:
     """In --debug mode, prepend a ``#line`` marker mapping this statement back to
     its .btrc source, so the compiled binary's DWARF points at btrc source."""
     if not (gen.debug and gen.line_map):
@@ -146,7 +146,7 @@ def _emit_line_marker(gen: IRGenerator, ast_stmt, out: list) -> None:
     out.append(IRLineMarker(file=mapped[0], line=mapped[1]))
 
 
-def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
+def lower_stmt(gen: IRLowerer, node) -> list[IRStmt]:
     """Lower a single AST statement to one or more IRStmts."""
     from .control_flow import (
         _lower_c_for,
@@ -259,7 +259,7 @@ def lower_stmt(gen: IRGenerator, node) -> list[IRStmt]:
 
 
 def _lower_loop_body(
-    gen: IRGenerator,
+    gen: IRLowerer,
     body: Block | None,
     *,
     iteration_bindings=(),

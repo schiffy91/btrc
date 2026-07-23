@@ -1,5 +1,6 @@
 """Hosted pointer results cross managed boundaries without leaks or UAF."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -8,8 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.compiler.python import frontend_stdlib
 from src.compiler.python.ast_nodes import CallExpr, Identifier, TypeExpr
+from src.compiler.python.frontend.resolver import SourceResolver
+from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.hosted_abi import HOSTED_FUNCTIONS
 from src.compiler.python.hosted_abi_model import (
     CHAR_PTR,
@@ -18,12 +20,12 @@ from src.compiler.python.hosted_abi_model import (
     function,
 )
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import generate_ir
 from src.compiler.python.ir.gen.hosted_result_conversion import (
     ADOPT,
     REJECT,
     hosted_string_conversion_mode,
 )
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.pipeline.models import CompilerOptions
 from src.compiler.python.pipeline.pipeline import CompilerPipeline
@@ -61,6 +63,8 @@ HOSTED_SHADOW_PROBE = """
 """
 
 HOSTED_SHADOW_USER = """
+    import std.hosted_result_probe;
+
     #include <string.h>
 
     char* strdup(string value) {
@@ -89,7 +93,6 @@ HOSTED_SHADOW_USER = """
 def _compile_hosted_shadow_pair(
     semantic_btrcc: Path,
     tmp_path: Path,
-    monkeypatch,
 ) -> tuple[tuple[str, Path], tuple[str, Path]]:
     data_root = tmp_path / "hosted-result-data"
     language = data_root / "language"
@@ -99,9 +102,9 @@ def _compile_hosted_shadow_pair(
     shutil.copy2(REPO / "src/language/grammar.ebnf", language / "grammar.ebnf")
     for source in (REPO / "src/stdlib").glob("*.btrc"):
         shutil.copy2(source, stdlib / source.name)
-    (stdlib / "hosted_result_probe.btrc").write_text(HOSTED_SHADOW_PROBE)
 
     program = tmp_path / "hosted-result-shadow.btrc"
+    (stdlib / "hosted_result_probe.btrc").write_text(f"import {json.dumps(str(program))};\n{HOSTED_SHADOW_PROBE}")
     program.write_text(HOSTED_SHADOW_USER)
     environment = {
         **os.environ,
@@ -120,8 +123,11 @@ def _compile_hosted_shadow_pair(
     assert selfhost.returncode == 0, selfhost.stderr
     selfhost_c.write_text(selfhost.stdout)
 
-    monkeypatch.setattr(frontend_stdlib, "_get_stdlib_dir", lambda: str(stdlib))
-    pipeline = CompilerPipeline()
+    pipeline = CompilerPipeline(
+        resolver=SourceResolver(
+            StdlibRepository(directory=str(stdlib)),
+        )
+    )
     options = CompilerOptions(
         include_stdlib=True,
         map_stdlib_positions=True,
@@ -139,11 +145,11 @@ def _compile_hosted_shadow_pair(
     reference_c.write_text(
         CEmitter().emit(
             optimize(
-                generate_ir(
+                IRLowerer(
                     analyzed,
                     debug=False,
                     source_file=program.name,
-                )
+                ).lower()
             )
         )
     )
@@ -249,9 +255,8 @@ def test_getcwd_null_result_is_adopted_without_leaking_original_allocation(
 def test_hosted_result_identity_precedes_bodyful_source_shadow_provenance(
     semantic_btrcc: Path,
     tmp_path: Path,
-    monkeypatch,
 ) -> None:
-    compiled = _compile_hosted_shadow_pair(semantic_btrcc, tmp_path, monkeypatch)
+    compiled = _compile_hosted_shadow_pair(semantic_btrcc, tmp_path)
     for _frontend, generated in compiled:
         source = generated.read_text()
         assert source.count("__btrc_str_track(strdup") >= 2

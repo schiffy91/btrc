@@ -44,7 +44,7 @@ def reject_persistent_callable_escape(
     Aggregate literals are traversed against their contextual storage type:
     every nested callback slot is ABI-erasing just like a direct field.
     """
-    callable_abi = callable_abi or (lambda expression: callable_return_abi(gen, expression))
+    callable_abi = callable_abi or (lambda expression: callable_return_abi(gen.context, expression))
     if not _contains_unsafe_managed_callback(
         gen,
         expected_type,
@@ -70,7 +70,9 @@ def reject_erasing_callable_assignment(
     if assignment.op != "=":
         return
     type_of = type_of or (lambda expression: gen.analyzed.node_types.get(id(expression)))
-    identifier_is_callable_local = identifier_is_callable_local or (lambda name: name in gen._callable_return_abis)
+    identifier_is_callable_local = identifier_is_callable_local or (
+        lambda name: name in gen.context.callable_return_abis
+    )
     identifier_is_local = identifier_is_local or gen.local_ownership_declared
     target_type = type_of(assignment.target)
     target = assignment.target
@@ -128,12 +130,10 @@ def reject_unsafe_managed_callback_arguments(
     from .errors import CodegenError
 
     if params is None:
-        from .call_contracts import resolved_params_for_call
-
-        params = resolved_params_for_call(gen, call)
+        params = gen.calls.resolver.resolved_params(call)
     if not params:
         return
-    callable_abi = callable_abi or (lambda expression: callable_return_abi(gen, expression))
+    callable_abi = callable_abi or (lambda expression: callable_return_abi(gen.context, expression))
     for param_index, argument, _is_default in bind_arg_nodes_to_params(
         params,
         call.args,

@@ -54,10 +54,10 @@ from .literal_text import format_c_integer_literal
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_expr(gen: IRGenerator, node) -> IRExpr:
+def lower_expr(gen: IRLowerer, node) -> IRExpr:
     """Lower an AST expression node to an IRExpr."""
     if node is None:
         return IRLiteral(text="0")
@@ -66,7 +66,7 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
     # The temp has already been declared and initialized; references to the
     # original AST arg node resolve to the temp so it can be released after use.
     if gen is not None:
-        override = gen._owning_temp_overrides.get(id(node))
+        override = gen.context.owning_overrides.get(id(node))
         if override is not None:
             return override
 
@@ -75,7 +75,7 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
 
     if isinstance(node, FloatLiteral):
         text = node.raw or str(node.value)
-        if getattr(gen, "_gpu_cpu_index", None) and not text.endswith(("f", "F")):
+        if gen.context.gpu_cpu_index and not text.endswith(("f", "F")):
             text += "f"
         return IRLiteral(text=text)
 
@@ -121,9 +121,7 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
         return _lower_unary(gen, node)
 
     if isinstance(node, CallExpr):
-        from .arguments_arc import lower_call_with_arc
-
-        return lower_call_with_arc(gen, node)
+        return gen.calls.lower(node)
 
     if isinstance(node, FieldAccessExpr):
         from .fields import _lower_field_access
@@ -152,19 +150,16 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
         return _lower_sizeof(gen, node)
 
     if isinstance(node, TernaryExpr):
-        from .ownership import normalize_owned_branch, owns_result
         from .typed_operators import lower_typed_ternary, operator_context
 
         true_expr = lower_expr(gen, node.true_expr)
         false_expr = lower_expr(gen, node.false_expr)
-        if owns_result(gen, node):
-            true_expr = normalize_owned_branch(
-                gen,
+        if gen.ownership.owns_result(node):
+            true_expr = gen.ownership.normalize_branch(
                 node.true_expr,
                 true_expr,
             )
-            false_expr = normalize_owned_branch(
-                gen,
+            false_expr = gen.ownership.normalize_branch(
                 node.false_expr,
                 false_expr,
             )
@@ -218,7 +213,7 @@ def lower_expr(gen: IRGenerator, node) -> IRExpr:
     raise unsupported_node("expression", node)
 
 
-def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
+def _lower_identifier(gen: IRLowerer, node: Identifier) -> IRExpr:
     """Lower an identifier, handling enum values."""
     name = node.name
     from .default_argument_context import (
@@ -231,7 +226,7 @@ def _lower_identifier(gen: IRGenerator, node: Identifier) -> IRExpr:
     if gen.local_ownership_declared(name):
         return _source_identifier_var(gen, node, gen.source_binding_c_name(name))
     if is_source_runtime_helper(name) and not gen.local_ownership_declared(name):
-        gen.use_helper(name)
+        gen.helpers.use(name)
         return IRFunctionRef(name=name)
     enum_members = getattr(gen, "_enum_lowering_members", ()) or ()
     if name in enum_members:
@@ -259,7 +254,7 @@ def _source_identifier_var(gen, node, c_name):
     )
 
 
-def _lower_sizeof(gen: IRGenerator, node: SizeofExpr) -> IRExpr:
+def _lower_sizeof(gen: IRLowerer, node: SizeofExpr) -> IRExpr:
     if isinstance(node.operand, SizeofType):
         return IRSizeof(operand=CType(text=type_to_c(node.operand.type)))
     elif isinstance(node.operand, SizeofExprOp):
@@ -270,15 +265,15 @@ def _lower_sizeof(gen: IRGenerator, node: SizeofExpr) -> IRExpr:
         # collection literals, ownership conversions) out of strict-C sizeof.
         if expression_type is not None and not expression_type.is_array and not isinstance(expression, StringLiteral):
             return IRSizeof(operand=CType(text=type_to_c(expression_type)))
-        gen._unevaluated_depth += 1
+        gen.context.unevaluated_depth += 1
         try:
             return IRSizeof(operand=lower_expr(gen, expression))
         finally:
-            gen._unevaluated_depth -= 1
+            gen.context.unevaluated_depth -= 1
     return IRSizeof(operand=CType(text="void"))
 
 
-def _lower_tuple(gen: IRGenerator, node: TupleLiteral) -> IRExpr:
+def _lower_tuple(gen: IRLowerer, node: TupleLiteral) -> IRExpr:
     """Lower tuple literal to C struct initializer."""
     from .aggregate_ownership import reject_owned_elements
     from .types import mangle_tuple_type

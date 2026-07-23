@@ -33,8 +33,8 @@ from .parameters import source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
     from .gpu_host import GpuHostLowering
+    from .lowerer import IRLowerer
 
 
 @dataclass
@@ -45,7 +45,7 @@ class GpuOutputDeclaration:
 
 
 def lower_gpu_call(
-    gen: IRGenerator,
+    gen: IRLowerer,
     function_name: str,
     ast_args: list,
     arg_names: list[str],
@@ -75,7 +75,7 @@ def lower_gpu_call(
     return _expression_local_call(arguments, call)
 
 
-def output_gpu_call_name(gen: IRGenerator, expression) -> str | None:
+def output_gpu_call_name(gen: IRLowerer, expression) -> str | None:
     if not (isinstance(expression, CallExpr) and isinstance(expression.callee, Identifier)):
         return None
     from .gpu import is_direct_gpu_call
@@ -90,7 +90,7 @@ def output_gpu_call_name(gen: IRGenerator, expression) -> str | None:
 
 
 def lower_gpu_output_declaration(
-    gen: IRGenerator,
+    gen: IRLowerer,
     call: CallExpr,
     target: IRExpr,
     *,
@@ -126,7 +126,7 @@ def lower_gpu_output_declaration(
 
 
 def lower_gpu_output_assignment(
-    gen: IRGenerator,
+    gen: IRLowerer,
     call: CallExpr,
     ast_target,
     target: IRExpr,
@@ -159,7 +159,7 @@ def lower_gpu_output_assignment(
 
 
 def _prepare_site(
-    gen: IRGenerator,
+    gen: IRLowerer,
     function_name: str,
     ast_args: list,
     arg_names: list[str],
@@ -193,7 +193,7 @@ def _prepare_site(
     return spec, arguments
 
 
-def _host(gen: IRGenerator, host: GpuHostLowering | None) -> GpuHostLowering:
+def _host(gen: IRLowerer, host: GpuHostLowering | None) -> GpuHostLowering:
     if host is not None:
         return host
     from .gpu_host import ordinary_gpu_host
@@ -201,7 +201,7 @@ def _host(gen: IRGenerator, host: GpuHostLowering | None) -> GpuHostLowering:
     return ordinary_gpu_host(gen)
 
 
-def _register_dispatch_helper(gen: IRGenerator, spec: GpuDispatchSpec) -> None:
+def _register_dispatch_helper(gen: IRLowerer, spec: GpuDispatchSpec) -> None:
     from .gpu_dispatch_model import wgsl_to_c
 
     gen.require_runtime_include("btrc_gpu.h")

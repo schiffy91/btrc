@@ -112,7 +112,7 @@ def adapt_printf_arg(
         )
 
     if format_spec == "%s":
-        gen.use_helper("__btrc_string_or_empty")
+        gen.helpers.use("__btrc_string_or_empty")
         return PrintfArg(
             format_spec=format_spec,
             value=IRCall(

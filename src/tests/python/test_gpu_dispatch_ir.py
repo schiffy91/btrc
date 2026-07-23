@@ -3,7 +3,7 @@
 import re
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     IRCall,
     IRFor,
@@ -20,7 +20,7 @@ def _generate(source: str):
     program = Parser(Lexer(source, "<gpu-dispatch-ir>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
-    return IRGenerator(analyzed).generate()
+    return IRLowerer(analyzed).lower()
 
 
 def test_dispatch_helper_contains_only_ordinary_control_and_call_nodes():

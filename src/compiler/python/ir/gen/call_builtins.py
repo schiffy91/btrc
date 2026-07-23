@@ -19,10 +19,10 @@ from .type_resolution import canonical_type
 from .types import format_spec_for_type, is_string_type
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_print(gen: IRGenerator, args: list, lowered_args: list):
+def lower_print(gen: IRLowerer, args: list, lowered_args: list):
     """Lower ``print`` to one typed ``printf`` call."""
     from .expressions import lower_expr
 
@@ -89,7 +89,7 @@ def lower_len(gen, value, value_type):
     """Lower semantic string length through the checked runtime helper."""
     resolved = canonical_type(value_type, gen.analyzed.typedef_table)
     if is_string_type(resolved):
-        gen.use_helper("__btrc_string_length")
+        gen.helpers.use("__btrc_string_length")
         return IRCall(
             callee="__btrc_string_length",
             args=[value],
@@ -117,7 +117,7 @@ _STRING_METHODS = frozenset(
 
 
 def lower_mutex_constructor(
-    gen: IRGenerator,
+    gen: IRLowerer,
     ast_args,
     ir_args,
     value_type=None,

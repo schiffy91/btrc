@@ -22,7 +22,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .call_boundary import CallOperand, sequence_call_boundary
+from .call_boundary import CallOperand
 from .prepared_values import prepare_value, prepared_value_pin_flags
 from .printf_args import adapt_printf_arg
 from .stringable import has_to_string
@@ -33,19 +33,16 @@ from .types import format_spec_for_type
 def lower_fstring(gen, node: FStringLiteral):
     """Lower a normal f-string through the shared typed implementation."""
     from .expressions import lower_expr
-    from .ownership import owns_result
     from .types import type_to_c
 
     return lower_typed_fstring(
         gen,
         node,
+        ownership=gen.ownership,
         lower_value=lambda value: lower_expr(gen, value),
         type_of=lambda value: gen.analyzed.node_types.get(id(value)),
-        owns=lambda value: owns_result(gen, value),
+        owns=lambda value: gen.ownership.owns_result(value),
         render_type=type_to_c,
-        fresh_temp=gen.fresh_temp,
-        cleanup_active=gen.exception_cleanup_active(),
-        record_decl=gen._func_var_decls.append,
     )
 
 
@@ -53,13 +50,11 @@ def lower_typed_fstring(
     gen,
     node,
     *,
+    ownership,
     lower_value,
     type_of,
     owns,
     render_type,
-    fresh_temp,
-    cleanup_active,
-    record_decl,
     activate_cleanup=None,
 ):
     """Format interpolations once and consume any caller-owned arguments."""
@@ -82,13 +77,11 @@ def lower_typed_fstring(
             gen,
             expression,
             target_type,
+            ownership=ownership,
             lower_expr=lower_value,
             type_of=type_of,
             owns_result=owns,
             render_type=render_type,
-            fresh_temp=fresh_temp,
-            cleanup_active=cleanup_active,
-            record_decl=record_decl,
             activate_cleanup=activate_cleanup,
         )
         spec = "%s" if prepared.converted else format_spec_for_type(source_type)
@@ -127,7 +120,7 @@ def lower_typed_fstring(
         for index, (expression, prepared, c_type) in enumerate(prepared_items)
     ]
 
-    gen.use_helper("__btrc_string_alloc")
+    gen.helpers.use("__btrc_string_alloc")
     string_type = TypeExpr(base="string")
 
     def build(overrides):
@@ -143,14 +136,14 @@ def lower_typed_fstring(
             formats[part_index] = adapted.format_spec
             arguments.append(adapted.value)
         fmt = IRLiteral(text=f'"{"".join(formats)}"')
-        length = fresh_temp("__fstr_len")
-        buffer = fresh_temp("__fstr_buf")
+        length = ownership.context.fresh_temp("__fstr_len")
+        buffer = ownership.context.fresh_temp("__fstr_buf")
         declarations = [
             IRVarDecl(c_type=CType(text="int"), name=length),
             IRVarDecl(c_type=CType(text="char*"), name=buffer),
         ]
         for declaration in declarations:
-            record_decl(declaration)
+            ownership.context.record_declaration(declaration)
         size = IRBinOp(
             left=IRCast(
                 target_type=CType(text="size_t"),
@@ -188,16 +181,12 @@ def lower_typed_fstring(
             result=IRCommaExpr(expressions=sequence),
         )
 
-    return sequence_call_boundary(
-        gen,
+    return ownership.boundaries.sequence(
         operands,
         lower_expr=lower_value,
         build_call=build,
         result_c_type="char*",
         result_type=string_type,
-        fresh_temp=fresh_temp,
-        cleanup_active=cleanup_active,
-        record_decl=record_decl,
         activate_cleanup=activate_cleanup,
         result_owned=True,
     )

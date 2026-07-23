@@ -83,7 +83,7 @@ def _lower_c_for(gen, node: CForStmt) -> IRStmt:
     from .variables import _lower_var_decl
 
     enclosing = begin_callable_scope(gen)
-    enclosing_closures = gen._fn_ptr_envs.copy()
+    enclosing_closures = gen.context.callable_environments.copy()
     cleanup_marker = None
     managed_scope_active = False
     local_scope_active = False
@@ -162,7 +162,7 @@ def _lower_c_for(gen, node: CForStmt) -> IRStmt:
             gen.pop_local_ownership_scope()
         if cleanup_marker is not None:
             gen.pop_cleanup_scope()
-        gen._fn_ptr_envs = enclosing_closures
+        gen.context.callable_environments = enclosing_closures
         finish_callable_scope(gen, enclosing)
 
 

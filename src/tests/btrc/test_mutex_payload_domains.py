@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.test_mutex_value_contract import _compile_reference
-from src.tests.btrc.test_semantic_validation import _compile_source
+from src.tests.btrc.test_semantic_validation import REPO, _compile_source
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
@@ -52,26 +52,6 @@ pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
             "cannot contain string or class references",
         ),
         (
-            "int main() { Mutex<Vector<int>> value; return 0; }",
-            "cannot contain runtime-owned collection storage",
-        ),
-        (
-            "int main() { Mutex<List<int>> value; return 0; }",
-            "cannot contain runtime-owned collection storage",
-        ),
-        (
-            "int main() { Mutex<Map<int, int>> value; return 0; }",
-            "cannot contain runtime-owned collection storage",
-        ),
-        (
-            "int main() { Mutex<Set<int>> value; return 0; }",
-            "cannot contain runtime-owned collection storage",
-        ),
-        (
-            "int main() { Mutex<Array<int>> value; return 0; }",
-            "cannot contain runtime-owned collection storage",
-        ),
-        (
             "struct Payload { string text; }; "
             "class Holder<T> { "
             "public Mutex<T> value; "
@@ -113,3 +93,43 @@ def test_registered_class_backed_collection_payload_is_a_managed_reference(
     )
     for result in (selfhost, reference):
         assert result.returncode == 0, result.stderr
+
+
+def test_unimported_stdlib_mutex_collection_is_rejected_by_visibility(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = "int main() { Mutex<Vector<int>> value; return 0; }"
+    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = _compile_reference(
+        tmp_path,
+        source,
+        "mutex-vector-visibility",
+    )
+    for result in (selfhost, reference):
+        assert result.returncode != 0
+        assert "'Vector' is defined in vector.btrc" in result.stderr
+        assert "does not import it" in result.stderr
+
+
+def test_imported_stdlib_mutex_collection_is_a_registered_managed_class(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = "import std.vector;\nint main() { Mutex<Vector<int>> value; return 0; }"
+    selfhost, _ = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, _ = _compile_reference(
+        tmp_path,
+        source,
+        "mutex-imported-vector",
+    )
+    for result in (selfhost, reference):
+        assert result.returncode == 0, result.stderr
+
+
+def test_selfhost_semantic_owner_keeps_unregistered_collection_contract() -> None:
+    source = (REPO / "src/compiler/btrc/semantic_validation_mutex_payloads.btrc").read_text()
+
+    assert "query == 4 && semanticMutexRuntimeCollection" in source
+    assert "!state.analyzed.isGenericClass(canonical.base)" in source
+    assert "cannot contain runtime-owned collection storage without a " in source

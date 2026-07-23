@@ -15,8 +15,6 @@ from ..nodes import (
     IRLiteral,
 )
 from .arguments import arg_names_for, lower_arg_values, order_args_for_params
-from .call_callees import materialize_callable_callee
-from .call_contracts import resolved_params_for_call
 from .expressions import lower_expr
 from .sync_methods import lower_consuming_sync_method, lower_sync_method
 from .type_resolution import canonical_type
@@ -26,7 +24,7 @@ from .types import (
 )
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 # Dispatch views over the shared string-method specification.
@@ -51,7 +49,7 @@ def _lower_string_special(gen, obj, method_name, args):
     return None
 
 
-def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
+def lower_method_call(gen: IRLowerer, node: CallExpr) -> IRExpr:
     """Lower obj.method(args) to the appropriate C call."""
     assert isinstance(node.callee, FieldAccessExpr)
     if node.callee.optional:
@@ -60,17 +58,14 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
         return lower_optional_method_call(gen, node)
     obj_node = node.callee.obj
     method_name = node.callee.field
-    params = resolved_params_for_call(gen, node)
+    params = gen.calls.resolver.resolved_params(node)
 
     # A callable field/property is an expression followed by a call, not a
     # method dispatch.  Resolve typedef aliases before deciding which ABI to
     # lower so ``obj.callback(args)`` invokes the stored function pointer.
-    from .callable_fields import callable_field_signature
-
-    signature = callable_field_signature(gen, node.callee)
+    signature = gen.calls.resolver.callable_field_signature(node.callee)
     if signature is not None:
-        return materialize_callable_callee(
-            gen,
+        return gen.calls.resolver.materialize_callee(
             node.callee,
             lower_expr(gen, node.callee),
             signature,
@@ -139,7 +134,7 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
             args.append(IRLiteral(text="NULL"))
         helper_ref = c_func if c_func.startswith("__btrc_") else None
         if helper_ref:
-            gen.use_helper(helper_ref)
+            gen.helpers.use(helper_ref)
         call = IRCall(callee=c_func, args=args, helper_ref=helper_ref)
         if cast_to:
             return IRCast(target_type=CType(text=cast_to), expr=call)
@@ -224,18 +219,18 @@ def lower_method_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
     )
 
 
-def _lower_string_method(gen: IRGenerator, obj: IRExpr, method: str, args: list[IRExpr]) -> IRExpr:
+def _lower_string_method(gen: IRLowerer, obj: IRExpr, method: str, args: list[IRExpr]) -> IRExpr:
     """Lower a string method call to a helper call."""
     helper = _STRING_METHODS[method]
-    gen.use_helper(helper)
+    gen.helpers.use(helper)
     call = IRCall(callee=helper, args=[obj] + args, helper_ref=helper)
     if method in _STRING_TRACK_METHODS:
-        gen.use_helper("__btrc_str_track")
+        gen.helpers.use("__btrc_str_track")
         return IRCall(callee="__btrc_str_track", args=[call], helper_ref="__btrc_str_track")
     return call
 
 
-def _lower_to_string(gen: IRGenerator, obj: IRExpr, obj_type, args) -> IRExpr:
+def _lower_to_string(gen: IRLowerer, obj: IRExpr, obj_type, args) -> IRExpr:
     """Lower .toString() for various types."""
     from ..nodes import IRTernary
 
@@ -256,8 +251,8 @@ def _lower_to_string(gen: IRGenerator, obj: IRExpr, obj_type, args) -> IRExpr:
             expr=IRCall(callee=f"{base}_toString", args=[obj]),
         )
     helper = _to_string_helper(base)
-    gen.use_helper(helper)
-    gen.use_helper("__btrc_str_track")
+    gen.helpers.use(helper)
+    gen.helpers.use("__btrc_str_track")
     call = IRCall(callee=helper, args=[obj], helper_ref=helper)
     return IRCall(callee="__btrc_str_track", args=[call], helper_ref="__btrc_str_track")
 

@@ -18,10 +18,10 @@ from .expressions import lower_expr
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str, bool]) -> list[IRStmt]:
+def lower_array_var_decl(gen: IRLowerer, node: VarDeclStmt, storage: dict[str, bool]) -> list[IRStmt]:
     """Lower an array declaration, including direct GPU-result readback."""
     from ...type_composition import strip_outer_storage
 
@@ -61,7 +61,7 @@ def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str,
                 storage,
                 None,
             )
-            gen._func_var_decls.append(declaration)
+            gen.context.function_declarations.append(declaration)
             from .c_array_scopes import declare_c_binding
 
             # This is a real incomplete C array, but it has no provable capacity.
@@ -75,7 +75,7 @@ def lower_array_var_decl(gen: IRGenerator, node: VarDeclStmt, storage: dict[str,
             init=IRLiteral(text="NULL"),
             **storage,
         )
-        gen._func_var_decls.append(declaration)
+        gen.context.function_declarations.append(declaration)
         from .c_array_scopes import declare_c_binding
 
         declare_c_binding(gen, node.name, is_array=False)
@@ -167,13 +167,13 @@ def _declaration(
 
 
 def _track(
-    gen: IRGenerator,
+    gen: IRLowerer,
     declaration: IRVarDecl,
     source_name: str,
     *,
     logical_length=None,
 ) -> IRVarDecl:
-    gen._func_var_decls.append(declaration)
+    gen.context.function_declarations.append(declaration)
     from .c_array_scopes import declare_c_binding
 
     declare_c_binding(

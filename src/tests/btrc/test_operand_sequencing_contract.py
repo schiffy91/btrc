@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
-from src.compiler.python.analyzer.analyzer import Analyzer
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRCommaExpr, IRStmtExpr
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -51,9 +51,9 @@ def test_eager_operands_are_structurally_sequenced() -> None:
         }
     """
     program = Parser(Lexer(source, "sequencing.btrc").tokenize()).parse()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
-    module = IRGenerator(analyzed).generate()
+    module = IRLowerer(analyzed).lower()
     nodes = list(_walk(module))
     assert sum(isinstance(node, IRStmtExpr) for node in nodes) >= 2
     assert sum(isinstance(node, IRCommaExpr) for node in nodes) >= 2

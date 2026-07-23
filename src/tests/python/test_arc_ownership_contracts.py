@@ -13,7 +13,7 @@ import pytest
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -476,7 +476,7 @@ def _emit(source: str) -> str:
     program = Parser(Lexer(source, "<arc-ownership>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert analyzed.errors == []
-    return CEmitter().emit(optimize(IRGenerator(analyzed).generate()))
+    return CEmitter().emit(optimize(IRLowerer(analyzed).lower()))
 
 
 def _asan_environment(compiler: str) -> dict[str, str] | None:

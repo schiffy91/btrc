@@ -16,15 +16,15 @@ from .try_stack import (
 )
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def _require_setjmp(gen: IRGenerator):
+def _require_setjmp(gen: IRLowerer):
     """Register the header even for try/throw nested inside lifted bodies."""
     gen.require_runtime_include("setjmp.h")
 
 
-def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
+def _lower_try_catch(gen: IRLowerer, node: TryCatchStmt) -> list[IRStmt]:
     """Lower try/catch to setjmp/longjmp boilerplate."""
     gen.in_trycatch_depth += 1
     try:
@@ -33,7 +33,7 @@ def _lower_try_catch(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
         gen.in_trycatch_depth -= 1
 
 
-def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]:
+def _lower_try_catch_inner(gen: IRLowerer, node: TryCatchStmt) -> list[IRStmt]:
     from .callable_provenance import (
         begin_exceptional_callable_capture,
         finish_exceptional_callable_capture,
@@ -44,9 +44,9 @@ def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]
     from .statements import lower_block
 
     _require_setjmp(gen)
-    gen.use_helper("__btrc_trycatch_globals")
-    gen.use_helper("__btrc_push_try")
-    gen.use_helper("__btrc_throw")
+    gen.helpers.use("__btrc_trycatch_globals")
+    gen.helpers.use("__btrc_push_try")
+    gen.helpers.use("__btrc_throw")
     stmts: list[IRStmt] = []
     finally_only = node.catch_block is None and node.finally_block is not None
     try_terminates = finally_only and block_must_terminate(node.try_block)
@@ -77,11 +77,11 @@ def _lower_try_catch_inner(gen: IRGenerator, node: TryCatchStmt) -> list[IRStmt]
         )
         gen.pop_control_context()
         gen.in_try_depth -= 1
-    if gen._used_helpers & {
+    if gen.helpers.roots & {
         "__btrc_register_cleanup",
         "__btrc_register_direct_cleanup",
     }:
-        gen.use_helper("__btrc_discard_cleanups")
+        gen.helpers.use("__btrc_discard_cleanups")
         try_body.stmts.append(
             IRExprStmt(
                 expr=IRCall(
@@ -132,8 +132,8 @@ def _catch_bindings(gen, node):
     from ...ast_nodes import TypeExpr
     from .iteration_bindings import IterationBinding
 
-    gen.use_helper("__btrc_strdup")
-    gen.use_helper("__btrc_str_track")
+    gen.helpers.use("__btrc_strdup")
+    gen.helpers.use("__btrc_str_track")
     return [
         IterationBinding(
             name=node.catch_var,
@@ -155,9 +155,9 @@ def _catch_bindings(gen, node):
     ]
 
 
-def _lower_throw(gen: IRGenerator, node: ThrowStmt) -> list[IRStmt]:
+def _lower_throw(gen: IRLowerer, node: ThrowStmt) -> list[IRStmt]:
     _require_setjmp(gen)
-    gen.use_helper("__btrc_throw")
+    gen.helpers.use("__btrc_throw")
     from .expressions import lower_expr
 
     expr = lower_expr(gen, node.expr)

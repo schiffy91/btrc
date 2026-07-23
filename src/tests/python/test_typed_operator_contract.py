@@ -9,7 +9,7 @@ import pytest
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.operator_semantics import (
     OperatorTypeError,
@@ -248,7 +248,7 @@ def test_invalid_concrete_generic_operator_fails_closed_in_codegen():
     assert not analyzed.errors
     assert program is analyzed.program
     with pytest.raises(CodegenError, match="only == and !="):
-        IRGenerator(analyzed).generate()
+        IRLowerer(analyzed).lower()
 
 
 def test_positional_generic_inheritance_fails_closed_before_comparison():

@@ -19,12 +19,12 @@ from .gpu_kernel_wgsl import generate_kernel_wgsl, kernel_status_binding
 from .gpu_wgsl import btrc_type_to_wgsl_elem
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 _WORKGROUP_SIZE = 64
 
 
-def emit_gpu_kernel(gen: IRGenerator, decl: FunctionDecl) -> None:
+def emit_gpu_kernel(gen: IRLowerer, decl: FunctionDecl) -> None:
     """Generate an IRGpuKernel for a @gpu function declaration.
 
     Translates the function body to WGSL and stores it as an IRGpuKernel.
@@ -109,7 +109,7 @@ def emit_gpu_kernel(gen: IRGenerator, decl: FunctionDecl) -> None:
     gen.module.gpu_kernels.append(kernel)
 
 
-def emit_gpu_cpu_fallback(gen: IRGenerator, decl: FunctionDecl) -> None:
+def emit_gpu_cpu_fallback(gen: IRLowerer, decl: FunctionDecl) -> None:
     """Emit per-invocation and loop-wrapper CPU fallbacks."""
 
     from .gpu_cpu_fallback import emit_gpu_cpu_fallback as emit_fallback
@@ -118,7 +118,7 @@ def emit_gpu_cpu_fallback(gen: IRGenerator, decl: FunctionDecl) -> None:
 
 
 def lower_gpu_call(
-    gen: IRGenerator,
+    gen: IRLowerer,
     func_name: str,
     ast_args: list,
     arg_names: list[str],
@@ -140,7 +140,7 @@ def lower_gpu_call(
     )
 
 
-def is_direct_gpu_call(gen: IRGenerator, node) -> bool:
+def is_direct_gpu_call(gen: IRLowerer, node) -> bool:
     """Whether an identifier kernel call is not shadowed lexically."""
 
     from ...ast_nodes import Identifier
@@ -152,11 +152,11 @@ def is_direct_gpu_call(gen: IRGenerator, node) -> bool:
         name in getattr(gen, "_gpu_kernels", {})
         and not gen.local_ownership_declared(name)
         and name not in gen.analyzed.global_var_types
-        and name not in gen._fn_ptr_envs
+        and name not in gen.context.callable_environments
     )
 
 
-def lower_direct_gpu_call(gen: IRGenerator, node):
+def lower_direct_gpu_call(gen: IRLowerer, node):
     """Lower one unshadowed kernel call without eager outer argument replay."""
 
     if not is_direct_gpu_call(gen, node):
@@ -173,6 +173,6 @@ def lower_direct_gpu_call(gen: IRGenerator, node):
     )
 
 
-def is_gpu_function(gen: IRGenerator, name: str) -> bool:
+def is_gpu_function(gen: IRLowerer, name: str) -> bool:
     """Check if a function name refers to a @gpu kernel."""
     return hasattr(gen, "_gpu_kernels") and name in gen._gpu_kernels

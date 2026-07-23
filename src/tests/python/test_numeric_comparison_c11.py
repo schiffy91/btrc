@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRBinOp, IRCast
 from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
 from src.compiler.python.lexer import Lexer
@@ -71,7 +71,7 @@ def _analyze(source: str):
 def _generate(source: str):
     analyzed = _analyze(source)
     assert analyzed.errors == []
-    return IRGenerator(analyzed).generate()
+    return IRLowerer(analyzed).lower()
 
 
 def _comparisons(module):

@@ -26,7 +26,6 @@ def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
     from .expressions import lower_expr
     from .iteration_ownership import begin_owned_iterable, finish_owned_iterable
     from .managed_values import is_managed_type
-    from .ownership import owns_result
     from .projection_storage import (
         evaluate_with_operand_overrides,
         projection_storage_operands,
@@ -37,8 +36,8 @@ def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
         node.iterable,
         type_of=lambda expression: gen.analyzed.node_types.get(id(expression)),
         is_managed=lambda type_expr: is_managed_type(gen, type_expr),
-        owns=lambda expression: owns_result(gen, expression),
-        overridden=lambda expression: id(expression) in gen._owning_temp_overrides,
+        owns=lambda expression: gen.ownership.owns_result(expression),
+        overridden=lambda expression: id(expression) in gen.context.owning_overrides,
         struct_table=gen.analyzed.struct_table,
         return_alias_argument=lambda expression: hosted_alias_argument(
             expression,
@@ -58,9 +57,9 @@ def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
             raise CodegenError("fixed-array projection storage has no concrete type")
         lowered = evaluate_with_operand_overrides(
             overrides,
-            values=gen._owning_temp_overrides,
+            values=gen.context.owning_overrides,
             types=storage_types,
-            type_values=gen._type_temp_overrides,
+            type_values=gen.context.type_overrides,
             operation=lambda expression=expression: lower_expr(gen, expression),
         )
         name = gen.fresh_temp("__array_storage")
@@ -85,9 +84,9 @@ def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
 
     projected = evaluate_with_operand_overrides(
         overrides,
-        values=gen._owning_temp_overrides,
+        values=gen.context.owning_overrides,
         types=storage_types,
-        type_values=gen._type_temp_overrides,
+        type_values=gen.context.type_overrides,
         operation=lambda: lower_expr(gen, node.iterable),
     )
     iterable = gen.fresh_temp("__iter")

@@ -43,10 +43,10 @@ def test_bodyless_static_method_keeps_foreign_return_abi():
         class_table={"Foreign": SimpleNamespace(methods={"make": method})},
         function_table={},
     )
-    gen = SimpleNamespace(analyzed=analyzed, _callable_return_abis={})
+    context = SimpleNamespace(analyzed=analyzed, callable_return_abis={})
     expression = FieldAccessExpr(obj=Identifier(name="Foreign"), field="make")
 
-    assert callable_return_abi(gen, expression) == BORROWED_RETURN
+    assert callable_return_abi(context, expression) == BORROWED_RETURN
 
 
 def test_generic_bodyless_function_return_is_promoted_to_owned():

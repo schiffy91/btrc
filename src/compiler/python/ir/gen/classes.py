@@ -42,10 +42,10 @@ from .class_visitors import emit_class_visitor
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def emit_struct_decl(gen: IRGenerator, decl: StructDecl):
+def emit_struct_decl(gen: IRLowerer, decl: StructDecl):
     """Emit a plain struct (not class) definition."""
     if decl.is_forward:
         return
@@ -91,7 +91,7 @@ def emit_struct_decl(gen: IRGenerator, decl: StructDecl):
     )
 
 
-def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
+def emit_class_decl(gen: IRLowerer, decl: ClassDecl):
     """Emit a class: struct + constructor + destructor + methods."""
     cls_info = gen.analyzed.class_table.get(decl.name)
     if not cls_info:
@@ -147,7 +147,7 @@ def emit_class_decl(gen: IRGenerator, decl: ClassDecl):
     gen.current_class_name = ""
 
 
-def _emit_class_struct(gen: IRGenerator, decl: ClassDecl, cls_info: ClassInfo):
+def _emit_class_struct(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo):
     """Emit the struct definition for a class."""
     fields: list[IRStructField] = []
 

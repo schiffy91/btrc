@@ -18,11 +18,11 @@ from .thread_values import box_thread_result
 
 if TYPE_CHECKING:
     from ...ast_nodes import TypeExpr
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 def rewrite_thread_returns(
-    gen: IRGenerator,
+    gen: IRLowerer,
     block: IRBlock,
     return_type: TypeExpr | None,
 ) -> IRBlock:

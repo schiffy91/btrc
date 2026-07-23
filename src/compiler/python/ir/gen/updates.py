@@ -179,7 +179,6 @@ def generator_update_context(gen) -> UpdateContext:
     from .expressions import lower_expr
     from .operator_context import operator_context
     from .operators import lower_overloaded_values
-    from .ownership import owns_result
     from .types import type_to_c
     from .upcast import upcast_class_pointer
     from .virtual_stores import lower_virtual_store_boundary
@@ -187,7 +186,7 @@ def generator_update_context(gen) -> UpdateContext:
     analyzed = gen.analyzed
 
     def type_of(node):
-        return gen._type_temp_overrides.get(
+        return gen.context.type_overrides.get(
             id(node),
             analyzed.node_types.get(id(node)),
         )
@@ -197,12 +196,12 @@ def generator_update_context(gen) -> UpdateContext:
         type_of=type_of,
         c_type=type_to_c,
         fresh_temp=gen.fresh_temp,
-        register_decl=gen._func_var_decls.append,
+        register_decl=gen.context.function_declarations.append,
         class_table=analyzed.class_table,
         direct_property=lambda target: bool(
             isinstance(target, FieldAccessExpr)
             and isinstance(target.obj, SelfExpr)
-            and gen.current_property_backing == target.field
+            and gen.context.current_property_backing == target.field
         ),
     )
     return UpdateContext(
@@ -219,13 +218,11 @@ def generator_update_context(gen) -> UpdateContext:
             gen,
             node,
             plan,
+            ownership=gen.ownership,
             lower_value=lambda target_type, value: _lower_assignment_value(gen, target_type, value),
             coerce=lambda target_type, source_type, value: upcast_class_pointer(gen, target_type, source_type, value),
             render_type=type_to_c,
-            fresh_temp=gen.fresh_temp,
-            cleanup_active=gen.exception_cleanup_active(),
-            record_decl=gen._func_var_decls.append,
-            owns_result=lambda value: owns_result(gen, value),
+            owns_result=lambda value: gen.ownership.owns_result(value),
         ),
         allow_unresolved_c_operands=True,
     )

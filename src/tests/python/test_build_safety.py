@@ -144,7 +144,7 @@ def test_optional_native_backends_only_skip_missing_dependencies():
 
 def test_btrcc_c_rebuilds_for_every_input_category():
     representative_inputs = [
-        "src/compiler/python/ir/gen/generator.py",
+        "src/compiler/python/ir/gen/lowerer.py",
         "src/compiler/btrc/irgen.btrc",
         "src/stdlib/vector.btrc",
         "src/language/grammar.ebnf",

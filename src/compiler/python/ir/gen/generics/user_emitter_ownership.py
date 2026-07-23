@@ -42,15 +42,9 @@ class _UserGenericOwnershipMixin:
                 return self._string_call_owns_result(expression)
             return self._known_language_call(expression)
         if isinstance(expression, AssignExpr):
-            from ..assignment_result_ownership import virtual_assignment_rhs_owns_result
-
-            rhs_owned = virtual_assignment_rhs_owns_result(
-                self._gen,
+            rhs_owned = self._virtual_assignment_rhs_owns_result(
                 expression.target,
                 expression.value,
-                type_of=self._resolve_expr_type,
-                owns=self._owns_expr,
-                direct_property=self._direct_property_target,
             )
 
             return bool(
@@ -141,6 +135,44 @@ class _UserGenericOwnershipMixin:
             isinstance(target, FieldAccessExpr)
             and isinstance(target.obj, SelfExpr)
             and self._current_property_backing == target.field
+        )
+
+    def _virtual_assignment_rhs_owns_result(self, target, value) -> bool:
+        """Whether a generic setter preserves the RHS as an owned result."""
+        from ....ast_nodes import FieldAccessExpr, IndexExpr
+        from ....index_protocol import indexed_protocol_info
+
+        if isinstance(target, IndexExpr):
+            virtual = (
+                indexed_protocol_info(
+                    self._resolve_expr_type(target.obj),
+                    self._gen.analyzed.class_table,
+                    method="set",
+                )
+                is not None
+            )
+        elif isinstance(target, FieldAccessExpr):
+            receiver_type = self._resolve_expr_type(target.obj)
+            class_info = self._gen.analyzed.class_table.get(receiver_type.base) if receiver_type is not None else None
+            virtual = bool(
+                class_info is not None
+                and target.field in class_info.properties
+                and not self._direct_property_target(target)
+            )
+        else:
+            virtual = False
+        if not virtual:
+            return False
+        if self._is_managed_type(self._resolve_expr_type(target)):
+            return True
+        if self._owns_expr(value):
+            return True
+        from ..prepared_values import requires_string_conversion
+
+        return requires_string_conversion(
+            self._gen,
+            self._resolve_expr_type(target),
+            self._resolve_expr_type(value),
         )
 
     def _known_language_call(self, expression):

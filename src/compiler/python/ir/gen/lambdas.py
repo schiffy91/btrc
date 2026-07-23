@@ -36,10 +36,10 @@ from .parameters import lower_source_param, source_binding_c_name
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
-def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRFunctionRef:
+def lower_lambda(gen: IRLowerer, node: LambdaExpr) -> IRFunctionRef:
     """Lower a lambda expression to a static function + capture struct.
 
     Returns a structured function-name reference for function-pointer use.
@@ -124,7 +124,7 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRFunctionRef:
     from .callable_provenance import BORROWED_RETURN
 
     capture_abis = [
-        (capture, gen._callable_return_abis.get(capture.name, BORROWED_RETURN)) for capture in node.captures
+        (capture, gen.context.callable_return_abis.get(capture.name, BORROWED_RETURN)) for capture in node.captures
     ]
     with isolated_function_context(gen, ret_type, return_type):
         if isinstance(node.body, LambdaBlock) and node.body.body:
@@ -190,7 +190,7 @@ def lower_lambda(gen: IRGenerator, node: LambdaExpr) -> IRFunctionRef:
 
 
 def lower_captured_lambda_local(
-    gen: IRGenerator,
+    gen: IRLowerer,
     name: str,
     initializer: LambdaExpr | None,
     statements: list[IRStmt],
@@ -211,8 +211,8 @@ def lower_captured_lambda_local(
         name=env_var,
     )
     statements.pop()
-    gen._func_var_decls.pop()
-    gen._func_var_decls.append(env_decl)
+    gen.context.function_declarations.pop()
+    gen.context.function_declarations.append(env_decl)
     statements.append(env_decl)
     for capture in initializer.captures:
         field_name = source_binding_c_name(capture.name)
@@ -223,10 +223,10 @@ def lower_captured_lambda_local(
                 value=IRVar(name=binding_name),
             )
         )
-    gen._fn_ptr_envs[name] = (fn_name, env_var)
+    gen.context.callable_environments[name] = (fn_name, env_var)
 
 
-def resolved_lambda_return_type(gen: IRGenerator, node: LambdaExpr):
+def resolved_lambda_return_type(gen: IRLowerer, node: LambdaExpr):
     """Return the analyzer-resolved lambda result type, if one is known."""
     if node.return_type:
         return node.return_type
@@ -238,7 +238,7 @@ def resolved_lambda_return_type(gen: IRGenerator, node: LambdaExpr):
     return None
 
 
-def lower_immediate_lambda_call(gen: IRGenerator, node: LambdaExpr, ast_args, arg_names) -> IRExpr:
+def lower_immediate_lambda_call(gen: IRLowerer, node: LambdaExpr, ast_args, arg_names) -> IRExpr:
     """Lift and immediately invoke ``node``, preserving its capture env."""
     lower_lambda(gen, node)
     lambda_id = gen._last_lambda_id

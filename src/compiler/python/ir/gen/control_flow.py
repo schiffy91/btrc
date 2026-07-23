@@ -20,14 +20,14 @@ from ..nodes import (
 )
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 # Re-export iteration lowering so statements.py can import from one place
 from .iterations import _lower_c_for, _lower_for_in, _lower_range_for  # noqa: F401
 from .try_control import _lower_throw, _lower_try_catch  # noqa: F401
 
 
-def _lower_if(gen: IRGenerator, node: IfStmt) -> IRIf:
+def _lower_if(gen: IRLowerer, node: IfStmt) -> IRIf:
     from .callable_provenance import (
         join_callable_flows,
         lower_isolated_callable_flow,
@@ -60,7 +60,7 @@ def _lower_if(gen: IRGenerator, node: IfStmt) -> IRIf:
     return IRIf(condition=cond, then_block=then, else_block=else_block)
 
 
-def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
+def _lower_switch(gen: IRLowerer, node: SwitchStmt) -> IRSwitch:
     from .arc import _emit_scope_release
     from .callable_provenance import (
         begin_callable_scope,
@@ -146,7 +146,7 @@ def _lower_switch(gen: IRGenerator, node: SwitchStmt) -> IRSwitch:
     return IRSwitch(value=val, cases=cases)
 
 
-def _lower_delete(gen: IRGenerator, node: DeleteStmt) -> list[IRStmt]:
+def _lower_delete(gen: IRLowerer, node: DeleteStmt) -> list[IRStmt]:
     """Lower delete through the shared take-clear destruction boundary."""
     from .managed_local import mark_borrowed_cycle_seeds
     from .manual_destruction import lower_taken_delete

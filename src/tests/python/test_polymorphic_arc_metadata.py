@@ -8,7 +8,7 @@ from src.compiler.python.ir.gen.cycle_metadata import (
     type_may_cycle,
     type_needs_visitor,
 )
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.gen.types import mangle_generic_type
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
@@ -19,14 +19,14 @@ def _generate(source: str):
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, analyzed.errors
-    return IRGenerator(analyzed).generate()
+    return IRLowerer(analyzed).lower()
 
 
-def _generator(source: str) -> IRGenerator:
+def _generator(source: str) -> IRLowerer:
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, analyzed.errors
-    return IRGenerator(analyzed)
+    return IRLowerer(analyzed)
 
 
 def test_every_concrete_managed_layout_starts_with_one_real_arc_header():

@@ -11,7 +11,7 @@ from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir import nodes as ir_nodes
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -44,7 +44,7 @@ def _generate(source: str, *, freestanding: bool = False):
     program = Parser(Lexer(source, "<ir-decls>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
-    return IRGenerator(analyzed, freestanding=freestanding).generate()
+    return IRLowerer(analyzed, freestanding=freestanding).lower()
 
 
 def test_ir_schema_has_no_raw_c_escape_nodes():

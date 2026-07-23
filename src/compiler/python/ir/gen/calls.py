@@ -1,294 +1,260 @@
-"""Call lowering: function calls, constructors, print → IR."""
+"""Call lowering with explicit target resolution and lifetime boundaries."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
-from ...ast_nodes import (
-    CallExpr,
-    FieldAccessExpr,
-    Identifier,
-    LambdaExpr,
-)
+from ...ast_nodes import CallExpr, FieldAccessExpr, Identifier, LambdaExpr
+from ...ownership_effects import owned_transfer_param_indices
 from ...source_runtime_symbols import SOURCE_RUNTIME_HELPERS
+from ...string_methods import STRING_METHODS
 from ..nodes import (
     CType,
     IRAddressOf,
     IRCall,
     IRCast,
     IRExpr,
-    IRSizeof,
     IRVar,
 )
-from .arguments import (
-    arg_names_for,
-    lower_arg_values,
-    order_args_for_params,
-    resolved_constructor_params,
-)
-from .call_builtins import lower_len, lower_mutex_constructor, lower_print
-from .call_callees import lower_callee_expression
+from .arguments import arg_names_for
+from .call_operands import CallOperandPlanner
+from .call_resolver import CallResolver
 from .errors import CodegenError
 from .function_symbols import source_function_c_name
-from .generic_intrinsics import lower_generic_intrinsic
-from .typed_operators import operator_context
-
-if TYPE_CHECKING:
-    from .generator import IRGenerator
+from .lowering_context import LoweringContext
+from .type_resolution import canonical_type
+from .types import is_string_type, mangle_generic_type, type_to_c
 
 
-def _lower_call(gen: IRGenerator, node: CallExpr) -> IRExpr:
-    """Lower a function/method call."""
-    from .callable_boundaries import reject_unsafe_managed_callback_arguments
+class CallLowerer:
+    """Lower source calls while preserving language order and ownership."""
 
-    reject_unsafe_managed_callback_arguments(gen, node)
-
-    if isinstance(node.callee, LambdaExpr):
-        from .lambdas import lower_immediate_lambda_call
-
-        return lower_immediate_lambda_call(
-            gen,
-            node.callee,
-            node.args,
-            arg_names_for(node, len(node.args)),
+    def __init__(
+        self,
+        context: LoweringContext,
+        ownership,
+        hosted_results,
+        arguments,
+        dispatch,
+    ) -> None:
+        self.context = context
+        self.ownership = ownership
+        self.hosted_results = hosted_results
+        self.arguments = arguments
+        self.dispatch = dispatch
+        self.resolver = CallResolver(context, dispatch)
+        self.operands = CallOperandPlanner(
+            context,
+            ownership,
+            self.resolver,
+            arguments,
+            hosted_results,
         )
 
-    # Method call: obj.method(args)
-    if isinstance(node.callee, FieldAccessExpr):
-        from .methods import lower_method_call
-
-        return lower_method_call(gen, node)
-
-    # Regular function call
-    if isinstance(node.callee, Identifier):
-        name = node.callee.name
-        is_local = gen.local_ownership_declared(name)
-        from .gpu import lower_direct_gpu_call
-
-        direct_gpu = lower_direct_gpu_call(gen, node)
+    def lower(self, node: CallExpr) -> IRExpr:
+        """Lower a call through a single-evaluation managed boundary."""
+        params = self.resolver.resolved_params(node)
+        self.dispatch.validate_arguments(node, params)
+        if isinstance(node.callee, FieldAccessExpr) and node.callee.optional:
+            return self._lower_plain(node, params)
+        direct_gpu = self.dispatch.lower_direct_gpu_call(node)
         if direct_gpu is not None:
             return direct_gpu
-        args = lower_arg_values(gen, node.args)
 
-        # Lexical callables shadow functions, constructors, and special forms.
-        env_info = gen._fn_ptr_envs.get(name)
-        if env_info:
-            fn_name, env_var = env_info
+        declaration = self.resolver.declaration(node)
+        result_conversion = self.hosted_results.requested_conversion(node)
+        callable_field = bool(
+            isinstance(node.callee, FieldAccessExpr) and self.resolver.callable_field_signature(node.callee) is not None
+        )
+        receiver = None if callable_field else self._instance_receiver(node)
+        operands, needs_boundary = self.operands.plan(
+            params,
+            node.args,
+            self._arg_names(node),
+            receiver=receiver,
+            callee=(node.callee if callable_field else self._evaluated_callee(node)),
+            transferred_params=owned_transfer_param_indices(declaration),
+            pin_receiver=self.ownership.receiver_pin_required(
+                receiver,
+                declared_call=declaration is not None,
+            ),
+            force_order=self._language_ordered_call(node, declaration),
+            call=node,
+        )
+        if not needs_boundary:
+            return self._with_result_conversion(
+                node,
+                self._lower_plain(node, params),
+                result_conversion,
+            )
+
+        result_type = result_conversion[1] if result_conversion is not None else self.context.type_of(node)
+
+        def build_call(overrides):
+            with self.context.operand_scope(overrides):
+                return self._with_result_conversion(
+                    node,
+                    self._lower_plain(node, params),
+                    result_conversion,
+                )
+
+        return self.ownership.boundaries.sequence(
+            operands,
+            lower_expr=self.dispatch.lower_expression,
+            build_call=build_call,
+            result_c_type=(type_to_c(result_type) if result_type is not None else None),
+            result_type=result_type,
+            opaque_result=result_type is None,
+            opaque_result_site=node,
+            promote_result=False,
+            result_owned=bool(result_conversion is not None or self.ownership.owns_result(node)),
+        )
+
+    def _lower_plain(self, node: CallExpr, params=None) -> IRExpr:
+        callee = node.callee
+        if isinstance(callee, LambdaExpr):
+            return self.dispatch.lower_immediate_lambda_call(node)
+        if isinstance(callee, FieldAccessExpr):
+            return self.dispatch.lower_method_call(node)
+        if not isinstance(callee, Identifier):
+            return self.resolver.lower_callee(
+                callee,
+                [self.dispatch.lower_expression(arg) for arg in node.args],
+            )
+
+        name = callee.name
+        args = [self.dispatch.lower_expression(arg) for arg in node.args]
+        environment = self.context.callable_environment(name)
+        if environment:
+            function_name, environment_name = environment
             args.append(
                 IRCast(
                     target_type=CType(text="void*"),
-                    expr=IRAddressOf(expr=IRVar(name=env_var)),
+                    expr=IRAddressOf(expr=IRVar(name=environment_name)),
                 )
             )
-            return IRCall(callee=fn_name, args=args)
-        if is_local or name in gen.analyzed.global_var_types:
-            return lower_callee_expression(gen, node.callee, args)
+            return IRCall(callee=function_name, args=args)
+        if self.context.local_is_declared(name) or name in self.context.analyzed.global_var_types:
+            return self.resolver.lower_callee(callee, args)
 
-        source_call = name in gen.analyzed.function_table and id(node) not in gen.analyzed.hosted_call_ids
-
-        # Inside a @gpu CPU-fallback loop, gpu_id() is the loop index.
-        if name == "gpu_id" and not source_call and getattr(gen, "_gpu_cpu_index", None):
-            return IRVar(name=gen._gpu_cpu_index)
-
+        source_call = bool(
+            name in self.context.analyzed.function_table and id(node) not in self.context.analyzed.hosted_call_ids
+        )
+        if name == "gpu_id" and not source_call and self.context.gpu_cpu_index:
+            return IRVar(name=self.context.gpu_cpu_index)
         if name in SOURCE_RUNTIME_HELPERS:
-            gen.use_helper(name)
+            self.context.helpers.use(name)
             return IRCall(callee=name, args=args, helper_ref=name)
 
-        from .gpu_cpu_builtins import lower_gpu_cpu_builtin
-
-        gpu_cpu_builtin = None if source_call else lower_gpu_cpu_builtin(gen, name, node.args, args)
-        if gpu_cpu_builtin is not None:
-            return gpu_cpu_builtin
-
-        intrinsic = lower_generic_intrinsic(
-            name,
+        special = self.dispatch.lower_special_identifier_call(
+            node,
             args,
-            [gen.analyzed.node_types.get(id(arg)) for arg in node.args],
-            operator_context(gen),
+            source_call=source_call,
         )
-        if intrinsic is not None:
-            return intrinsic
-
-        # @gpu function call → ordinary call to a generated dispatch helper
-        from .gpu import is_gpu_function, lower_gpu_call
-
-        if is_gpu_function(gen, name):
-            return lower_gpu_call(
-                gen,
-                name,
-                node.args,
-                arg_names_for(node, len(node.args)),
-                args,
-                call=node,
-            )
-
-        # Mutex(val) constructor → __btrc_mutex_val_create(boxed_val)
-        if name == "Mutex" and not source_call:
-            return lower_mutex_constructor(gen, node.args, args)
-
-        # Constructor call: ClassName(args) where ClassName is a known class
-        if name in gen.analyzed.class_table:
-            return _lower_constructor_call(
-                gen,
+        if special is not None:
+            return special
+        if name in self.context.analyzed.class_table:
+            return self._lower_constructor_call(
                 node,
-                name,
-                node.args,
-                arg_names_for(node, len(node.args)),
+                params if params is not None else self.resolver.resolved_params(node),
                 args,
             )
-
-        # Built-ins apply only when no user function has the same name
-        if name not in gen.analyzed.function_table:
-            if name == "print":
-                return lower_print(gen, node.args, args)
-            if name == "printf":
-                return IRCall(callee="printf", args=args)
-            if name == "sizeof":
-                if node.args:
-                    return IRSizeof(operand=args[0])
-                return IRSizeof(operand=CType(text="void"))
-            if name == "len" and node.args:
-                arg_type = gen.analyzed.node_types.get(id(node.args[0]))
-                return lower_len(gen, args[0], arg_type)
-
-        # Canonical hosted calls can share a spelling with a bodyful source
-        # shadow, but they retain the exact header ABI at this call site.
         if source_call:
-            args = _fill_defaults(
-                gen,
-                name,
-                node.args,
-                arg_names_for(node, len(node.args)),
-                args,
-            )
-
+            declaration = self.context.analyzed.function_table.get(name)
+            if declaration and declaration.params:
+                args = self.arguments.order(
+                    declaration.params,
+                    node.args,
+                    self._arg_names(node),
+                    args,
+                )
         return IRCall(
-            callee=source_function_c_name(gen.analyzed, name, node),
+            callee=source_function_c_name(self.context.analyzed, name, node),
             args=args,
         )
 
-    # Generic/complex callee
-    args = lower_arg_values(gen, node.args)
-    return lower_callee_expression(gen, node.callee, args)
+    def _lower_constructor_call(
+        self,
+        node: CallExpr,
+        params,
+        args: list[IRExpr],
+    ) -> IRExpr:
+        class_name = node.callee.name
+        class_info = self.context.analyzed.class_table[class_name]
+        instance_type = self.context.type_of(node)
+        callee_prefix = class_name
+        if class_info.generic_params:
+            if (
+                instance_type is None
+                or instance_type.base != class_name
+                or len(instance_type.generic_args) != len(class_info.generic_params)
+            ):
+                raise CodegenError(f"generic constructor '{class_name}()' has no concrete analyzed call type")
+            callee_prefix = mangle_generic_type(
+                class_name,
+                instance_type.generic_args,
+            )
+        if params:
+            args = self.arguments.order(
+                params,
+                node.args,
+                self._arg_names(node),
+                args,
+            )
+        return IRCall(callee=f"{callee_prefix}_new", args=args)
 
-
-def _fill_defaults(
-    gen: IRGenerator, name: str, ast_args: list, arg_names: list[str], ir_args: list[IRExpr]
-) -> list[IRExpr]:
-    """Fill in default parameter values for function calls with missing args."""
-    func_decl = gen.analyzed.function_table.get(name)
-    if not func_decl or not func_decl.params:
-        return ir_args
-    return order_args_for_params(gen, func_decl.params, ast_args, arg_names, ir_args)
-
-
-def _lower_constructor_call(
-    gen: IRGenerator,
-    node: CallExpr,
-    class_name: str,
-    args: list,
-    arg_names: list[str],
-    ir_args: list[IRExpr],
-) -> IRExpr:
-    """Lower ClassName(args) → ClassName_new(args) or btrc_ClassName_T_new(args)."""
-    from .types import mangle_generic_type
-
-    cls_info = gen.analyzed.class_table[class_name]
-    instance_type = gen.analyzed.node_types.get(id(node))
-    callee_prefix = class_name
-    params = cls_info.constructor.params if cls_info.constructor else []
-
-    if cls_info.generic_params:
-        if (
-            instance_type is None
-            or instance_type.base != class_name
-            or len(instance_type.generic_args) != len(cls_info.generic_params)
+    def _instance_receiver(self, node: CallExpr):
+        if not isinstance(node.callee, FieldAccessExpr):
+            return None
+        receiver = node.callee.obj
+        if isinstance(receiver, Identifier) and (
+            receiver.name in self.context.analyzed.class_table or receiver.name in self.context.analyzed.rich_enum_table
         ):
-            raise CodegenError(f"generic constructor '{class_name}()' has no concrete analyzed call type")
-        callee_prefix = mangle_generic_type(class_name, instance_type.generic_args)
-        if cls_info.constructor:
-            params = resolved_constructor_params(gen, cls_info, instance_type)
+            return None
+        return receiver
 
-    if params:
-        ir_args = order_args_for_params(gen, params, args, arg_names, ir_args)
-    return IRCall(callee=f"{callee_prefix}_new", args=ir_args)
+    def _evaluated_callee(self, node: CallExpr):
+        callee = node.callee
+        if isinstance(callee, Identifier):
+            return callee if self.resolver.callable_value_signature(callee) is not None else None
+        if isinstance(callee, (FieldAccessExpr, LambdaExpr)):
+            return None
+        return callee
 
+    def _language_ordered_call(self, node: CallExpr, declaration) -> bool:
+        if declaration is not None:
+            return True
+        if id(node) in self.context.analyzed.hosted_call_ids:
+            return True
+        if isinstance(node.callee, Identifier) and node.callee.name in {
+            "print",
+            "printf",
+            "Mutex",
+        }:
+            return True
+        if isinstance(node.callee, FieldAccessExpr):
+            receiver = node.callee.obj
+            if isinstance(receiver, Identifier) and receiver.name in self.context.analyzed.rich_enum_table:
+                return True
+            receiver_type = canonical_type(
+                self.context.type_of(receiver),
+                self.context.analyzed.typedef_table,
+            )
+            if is_string_type(receiver_type) and node.callee.field in STRING_METHODS:
+                return True
+            if self.ownership.types.is_mutex(receiver_type):
+                return True
+        return self.resolver.callable_signature(node.callee) is not None
 
-def get_keep_param_indices(gen: IRGenerator, node: CallExpr) -> list[int]:
-    """Return indices of parameters that have the `keep` annotation.
+    def _with_result_conversion(self, node, value, conversion):
+        if conversion is None:
+            return value
+        return self.hosted_results.lower_conversion(
+            value,
+            conversion[0],
+        )
 
-    Works for regular function calls, constructor calls, and method calls.
-    """
-    if isinstance(node.callee, FieldAccessExpr):
-        # Method call: obj.method(args)
-        obj_type = gen.analyzed.node_types.get(id(node.callee.obj))
-        if obj_type and obj_type.base in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[obj_type.base]
-            method = cls_info.methods.get(node.callee.field)
-            if method and method.params:
-                return [i for i, p in enumerate(method.params) if p.keep]
-        # Static method call: ClassName.method(args)
-        if isinstance(node.callee.obj, Identifier) and not gen.local_ownership_declared(node.callee.obj.name):
-            cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
-            if cls_info:
-                method = cls_info.methods.get(node.callee.field)
-                if method and method.params:
-                    return [i for i, p in enumerate(method.params) if p.keep]
-        return []
-
-    if isinstance(node.callee, Identifier):
-        name = node.callee.name
-        if gen.local_ownership_declared(name):
-            return []
-        # Constructor call: check constructor params
-        if name in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[name]
-            if cls_info.constructor and cls_info.constructor.params:
-                return [i for i, p in enumerate(cls_info.constructor.params) if p.keep]
-            return []
-        # Regular function
-        func_decl = gen.analyzed.function_table.get(name)
-        if func_decl and func_decl.params:
-            return [i for i, p in enumerate(func_decl.params) if p.keep]
-
-    return []
-
-
-def params_for_call(gen: IRGenerator, node: CallExpr) -> list:
-    from .call_effects import callable_for_call
-
-    declaration = callable_for_call(gen, node)
-    return declaration.params if declaration is not None else []
+    @staticmethod
+    def _arg_names(node: CallExpr) -> list[str]:
+        return arg_names_for(node, len(node.args))
 
 
-def has_keep_return(gen: IRGenerator, node: CallExpr) -> bool:
-    """Check if a call targets a function/method with `keep` return type."""
-    if isinstance(node.callee, FieldAccessExpr):
-        # Method call: obj.method(args)
-        obj_type = gen.analyzed.node_types.get(id(node.callee.obj))
-        if obj_type and obj_type.base in gen.analyzed.class_table:
-            cls_info = gen.analyzed.class_table[obj_type.base]
-            method = cls_info.methods.get(node.callee.field)
-            if method:
-                return getattr(method, "keep_return", False)
-        # Static method call: ClassName.method(args)
-        if isinstance(node.callee.obj, Identifier) and not gen.local_ownership_declared(node.callee.obj.name):
-            cls_info = gen.analyzed.class_table.get(node.callee.obj.name)
-            if cls_info:
-                method = cls_info.methods.get(node.callee.field)
-                if method:
-                    return getattr(method, "keep_return", False)
-        return False
-
-    if isinstance(node.callee, Identifier):
-        name = node.callee.name
-        if gen.local_ownership_declared(name):
-            return False
-        # Constructor calls never have keep_return — they always return rc=1
-        if name in gen.analyzed.class_table:
-            return False
-        func_decl = gen.analyzed.function_table.get(name)
-        if func_decl:
-            return getattr(func_decl, "keep_return", False)
-
-    return False
+__all__ = ["CallLowerer"]

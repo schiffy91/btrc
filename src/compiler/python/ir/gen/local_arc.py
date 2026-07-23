@@ -5,7 +5,6 @@ from __future__ import annotations
 from ...ast_nodes import AssignExpr, Identifier
 from ..nodes import IRBinOp
 from .managed_values import is_managed_type
-from .ownership import owns_result
 from .types import type_to_c
 
 
@@ -63,7 +62,7 @@ def lower_managed_slot_assignment(gen, node, target, target_type):
         value_owned=prepared.owned,
         c_type=type_to_c,
         fresh_temp=gen.fresh_temp,
-        record_decl=gen._func_var_decls.append,
+        record_decl=gen.context.function_declarations.append,
         cleanup_active=gen.exception_cleanup_active(),
     )
 
@@ -96,7 +95,7 @@ def _lower_managed_slot_compound(gen, node, target, target_type):
         commit=lambda _old, replacement: [IRBinOp(left=target, op="=", right=replacement)],
         result_expr=lambda: target,
         old_temporary_owned=False,
-        right_owned=bool(is_managed_type(gen, right_type) and owns_result(gen, node.value)),
+        right_owned=bool(is_managed_type(gen, right_type) and gen.ownership.owns_result(node.value)),
         right_keep=managed_compound_keeps_rhs(
             gen,
             target_type,
@@ -106,7 +105,7 @@ def _lower_managed_slot_compound(gen, node, target, target_type):
         release_replaced_old=True,
         c_type=type_to_c,
         fresh_temp=gen.fresh_temp,
-        record_decl=gen._func_var_decls.append,
+        record_decl=gen.context.function_declarations.append,
         cleanup_active=gen.exception_cleanup_active(),
     )
 

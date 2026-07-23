@@ -1,17 +1,17 @@
-// Collection-heavy: exercises monomorphized List/Map/Set over several element
+// Collection-heavy: exercises monomorphized Vector/Map/Set over several element
 // types, plus the functional helpers (map/filter/reduce). Stresses generic
 // instantiation in IR gen and keeps a realistic subset of stdlib reachable.
-import std.list;
+import std.vector;
 import std.map;
 import std.set;
 
 int main() {
-    List<int> xs = [1, 2, 3, 4, 5];
+    Vector<int> xs = [1, 2, 3, 4, 5];
     xs.push(6);
     int total = xs.reduce(0, (int a, int b) => a + b);
 
-    List<int> evens = xs.filter((int x) => x % 2 == 0);
-    List<int> doubled = xs.map((int x) => x * 2);
+    Vector<int> evens = xs.filter((int x) => x % 2 == 0);
+    Vector<int> doubled = xs.map((int x) => x * 2);
 
     Map<string, int> counts = {"a": 1, "b": 2, "c": 3};
     counts.set("d", 4);

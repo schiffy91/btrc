@@ -3,7 +3,6 @@
 from ....source_runtime_symbols import is_source_runtime_helper
 from ...nodes import IRCall, IRVar
 from ..call_builtins import lower_len, lower_typed_print
-from ..call_callees import materialize_callable_callee
 from ..generic_intrinsics import lower_generic_intrinsic
 from ..type_resolution import function_pointer_signature
 from ..typed_operators import operator_context
@@ -59,7 +58,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             return call
 
         declaration = self._callable_for_call(expression)
-        from ..call_effects import owned_transfer_param_indices
+        from ....ownership_effects import owned_transfer_param_indices
         from ..receiver_pinning import receiver_pin_required
         from .user_emitter_scopes import managed_local_type
 
@@ -173,7 +172,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             if constructor_call is not None:
                 return constructor_call
             if self._gen and is_source_runtime_helper(name):
-                self._gen.use_helper(name)
+                self._gen.helpers.use(name)
             if self._gen and name in self._gen.analyzed.function_table and name not in self._var_types:
                 if id(expression) not in self._gen.analyzed.hosted_call_ids:
                     args = order_generic_call_arguments(
@@ -286,8 +285,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
         )
         if signature is None:
             return IRCall(callee=callee, args=args)
-        return materialize_callable_callee(
-            self._gen,
+        return self._gen.calls.resolver.materialize_callee(
             callee_node,
             callee,
             signature,
@@ -295,4 +293,5 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             callee_materialized=id(callee_node) in self._arc_overrides,
             fresh_temp=self._fresh_temp,
             record_decl=self._func_var_decls.append,
+            overridden=lambda node: id(node) in self._arc_overrides,
         )

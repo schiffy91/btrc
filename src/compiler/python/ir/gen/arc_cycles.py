@@ -7,11 +7,11 @@ from typing import TYPE_CHECKING
 from ..nodes import IRStmt
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
     from .managed_local import ManagedLocal
 
 
-def lookup_class_info(gen: IRGenerator, class_name: str):
+def lookup_class_info(gen: IRLowerer, class_name: str):
     """Look up class metadata by source or mangled instance name."""
 
     info = gen.analyzed.class_table.get(class_name)
@@ -23,12 +23,12 @@ def lookup_class_info(gen: IRGenerator, class_name: str):
     return None
 
 
-def managed_type_has_visitor(gen: IRGenerator, class_name: str) -> bool:
+def managed_type_has_visitor(gen: IRLowerer, class_name: str) -> bool:
     """Whether normal or generic lowering provides a visitor for this C type."""
     from .managed_values import MUTEX_RUNTIME_NAME
 
     if class_name == MUTEX_RUNTIME_NAME:
-        gen.use_helper("__btrc_mutex_arc_type")
+        gen.helpers.use("__btrc_mutex_arc_type")
         return True
     from .cycle_metadata import emitted_type_has_visitor
 
@@ -43,12 +43,12 @@ def managed_type_has_visitor(gen: IRGenerator, class_name: str) -> bool:
     return False
 
 
-def managed_visitor_symbol(gen: IRGenerator, type_name: str) -> str | None:
+def managed_visitor_symbol(gen: IRLowerer, type_name: str) -> str | None:
     """Return the runtime visitor symbol for scope bookkeeping metadata."""
     from .managed_values import MUTEX_RUNTIME_NAME
 
     if type_name == MUTEX_RUNTIME_NAME:
-        gen.use_helper("__btrc_mutex_arc_type")
+        gen.helpers.use("__btrc_mutex_arc_type")
         return "__btrc_mutex_arc_visit"
     if not managed_type_has_visitor(gen, type_name):
         return None
@@ -59,7 +59,7 @@ def managed_visitor_symbol(gen: IRGenerator, type_name: str) -> str | None:
 
 def emit_phased_scope_release(
     managed: list[ManagedLocal],
-    gen: IRGenerator,
+    gen: IRLowerer,
 ) -> list[IRStmt]:
     """Compatibility entry point for the unified typed release pipeline."""
     from .arc import _emit_scope_release

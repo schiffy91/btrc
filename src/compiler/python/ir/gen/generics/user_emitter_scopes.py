@@ -164,11 +164,11 @@ def emit_try_pop(emitter, depth: int) -> list[IRStmt]:
     if depth <= 0:
         return []
     result = []
-    if emitter._gen and emitter._gen._used_helpers & {
+    if emitter._gen and emitter._gen.helpers.roots & {
         "__btrc_register_cleanup",
         "__btrc_register_direct_cleanup",
     }:
-        emitter._gen.use_helper("__btrc_discard_cleanups")
+        emitter._gen.helpers.use("__btrc_discard_cleanups")
         level = IRVar(name="__btrc_try_top")
         if depth > 1:
             level = IRBinOp(

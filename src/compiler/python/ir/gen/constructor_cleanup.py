@@ -20,9 +20,9 @@ def constructor_cleanup_guard(
     """Return registration/discard statements around a throwing init call."""
     if not program_uses_exceptions(gen):
         return [], []
-    gen.use_helper("__btrc_cleanup_mark")
-    gen.use_helper("__btrc_discard_cleanups_to")
-    gen.use_helper("__btrc_arc_abandon")
+    gen.helpers.use("__btrc_cleanup_mark")
+    gen.helpers.use("__btrc_discard_cleanups_to")
+    gen.helpers.use("__btrc_arc_abandon")
     from .cleanup_slots import register_cleanup_slot
 
     mark = gen.fresh_temp("__btrc_constructor_cleanup")

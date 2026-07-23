@@ -11,7 +11,7 @@ import pytest
 
 from src.compiler.python import Compiler
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -66,7 +66,7 @@ def _emit_collection_runtime() -> str:
         filename="<typed-collections>",
     ).analyzed
     assert not analyzed.errors
-    return CEmitter().emit(optimize(IRGenerator(analyzed).generate()))
+    return CEmitter().emit(optimize(IRLowerer(analyzed).lower()))
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")

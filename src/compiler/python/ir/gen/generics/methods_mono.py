@@ -39,7 +39,7 @@ from ..types import mangle_generic_type
 from .user_emitter import _UserGenericEmitter
 
 if TYPE_CHECKING:
-    from ..generator import IRGenerator
+    from ..lowerer import IRLowerer
 
 
 def generic_method_instance_name(class_base, class_args, method_name, method_args) -> str:
@@ -47,7 +47,7 @@ def generic_method_instance_name(class_base, class_args, method_name, method_arg
     return mangle_method_instance_symbol(class_base, class_args, method_name, method_args)
 
 
-def emit_generic_method_instances(gen: IRGenerator):
+def emit_generic_method_instances(gen: IRLowerer):
     """Emit every monomorphized generic-method function recorded by the analyzer.
 
     Each function is emitted with a combined type map binding both the class
@@ -136,5 +136,5 @@ def _emit_one_method_instance(gen, class_base, cls_info, method, class_args, met
     if class_base in PUBLIC_COLLECTION_BASES and generic_instance_needs_visitor(gen, class_base, list(class_args)):
         install_collection_topology_boundary(gen, function)
     if public_collection_method and install_function_cycle_boundary(function):
-        gen.use_helper("__btrc_flush_cycles")
+        gen.helpers.use("__btrc_flush_cycles")
     gen.module.function_defs.append(function)

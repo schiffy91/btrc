@@ -11,7 +11,7 @@ from .errors import CodegenError
 from .packing import is_pack_pragma
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 _DIRECTIVE = re.compile(r"^#\s*([A-Za-z_][A-Za-z0-9_]*)(.*)$")
 _DEFINE_NAME = re.compile(r"^\s+([A-Za-z_][A-Za-z0-9_]*)(.*)$")
@@ -21,7 +21,7 @@ _C11_TRIGRAPH = re.compile(r"\?\?[=/'()!<>-]")
 
 
 def lower_preprocessor(
-    generator: IRGenerator,
+    generator: IRLowerer,
     declaration: PreprocessorDirective,
 ) -> None:
     """Lower one directive or reject it before C emission."""

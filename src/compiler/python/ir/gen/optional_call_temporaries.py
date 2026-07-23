@@ -9,7 +9,7 @@ def optional_call_temp(gen, prefix: str, c_type: str, init=None) -> IRVarDecl:
         name=gen.fresh_temp(prefix),
         init=init,
     )
-    gen._func_var_decls.append(declaration)
+    gen.context.function_declarations.append(declaration)
     return declaration
 
 

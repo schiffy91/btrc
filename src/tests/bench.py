@@ -19,8 +19,8 @@ The harness is deterministic: it compiles each program ``--repeat`` times
 (default 5) and reports the best (minimum) timing per phase, which is the most
 stable estimator under a noisy machine. Output size is exact, not sampled.
 
-Why this exists: a trivial program used to emit the *entire* auto-included
-stdlib because dead-function elimination was a flat "referenced anywhere" scan
+Why this exists: a trivial program used to emit the *entire* resolved standard
+library because dead-function elimination was a flat "referenced anywhere" scan
 rather than a reachability walk. The ``funcs_before -> funcs_after`` column makes
 that class of regression impossible to merge unnoticed.
 """
@@ -36,10 +36,10 @@ import sys
 import tempfile
 import time
 
-from src.compiler.python.analyzer.analyzer import Analyzer
+from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.frontend.resolver import SourceResolver
 from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -86,13 +86,13 @@ def _compile_once(source: str, filename: str) -> tuple[dict[str, float], dict]:
     prof["parse"] = (time.perf_counter() - t) * 1000
 
     t = time.perf_counter()
-    analyzed = Analyzer().analyze(program)
+    analyzed = SemanticAnalyzer().analyze(program)
     prof["analyze"] = (time.perf_counter() - t) * 1000
     if analyzed.errors:
         raise RuntimeError(f"{filename}: analyzer errors: {analyzed.errors[:3]}")
 
     t = time.perf_counter()
-    ir_module = IRGenerator(analyzed).generate()
+    ir_module = IRLowerer(analyzed).lower()
     prof["ir_gen"] = (time.perf_counter() - t) * 1000
     funcs_before = len(ir_module.function_defs)
 
@@ -115,14 +115,10 @@ def _compile_once(source: str, filename: str) -> tuple[dict[str, float], dict]:
 
 
 def _prepare_source(btrc_path: str) -> tuple[str, str]:
-    """Resolve includes + auto-include stdlib, exactly as the test runner does."""
+    """Resolve the program's explicit imports exactly as the test runner does."""
     with open(btrc_path) as f:
         source = f.read()
-    source = SOURCE_RESOLVER.resolve(
-        source,
-        btrc_path,
-        strict_imports=False,
-    ).source
+    source = SOURCE_RESOLVER.resolve(source, btrc_path).source
     return source, os.path.basename(btrc_path)
 
 

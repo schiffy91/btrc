@@ -21,7 +21,7 @@ from .gpu_arguments import backed_global_array, backed_static_field, bare_array_
 from .types import type_to_c
 
 if TYPE_CHECKING:
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 @dataclass
@@ -54,7 +54,7 @@ def safe_array_size(logical_length: IRExpr) -> IRExpr:
 
 
 def assignment_target(
-    gen: IRGenerator,
+    gen: IRLowerer,
     ast_target,
     ir_target: IRExpr,
 ) -> GpuOutputTarget:
@@ -62,8 +62,6 @@ def assignment_target(
 
     target_type = gen.analyzed.node_types.get(id(ast_target))
     if is_heap_collection(target_type):
-        from .ownership import owns_result
-
         return collection_assignment_target(
             gen,
             ast_target,
@@ -71,10 +69,10 @@ def assignment_target(
             ir_target,
             render_type=type_to_c,
             fresh_temp=gen.fresh_temp,
-            record_declaration=gen._func_var_decls.append,
+            record_declaration=gen.context.function_declarations.append,
             cleanup_active=gen.exception_cleanup_active,
             activate_cleanup=gen.mark_cleanup_registration,
-            owned=bool(id(ast_target) not in gen._owning_temp_overrides and owns_result(gen, ast_target)),
+            owned=bool(id(ast_target) not in gen.context.owning_overrides and gen.ownership.owns_result(ast_target)),
         )
 
     if target_type is None or target_type.pointer_depth > 0:
@@ -103,7 +101,7 @@ def assignment_target(
             ),
             render_type=type_to_c,
             fresh_temp=gen.fresh_temp,
-            record_declaration=gen._func_var_decls.append,
+            record_declaration=gen.context.function_declarations.append,
         )
     return GpuOutputTarget(
         declarations=[],
@@ -170,9 +168,6 @@ def collection_assignment_target(
 ) -> GpuOutputTarget:
     """Pin the collection denoted by the LHS before lowering RHS effects."""
 
-    from .call_boundary_cleanup import register_temporary, release_and_clear
-    from .managed_values import retain_value
-
     temp_name = fresh_temp("__gpu_output_target")
     declaration = IRVarDecl(
         c_type=CType(text=render_type(target_type)),
@@ -183,26 +178,24 @@ def collection_assignment_target(
     declarations = [declaration]
     assignments = [IRBinOp(left=stable, op="=", right=ir_target)]
     if not owned:
-        assignments.append(retain_value(gen, stable, target_type))
-    register_temporary(
-        gen,
+        assignments.append(gen.lifetime.retain_value(stable, target_type))
+    gen.lifetime.protect_temporary(
         declaration,
         target_type,
         declarations,
         assignments,
-        fresh_temp,
-        cleanup_active(),
         "__btrc_gpu_output_cleanup",
-        activate_cleanup,
+        active=cleanup_active(),
+        fresh_temp=fresh_temp,
+        activate_cleanup=activate_cleanup,
     )
-    cleanup = release_and_clear(
-        gen,
+    cleanup = gen.lifetime.release_and_clear(
         stable,
         target_type,
         declarations,
-        fresh_temp,
-        record_declaration,
         render_type(target_type),
+        fresh_temp=fresh_temp,
+        record_declaration=record_declaration,
     )
     from ...type_composition import add_outer_pointer
 
@@ -244,7 +237,7 @@ def collection_assignment_target(
     )
 
 
-def _local_c_array_status(gen: IRGenerator, name: str) -> bool | None:
+def _local_c_array_status(gen: IRLowerer, name: str) -> bool | None:
     from .c_array_scopes import local_c_array_status
 
     return local_c_array_status(gen, name)

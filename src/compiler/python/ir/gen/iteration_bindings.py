@@ -31,7 +31,7 @@ def emit_iteration_bindings(gen, bindings) -> list[IRStmt]:
             name=binding_c_name,
             init=binding.value,
         )
-        gen._func_var_decls.append(declaration)
+        gen.context.function_declarations.append(declaration)
         result.append(declaration)
         # A loop variable may be intentionally ignored.  Keep the strict-C
         # warning contract explicit in structured IR without analyzing source

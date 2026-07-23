@@ -37,11 +37,11 @@ from .types import type_to_c
 
 if TYPE_CHECKING:
     from ...analyzer.core import ClassInfo
-    from .generator import IRGenerator
+    from .lowerer import IRLowerer
 
 
 def emit_property(
-    gen: IRGenerator,
+    gen: IRLowerer,
     declaration: ClassDecl,
     prop: PropertyDecl,
 ) -> None:
@@ -82,7 +82,7 @@ def emit_property(
 
 
 def emit_inherited_properties(
-    gen: IRGenerator,
+    gen: IRLowerer,
     declaration: ClassDecl,
     class_info: ClassInfo,
     own_properties: set[str],
@@ -173,19 +173,19 @@ def _getter_body(gen, prop, backing, prop_type):
     previous_return_type = gen.current_return_type
     previous_return_c_type = gen.current_return_c_type
     previous_return_owned = gen.current_return_owned
-    gen._func_var_decls = []
+    gen.context.function_declarations = []
     gen.current_return_c_type = prop_type
     gen.current_return_type = prop.type
     # A custom managed getter is a call-shaped projection and returns +1.
     # Borrowed branches are promoted by ordinary return lowering; freshly
     # owned branches transfer their existing reference.
     gen.current_return_owned = True
-    previous_backing = gen.current_property_backing
-    gen.current_property_backing = prop.name if property_needs_backing(prop) else None
+    previous_backing = gen.context.current_property_backing
+    gen.context.current_property_backing = prop.name if property_needs_backing(prop) else None
     try:
         body = lower_block(gen, prop.getter_body, local_bindings=["self"])
     finally:
-        gen.current_property_backing = previous_backing
+        gen.context.current_property_backing = previous_backing
         gen.current_return_type = previous_return_type
         gen.current_return_c_type = previous_return_c_type
         gen.current_return_owned = previous_return_owned
@@ -267,11 +267,11 @@ def _setter_body(gen, prop, backing, value_name):
 
     previous_return_type = gen.current_return_type
     previous_return_c_type = gen.current_return_c_type
-    gen._func_var_decls = []
+    gen.context.function_declarations = []
     gen.current_return_c_type = "void"
     gen.current_return_type = None
-    previous_backing = gen.current_property_backing
-    gen.current_property_backing = prop.name if property_needs_backing(prop) else None
+    previous_backing = gen.context.current_property_backing
+    gen.context.current_property_backing = prop.name if property_needs_backing(prop) else None
     try:
         body = lower_block(
             gen,
@@ -280,7 +280,7 @@ def _setter_body(gen, prop, backing, value_name):
             callable_bindings=[("value", prop.type)],
         )
     finally:
-        gen.current_property_backing = previous_backing
+        gen.context.current_property_backing = previous_backing
         gen.current_return_type = previous_return_type
         gen.current_return_c_type = previous_return_c_type
     return body
