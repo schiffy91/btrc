@@ -1,6 +1,7 @@
 """textDocument/codeAction provider for btrc.
 
-Two best-effort quick-fixes for an identifier that does not resolve:
+Two best-effort quick-fixes for an identifier that does not resolve or is
+hidden by strict import visibility:
 
   (a) Add import — when the name is defined by some workspace/stdlib unit that
       the active file does not currently pull in, insert the matching
@@ -11,18 +12,18 @@ Two best-effort quick-fixes for an identifier that does not resolve:
       the identifier to that name.
 
 Both fire only when confident: the import action needs an exact name->module
-hit, and the spelling action needs a unique close match. Identifiers that
-already resolve are never touched. The provider scans the identifiers that fall
+hit, and the spelling action needs a unique close match. Semantically visible
+identifiers are never touched. The provider scans the identifiers that fall
 inside the request range, so it answers the editor's lightbulb in-place.
 """
 
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 
 from lsprotocol import types as lsp
 
-from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.tokens import TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current
@@ -36,6 +37,14 @@ from src.devex.lsp.utils import (
 
 # Maximum Levenshtein distance for a "did you mean" suggestion.
 _MAX_EDIT_DISTANCE = 2
+
+
+@dataclass(frozen=True)
+class ModuleImportCandidate:
+    """One exact symbol owner that can be imported into the active file."""
+
+    spec: str
+    owner_file: str
 
 
 def _known_names(result: AnalysisResult) -> set[str]:
@@ -116,19 +125,19 @@ def _closest(name: str, candidates: list[str]) -> str | None:
 
 
 def _module_imports(result: AnalysisResult):
-    """Build {name -> import-spec-string} from workspace + stdlib units.
+    """Build symbol-to-owner candidates from workspace and stdlib units.
 
     The active file's own decls are excluded. A stdlib unit maps to
     ``std.<module>``; a workspace file maps to a relative ``"path"`` import.
     """
     from src.devex.lsp.diagnostics import WORKSPACE
 
-    stdlib_dir = os.path.abspath(StdlibRepository().directory())
+    stdlib_dir = os.path.abspath(WORKSPACE.stdlib_directory())
     active = os.path.abspath(result.path) if result.path else None
     active_dir = os.path.dirname(active) if active else None
     manifest = WORKSPACE.project_manifest(active) if active else None
     project_root = os.path.dirname(manifest) if manifest else active_dir
-    by_name: dict[str, str] = {}
+    by_name: dict[str, list[ModuleImportCandidate]] = {}
 
     def consider(path: str, defined: frozenset):
         ap = os.path.abspath(path)
@@ -138,7 +147,10 @@ def _module_imports(result: AnalysisResult):
         if spec is None:
             return
         for name in defined:
-            by_name.setdefault(name, spec)
+            candidate = ModuleImportCandidate(spec=spec, owner_file=ap)
+            candidates = by_name.setdefault(name, [])
+            if candidate not in candidates:
+                candidates.append(candidate)
 
     for unit in WORKSPACE.stdlib_units():
         consider(unit.path, unit.defined_names)
@@ -194,16 +206,17 @@ def _import_insert_line(result: AnalysisResult) -> int:
     return last  # decl.line is 1-based; inserting at this 0-based index is the next line
 
 
-def _unresolved_identifiers(result: AnalysisResult, rng: lsp.Range):
-    """Identifier tokens in *rng* that the analyzer did not resolve.
+def _actionable_identifiers(result: AnalysisResult, rng: lsp.Range):
+    """Unresolved or strict-import-hidden identifier tokens in *rng*.
 
-    A token is unresolved when it is not a known top-level symbol, not a
-    resolved occurrence (local/param/etc.), and not the tail of a member
-    access (``obj.field`` fields are not top-level names).
+    A token is actionable when strict visibility identifies its exact hidden
+    owner, or when it is not a known top-level symbol, resolved occurrence,
+    local definition, or member-access tail.
     """
     known = _known_names(result)
     index = build_index(result)
     dmap = DefinitionMap.from_result(result)
+    strict_missing = {(failure.name, failure.line, failure.col) for failure in result.visibility_failures}
     out = []
     tokens = nav_tokens(result)
     for i, tok in enumerate(tokens):
@@ -219,12 +232,14 @@ def _unresolved_identifiers(result: AnalysisResult, rng: lsp.Range):
             continue
         if i >= 1 and tokens[i - 1].value in (".", "->", "?."):
             continue  # member access tail: not a free name
-        if tok.value in known:
-            continue
-        if (tok.line, tok.col) in index.by_position:
-            continue  # resolved local/param/function by the analyzer
-        if dmap.find_var_def(tok.value, tok.line, tok.col) is not None:
-            continue  # a visible local/param/loop var (decl site or use)
+        requires_import = (tok.value, tok.line, tok.col) in strict_missing
+        if not requires_import:
+            if tok.value in known:
+                continue
+            if (tok.line, tok.col) in index.by_position:
+                continue  # resolved local/param/function by the analyzer
+            if dmap.find_var_def(tok.value, tok.line, tok.col) is not None:
+                continue  # a visible local/param/loop var (decl site or use)
         out.append(tok)
     return out
 
@@ -241,11 +256,24 @@ def get_code_actions(result: AnalysisResult, params: lsp.CodeActionParams) -> li
     existing = _existing_imports(result)
     insert_line = _import_insert_line(result)
     suggest = _suggestable_names(result)
+    failure_owners = {
+        (failure.name, failure.line, failure.col): failure.owner_file for failure in result.visibility_failures
+    }
 
-    for tok in _unresolved_identifiers(result, params.range):
+    for tok in _actionable_identifiers(result, params.range):
         name = tok.value
 
-        spec = module_imports.get(name)
+        candidates = module_imports.get(name, [])
+        owner = failure_owners.get((name, tok.line, tok.col))
+        candidate = next(
+            (
+                item
+                for item in candidates
+                if owner is None or os.path.normcase(os.path.realpath(item.owner_file)) == owner
+            ),
+            None,
+        )
+        spec = candidate.spec if candidate is not None else None
         if spec is not None and spec not in existing:
             key = ("import", spec)
             if key not in seen:

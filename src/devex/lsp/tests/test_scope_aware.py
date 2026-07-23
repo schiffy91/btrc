@@ -228,6 +228,8 @@ def test_rename_refused_on_unresolvable_identifier():
 
 
 STDLIB_USE = """\
+import std.vector;
+
 int main() {
     Vector<int> v = [1, 2, 3];
     v.push(4);

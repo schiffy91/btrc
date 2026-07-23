@@ -5,6 +5,8 @@ from src.devex.lsp.definition import get_definition
 from src.devex.lsp.tests.lsphelp import analyze, pos_of
 
 SRC = """\
+import std.{vector, map};
+
 int run(int n) {
     Vector<int> items = [1, 2, 3];
     for x in items {

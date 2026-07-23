@@ -139,6 +139,8 @@ def _result_with_current_source(
             source_positions=result.source_positions,
             path=result.path,
             units=result.units,
+            graph=result.graph,
+            visibility_failures=result.visibility_failures,
             snapshot_source=result.source,
             _caches=result._caches,
         )

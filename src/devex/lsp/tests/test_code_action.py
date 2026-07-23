@@ -4,9 +4,12 @@ import importlib
 
 from lsprotocol import types as lsp
 
+from src.compiler.python.frontend.stdlib import StdlibRepository
+from src.devex.lsp import diagnostics as diagnostics_module
 from src.devex.lsp.code_actions import _closest, _levenshtein, get_code_actions
 from src.devex.lsp.diagnostics import WORKSPACE, compute_diagnostics
 from src.devex.lsp.tests.lsphelp import analyze
+from src.devex.lsp.workspace import Workspace
 
 srv = importlib.import_module("src.devex.lsp.server")
 
@@ -67,6 +70,48 @@ def test_import_insert_for_stdlib_name():
     edits = imp[0].edit.changes[uri]
     assert edits[0].new_text == "import std.datetime;\n"
     assert edits[0].range.start.line == 0  # inserted at top (no existing imports)
+
+
+def test_strict_visibility_failure_offers_exact_stdlib_import():
+    source = "int main() { Vector<int> items = []; return items.len; }\n"
+    uri = "file:///strict-vector.btrc"
+
+    result = compute_diagnostics(uri, source)
+    actions = _actions(result, uri, 0)
+
+    assert any("does not import" in diagnostic.message for diagnostic in result.diagnostics)
+    action = next(
+        action for action in actions if action.title.startswith("Add import") and "std.vector" in action.title
+    )
+    assert action.edit.changes[uri][0].new_text == "import std.vector;\n"
+
+
+def test_explicit_stdlib_import_has_no_visibility_error_or_import_action():
+    source = "import std.vector;\nint main() { Vector<int> items = []; return items.len; }\n"
+    uri = "file:///strict-vector-imported.btrc"
+
+    result = compute_diagnostics(uri, source)
+    actions = _actions(result, uri, 1)
+
+    assert not any("does not import" in diagnostic.message for diagnostic in result.diagnostics)
+    assert not any(action.title.startswith("Add import") for action in actions)
+
+
+def test_import_action_uses_the_workspace_owned_stdlib(tmp_path, monkeypatch):
+    stdlib = tmp_path / "stdlib"
+    stdlib.mkdir()
+    (stdlib / "custom.btrc").write_text("class CustomStdlib {}\n")
+    workspace = Workspace(stdlib=StdlibRepository(directory=str(stdlib)))
+    monkeypatch.setattr(diagnostics_module, "WORKSPACE", workspace)
+    source = "int main() { CustomStdlib value = CustomStdlib(); return 0; }\n"
+    uri = (tmp_path / "main.btrc").as_uri()
+
+    result = diagnostics_module.compute_diagnostics(uri, source)
+    actions = _actions(result, uri, 0)
+
+    action = next(action for action in actions if action.title.startswith("Add import"))
+    assert "std.custom" in action.title
+    assert action.edit.changes[uri][0].new_text == "import std.custom;\n"
 
 
 def test_import_insert_for_sibling_file(tmp_path):

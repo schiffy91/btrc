@@ -50,7 +50,7 @@ def test_signature_zero_arguments_active_param_zero():
 
 
 def test_completion_stdlib_class_static_methods_offered():
-    src = 'int main() { string s = Strings.copy("x"); return 0; }\n'
+    src = 'import std.strings;\nint main() { string s = Strings.copy("x"); return 0; }\n'
     names = {i.label for i in get_completions(analyze(src), pos_of(src, "Strings.copy", offset=8))}
     assert names
 

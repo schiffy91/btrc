@@ -10,17 +10,17 @@ from src.compiler.python.ast_nodes import ClassDecl, StructDecl
 from src.compiler.python.source_io import SourceReadError
 from src.devex.lsp import unit_cache, units
 from src.devex.lsp import workspace as workspace_module
-from src.devex.lsp.units import _UNIT_CACHE_VERSION, parse_unit
+from src.devex.lsp.units import _UNIT_CACHE_VERSION, FileUnit
 from src.devex.lsp.workspace import Workspace
 
 
 def _source() -> str:
-    return "struct CacheOpaque;\nclass CacheProbe { public int value; public CacheProbe() {} }\n"
+    return "import std.vector;\nstruct CacheOpaque;\nclass CacheProbe { public int value; public CacheProbe() {} }\n"
 
 
 def test_json_unit_cache_roundtrip_is_deterministic(tmp_path):
-    unit = parse_unit(str(tmp_path / "probe.btrc"), _source())
-    relocated = parse_unit(str(tmp_path / "elsewhere" / "probe.btrc"), _source())
+    unit = FileUnit.parse(str(tmp_path / "probe.btrc"), _source())
+    relocated = FileUnit.parse(str(tmp_path / "elsewhere" / "probe.btrc"), _source())
     first = tmp_path / "first.json"
     second = tmp_path / "second.json"
 
@@ -36,22 +36,23 @@ def test_json_unit_cache_roundtrip_is_deterministic(tmp_path):
     class_decl = next(decl for decl in loaded.decls if isinstance(decl, ClassDecl))
     assert forward.is_forward is True
     assert class_decl.members[-1].is_constructor is True
+    assert loaded.dependencies == unit.dependencies
     assert loaded.defined_names == unit.defined_names
     assert loaded.source == "" and loaded.tokens == []
 
 
 def test_unit_cache_version_covers_frontend_schema(monkeypatch):
     monkeypatch.setattr(units, "toolchain_hash", lambda _scope: "frontend-a")
-    first = units._compute_unit_cache_version()
+    first = units.FileUnitCacheSchema.current_version()
     monkeypatch.setattr(units, "toolchain_hash", lambda _scope: "frontend-b")
-    second = units._compute_unit_cache_version()
+    second = units.FileUnitCacheSchema.current_version()
 
     assert first != second
 
 
 def test_cache_rebinds_source_path_instead_of_reusing_stored_path(tmp_path):
     source = _source()
-    original = parse_unit(str(tmp_path / "original.btrc"), source)
+    original = FileUnit.parse(str(tmp_path / "original.btrc"), source)
     cached = tmp_path / "unit.json"
     unit_cache.store_unit(str(cached), original)
 
@@ -84,25 +85,45 @@ def test_pickle_payload_at_current_cache_path_is_never_executed(tmp_path, monkey
     assert loaded is not None
     assert not marker.exists()
     with open(path, encoding="utf-8") as cache_file:
-        assert json.load(cache_file)["schema"] == 1
+        assert json.load(cache_file)["schema"] == unit_cache._SCHEMA_VERSION
 
 
 def test_unknown_schema_and_ast_node_are_rejected(tmp_path):
-    source_hash = parse_unit("/probe.btrc", _source()).content_hash
+    source_hash = FileUnit.parse("/probe.btrc", _source()).content_hash
     path = tmp_path / "unit.json"
     base = {
         "content_hash": source_hash,
         "decls": [],
+        "dependencies": [],
         "defined_names": [],
         "schema": 999,
     }
     path.write_text(json.dumps(base))
     assert unit_cache.load_unit(str(path), "/probe.btrc", source_hash) is None
 
-    base["schema"] = 1
+    base["schema"] = unit_cache._SCHEMA_VERSION
     base["decls"] = [{"fields": {}, "type": "NotAnAstClass"}]
     path.write_text(json.dumps(base))
     assert unit_cache.load_unit(str(path), "/probe.btrc", source_hash) is None
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    (
+        lambda dependency: dependency.update(kind="not-a-dependency-kind"),
+        lambda dependency: dependency.update(spec=unit_cache.encode_ast(ClassDecl(name="NotAnImportSpec"))),
+    ),
+    ids=("invalid-kind", "invalid-import-spec-ast"),
+)
+def test_corrupt_cached_dependencies_are_rejected(tmp_path, mutate):
+    unit = FileUnit.parse(str(tmp_path / "probe.btrc"), _source())
+    path = tmp_path / "unit.json"
+    unit_cache.store_unit(str(path), unit)
+    payload = json.loads(path.read_text())
+    mutate(payload["dependencies"][0])
+    path.write_text(json.dumps(payload))
+
+    assert unit_cache.load_unit(str(path), unit.path, unit.content_hash) is None
 
 
 def test_parse_failures_are_not_persisted_as_successful_units(tmp_path, monkeypatch):

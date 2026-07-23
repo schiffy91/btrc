@@ -19,9 +19,14 @@ from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import AnalyzedProgram
 from src.compiler.python.ast_nodes import Program
+from src.compiler.python.frontend.dependencies import SourceDependencyGraph
+from src.compiler.python.frontend.visibility import (
+    ImportVisibilityChecker,
+    ImportVisibilityFailure,
+)
 from src.compiler.python.tokens import Token
 from src.devex.lsp.text_coordinates import protocol_range
-from src.devex.lsp.units import FileUnit, unit_line_index
+from src.devex.lsp.units import FileUnit
 from src.devex.lsp.workspace import Workspace
 
 # Process-wide workspace: unit caches survive across documents and requests.
@@ -46,6 +51,8 @@ class AnalysisResult:
     source_positions: list[tuple[str, int]] = field(default_factory=list)  # legacy, unused
     path: str = ""
     units: list[FileUnit] = field(default_factory=list)  # active + imported (with tokens)
+    graph: SourceDependencyGraph = field(default_factory=SourceDependencyGraph)
+    visibility_failures: tuple[ImportVisibilityFailure, ...] = ()
     # When the server swaps `source` to the live (mid-edit) buffer, this holds
     # the source the tokens/ast were computed from. None means source IS the
     # analyzed snapshot.
@@ -146,7 +153,7 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
         return result
 
     result.tokens = active.tokens or None
-    token_index = unit_line_index(active) if active.tokens else None
+    token_index = active.token_index() if active.tokens else None
     if active.lex_error:
         e = active.lex_error
         result.diagnostics.append(_make_diagnostic(e.line, e.col, str(e), token_index=token_index, source_text=source))
@@ -165,13 +172,7 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
     # Identical composition (same active text, same imports, same stdlib) →
     # reuse the previous snapshot outright. Re-analyzing the same AST twice is
     # both wasted work and unsafe: the analyzer upgrades types in place.
-    fingerprint = (
-        uri,
-        active.content_hash,
-        tuple((u.path, u.content_hash) for u in comp.imported),
-        tuple(u.path for u in comp.stdlib),
-        tuple(comp.import_errors),
-    )
+    fingerprint = comp.snapshot_fingerprint(uri)
     cached = WORKSPACE.get_snapshot(path)
     if cached is not None and cached[0] == fingerprint:
         return cached[1]
@@ -181,6 +182,25 @@ def compute_diagnostics(uri: str, source: str) -> AnalysisResult:
 
     result.ast = comp.program
     result.units = comp.units_with_tokens()
+    result.graph = comp.graph
+
+    visibility_failures = ImportVisibilityChecker(
+        comp.program,
+        (),
+        comp.graph,
+        external_symbol_files=WORKSPACE.stdlib_symbol_files(),
+    ).failures(active_file=path)
+    result.visibility_failures = tuple(visibility_failures)
+    for failure in visibility_failures:
+        result.diagnostics.append(
+            _make_diagnostic(
+                failure.line,
+                failure.col,
+                failure.message,
+                token_index=token_index,
+                source_text=source,
+            )
+        )
 
     try:
         result.analyzed = WORKSPACE.analyze(comp)

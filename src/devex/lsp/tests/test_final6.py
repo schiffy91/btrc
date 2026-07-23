@@ -36,7 +36,7 @@ def test_semantic_tokens_new_constructor_and_generic():
 def test_completion_stdlib_class_dedup():
     # Strings is both in the analyzed class_table and the stdlib static table;
     # the dedup loop avoids duplicate labels.
-    src = 'int main() { string s = Strings.copy("x"); return 0; }\n'
+    src = 'import std.strings;\nint main() { string s = Strings.copy("x"); return 0; }\n'
     items = get_completions(analyze(src), pos_of(src, "Strings.copy", offset=8))
     labels = [i.label for i in items]
     assert len(labels) == len(set(labels))  # no duplicates

@@ -134,6 +134,7 @@ def test_parenthesis_text_inside_string_is_not_a_call():
 
 def test_collection_commas_do_not_advance_active_parameter():
     source = (
+        "import std.vector;\n"
         "int choose(Vector<int> values, int fallback, int extra) { return fallback; }\n"
         "int main() { return choose([1, 2], 3, 4); }\n"
     )

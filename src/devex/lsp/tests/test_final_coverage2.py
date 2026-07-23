@@ -93,7 +93,7 @@ def test_definition_property_access():
 
 
 def test_completion_after_stdlib_class_name():
-    src = "int main() { int x = Math.abs(-3); return x; }\n"
+    src = "import std.math;\nint main() { int x = Math.abs(-3); return x; }\n"
     names = {i.label for i in get_completions(analyze(src), pos_of(src, "Math.abs", offset=5))}
     assert names  # Math.* static methods offered
 

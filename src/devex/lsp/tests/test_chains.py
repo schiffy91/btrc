@@ -71,6 +71,8 @@ def test_completion_after_chain():
 
 
 GENERIC_BUILTIN_SRC = """\
+import std.map;
+
 int main() {
     string text = "a,b";
     int splitCount = text.split(",").len;

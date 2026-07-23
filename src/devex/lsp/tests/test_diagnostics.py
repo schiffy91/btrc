@@ -16,8 +16,16 @@ def test_clean_source_has_no_diagnostics():
     assert r.ast is not None and r.analyzed is not None
 
 
-def test_diagnostics_use_compiler_stdlib_context():
-    r = analyze("int main() { Vector<int> xs = []; xs.push(1); return xs.len; }\n")
+def test_unimported_stdlib_symbol_reports_strict_visibility_error():
+    r = analyze("int main() { Vector<int> xs = []; return xs.len; }\n")
+
+    assert any("'Vector' is defined in vector.btrc" in message for message in _msgs(r))
+    assert r.analyzed is not None
+    assert "Vector" in r.analyzed.class_table
+
+
+def test_explicit_stdlib_import_preserves_seeded_analysis_context():
+    r = analyze("import std.vector;\nint main() { Vector<int> xs = []; xs.push(1); return xs.len; }\n")
     assert r.diagnostics == []
     assert r.analyzed is not None
     assert "Vector" in r.analyzed.class_table

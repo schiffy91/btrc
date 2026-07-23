@@ -6,6 +6,8 @@ from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.tests.lsphelp import analyze, hover_text, pos_of
 
 SRC = """\
+import std.vector;
+
 class Box { public int v; public Box(int v) { self.v = v; } }
 Box make(int v) { return Box(v); }
 

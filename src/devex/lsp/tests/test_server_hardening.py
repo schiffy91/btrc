@@ -238,7 +238,7 @@ def test_stdlib_base_cache_is_lru_capped():
 def test_unit_cache_version_is_content_derived():
     v = units_mod._UNIT_CACHE_VERSION
     assert re.fullmatch(r"[0-9a-f]{16}", v), v  # a hash, not a hand-bumped counter
-    assert units_mod._compute_unit_cache_version() == v  # deterministic
+    assert units_mod.FileUnitCacheSchema.current_version() == v  # deterministic
     assert v != units_mod.toolchain_hash("frontend")  # LSP codec/extraction included
 
 

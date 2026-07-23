@@ -44,6 +44,27 @@ class ImportReference:
     col: int
 
 
+@dataclass(frozen=True)
+class ImportVisibilityFailure:
+    """One reference whose defining source is not reachable."""
+
+    name: str
+    source_file: str
+    owner_file: str
+    line: int
+    col: int
+
+    @property
+    def message(self) -> str:
+        return (
+            f"'{self.name}' is defined in {os.path.basename(self.owner_file)} but "
+            f"{os.path.basename(self.source_file)} does not import it"
+        )
+
+    def as_diagnostic(self) -> tuple[str, int, int]:
+        return self.message, self.line, self.col
+
+
 class ImportReferenceCollector:
     """Collect top-level references while respecting lexical scopes."""
 
@@ -205,6 +226,15 @@ class ImportVisibilityChecker:
             return self.provenance[line - 1]
         return None
 
+    def _declaration_file(self, declaration: Any) -> str | None:
+        """Resolve provenance, falling back to native per-file AST metadata."""
+
+        return self._line_file(getattr(declaration, "line", 0)) or getattr(
+            declaration,
+            "source_file",
+            None,
+        )
+
     def _symbol_files(self) -> dict[str, set[str]]:
         symbols = {
             name: {SourceDependencyGraph.canonical_file(path) for path in paths}
@@ -217,7 +247,7 @@ class ImportVisibilityChecker:
                 name = self._decl_name(declaration)
             else:
                 continue
-            source_file = self._line_file(getattr(declaration, "line", 0))
+            source_file = self._declaration_file(declaration)
             if not source_file:
                 continue
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
@@ -252,21 +282,28 @@ class ImportVisibilityChecker:
         collector.visit(declaration)
         return collector.refs
 
-    def check(self) -> list[tuple[str, int, int]]:
-        """Return visibility failures as ``(message, line, col)`` tuples."""
+    def failures(
+        self,
+        *,
+        active_file: str | None = None,
+    ) -> list[ImportVisibilityFailure]:
+        """Return structured references hidden by missing imports."""
 
         symbol_files = self._symbol_files()
         reachable_cache: dict[str, set[str]] = {}
-        errors: list[tuple[str, int, int]] = []
+        failures: list[ImportVisibilityFailure] = []
+        canonical_active = SourceDependencyGraph.canonical_file(active_file) if active_file is not None else None
 
         for declaration in self.program.declarations:
             if not isinstance(declaration, _REFERENCE_DECLS):
                 continue
-            source_file = self._line_file(getattr(declaration, "line", 0))
+            source_file = self._declaration_file(declaration)
             if source_file is None:
                 continue
             display_file = os.path.abspath(source_file)
             canonical_file = SourceDependencyGraph.canonical_file(source_file)
+            if canonical_active is not None and canonical_file != canonical_active:
+                continue
             reachable = reachable_cache.setdefault(
                 canonical_file,
                 self.graph.visibility_reachable(canonical_file),
@@ -280,13 +317,18 @@ class ImportVisibilityChecker:
                 declaring = symbol_files.get(reference.name)
                 if not declaring or declaring & reachable:
                     continue
-                owner = os.path.basename(sorted(declaring)[0])
-                errors.append(
-                    (
-                        f"'{reference.name}' is defined in {owner} but "
-                        f"{os.path.basename(display_file)} does not import it",
-                        reference.line,
-                        reference.col,
+                failures.append(
+                    ImportVisibilityFailure(
+                        name=reference.name,
+                        source_file=display_file,
+                        owner_file=sorted(declaring)[0],
+                        line=reference.line,
+                        col=reference.col,
                     )
                 )
-        return errors
+        return failures
+
+    def check(self, *, active_file: str | None = None) -> list[tuple[str, int, int]]:
+        """Return visibility failures as ``(message, line, col)`` tuples."""
+
+        return [failure.as_diagnostic() for failure in self.failures(active_file=active_file)]

@@ -74,7 +74,7 @@ def test_references_exclude_declaration_for_class():
 
 
 def test_completion_static_methods_after_stdlib_class():
-    src = 'int main() { string s = Strings.repeat("a", 2); return 0; }\n'
+    src = 'import std.strings;\nint main() { string s = Strings.repeat("a", 2); return 0; }\n'
     names = {i.label for i in get_completions(analyze(src), pos_of(src, "Strings.repeat", offset=8))}
     assert "repeat" in names
 

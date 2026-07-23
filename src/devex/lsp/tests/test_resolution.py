@@ -8,6 +8,8 @@ from src.devex.lsp.references import get_references
 from src.devex.lsp.tests.lsphelp import analyze, hover_text, pos_of
 
 SRC = """\
+import std.vector;
+
 class Animal {
     public string name;
     public Animal(string name) { self.name = name; }
@@ -45,17 +47,17 @@ def test_sample_is_clean():
 
 
 def test_definition_own_overridden_method():
-    # d.speak() → Dog's own override on line 9
-    assert _def_line("d.speak", offset=2) == 9
+    # d.speak() → Dog's own override on line 11
+    assert _def_line("d.speak", offset=2) == 11
 
 
 def test_definition_inherited_field_walks_parent():
-    # d.name → inherited field declared in Animal on line 1
-    assert _def_line("d.name", offset=2) == 1
+    # d.name → inherited field declared in Animal on line 3
+    assert _def_line("d.name", offset=2) == 3
 
 
 def test_definition_own_method():
-    assert _def_line("d.legCount", offset=2) == 10
+    assert _def_line("d.legCount", offset=2) == 12
 
 
 def test_hover_inherited_field():
@@ -67,7 +69,7 @@ def test_references_of_field_across_class():
     # `name` field: declaration + self.name (x2) + d.name
     refs = get_references(analyze(SRC), pos_of(SRC, "public string name", offset=14), include_declaration=True)
     lines = {r.range.start.line for r in refs}
-    assert {1, 2, 8, 16} <= lines
+    assert {3, 4, 10, 18} <= lines
 
 
 def test_member_completion_includes_inherited():

@@ -8,34 +8,44 @@ from lsprotocol import types as lsp
 from src.compiler.python.ast_nodes import (
     FunctionDecl,
     ImportDecl,
+    Program,
     RelativePath,
     StdModules,
+)
+from src.compiler.python.frontend.dependencies import (
+    SourceDependencyGraph,
+    SourceDependencyKind,
 )
 from src.devex.lsp.definition import get_definition
 from src.devex.lsp.diagnostics import compute_diagnostics
 from src.devex.lsp.hover import get_hover_info
 from src.devex.lsp.tests.lsphelp import pos_of
-from src.devex.lsp.units import parse_unit
-from src.devex.lsp.workspace import Workspace
+from src.devex.lsp.units import FileUnit
+from src.devex.lsp.workspace import Composition, Workspace
 
 srv = importlib.import_module("src.devex.lsp.server")
 
 
-def test_parse_unit_reads_import_specs_in_native_coordinates():
-    src = "import std.vector\nimport ./lib/*;\n\nint main() { return 0; }\n"
-    unit = parse_unit("/x/main.btrc", src)
-    # import_specs hold parsed spec nodes keyed by their real 1-based line.
-    lines = [line for line, _ in unit.import_specs]
-    specs = [spec for _, spec in unit.import_specs]
-    assert lines == [1, 2]
+def test_file_unit_reads_typed_dependencies_in_native_coordinates():
+    src = 'import std.vector\n#include "legacy.btrc"\nimport ./lib/*;\n\nint main() { return 0; }\n'
+    unit = FileUnit.parse("/x/main.btrc", src)
+    dependencies = list(unit.dependencies)
+    assert [dependency.line for dependency in dependencies] == [1, 2, 3]
+    specs = [dependency.spec for dependency in dependencies]
     assert specs[0] == StdModules(names=["vector"])
-    assert specs[1] == RelativePath(path="./lib/*")
+    assert specs[1] == RelativePath(path="legacy.btrc")
+    assert specs[2] == RelativePath(path="./lib/*")
+    assert [dependency.kind for dependency in dependencies] == [
+        SourceDependencyKind.IMPORT,
+        SourceDependencyKind.INCLUDE,
+        SourceDependencyKind.IMPORT,
+    ]
     assert unit.error is None
     # Files parse as-is (no blanking): ImportDecl nodes carry native lines and
-    # main() keeps its real line (4).
-    assert [d.line for d in unit.decls if isinstance(d, ImportDecl)] == [1, 2]
+    # main() keeps its real line (5).
+    assert [d.line for d in unit.decls if isinstance(d, ImportDecl)] == [1, 3]
     main = next(d for d in unit.decls if isinstance(d, FunctionDecl))
-    assert main.line == 4
+    assert main.line == 5
     assert main.source_file == "/x/main.btrc"
 
 
@@ -43,7 +53,7 @@ def test_parse_unit_name_positions_land_on_names():
     # The name-span side-table was retired: each decl/member carries its own
     # name_line/name_col, populated by the parser and read directly.
     src = "class Point {\n    public int x;\n    public int getX() { return self.x; }\n}\n"
-    unit = parse_unit("/x/p.btrc", src)
+    unit = FileUnit.parse("/x/p.btrc", src)
     cls = unit.decls[0]
     assert (cls.name_line, cls.name_col) == (1, 7)  # 'Point'
     field, method = cls.members[0], cls.members[1]
@@ -94,6 +104,45 @@ def test_missing_import_diagnosed_on_import_line(tmp_path):
     assert any(d.range.start.line == 0 for d in r.diagnostics)
 
 
+def test_visibility_diagnostics_are_scoped_to_the_active_file(tmp_path):
+    library = tmp_path / "library.btrc"
+    library_source = "int count(Vector<int> values) { return values.len; }\n"
+    library.write_text(library_source)
+    main = tmp_path / "main.btrc"
+    main_source = "import ./library.btrc;\nint main() { return 0; }\n"
+    main.write_text(main_source)
+
+    main_result = compute_diagnostics(main.as_uri(), main_source)
+    library_result = compute_diagnostics(library.as_uri(), library_source)
+
+    assert not any("library.btrc does not import" in diagnostic.message for diagnostic in main_result.diagnostics)
+    assert any("library.btrc does not import" in diagnostic.message for diagnostic in library_result.diagnostics)
+
+
+def test_composition_fingerprint_includes_dependency_topology(tmp_path):
+    active = FileUnit.parse(str(tmp_path / "main.btrc"), "int main() { return 0; }\n")
+    imported = FileUnit.parse(str(tmp_path / "dep.btrc"), "class Dependency {}\n")
+
+    import_graph = SourceDependencyGraph()
+    import_graph.add_import(active.path, imported.path)
+    include_graph = SourceDependencyGraph()
+    include_graph.add_include(active.path, imported.path)
+
+    def composition(graph):
+        return Composition(
+            active=active,
+            imported=[imported],
+            stdlib=[],
+            program=Program(declarations=active.decls + imported.decls),
+            import_errors=[],
+            graph=graph,
+        )
+
+    assert composition(import_graph).snapshot_fingerprint("file:///main.btrc") != composition(
+        include_graph
+    ).snapshot_fingerprint("file:///main.btrc")
+
+
 def test_imported_units_are_cached_across_keystrokes(tmp_path):
     main, source = _write_project(tmp_path)
     w = Workspace()
@@ -110,6 +159,7 @@ def test_seeded_analysis_matches_full_analysis(tmp_path):
 
     main = tmp_path / "main.btrc"
     source = (
+        "import std.vector;\n"
         "int main() {\n"
         "    var v = Vector(3);\n"
         "    v.push(1.5);\n"

@@ -16,42 +16,96 @@ from __future__ import annotations
 
 import hashlib
 import os
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
-from src.compiler.python.ast_nodes import ImportDecl
+from src.compiler.python.ast_nodes import (
+    ImportDecl,
+    PreprocessorDirective,
+    RelativePath,
+    import_spec,
+)
 from src.compiler.python.cache_keys import toolchain_hash
+from src.compiler.python.frontend.dependencies import SourceDependencyKind
 from src.compiler.python.frontend.stdlib import StdlibRepository
+from src.compiler.python.import_scan import CINCLUDE_BTRC_RE
 from src.compiler.python.lexer import Lexer, LexerError
 from src.compiler.python.parser.core import ParseError
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.tokens import Token, TokenType
 
 
-def _compute_unit_cache_version() -> str:
-    """Content hash of every source that shapes a serialized ``FileUnit``.
+class FileUnitCacheSchema:
+    """Own the derived identity of serialized per-file parse results."""
 
-    Derived (not hand-bumped) so stale cached units are impossible: any edit
-    to the grammar, the ASDL/AST, the lexer, the token definitions, or the
-    parser changes the hash and orphans old entries. LSP unit extraction and
-    the JSON codec are included in addition to the compiler frontend hash.
-    """
-    digest = hashlib.sha256(toolchain_hash("frontend").encode())
-    lsp_dir = os.path.dirname(__file__)
-    for name in ("unit_cache.py", "units.py"):
-        encoded_name = name.encode()
-        digest.update(len(encoded_name).to_bytes(8, "big"))
-        digest.update(encoded_name)
-        try:
-            with open(os.path.join(lsp_dir, name), "rb") as source_file:
-                content = source_file.read()
-        except OSError:
-            content = b"<missing>"
-        digest.update(len(content).to_bytes(8, "big"))
-        digest.update(content)
-    return digest.hexdigest()[:16]
+    _SOURCE_FILES = ("unit_cache.py", "units.py")
+
+    @classmethod
+    def current_version(cls) -> str:
+        """Hash every source contract that shapes a serialized ``FileUnit``."""
+
+        digest = hashlib.sha256(toolchain_hash("frontend").encode())
+        lsp_dir = os.path.dirname(__file__)
+        for name in cls._SOURCE_FILES:
+            encoded_name = name.encode()
+            digest.update(len(encoded_name).to_bytes(8, "big"))
+            digest.update(encoded_name)
+            try:
+                with open(os.path.join(lsp_dir, name), "rb") as source_file:
+                    content = source_file.read()
+            except OSError:
+                content = b"<missing>"
+            digest.update(len(content).to_bytes(8, "big"))
+            digest.update(content)
+        return digest.hexdigest()[:16]
 
 
-_UNIT_CACHE_VERSION = _compute_unit_cache_version()
+_UNIT_CACHE_VERSION = FileUnitCacheSchema.current_version()
+
+
+@dataclass(frozen=True)
+class FileDependency:
+    """One parsed source dependency in its native file coordinates."""
+
+    line: int
+    spec: import_spec
+    kind: SourceDependencyKind
+
+
+@dataclass(frozen=True)
+class FileDependencies:
+    """Typed dependencies extracted from one file's declarations."""
+
+    entries: tuple[FileDependency, ...] = ()
+
+    @classmethod
+    def from_declarations(cls, declarations: list) -> FileDependencies:
+        dependencies: list[FileDependency] = []
+        for declaration in declarations:
+            if isinstance(declaration, ImportDecl):
+                dependencies.append(
+                    FileDependency(
+                        line=declaration.line,
+                        spec=declaration.spec,
+                        kind=SourceDependencyKind.IMPORT,
+                    )
+                )
+                continue
+            if not isinstance(declaration, PreprocessorDirective):
+                continue
+            include = CINCLUDE_BTRC_RE.match(declaration.text)
+            if include:
+                dependencies.append(
+                    FileDependency(
+                        line=declaration.line,
+                        spec=RelativePath(path=include.group(1)),
+                        kind=SourceDependencyKind.INCLUDE,
+                    )
+                )
+        return cls(tuple(dependencies))
+
+    def __iter__(self) -> Iterator[FileDependency]:
+        return iter(self.entries)
 
 
 @dataclass
@@ -63,79 +117,57 @@ class FileUnit:
     content_hash: str
     tokens: list[Token] = field(default_factory=list)
     decls: list = field(default_factory=list)
-    # (1-based line, import_spec node) — read from this file's ImportDecl nodes.
-    import_specs: list[tuple[int, object]] = field(default_factory=list)
+    dependencies: FileDependencies = field(default_factory=FileDependencies)
     defined_names: frozenset[str] = frozenset()
     lex_error: LexerError | None = None
     parse_error: ParseError | None = None
-    # Lazy line -> tokens index (built by unit_line_index, excluded from
-    # equality so cached units compare by content).
+    # Lazy line -> tokens index, excluded from equality so cached units compare
+    # by content.
     _line_index: dict[int, list[Token]] | None = field(default=None, repr=False, compare=False)
 
     @property
     def error(self) -> Exception | None:
         return self.lex_error or self.parse_error
 
+    @classmethod
+    def parse(
+        cls,
+        path: str,
+        source: str,
+        *,
+        stdlib: StdlibRepository | None = None,
+    ) -> FileUnit:
+        """Lex and parse one file in its own coordinate space."""
 
-def _collect_import_specs(decls: list) -> list[tuple[int, object]]:
-    """Read ``(line, spec)`` from this file's ImportDecl nodes.
-
-    ``#include "X.btrc"`` is the deprecated alias for a relative import: it
-    parses as a PreprocessorDirective, so it is rewritten here to a RelativePath
-    spec, while ``#include <...>`` / ``#include "....h"`` stay real C includes.
-    """
-    from src.compiler.python.ast_nodes import PreprocessorDirective, RelativePath
-    from src.compiler.python.import_scan import CINCLUDE_BTRC_RE
-
-    specs: list[tuple[int, object]] = []
-    for decl in decls:
-        if isinstance(decl, ImportDecl):
-            specs.append((decl.line, decl.spec))
-        elif isinstance(decl, PreprocessorDirective):
-            m = CINCLUDE_BTRC_RE.match(decl.text)
-            if m:
-                specs.append((decl.line, RelativePath(path=m.group(1))))
-    return specs
-
-
-def parse_unit(path: str, source: str) -> FileUnit:
-    """Lex and parse one file in its own coordinate space (no preprocessing)."""
-    content_hash = hashlib.sha256(source.encode()).hexdigest()
-    unit = FileUnit(
-        path=os.path.abspath(path),
-        source=source,
-        content_hash=content_hash,
-        defined_names=frozenset(StdlibRepository().defined_names(source)),
-    )
-    try:
-        unit.tokens = Lexer(source, os.path.basename(path)).tokenize()
-    except LexerError as e:
-        unit.lex_error = e
+        unit = cls(
+            path=os.path.abspath(path),
+            source=source,
+            content_hash=hashlib.sha256(source.encode()).hexdigest(),
+            defined_names=frozenset((stdlib or StdlibRepository()).defined_names(source)),
+        )
+        try:
+            unit.tokens = Lexer(source, os.path.basename(path)).tokenize()
+        except LexerError as error:
+            unit.lex_error = error
+            return unit
+        try:
+            program = Parser(unit.tokens).parse()
+        except ParseError as error:
+            unit.parse_error = error
+            return unit
+        unit.decls = program.declarations
+        unit.dependencies = FileDependencies.from_declarations(unit.decls)
+        for declaration in unit.decls:
+            declaration.source_file = unit.path
         return unit
-    try:
-        program = Parser(unit.tokens).parse()
-    except ParseError as e:
-        unit.parse_error = e
-        return unit
-    unit.decls = program.declarations
-    unit.import_specs = _collect_import_specs(unit.decls)
-    for decl in unit.decls:
-        decl.source_file = unit.path
-    return unit
 
+    def token_index(self) -> dict[int, list[Token]]:
+        """Return this unit's cached 1-based line-to-token index."""
 
-def line_token_index(tokens: list[Token]) -> dict[int, list[Token]]:
-    """Index tokens by 1-based line for O(1) position lookup."""
-    index: dict[int, list[Token]] = {}
-    for tok in tokens:
-        if tok.type == TokenType.EOF:
-            continue
-        index.setdefault(tok.line, []).append(tok)
-    return index
-
-
-def unit_line_index(unit: FileUnit) -> dict[int, list[Token]]:
-    """Per-unit cached line -> tokens index (units are cached across runs)."""
-    if unit._line_index is None:
-        unit._line_index = line_token_index(unit.tokens)
-    return unit._line_index
+        if self._line_index is None:
+            index: dict[int, list[Token]] = {}
+            for token in self.tokens:
+                if token.type != TokenType.EOF:
+                    index.setdefault(token.line, []).append(token)
+            self._line_index = index
+        return self._line_index
