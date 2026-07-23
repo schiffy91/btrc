@@ -117,13 +117,13 @@ class CallDispatchLowerer:
 
         context = self.lowerer.context
         from .generic_intrinsics import lower_generic_intrinsic
-        from .typed_operators import operator_context
+        from .operator_context import OperatorLoweringContext
 
         intrinsic = lower_generic_intrinsic(
             name,
             args,
             [context.type_of(arg) for arg in node.args],
-            operator_context(self.lowerer, self.type_renderer),
+            OperatorLoweringContext.from_lowerer(self.lowerer, self.type_renderer),
         )
         if intrinsic is not None:
             return intrinsic

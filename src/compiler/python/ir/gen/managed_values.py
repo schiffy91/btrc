@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ...type_composition import nullable_collapses_reference_layer
-from ...type_identity import is_semantic_scalar_string
 from ..nodes import CType, IRCall, IRCast, IRLiteral
 
 STRING_RUNTIME_NAME = "__btrc_managed_string"
@@ -13,7 +12,7 @@ MUTEX_RUNTIME_NAME = "__btrc_managed_mutex"
 def is_string_type(gen, type_expr) -> bool:
     """Whether ``type_expr`` is the scalar source string value domain."""
     canonical = _canonical(gen, type_expr)
-    return is_semantic_scalar_string(canonical)
+    return gen.type_identity.is_scalar_string(canonical)
 
 
 def is_class_type(gen, type_expr) -> bool:

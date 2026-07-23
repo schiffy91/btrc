@@ -20,7 +20,7 @@ from src.compiler.python.ir.nodes import (
     IRParam,
     IRVar,
 )
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -46,8 +46,8 @@ def test_parameter_discards_run_after_function_dce_and_are_idempotent():
         ]
     )
 
-    optimize(module)
-    optimize(module)
+    IROptimizer(module).optimize()
+    IROptimizer(module).optimize()
 
     assert [function.name for function in module.function_defs] == ["main"]
     discards = [

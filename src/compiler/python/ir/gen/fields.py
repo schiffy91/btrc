@@ -9,7 +9,6 @@ from ...ast_nodes import (
     Identifier,
     IndexExpr,
 )
-from ...index_protocol import indexed_protocol_info
 from ..nodes import (
     CType,
     IRBinOp,
@@ -28,7 +27,6 @@ from ..nodes import (
 from .types import (
     CTypeRenderer,
     is_direct_generic_instance_reference,
-    mangle_generic_type,
 )
 
 if TYPE_CHECKING:
@@ -165,7 +163,7 @@ def _lower_field_access_plain(
         cls_info = gen.analyzed.class_table[obj_type.base]
         # Use mangled name for generic class instances
         if obj_type.generic_args and cls_info.generic_params:
-            callee_prefix = mangle_generic_type(obj_type.base, obj_type.generic_args)
+            callee_prefix = gen.type_identity.specialization_symbol(obj_type.base, obj_type.generic_args)
         else:
             callee_prefix = obj_type.base
         if node.field in cls_info.properties:
@@ -270,9 +268,8 @@ def _lower_index(
     result_type = gen.analyzed.node_types.get(id(node))
     projection_call = gen.ownership.projection_is_owned_call(node)
     receiver_type = gen.analyzed.node_types.get(id(node.obj))
-    protocol_getter = indexed_protocol_info(
+    protocol_getter = gen.index_protocols.class_info(
         receiver_type,
-        gen.analyzed.class_table,
         method="get",
     )
     from .assignment_ownership import borrowed_projection_owner_operands
@@ -335,10 +332,10 @@ def _lower_index_plain(
             args=[index, IRVar(name=gpu_lengths[node.obj.name])],
             helper_ref="__btrc_gpu_index_check",
         )
-    protocol = indexed_protocol_info(obj_type, gen.analyzed.class_table, method="get")
+    protocol = gen.index_protocols.class_info(obj_type, method="get")
     if protocol is not None:
         prefix = (
-            mangle_generic_type(obj_type.base, obj_type.generic_args)
+            gen.type_identity.specialization_symbol(obj_type.base, obj_type.generic_args)
             if obj_type.generic_args and protocol.generic_params
             else obj_type.base
         )

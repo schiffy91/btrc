@@ -1,6 +1,9 @@
 """Semantic-analysis composition root."""
 
+from ..index_protocol import IndexedProtocolResolver
 from ..numeric_literals import NumericLiteralSemantics
+from ..operator_semantics import OperatorSemantics
+from ..type_identity import TypeIdentity
 from .aggregate_contracts import AggregateContractsMixin
 from .aggregate_layout import AggregateLayoutContractsMixin
 from .analysis_context import AnalysisContext
@@ -146,28 +149,43 @@ class SemanticAnalyzer(
         record_occurrences: bool = False,
         seed: AnalyzedProgram | None = None,
         numeric_literals: NumericLiteralSemantics | None = None,
+        type_identity: TypeIdentity | None = None,
     ) -> None:
         context = AnalysisContext()
         literal_semantics = numeric_literals if numeric_literals is not None else NumericLiteralSemantics()
-        super().__init__(context, literal_semantics)
+        identity = type_identity if type_identity is not None else TypeIdentity()
+        super().__init__(context, literal_semantics, identity)
         self.record_occurrences = record_occurrences
         self.declarations = DeclarationRegistry(
             context,
             self.global_scope,
+            identity,
             seed=seed,
         )
         self.declaration_policy = self.declarations.policy
+        self.operator_types = OperatorSemantics(
+            identity,
+            class_table=self.declarations.class_table,
+            interface_table=self.declarations.interface_table,
+            enum_names=self.declarations.enum_table,
+        )
+        self.index_protocols = IndexedProtocolResolver(
+            identity,
+            self.declarations.class_table,
+        )
         self.gpu_dispatch = GpuDispatchValidator(
             context,
             self.declarations,
             canonical_type=self._canonical_type,
             analyze_expression=self._analyze_expr,
+            type_identity=identity,
         )
         self.gpu_kernels = GpuKernelValidator(
             context,
             self.declarations,
             self.node_types,
             literal_semantics,
+            identity,
         )
         self.initializers = InitializerAnalyzer(
             context,

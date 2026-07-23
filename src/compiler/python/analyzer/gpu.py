@@ -25,7 +25,7 @@ from ..ast_nodes import (
     WhileStmt,
 )
 from ..numeric_literals import NumericLiteralSemantics
-from ..type_identity import is_semantic_scalar_void
+from ..type_identity import TypeIdentity
 from .declarations.type_resolution import canonical_declaration_type
 from .gpu_exprs import GpuExpressionValidator, GpuKernelValidation
 from .gpu_type_contracts import GpuIntrinsicResolver
@@ -49,10 +49,12 @@ class GpuKernelValidator:
         declarations: DeclarationRegistry,
         node_types: dict[int, TypeExpr],
         numeric_literals: NumericLiteralSemantics,
+        type_identity: TypeIdentity,
     ) -> None:
         self._context = context
         self._declarations = declarations
         self._node_types = node_types
+        self._type_identity = type_identity
         self._intrinsics = GpuIntrinsicResolver(context, declarations)
         self._expressions = GpuExpressionValidator(
             self._intrinsics,
@@ -100,7 +102,7 @@ class GpuKernelValidator:
                 prior_array_params.add(parameter.name)
 
         return_type = function.return_type
-        if return_type and not is_semantic_scalar_void(return_type):
+        if return_type and not self._type_identity.is_scalar_void(return_type):
             if return_type.is_array:
                 if return_type.base not in _GPU_ARRAY_ELEM_TYPES:
                     self._context.error(

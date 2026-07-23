@@ -6,7 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from ...ast_nodes import FieldAccessExpr, IndexExpr, TypeExpr
-from ...index_protocol import indexed_protocol_info
+from ...index_protocol import IndexedProtocolResolver
+from ...type_identity import TypeIdentity
 from ..c_types import qualify_volatile_object
 from ..nodes import (
     CType,
@@ -21,7 +22,6 @@ from ..nodes import (
     IRVarDecl,
 )
 from .errors import TypedOperatorError
-from .types import mangle_generic_type
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,8 @@ class LValueContext:
     fresh_temp: Callable[[str], str]
     register_decl: Callable[[IRVarDecl], None]
     class_table: dict
+    index_protocols: IndexedProtocolResolver
+    type_identity: TypeIdentity
     direct_property: Callable[[object], bool] | None = None
     target_c_type: Callable[[object, TypeExpr], str | None] | None = None
 
@@ -133,7 +135,7 @@ def lvalue_kind(context: LValueContext, target) -> str:
                 return "property"
     if isinstance(target, IndexExpr):
         receiver_type = context.type_of(target.obj)
-        if indexed_protocol_info(receiver_type, context.class_table) is not None:
+        if context.index_protocols.class_info(receiver_type) is not None:
             return "collection"
     return "direct"
 
@@ -191,7 +193,7 @@ def _property_plan(context, target, value_type, require_load):
 
     receiver_decl = context.declare("__btrc_property_obj", receiver_type)
     receiver = IRVar(name=receiver_decl.name)
-    prefix = _class_prefix(receiver_type, class_info)
+    prefix = _class_prefix(context, receiver_type, class_info)
     load = IRCall(callee=f"{prefix}_get_{target.field}", args=[receiver]) if require_load else None
     return LValuePlan(
         context=context,
@@ -209,7 +211,7 @@ def _collection_plan(context, target, value_type, require_load):
     if not isinstance(target, IndexExpr):
         return None
     receiver_type = context.type_of(target.obj)
-    class_info = indexed_protocol_info(receiver_type, context.class_table)
+    class_info = context.index_protocols.class_info(receiver_type)
     if receiver_type is None or class_info is None:
         return None
     if "set" not in class_info.methods:
@@ -224,7 +226,7 @@ def _collection_plan(context, target, value_type, require_load):
     index_decl = context.declare("__btrc_index", index_type)
     receiver = IRVar(name=receiver_decl.name)
     index = IRVar(name=index_decl.name)
-    prefix = _class_prefix(receiver_type, class_info)
+    prefix = _class_prefix(context, receiver_type, class_info)
     args = [receiver, index]
     load = IRCall(callee=f"{prefix}_get", args=args) if require_load else None
     return LValuePlan(
@@ -250,9 +252,9 @@ def value_c_type(type_expr, class_table, render) -> str:
     return qualify_volatile_object(text, type_expr.is_volatile)
 
 
-def _class_prefix(receiver_type, class_info) -> str:
+def _class_prefix(context, receiver_type, class_info) -> str:
     if receiver_type.generic_args and class_info.generic_params:
-        return mangle_generic_type(receiver_type.base, receiver_type.generic_args)
+        return context.type_identity.specialization_symbol(receiver_type.base, receiver_type.generic_args)
     return receiver_type.base
 
 

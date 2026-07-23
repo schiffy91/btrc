@@ -17,7 +17,6 @@ from ..source_macros import (
     source_macro_single_call,
     source_macro_unwrapped_identifier,
 )
-from ..type_identity import type_shape_key
 
 _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _MANAGED_MACRO_BASES = frozenset({"string", "Mutex", "Thread", "Vector", "List", "Map", "Set", "Array"})
@@ -208,7 +207,7 @@ def _macro_type_requires_boundary(analyzer, type_expr, type_params=frozenset(), 
     canonical = analyzer._canonical_type(type_expr)
     if canonical is None:
         return False
-    key = type_shape_key(canonical)
+    key = analyzer.type_identity.shape_key(canonical)
     if key in seen:
         return False
     seen = seen | {key}

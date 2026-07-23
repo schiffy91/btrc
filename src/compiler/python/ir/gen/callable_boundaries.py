@@ -11,7 +11,6 @@ from ...ast_nodes import (
     MapLiteral,
     TupleLiteral,
 )
-from ...type_identity import type_shape_key
 from .callable_provenance import BORROWED_RETURN, callable_return_abi
 from .type_resolution import canonical_type
 
@@ -208,7 +207,7 @@ def _type_contains_managed_callback(
         return True
     if _is_validated_reference_owner(gen, expected):
         return False
-    key = type_shape_key(expected)
+    key = gen.type_identity.shape_key(expected)
     if key in seen:
         return False
     seen = seen | {key}

@@ -14,16 +14,16 @@ from ...ast_nodes import (
 )
 from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import CType, IRStructDef, IRStructField, IRStructForward
-from .types import CTypeRenderer, mangle_tuple_type
+from .types import CTypeRenderer
 
 
 def emit_tuple_structs(gen, type_renderer: CTypeRenderer) -> None:
     seen = {}
     for declaration in gen.analyzed.program.declarations:
         for type_expr in _declaration_types(declaration):
-            _collect_tuple_types(type_expr, seen)
+            _collect_tuple_types(type_expr, seen, gen.type_identity)
     for type_expr in gen.analyzed.node_types.values():
-        _collect_tuple_types(type_expr, seen)
+        _collect_tuple_types(type_expr, seen, gen.type_identity)
 
     for mangled, arguments in seen.items():
         gen.module.struct_defs.append(
@@ -74,13 +74,13 @@ def _declaration_types(declaration):
         yield declaration.type
 
 
-def _collect_tuple_types(type_expr, seen) -> None:
+def _collect_tuple_types(type_expr, seen, type_identity) -> None:
     if type_expr is None:
         return
     for argument in type_expr.generic_args:
-        _collect_tuple_types(argument, seen)
+        _collect_tuple_types(argument, seen, type_identity)
     if type_expr.base == "Tuple" and type_expr.generic_args:
-        seen.setdefault(mangle_tuple_type(type_expr), list(type_expr.generic_args))
+        seen.setdefault(type_identity.generic_symbol("Tuple", type_expr.generic_args), list(type_expr.generic_args))
 
 
 __all__ = ["emit_tuple_structs"]

@@ -48,6 +48,7 @@ class _UserGenericEmitter(
         self.type_map = type_map
         self.mangled = mangled
         self._type_renderer = type_renderer
+        self.type_identity = type_renderer.type_identity
         self._ttc = type_renderer.render
         self._gen = gen
         self._cls_info = cls_info  # the generic class being monomorphized
@@ -92,6 +93,7 @@ class _UserGenericEmitter(
             t,
             self.type_map,
             self._typedefs(),
+            self.type_identity,
             render=self._ttc,
         )
 
@@ -104,7 +106,7 @@ class _UserGenericEmitter(
 
     def _resolve(self, t):
         """Resolve a TypeExpr through the type map."""
-        return _resolve_type(t, self.type_map, self._typedefs())
+        return _resolve_type(t, self.type_map, self._typedefs(), self.type_identity)
 
     def emit_stmts(self, stmts) -> list[IRStmt]:
         """Emit a list of AST statements as a list of IR statements."""
@@ -298,10 +300,8 @@ class _UserGenericEmitter(
                     self._resolve_expr_type(element) or TypeExpr(base="int") for element in expression.elements
                 ],
             )
-        from ..types import mangle_tuple_type
-
         return IRCompoundLiteral(
-            c_type=CType(text=mangle_tuple_type(tuple_type)),
+            c_type=CType(text=self.type_identity.generic_symbol("Tuple", tuple_type.generic_args)),
             fields=[(f"_{index}", self._expr(element)) for index, element in enumerate(expression.elements)],
         )
 

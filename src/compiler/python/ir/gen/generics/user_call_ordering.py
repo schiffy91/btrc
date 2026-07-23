@@ -37,13 +37,12 @@ def language_ordered_call(context, expression, declaration) -> bool:
 
         from ....string_methods import STRING_METHODS
         from ..type_resolution import canonical_type
-        from ..types import is_string_type
 
         receiver_type = canonical_type(
             context._resolve_expr_type(callee.obj),
             context._gen.analyzed.typedef_table,
         )
-        if is_string_type(receiver_type) and callee.field in STRING_METHODS:
+        if context.type_identity.is_scalar_string(receiver_type) and callee.field in STRING_METHODS:
             return True
         if receiver_type is not None and receiver_type.base == "Mutex":
             return True

@@ -1,7 +1,6 @@
 """Generated symbol claims for concrete generic class instances."""
 
 from ..cycle_symbols import cycle_visitor_symbol
-from ..type_identity import mangle_generic_symbol, substitute_type_expr
 from .generated_symbol_calls import claim_destructor_hook
 from .generated_symbol_classes import managed_storage_type
 
@@ -15,7 +14,7 @@ def claim_generic_instance_symbols(analyzer, declarations, claims) -> None:
         if declaration is None or info is None:
             continue
         for arguments in instances:
-            emitted_name = mangle_generic_symbol(base_name, arguments)
+            emitted_name = analyzer.type_identity.generic_symbol(base_name, arguments)
             owner = f"generic instance '{emitted_name}'"
             _claim_generic_lifecycle(analyzer, declaration, emitted_name, owner, claims)
             claim_destructor_hook(analyzer, emitted_name, owner, info, declaration, claims)
@@ -52,7 +51,7 @@ def _generic_needs_cycle_visitor(analyzer, base_name, arguments, info) -> bool:
     return any(
         managed_storage_type(
             analyzer,
-            substitute_type_expr(
+            analyzer.type_identity.substitute(
                 field.type,
                 substitutions,
                 reference_resolver=analyzer._canonical_type,

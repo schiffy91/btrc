@@ -32,9 +32,7 @@ def lower_brace_initializer(
     reject_shallow_initializer(gen, node, node_type)
     if node_type and is_generic_class_type(node_type, analyzed.class_table):
         if not node.elements:
-            from .types import mangle_generic_type
-
-            mangled = mangle_generic_type(node_type.base, node_type.generic_args)
+            mangled = gen.type_identity.specialization_symbol(node_type.base, node_type.generic_args)
             return IRCall(callee=f"{mangled}_new", args=[])
         return IRInitializerList(elements=[lower(element) for element in node.elements])
 

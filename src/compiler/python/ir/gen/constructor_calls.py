@@ -12,7 +12,7 @@ from .arguments import (
     order_args_for_params,
     resolved_constructor_params,
 )
-from .types import CTypeRenderer, mangle_generic_type
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
@@ -115,7 +115,7 @@ def _lower_new_plain(
         )
     type_name = instance_type.base
     if instance_type.generic_args:
-        type_name = mangle_generic_type(
+        type_name = gen.type_identity.specialization_symbol(
             instance_type.base,
             instance_type.generic_args,
         )

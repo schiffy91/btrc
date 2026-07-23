@@ -18,12 +18,13 @@ from ..frontend.visibility import FrontendVisibilityError
 from ..ir.emitter import CEmitter
 from ..ir.gen.errors import CodegenError
 from ..ir.gen.lowerer import IRLowerer
-from ..ir.optimizer import optimize
+from ..ir.optimizer import IROptimizer
 from ..lexer import LexerError
 from ..numeric_literals import NumericLiteralSemantics
 from ..parser.core import ParseError
 from ..source_provenance import make_ir_source_maps
 from ..stdlib_archive import ArchiveVersionError
+from ..type_identity import TypeIdentity
 from .models import (
     CompilerOptions,
     CompilerOutput,
@@ -41,13 +42,14 @@ class CompilerPipeline:
         *,
         resolver: SourceResolver | None = None,
         parser: FrontendParser | None = None,
-        analyzer_factory: Callable[[], SemanticAnalyzer] | None = None,
+        analyzer_factory: Callable[..., SemanticAnalyzer] | None = None,
         lowerer_factory: Callable[..., IRLowerer] = IRLowerer,
-        optimizer: Callable = optimize,
+        optimizer_factory: Callable[..., IROptimizer] = IROptimizer,
         emitter_factory: Callable[[], CEmitter] = CEmitter,
         archive_consumer: StdlibArchiveConsumer | None = None,
         fingerprint: ToolchainFingerprint | None = None,
         numeric_literals: NumericLiteralSemantics | None = None,
+        type_identity: TypeIdentity | None = None,
     ) -> None:
         fingerprint = fingerprint or ToolchainFingerprint()
         literal_semantics = (
@@ -64,6 +66,7 @@ class CompilerPipeline:
             )
         )
         self.numeric_literals = literal_semantics
+        self.type_identity = type_identity if type_identity is not None else TypeIdentity()
         self.resolver = resolver or SourceResolver(stdlib)
         self.parser = parser or FrontendParser(
             stdlib,
@@ -71,7 +74,7 @@ class CompilerPipeline:
         )
         self._analyzer_factory = analyzer_factory
         self._lowerer_factory = lowerer_factory
-        self._optimizer = optimizer
+        self._optimizer_factory = optimizer_factory
         self._emitter_factory = emitter_factory
         self._archive_consumer = archive_consumer or StdlibArchiveConsumer(
             stdlib,
@@ -85,8 +88,11 @@ class CompilerPipeline:
 
     def _new_analyzer(self) -> SemanticAnalyzer:
         if self._analyzer_factory is not None:
-            return self._analyzer_factory()
-        return SemanticAnalyzer(numeric_literals=self.numeric_literals)
+            return self._analyzer_factory(type_identity=self.type_identity)
+        return SemanticAnalyzer(
+            numeric_literals=self.numeric_literals,
+            type_identity=self.type_identity,
+        )
 
     def resolve(
         self,
@@ -151,6 +157,7 @@ class CompilerPipeline:
             freestanding=options.freestanding,
             line_map=line_map,
             declaration_line_map=declaration_line_map,
+            type_identity=self.type_identity,
         ).lower()
         self._timed(profile, "ir_gen", start)
         return module
@@ -158,7 +165,10 @@ class CompilerPipeline:
     def optimize(self, module, options: CompilerOptions, profile: dict[str, float] | None = None):
         start = time.perf_counter()
         run_dce = options.dce and options.stdlib_archive is None
-        optimized = self._optimizer(module, dce=run_dce)
+        optimized = self._optimizer_factory(
+            module,
+            dce=run_dce,
+        ).optimize()
         self._timed(profile, "optimize", start)
         return optimized
 

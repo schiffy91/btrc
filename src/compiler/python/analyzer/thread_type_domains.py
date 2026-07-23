@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from ..type_identity import is_semantic_scalar_string
-
 
 class ThreadTypeDomainContractsMixin:
     def _contains_mutex_storage(
@@ -59,7 +57,7 @@ class ThreadTypeDomainContractsMixin:
         canonical = self._canonical_type(type_expr)
         if canonical is None or canonical.is_array:
             return False
-        scalar_string = is_semantic_scalar_string(canonical)
+        scalar_string = self.type_identity.is_scalar_string(canonical)
         class_reference = canonical.base in self.declarations.class_table and canonical.pointer_depth <= 1
         return scalar_string or class_reference
 

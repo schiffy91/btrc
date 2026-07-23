@@ -20,7 +20,7 @@ from .user_emitter_scopes import (
 
 class _UserGenericControlMixin(_UserGenericExceptionMixin):
     def _loop_stmts(self, statements, *, iteration_bindings=(), may_skip=True):
-        from ...completion import sequence_may_fall_through
+        from ...completion import StatementSequence
         from ..callable_loop_flow import (
             begin_callable_loop_capture,
             finish_callable_loop_capture,
@@ -51,7 +51,7 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
                 capture,
             )
         exit_flows = [*break_flows, *continue_flows]
-        if sequence_may_fall_through(lowered):
+        if StatementSequence(lowered).may_fall_through():
             exit_flows.append(body_flow)
         if may_skip:
             exit_flows.append(incoming)
@@ -145,7 +145,7 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
         return IRDoWhile(body=IRBlock(stmts=body_stmts), condition=self._expr(s.condition))
 
     def _switch_stmt(self, statement) -> IRSwitch:
-        from ...completion import sequence_may_fall_through
+        from ...completion import StatementSequence
         from .user_callable_provenance import (
             join_callable_flows,
             lower_isolated_callable_flow,
@@ -168,7 +168,7 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
 
                 def lower_case(case=clause):
                     body = self.emit_stmts(case.body)
-                    return body, sequence_may_fall_through(body)
+                    return body, StatementSequence(body).may_fall_through()
 
                 lowered, case_flow = lower_isolated_callable_flow(
                     self,

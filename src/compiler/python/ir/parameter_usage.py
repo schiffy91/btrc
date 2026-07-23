@@ -2,43 +2,48 @@
 
 from __future__ import annotations
 
-from .nodes import IRExprStmt, IRModule, IRVar, IRVarDecl
-from .optimizer_walk import iter_ir_nodes
+from .expr_nodes import IRVar
+from .module import IRModule
+from .nodes import IRExprStmt, IRVarDecl
+from .optimizer_walk import IRTree
 
 
-def consume_unused_parameters(module: IRModule) -> None:
-    """Prepend a discard for every parameter not referenced by its function.
+class UnusedParameterConsumer:
+    """Normalize unused C parameters in one IR module."""
 
-    Function signatures are part of the language/API contract, so lowering may
-    not remove an unused parameter.  An ``IRExprStmt(IRVar(...))`` records that
-    its value is intentionally ignored; the emitter renders that statement as a
-    standard-C ``(void)(name);`` expression.
+    def __init__(self, module: IRModule):
+        self._module = module
 
-    Textual escape hatches are deliberately ignored here.  Missing a use only
-    adds a harmless discard, while treating an identifier inside raw text as a
-    binding use could leave the generated C with an unused-parameter warning.
-    """
-    for function in module.function_defs:
-        if function.body is None or not function.params:
-            continue
+    def normalize(self) -> None:
+        """Prepend structured discards for parameters without binding uses.
 
-        nodes = tuple(iter_ir_nodes(function.body))
-        references = {node.name for node in nodes if isinstance(node, IRVar)}
-        declarations = {node.name for node in nodes if isinstance(node, IRVarDecl)}
-        existing_discards = {
-            statement.expr.name
-            for statement in function.body.stmts
-            if (isinstance(statement, IRExprStmt) and isinstance(statement.expr, IRVar))
-        }
-        unused = [
-            parameter.name
-            for parameter in function.params
-            if (
-                parameter.name not in existing_discards
-                and (parameter.name not in references or parameter.name in declarations)
-            )
-        ]
-        function.body.stmts[0:0] = [IRExprStmt(expr=IRVar(name=name)) for name in unused]
+        Function signatures are part of the language/API contract, so this
+        pass may not remove parameters. Textual escape hatches are deliberately
+        ignored: an extra discard is harmless, while a textual false positive
+        would leave strict-C output with an unused-parameter warning.
+        """
+
+        for function in self._module.function_defs:
+            if function.body is None or not function.params:
+                continue
+
+            nodes = tuple(IRTree(function.body))
+            references = {node.name for node in nodes if isinstance(node, IRVar)}
+            declarations = {node.name for node in nodes if isinstance(node, IRVarDecl)}
+            existing_discards = {
+                statement.expr.name
+                for statement in function.body.stmts
+                if (isinstance(statement, IRExprStmt) and isinstance(statement.expr, IRVar))
+            }
+            unused = [
+                parameter.name
+                for parameter in function.params
+                if (
+                    parameter.name not in existing_discards
+                    and (parameter.name not in references or parameter.name in declarations)
+                )
+            ]
+            function.body.stmts[0:0] = [IRExprStmt(expr=IRVar(name=name)) for name in unused]
 
 
-__all__ = ["consume_unused_parameters"]
+__all__ = ["UnusedParameterConsumer"]

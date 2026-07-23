@@ -37,11 +37,16 @@ def build_boundary_ownership(emitter, lowerer):
     return OwnershipLowerer(
         context,
         lowerer.managed_types,
-        OwnershipOperandOrder(context, lowerer.managed_types),
+        OwnershipOperandOrder(
+            context,
+            lowerer.managed_types,
+            lowerer.index_protocols,
+        ),
         lowerer.lifetime,
         CallBoundaryLowerer(context, lowerer.lifetime),
         _GenericExpressionLowerer(emitter),
         emitter._type_renderer,
+        lowerer.index_protocols,
     )
 
 

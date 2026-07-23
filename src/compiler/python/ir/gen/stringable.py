@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ..nodes import IRCall, IRExpr
-from .types import mangle_generic_type
 
 
 def has_to_string(analyzed, source_type) -> bool:
@@ -23,7 +22,7 @@ def has_to_string(analyzed, source_type) -> bool:
 def to_string_call(gen, source_type, value: IRExpr) -> IRExpr:
     cls = gen.analyzed.class_table[source_type.base]
     if source_type.generic_args and cls.generic_params:
-        prefix = mangle_generic_type(source_type.base, source_type.generic_args)
+        prefix = gen.type_identity.specialization_symbol(source_type.base, source_type.generic_args)
     else:
         prefix = source_type.base
     return IRCall(callee=f"{prefix}_toString", args=[value])

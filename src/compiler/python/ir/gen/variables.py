@@ -40,7 +40,7 @@ def _lower_var_decl(
     default_arguments=None,
 ) -> list[IRStmt]:
     from ...ast_nodes import BraceInitializer
-    from .types import is_generic_class_type, mangle_generic_type
+    from .types import is_generic_class_type
 
     if node.initializer is not None:
         from .callable_boundaries import reject_aggregate_callable_initializer
@@ -96,7 +96,7 @@ def _lower_var_decl(
                 and is_generic_class_type(node.type, ct)
             )
         ):
-            mangled = mangle_generic_type(node.type.base, node.type.generic_args)
+            mangled = gen.type_identity.specialization_symbol(node.type.base, node.type.generic_args)
             init = IRCall(callee=f"{mangled}_new", args=[])
         else:
             if node.type and node.type.is_static:
@@ -270,11 +270,11 @@ def _mark_external_declaration_used(name: str) -> IRExprStmt:
 
 def _managed_type_name(gen: IRLowerer, type_expr) -> str:
     """Get the correct type name for managed var tracking (mangled for generics)."""
-    from .types import is_generic_class_type, mangle_generic_type
+    from .types import is_generic_class_type
 
     ct = gen.analyzed.class_table
     if type_expr.generic_args and is_generic_class_type(type_expr, ct):
-        return mangle_generic_type(type_expr.base, type_expr.generic_args)
+        return gen.type_identity.specialization_symbol(type_expr.base, type_expr.generic_args)
     return type_expr.base
 
 

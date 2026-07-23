@@ -50,6 +50,7 @@ def emit_generic_field_initializers(
             declared_type,
             type_map,
             gen.analyzed.typedef_table,
+            gen.type_identity,
         )
         reject_persistent_callable_escape(
             gen,

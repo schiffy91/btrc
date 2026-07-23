@@ -20,7 +20,7 @@ from src.compiler.python.ir.nodes import (
     IRModule,
     IRReturn,
 )
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -71,7 +71,7 @@ def test_optimizer_added_flush_helper_is_dependency_safe_strict_c(
     c_compiler: str,
 ) -> None:
     generated = tmp_path / "cycle-boundary.c"
-    generated.write_text(CEmitter().emit(optimize(_edge_only_module())))
+    generated.write_text(CEmitter().emit(IROptimizer(_edge_only_module()).optimize()))
     executable = tmp_path / f"cycle-boundary-{Path(c_compiler).name}"
 
     build = subprocess.run(

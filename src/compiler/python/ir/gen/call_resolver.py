@@ -178,6 +178,7 @@ class CallResolver:
                 member_type,
                 dict(zip(owner.generic_params, receiver.generic_args)),
                 analyzed.typedef_table,
+                self.type_renderer.type_identity,
             )
         return function_pointer_signature(member_type, analyzed.typedef_table)
 
@@ -277,6 +278,7 @@ class CallResolver:
                         param.type,
                         substitutions,
                         self.context.analyzed.typedef_table,
+                        self.type_renderer.type_identity,
                     )
                     if substitutions
                     else param.type

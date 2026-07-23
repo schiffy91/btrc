@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from ..type_identity import is_semantic_scalar_string
-
 _RUNTIME_COLLECTION_BASES = frozenset({"Array", "List", "Map", "Set", "Vector"})
 
 
@@ -224,7 +222,7 @@ class MutexPayloadDomainContractsMixin:
             canonical
             and not canonical.is_array
             and (
-                is_semantic_scalar_string(canonical)
+                self.type_identity.is_scalar_string(canonical)
                 or (canonical.base in self.declarations.class_table and canonical.pointer_depth <= 1)
             )
         )

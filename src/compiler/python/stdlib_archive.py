@@ -15,8 +15,8 @@ from .artifacts.publication.storage import ArtifactStorage
 from .artifacts.stdlib.publisher import StdlibArchivePublisher
 from .ir.emitter import CEmitter
 from .ir.nodes import IRInclude, IRMacroDef
-from .ir.optimizer import optimize
-from .ir.runtime_dependencies import refresh_runtime_dependencies
+from .ir.optimizer import IROptimizer
+from .ir.runtime_dependencies import RuntimeDependencyMaterializer
 from .stdlib_archive_validation import (
     ArchiveVersionError,
     StdlibArchiveManifest,
@@ -91,7 +91,7 @@ class StdlibArchive:
     def build(self, out_dir: str, module, stdlib_source: str) -> dict:
         """Build and transactionally publish one complete stdlib archive."""
 
-        optimize(module, dce=False)
+        IROptimizer(module, dce=False).optimize()
         shared, shared_declarations = self.transform_module(module)
         header = self.emitter.emit_header(module, shared_declarations)
         implementation = self.emitter.emit_impl(module, HEADER_NAME, set(shared))
@@ -170,7 +170,7 @@ class StdlibArchive:
         )
         module.preprocessor_decls.insert(first_include, archive_include)
         module.refresh_type_declarations()
-        refresh_runtime_dependencies(module)
+        RuntimeDependencyMaterializer(module).refresh()
         return module
 
     def create_manifest(

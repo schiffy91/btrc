@@ -17,7 +17,7 @@ from src.compiler.python.ir.nodes import (
     IRHelperDecl,
     IRModule,
 )
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.stdlib_shared_state import SharedStateArchivePolicy
@@ -27,7 +27,7 @@ def _emit_c(source: str) -> str:
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
-    module = optimize(IRLowerer(analyzed).lower())
+    module = IROptimizer(IRLowerer(analyzed).lower()).optimize()
     return CEmitter().emit(module)
 
 
@@ -58,12 +58,12 @@ def _optimized_helper_names(root: str) -> set[str]:
             ]
         ),
     )
-    module = optimize(
+    module = IROptimizer(
         IRModule(
             function_defs=[main],
             helper_decls=helper_decls,
         )
-    )
+    ).optimize()
     return {helper.name for helper in module.helper_decls}
 
 

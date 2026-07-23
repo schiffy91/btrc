@@ -1,12 +1,11 @@
 """Portable type-directed hashing for generic and ordinary call paths."""
 
 from ...ast_nodes import TypeExpr
-from ...operator_semantics import OperatorTypeError, hash_domain
+from ...operator_semantics import OperatorTypeError
 from ..nodes import CType, IRCall, IRCast, IRExpr
 from .errors import TypedOperatorError
 from .operator_context import (
     OperatorLoweringContext,
-    canonical_operator_type,
 )
 
 
@@ -15,14 +14,9 @@ def lower_typed_hash(
     operand_type: TypeExpr | None,
     context: OperatorLoweringContext,
 ) -> IRExpr:
-    operand_type = canonical_operator_type(context, operand_type)
+    operand_type = context.canonical_type(operand_type)
     try:
-        domain = hash_domain(
-            operand_type,
-            class_table=context.class_table,
-            interface_table=context.interface_table,
-            enum_names=context.enum_names,
-        )
+        domain = context.operator_types.hash_domain(operand_type)
     except OperatorTypeError as error:
         raise TypedOperatorError(str(error)) from error
 

@@ -10,7 +10,6 @@ from ..nodes import CType, IRBinOp, IRCall, IRCast, IRExpr, IRTernary
 from .errors import TypedOperatorError
 from .operator_context import (
     OperatorLoweringContext,
-    canonical_operator_type,
 )
 
 
@@ -97,8 +96,8 @@ def lower_typed_ternary(
     false_type: TypeExpr | None,
     context: OperatorLoweringContext,
 ) -> IRExpr:
-    true_type = canonical_operator_type(context, true_type)
-    false_type = canonical_operator_type(context, false_type)
+    true_type = context.canonical_type(true_type)
+    false_type = context.canonical_type(false_type)
     result_type = numeric_result_type(true_type, false_type, context.enum_names)
     if (
         result_type is not None

@@ -5,7 +5,7 @@ from __future__ import annotations
 import dataclasses
 
 from ....ast_nodes import CallExpr, FieldAccessExpr
-from ....type_identity import generic_instance_key
+from ....type_identity import TypeIdentity
 from ...nodes import (
     IRBinOp,
     IRCall,
@@ -16,18 +16,18 @@ from ...nodes import (
     IRVar,
     IRVarDecl,
 )
-from ...optimizer_walk import iter_ir_nodes
+from ...optimizer_walk import IRTree
 
 
 def called_callees(root: object) -> set[str]:
     """Return every structured call target below ``root``."""
-    return {node.callee for node in iter_ir_nodes(root) if isinstance(node, IRCall) and isinstance(node.callee, str)}
+    return {node.callee for node in IRTree(root) if isinstance(node, IRCall) and isinstance(node.callee, str)}
 
 
 def referenced_helpers(root: object, candidates: set[str]) -> set[str]:
     """Return helper names referenced by structured call metadata."""
     references = set()
-    for node in iter_ir_nodes(root):
+    for node in IRTree(root):
         if isinstance(node, IRCall) and isinstance(node.callee, str):
             if node.callee in candidates:
                 references.add(node.callee)
@@ -41,9 +41,10 @@ def called_generic_methods(
     node_types: dict[int, object],
     base: str,
     args,
+    type_identity: TypeIdentity,
 ) -> set[str]:
     """Return methods called on one concrete generic specialization."""
-    expected = generic_instance_key(base, args)
+    expected = type_identity.generic_instance_key(base, args)
     result = set()
     for node in _iter_ast(program):
         if not isinstance(node, CallExpr) or not isinstance(node.callee, FieldAccessExpr):
@@ -51,7 +52,7 @@ def called_generic_methods(
         receiver_type = node_types.get(id(node.callee.obj))
         if (
             receiver_type is not None
-            and generic_instance_key(receiver_type.base, receiver_type.generic_args) == expected
+            and type_identity.generic_instance_key(receiver_type.base, receiver_type.generic_args) == expected
         ):
             result.add(node.callee.field)
     return result
@@ -79,7 +80,7 @@ def is_type_incompatible(function: IRFunctionDef, element_c_type: str) -> bool:
     element_vars = _element_variables(function, normalized)
     return any(
         isinstance(node, IRBinOp) and node.op in {"+", "+="} and _adds_element_pointers(node, element_vars)
-        for node in iter_ir_nodes(function)
+        for node in IRTree(function)
     )
 
 
@@ -90,7 +91,7 @@ def _normalize_c_type(c_type: str) -> str:
 def _element_variables(function: IRFunctionDef, normalized: str) -> set[str]:
     variables = {
         node.name
-        for node in iter_ir_nodes(function)
+        for node in IRTree(function)
         if isinstance(node, (IRParam, IRVarDecl)) and _normalize_c_type(node.c_type.text) == normalized
     }
     variables.discard("self")
@@ -111,16 +112,14 @@ def _is_self_data_element(node: object) -> bool:
 
 
 def _contains_element_value(root: object, element_vars: set[str]) -> bool:
-    return any(
-        _is_self_field(node) or (isinstance(node, IRVar) and node.name in element_vars) for node in iter_ir_nodes(root)
-    )
+    return any(_is_self_field(node) or (isinstance(node, IRVar) and node.name in element_vars) for node in IRTree(root))
 
 
 def _uses_element_as_string_memory(
     function: IRFunctionDef,
     element_vars: set[str],
 ) -> bool:
-    for node in iter_ir_nodes(function):
+    for node in IRTree(function):
         if (
             not isinstance(node, IRCall)
             or not isinstance(node.callee, str)

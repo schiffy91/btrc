@@ -14,8 +14,9 @@ from ..nodes import (
     IRUnaryOp,
 )
 from .managed_values import is_managed_type
-from .typed_operators import lower_typed_binary, operator_context
-from .types import CTypeRenderer, mangle_generic_type
+from .operator_context import OperatorLoweringContext
+from .typed_operators import lower_typed_binary
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
@@ -136,7 +137,7 @@ def _lower_binary_plain(
         right,
         left_type,
         right_type,
-        operator_context(gen, type_renderer),
+        OperatorLoweringContext.from_lowerer(gen, type_renderer),
         allow_unresolved_c_operands=True,
         left_is_optional_value=(isinstance(node.left, FieldAccessExpr) and node.left.optional),
     )
@@ -199,7 +200,9 @@ def lower_overloaded_values(
             type_renderer,
         )
     class_name = (
-        mangle_generic_type(left_type.base, left_type.generic_args) if left_type.generic_args else left_type.base
+        gen.type_identity.specialization_symbol(left_type.base, left_type.generic_args)
+        if left_type.generic_args
+        else left_type.base
     )
     return IRCall(callee=f"{class_name}_{_operator_method_name(op)}", args=[left, right])
 
@@ -228,6 +231,7 @@ def resolved_operator_param_type(gen, left_type, method):
             expected,
             dict(zip(cls.generic_params, left_type.generic_args)),
             gen.analyzed.typedef_table,
+            gen.type_identity,
         )
     return expected
 
@@ -407,7 +411,10 @@ def _lower_unary_plain(
             cls_info = gen.analyzed.class_table[operand_type.base]
             if "__neg__" in cls_info.methods:
                 if operand_type.generic_args:
-                    cls_c_name = mangle_generic_type(operand_type.base, operand_type.generic_args)
+                    cls_c_name = gen.type_identity.specialization_symbol(
+                        operand_type.base,
+                        operand_type.generic_args,
+                    )
                 else:
                     cls_c_name = operand_type.base
                 return IRCall(callee=f"{cls_c_name}___neg__", args=[operand])

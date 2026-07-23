@@ -1,9 +1,7 @@
 """Result-type inference for indexed expressions."""
 
 from ..ast_nodes import TypeExpr
-from ..index_protocol import indexed_protocol
 from ..qualifier_provenance import strip_outer_storage_through_typedef
-from ..reference_semantics import is_scalar_string_type
 from ..type_composition import strip_outer_storage
 
 
@@ -15,7 +13,7 @@ class _IndexTypeInferenceMixin:
             return canonical.generic_args[0]
         if canonical and canonical.base == "Map" and len(canonical.generic_args) == 2:
             return canonical.generic_args[1]
-        if is_scalar_string_type(canonical):
+        if self.type_identity.is_scalar_string(canonical):
             return TypeExpr(base="char", is_const=canonical.is_const)
         if (
             canonical
@@ -35,9 +33,8 @@ class _IndexTypeInferenceMixin:
                 return preserved
             return strip_outer_storage(canonical, array=canonical.is_array)
 
-        protocol = indexed_protocol(
+        protocol = self.index_protocols.resolve(
             canonical,
-            self.declarations.class_table,
             active_type_params=self._active_storage_type_parameters(),
         )
         if protocol is None:

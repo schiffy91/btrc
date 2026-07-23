@@ -1,13 +1,7 @@
 """Generic shape validation and monomorphization target collection."""
 
 from ..ast_nodes import TypeExpr
-from ..type_identity import (
-    TypeShapeError,
-    generic_argument_problem,
-    substitute_type_expr,
-    type_references_names,
-    type_shape_key,
-)
+from ..type_identity import TypeShapeError
 
 _UNREGISTERED_GENERIC_INSTANCE_BASES = frozenset({"Array", "List", "Map", "Mutex", "Set", "Thread", "Vector"})
 _RUNTIME_GENERIC_ARITIES = {
@@ -24,7 +18,7 @@ _RUNTIME_GENERIC_MIN_ARITIES = {"Tuple": 2, "__fn_ptr": 1}
 
 class GenericValidationMixin:
     def _normalize_type_key(self, type_expr: TypeExpr) -> tuple:
-        return type_shape_key(type_expr)
+        return self.type_identity.shape_key(type_expr)
 
     def _report_type_shape_error(self, message, type_expr, line=0, col=0):
         error_line = getattr(type_expr, "line", 0) or line
@@ -40,7 +34,7 @@ class GenericValidationMixin:
     def _validate_generic_arguments(self, owner, args, line=0, col=0):
         valid = True
         for index, argument in enumerate(args, 1):
-            problem = generic_argument_problem(argument)
+            problem = self.type_identity.generic_argument_problem(argument)
             if problem is None:
                 continue
             message, bad_type = problem
@@ -59,7 +53,7 @@ class GenericValidationMixin:
             if declared is None:
                 continue
             try:
-                resolved = substitute_type_expr(
+                resolved = self.type_identity.substitute(
                     declared,
                     substitutions,
                     reference_resolver=self._canonical_type,
@@ -171,7 +165,7 @@ class GenericValidationMixin:
         runtime = (
             cls is None and key not in self.declarations.interface_table and key in _UNREGISTERED_GENERIC_INSTANCE_BASES
         )
-        unresolved = any(type_references_names(argument, active) for argument in args)
+        unresolved = any(self.type_identity.references_names(argument, active) for argument in args)
         instances = self.generic_instances.setdefault(key, []) if registered or runtime else []
         normalized = tuple(self._normalize_type_key(argument) for argument in args)
         if registered and not unresolved and cls is not None and len(args) == len(cls.generic_params):

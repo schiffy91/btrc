@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from ..ast_nodes import AssignExpr, CallExpr, Identifier, TypeExpr
 from ..type_composition import strip_outer_storage
-from ..type_identity import type_shape_key
+from ..type_identity import TypeIdentity
 from .core_models import Scope
 
 if TYPE_CHECKING:
@@ -31,11 +31,13 @@ class GpuDispatchValidator:
         *,
         canonical_type: Callable[[TypeExpr | None], TypeExpr | None],
         analyze_expression: Callable[[object], None],
+        type_identity: TypeIdentity,
     ) -> None:
         self._context = context
         self._declarations = declarations
         self._canonical_type = canonical_type
         self._analyze_expression = analyze_expression
+        self._type_identity = type_identity
         self._array_result_boundary: object | None = None
 
     def is_array_result(self, expression: object, scope: Scope) -> bool:
@@ -137,7 +139,7 @@ class GpuDispatchValidator:
         return bool(
             expected_element is not None
             and actual_element is not None
-            and type_shape_key(expected_element) == type_shape_key(actual_element)
+            and self._type_identity.shape_key(expected_element) == self._type_identity.shape_key(actual_element)
         )
 
 

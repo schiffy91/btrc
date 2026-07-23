@@ -11,7 +11,7 @@ from src.compiler.python.freestanding import RUNTIME_HEADER
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRModule
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -179,7 +179,7 @@ def test_native_target_header_hooks_compile_strict_c11(
     include_dir,
 ):
     module = _generate(source)
-    optimize(module)
+    IROptimizer(module).optimize()
     c_path = tmp_path / "native_seam.c"
     object_path = tmp_path / "native_seam.o"
     c_path.write_text(CEmitter().emit(module))
@@ -222,7 +222,7 @@ def test_runtime_dependency_is_recomputed_after_dead_function_elimination():
     module = _generate('int dead() { print("unreachable"); return 1; } int main() { return 0; }')
     assert module.needs_runtime
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [function.name for function in module.function_defs] == ["main"]
     assert not module.needs_runtime

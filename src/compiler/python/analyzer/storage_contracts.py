@@ -2,7 +2,6 @@
 
 from ..ast_nodes import BraceInitializer, ListLiteral
 from ..type_composition import strip_outer_storage
-from ..type_identity import is_semantic_scalar_void
 from .initializer_analyzer import (
     InitializerArrayFieldCheck,
     InitializerCompatibilityCheck,
@@ -70,7 +69,7 @@ class StorageContractsMixin:
                 actual = self._infer_type(step.value)
                 if actual is None:
                     continue
-                if step.reject_void and is_semantic_scalar_void(actual):
+                if step.reject_void and self.type_identity.is_scalar_void(actual):
                     self.context.error(
                         f"{step.subject} cannot be initialized from a void expression",
                         step.line,

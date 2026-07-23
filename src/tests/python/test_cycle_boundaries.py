@@ -3,9 +3,7 @@
 from copy import deepcopy
 from pathlib import Path
 
-from src.compiler.python.ir.cycle_boundaries import (
-    install_function_cycle_boundary,
-)
+from src.compiler.python.ir.cycle_boundaries import FunctionCycleBoundary
 from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.nodes import (
     CType,
@@ -19,7 +17,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 
 SELF_HOSTED_BOUNDARIES = Path("src/compiler/btrc/cycle_boundaries.btrc")
 EDGE_RELEASE_HELPERS = (
@@ -63,7 +61,7 @@ def test_return_value_is_evaluated_before_its_forced_cycle_flush() -> None:
         ),
     )
 
-    assert install_function_cycle_boundary(function)
+    assert FunctionCycleBoundary(function).install()
 
     statements = function.body.stmts
     result_index = next(
@@ -83,7 +81,7 @@ def test_return_value_is_evaluated_before_its_forced_cycle_flush() -> None:
     assert statements[return_index].value == IRVar(name=result.name)
 
     first_rewrite = deepcopy(statements)
-    assert install_function_cycle_boundary(function)
+    assert FunctionCycleBoundary(function).install()
     assert function.body.stmts == first_rewrite
 
 
@@ -106,7 +104,7 @@ def test_explicit_flush_before_local_return_is_not_mistaken_for_pass_output() ->
         ),
     )
 
-    assert install_function_cycle_boundary(function)
+    assert FunctionCycleBoundary(function).install()
 
     statements = function.body.stmts
     return_index = next(index for index, statement in enumerate(statements) if isinstance(statement, IRReturn))
@@ -118,7 +116,7 @@ def test_explicit_flush_before_local_return_is_not_mistaken_for_pass_output() ->
     assert _called_name(statements[return_index - 1]) == "__btrc_flush_cycles"
 
     first_rewrite = deepcopy(statements)
-    assert install_function_cycle_boundary(function)
+    assert FunctionCycleBoundary(function).install()
     assert function.body.stmts == first_rewrite
 
 
@@ -135,7 +133,7 @@ def test_edge_only_releases_receive_forced_cycle_boundaries() -> None:
             ),
         )
 
-        assert install_function_cycle_boundary(function), helper
+        assert FunctionCycleBoundary(function).install(), helper
         assert [_called_name(statement) for statement in function.body.stmts] == [
             helper,
             "__btrc_flush_cycles",
@@ -156,7 +154,7 @@ def test_optimizer_materializes_flush_helper_for_edge_only_program() -> None:
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert _called_name(module.function_defs[0].body.stmts[-1]) == "__btrc_flush_cycles"
     positions = {declaration.name: index for index, declaration in enumerate(module.helper_decls)}

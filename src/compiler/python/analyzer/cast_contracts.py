@@ -1,7 +1,5 @@
 """Strict-C contracts for explicit casts."""
 
-from ..type_identity import is_semantic_scalar_void
-
 _PRIMITIVE_TYPE_NAMES = frozenset(
     (
         "void",
@@ -112,7 +110,7 @@ class CastContractsMixin:
         return False
 
     def _is_void_value(self, type_expr) -> bool:
-        return is_semantic_scalar_void(type_expr)
+        return self.type_identity.is_scalar_void(type_expr)
 
     def _nonportable_pointer_integer_cast(self, source, target, value) -> bool:
         source_pointer = bool(source.is_array or source.pointer_depth > 0 or self._managed_result_type(source))

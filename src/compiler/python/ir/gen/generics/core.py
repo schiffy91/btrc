@@ -5,10 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
-from ....type_identity import TypeShapeError, type_references_names
+from ....type_identity import TypeIdentity, TypeShapeError
 from ..errors import CodegenError
 from ..type_resolution import substitute_concrete_type
-from ..types import mangle_generic_type
 
 if TYPE_CHECKING:
     from ..lowerer import IRLowerer
@@ -37,7 +36,8 @@ def emit_generic_instances(
         changed = False
         for base_name, instances in list(gen.analyzed.generic_instances.items()):
             for args in instances:
-                mangled = mangle_generic_type(base_name, list(args))
+                gen.type_identity.ensure_supported_generic_arguments(args)
+                mangled = gen.type_identity.generic_symbol(base_name, args)
                 if mangled in seen:
                     continue
                 seen.add(mangled)
@@ -55,11 +55,12 @@ def emit_generic_instances(
 def _resolve_type(
     t: TypeExpr | None,
     type_map: dict[str, TypeExpr],
-    typedefs: dict[str, TypeExpr] | None = None,
+    typedefs: dict[str, TypeExpr] | None,
+    type_identity: TypeIdentity,
 ) -> TypeExpr:
     """Replace generic parameters while preserving both types' metadata."""
     try:
-        resolved = substitute_concrete_type(t, type_map, typedefs or {})
+        resolved = substitute_concrete_type(t, type_map, typedefs or {}, type_identity)
         return resolved or TypeExpr(base="void")
     except TypeShapeError as error:
         raise CodegenError(str(error)) from error
@@ -68,7 +69,8 @@ def _resolve_type(
 def _resolve_type_c(
     t: TypeExpr | None,
     type_map: dict[str, TypeExpr],
-    typedefs: dict[str, TypeExpr] | None = None,
+    typedefs: dict[str, TypeExpr] | None,
+    type_identity: TypeIdentity,
     *,
     render,
 ) -> str:
@@ -81,7 +83,7 @@ def _resolve_type_c(
     and ``int*`` respectively.  Render the concrete value first, then append
     only the template's applied storage layers.
     """
-    resolved = _resolve_type(t, type_map, typedefs)
+    resolved = _resolve_type(t, type_map, typedefs, type_identity)
     if t is None or t.base not in type_map or t.generic_args:
         return render(resolved)
 
@@ -103,6 +105,6 @@ def _generic_lvalue_c_type(emitter, target, _resolved):
     if emitter._gen is None:
         return None
     template = emitter._gen.analyzed.node_types.get(id(target))
-    if template is None or not type_references_names(template, emitter.type_map):
+    if template is None or not emitter.type_identity.references_names(template, emitter.type_map):
         return None
     return emitter.resolve_c(template)

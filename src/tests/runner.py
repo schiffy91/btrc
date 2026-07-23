@@ -29,7 +29,7 @@ import pytest
 from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.source_provenance import make_ir_source_maps
 from src.tests.corpus_files import language_test_files
 from src.tests.runner_capabilities import (
@@ -115,7 +115,7 @@ def _transpile_python(btrc_path, btrc_file):
         line_map=line_map,
         declaration_line_map=declaration_line_map,
     ).lower()
-    ir_module = optimize(ir_module)
+    ir_module = IROptimizer(ir_module).optimize()
     return CEmitter().emit(ir_module)
 
 

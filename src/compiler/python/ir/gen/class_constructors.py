@@ -35,7 +35,7 @@ from .managed_values import (
     retain_edge_value,
 )
 from .parameters import lower_source_param
-from .types import CTypeRenderer, is_generic_class_type, mangle_generic_type
+from .types import CTypeRenderer, is_generic_class_type
 
 if TYPE_CHECKING:
     from ...analyzer.core import ClassInfo
@@ -220,7 +220,7 @@ def _lower_field_init(
         or (isinstance(initializer, MapLiteral) and not initializer.entries)
     )
     if is_empty and field.type and is_generic_class_type(field.type, gen.analyzed.class_table):
-        mangled = mangle_generic_type(field.type.base, field.type.generic_args)
+        mangled = gen.type_identity.specialization_symbol(field.type.base, field.type.generic_args)
         return IRCall(callee=f"{mangled}_new", args=[])
     return lower_expr(
         gen,

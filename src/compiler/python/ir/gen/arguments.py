@@ -121,6 +121,7 @@ def resolved_constructor_params(gen, cls_info, instance_type):
                 param.type,
                 type_map,
                 gen.analyzed.typedef_table,
+                gen.type_identity,
             ),
             type_map,
         )

@@ -1,7 +1,7 @@
 """Eager binary sequencing inside monomorphized generic methods."""
 
 from ...nodes import IRBinOp
-from ..operator_context import operator_context
+from ..operator_context import OperatorLoweringContext
 
 
 def lower_generic_binary(emitter, expression):
@@ -94,7 +94,7 @@ def lower_generic_binary_plain(emitter, expression):
         right,
         left_type,
         right_type,
-        operator_context(
+        OperatorLoweringContext.from_lowerer(
             emitter._gen,
             emitter._type_renderer,
             fresh_temp=emitter._fresh_temp,

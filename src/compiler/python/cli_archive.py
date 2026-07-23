@@ -21,6 +21,7 @@ from .source_provenance import (
     stamp_nested_declaration_sources,
 )
 from .stdlib_archive import StdlibArchive
+from .type_identity import TypeIdentity
 
 
 class StdlibArchiveBuilder:
@@ -32,9 +33,10 @@ class StdlibArchiveBuilder:
         publisher: StdlibArchivePublisher | None = None,
         archive: StdlibArchive | None = None,
         *,
-        analyzer_factory: Callable[[], SemanticAnalyzer] = SemanticAnalyzer,
+        analyzer_factory: Callable[..., SemanticAnalyzer] = SemanticAnalyzer,
         lowerer_factory: Callable[..., IRLowerer] = IRLowerer,
         diagnostics: CompilerDiagnostics | None = None,
+        type_identity: TypeIdentity | None = None,
     ) -> None:
         if archive is not None and publisher is not None and archive.publisher is not publisher:
             raise ValueError("archive builder and archive service must share one publisher")
@@ -45,6 +47,7 @@ class StdlibArchiveBuilder:
         self._archive = archive
         self._analyzer_factory = analyzer_factory
         self._lowerer_factory = lowerer_factory
+        self._type_identity = type_identity if type_identity is not None else TypeIdentity()
         self._diagnostics = diagnostics or CompilerDiagnostics()
 
     def build(self, out_dir: str) -> None:
@@ -56,7 +59,9 @@ class StdlibArchiveBuilder:
             raise SystemExit(1)
 
         program = self._parse(stdlib_source)
-        analyzed = self._analyzer_factory().analyze(program)
+        analyzed = self._analyzer_factory(
+            type_identity=self._type_identity,
+        ).analyze(program)
         if analyzed.errors:
             for error in analyzed.errors:
                 print(f"error: {error}", file=sys.stderr)
@@ -67,6 +72,7 @@ class StdlibArchiveBuilder:
                 analyzed,
                 debug=False,
                 source_file="<stdlib>",
+                type_identity=self._type_identity,
             ).lower()
             self._archive.build(out_dir, ir_module, stdlib_source)
         except CodegenError as error:

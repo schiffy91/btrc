@@ -20,8 +20,6 @@ from .sync_methods import lower_consuming_sync_method, lower_sync_method
 from .type_resolution import canonical_type
 from .types import (
     CTypeRenderer,
-    is_string_type,
-    mangle_generic_type,
 )
 
 if TYPE_CHECKING:
@@ -164,15 +162,15 @@ def lower_method_call(
         default_arguments,
     )
 
-    if is_string_type(resolved_obj_type) and method_name in _STRING_METHODS:
+    if gen.type_identity.is_scalar_string(resolved_obj_type) and method_name in _STRING_METHODS:
         return _lower_string_method(gen, obj, method_name, args)
 
-    if is_string_type(resolved_obj_type):
+    if gen.type_identity.is_scalar_string(resolved_obj_type):
         special = _lower_string_special(gen, obj, method_name, args)
         if special is not None:
             return special
 
-    if is_string_type(resolved_obj_type) and method_name in _STRING_CONVERSION_METHODS:
+    if gen.type_identity.is_scalar_string(resolved_obj_type) and method_name in _STRING_CONVERSION_METHODS:
         c_func, cast_to = _STRING_CONVERSION_METHODS[method_name]
         args = [obj]
         if c_func in {"strtof", "strtod"}:
@@ -185,7 +183,7 @@ def lower_method_call(
             return IRCast(target_type=CType(text=cast_to), expr=call)
         return call
 
-    if is_string_type(resolved_obj_type) and method_name in ("length", "len", "byteLen"):
+    if gen.type_identity.is_scalar_string(resolved_obj_type) and method_name in ("length", "len", "byteLen"):
         return IRCast(
             target_type=CType(text="int"),
             expr=IRCall(callee="strlen", args=[obj]),
@@ -219,7 +217,7 @@ def lower_method_call(
         cls_info = gen.analyzed.class_table[resolved_obj_type.base]
         # Use mangled name for generic class instances
         if resolved_obj_type.generic_args and cls_info.generic_params:
-            callee_prefix = mangle_generic_type(
+            callee_prefix = gen.type_identity.specialization_symbol(
                 resolved_obj_type.base,
                 resolved_obj_type.generic_args,
             )
@@ -244,14 +242,12 @@ def lower_method_call(
         if method and getattr(method, "generic_params", None):
             method_args = gen.analyzed.generic_method_call_args.get(id(node))
             if method_args is not None:
-                from .generics.methods_mono import generic_method_instance_name
-
                 class_args = (
                     list(resolved_obj_type.generic_args)
                     if (resolved_obj_type.generic_args and cls_info.generic_params)
                     else []
                 )
-                callee = generic_method_instance_name(
+                callee = gen.type_identity.method_instance_symbol(
                     resolved_obj_type.base,
                     class_args,
                     method_name,

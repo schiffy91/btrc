@@ -52,7 +52,7 @@ def lower_loop_body(
     default_arguments=None,
 ):
     """Lower one ordinary loop body and install its reachable exit flow."""
-    from ..completion import sequence_may_fall_through
+    from ..completion import StatementSequence
     from .callable_provenance import (
         join_callable_flows,
         lower_isolated_callable_flow,
@@ -81,7 +81,7 @@ def lower_loop_body(
         gen.pop_loop_scope()
         break_flows, continue_flows = finish_callable_loop_capture(gen, capture)
     exit_flows = [*break_flows, *continue_flows]
-    if sequence_may_fall_through(lowered.stmts):
+    if StatementSequence(lowered.stmts).may_fall_through():
         exit_flows.append(body_flow)
     if may_skip:
         exit_flows.append(incoming)

@@ -17,6 +17,7 @@ from src.compiler.python.analyzer.initializer_analyzer import (
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.type_identity import TypeIdentity
 
 
 def _parse(source: str):
@@ -67,7 +68,7 @@ def test_initializer_analyzer_plans_nested_struct_checks_directly():
     )
     declaration = program.declarations[1].body.statements[0]
     context = AnalysisContext()
-    registry = DeclarationRegistry(context, Scope())
+    registry = DeclarationRegistry(context, Scope(), TypeIdentity())
     registry.register(program)
     planner = InitializerAnalyzer(
         context,
@@ -102,7 +103,7 @@ def test_initializer_analyzer_owns_structural_shape_diagnostics():
     )
     declaration = program.declarations[1].body.statements[0]
     context = AnalysisContext()
-    registry = DeclarationRegistry(context, Scope())
+    registry = DeclarationRegistry(context, Scope(), TypeIdentity())
     registry.register(program)
     planner = InitializerAnalyzer(
         context,

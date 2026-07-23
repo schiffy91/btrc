@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from ....index_protocol import indexed_protocol_info
 from ...nodes import IRCall, IRFieldAccess, IRIndex
 from ..fields import receiver_uses_arrow
-from ..types import mangle_generic_type
 
 
 def lower_generic_field_access(emitter, expression):
@@ -40,9 +38,8 @@ def lower_generic_field_access(emitter, expression):
 def lower_generic_index(emitter, expression):
     """Sequence owned receiver/index values and lower collection get calls."""
     receiver_type = emitter._resolve_expr_type(expression.obj)
-    protocol_getter = indexed_protocol_info(
+    protocol_getter = emitter._gen.index_protocols.class_info(
         receiver_type,
-        emitter._gen.analyzed.class_table,
         method="get",
     )
     from ..assignment_ownership import borrowed_projection_owner_operands
@@ -105,7 +102,7 @@ def _plain_field_access(emitter, expression):
     if class_info is not None and field in class_info.properties:
         prefix = receiver_type.base
         if receiver_type.generic_args and class_info.generic_params:
-            prefix = mangle_generic_type(
+            prefix = emitter.type_identity.specialization_symbol(
                 receiver_type.base,
                 receiver_type.generic_args,
             )
@@ -137,15 +134,14 @@ def _plain_index(emitter, expression):
     if (
         emitter._gen is not None
         and receiver_type is not None
-        and indexed_protocol_info(
+        and emitter._gen.index_protocols.class_info(
             receiver_type,
-            emitter._gen.analyzed.class_table,
             method="get",
         )
     ):
         class_info = emitter._gen.analyzed.class_table[receiver_type.base]
         target = (
-            mangle_generic_type(receiver_type.base, receiver_type.generic_args)
+            emitter.type_identity.specialization_symbol(receiver_type.base, receiver_type.generic_args)
             if receiver_type.generic_args and class_info.generic_params
             else receiver_type.base
         )

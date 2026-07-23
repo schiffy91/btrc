@@ -18,6 +18,7 @@ def resolved_generic_parameters(emitter, params, substitutions=None):
                     param.type,
                     concrete,
                     emitter._typedefs(),
+                    emitter.type_identity,
                 )
             ),
             concrete,

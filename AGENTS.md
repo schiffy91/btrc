@@ -53,7 +53,7 @@ PIPELINE:
        │
   [4. IR Gen]       →  IR tree             (structured IR nodes — NOT text)
        │
-  [5. Optimizer]    →  optimized IR tree   (dead helper elimination)
+  [5. Optimizer]    →  optimized IR tree   (typed reachability + normalization)
        │
   [6. C Emitter]    →  .c file             (simple tree walk, no lowering)
 ```
@@ -100,9 +100,11 @@ PIPELINE:
   `ir/helpers/`; IR generation may reference them, but does not assemble them.
 
 #### Stage 5: Optimizer
-- Walks IR tree, collects runtime helper references
-- Removes unused helpers from IRModule.helper_decls
-- Resolves transitive category dependencies
+- Computes one structured function/global reachability graph
+- Removes unreachable functions, globals, helpers, GPU kernels, externs,
+  and typed C declarations with their transitive dependencies
+- Installs required cycle boundaries, normalizes unused parameters, and
+  rematerializes live runtime dependencies
 
 #### Stage 6: C Emitter
 - Simple recursive tree walk over IR nodes
@@ -220,7 +222,13 @@ src/compiler/python/
 
   ir/                            IR pipeline
     nodes.py                     IR node dataclass definitions
-    optimizer.py                 dead helper elimination
+    module.py                    translation-unit root + IR invariants
+    optimizer.py                 IROptimizer composition root
+    reachability.py              program/runtime/declaration reachability owners
+    optimizer_walk.py            IRTree + textual identifier-reference owners
+    declaration_order.py         strict-C type declaration planner
+    cleanup_validation.py        typed cleanup-slot invariant owner
+    runtime_dependencies.py      freestanding runtime materialization owner
     emitter.py                   IR → C text (simple tree walk)
     emitter_exprs.py             expression emission mixin
     emitter_gpu.py               GPU kernel + dispatch emission mixin

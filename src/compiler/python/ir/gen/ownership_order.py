@@ -1,6 +1,7 @@
 """Evaluation-order policy for managed operands."""
 
 from ...ast_nodes import Identifier
+from ...index_protocol import IndexedProtocolResolver
 from .evaluation_order import (
     borrowed_value_can_be_pinned,
     has_observable_effect,
@@ -12,10 +13,16 @@ from .lowering_context import LoweringContext
 class OwnershipOperandOrder:
     """Compute stabilization pins and concrete temporary value types."""
 
-    def __init__(self, context: LoweringContext, types) -> None:
+    def __init__(
+        self,
+        context: LoweringContext,
+        types,
+        index_protocols: IndexedProtocolResolver,
+    ) -> None:
         self.context = context
         self.analyzed = context.analyzed
         self.types = types
+        self.index_protocols = index_protocols
 
     def has_effect(self, node) -> bool:
         """Whether evaluating ``node`` can change a later operand."""

@@ -23,7 +23,6 @@ from ..nodes import (
 from .feature_scan import uses_trycatch
 from .function_symbols import source_function_c_name
 from .parameters import lower_source_param
-from .types import mangle_generic_type
 
 _STANDARD_FEATURE_MACROS = ("_DEFAULT_SOURCE", "_DARWIN_C_SOURCE")
 _STANDARD_INCLUDES = [
@@ -154,7 +153,7 @@ class _ModuleGenerationMixin:
             if base_name in builtin_generics:
                 continue
             for args in instances:
-                mangled = mangle_generic_type(base_name, list(args))
+                mangled = self.type_identity.specialization_symbol(base_name, args)
                 if mangled not in seen:
                     seen.add(mangled)
                     self.module.struct_forwards.append(IRStructForward(name=mangled))

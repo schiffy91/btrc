@@ -114,10 +114,8 @@ def _prepared_index_targets(
 
     if not isinstance(node.target, IndexExpr):
         return {}
-    from ...index_protocol import indexed_protocol
-
     receiver_type = gen.analyzed.node_types.get(id(node.target.obj))
-    protocol = indexed_protocol(receiver_type, gen.analyzed.class_table)
+    protocol = gen.index_protocols.resolve(receiver_type)
     if protocol is None or protocol.setter is None:
         return {}
     expected = protocol.setter.params[0].type
@@ -129,6 +127,7 @@ def _prepared_index_targets(
             expected,
             substitutions,
             gen.analyzed.typedef_table,
+            gen.type_identity,
         )
     from .prepared_values import prepare_normal_value, requires_string_conversion
 

@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from ...analyzer.core import AnalyzedProgram, ClassInfo
 from ...ast_nodes import TypeExpr
+from ...index_protocol import IndexedProtocolResolver
+from ...operator_semantics import OperatorSemantics
+from ...type_identity import TypeIdentity
 from ..nodes import IRModule, IRVar
 from .call_arguments import CallArgumentLowerer
 from .call_boundary import CallBoundaryLowerer
@@ -38,8 +41,10 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         freestanding: bool = False,
         line_map=None,
         declaration_line_map=None,
+        type_identity: TypeIdentity | None = None,
     ):
         self.analyzed = analyzed
+        self.type_identity = type_identity if type_identity is not None else TypeIdentity()
         self.debug = debug
         self.source_file = source_file
         self.line_map = line_map
@@ -47,15 +52,26 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         self.freestanding = freestanding
         self.module = IRModule()
         self.helpers = RuntimeHelperRegistry()
-        self._default_arguments = DefaultArgumentLoweringContext()
+        self._default_arguments = DefaultArgumentLoweringContext(self.type_identity)
         self.type_renderer = CTypeRenderer(
             self.analyzed.typedef_table,
             self._default_arguments,
+            self.type_identity,
         )
         self.context = LoweringContext(
             analyzed=self.analyzed,
             module=self.module,
             helpers=self.helpers,
+        )
+        self.operator_types = OperatorSemantics(
+            self.type_identity,
+            class_table=self.analyzed.class_table,
+            interface_table=self.analyzed.interface_table,
+            enum_names=self.analyzed.enum_table,
+        )
+        self.index_protocols = IndexedProtocolResolver(
+            self.type_identity,
+            self.analyzed.class_table,
         )
         self._init_ownership_state(analyzed, freestanding=freestanding)
         from .packing import declaration_pack_alignments
@@ -95,10 +111,11 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         self.context.type_overrides: dict[int, object] = {}
         self.context.unevaluated_depth = 0
 
-        self.managed_types = ManagedTypeClassifier(self.analyzed)
+        self.managed_types = ManagedTypeClassifier(self.analyzed, self.type_identity)
         self.ownership_order = OwnershipOperandOrder(
             self.context,
             self.managed_types,
+            self.index_protocols,
         )
         self.lifetime = ManagedLifetimeLowerer(self, self.managed_types)
         boundaries = CallBoundaryLowerer(self.context, self.lifetime)
@@ -115,6 +132,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
             boundaries,
             call_dispatch,
             self.type_renderer,
+            self.index_protocols,
         )
         hosted_results = HostedResultLowerer(self.context)
         call_arguments = CallArgumentLowerer(
@@ -161,9 +179,9 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         apply_setjmp_volatility(self.module)
         self._emit_helpers()
         self.module.refresh_type_declarations()
-        from ..runtime_dependencies import refresh_runtime_dependencies
+        from ..runtime_dependencies import RuntimeDependencyMaterializer
 
-        refresh_runtime_dependencies(self.module)
+        RuntimeDependencyMaterializer(self.module).refresh()
         self.module.validate_declarations()
         return self.module
 

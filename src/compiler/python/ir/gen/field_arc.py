@@ -32,7 +32,7 @@ from .managed_values import (
     retain_edge_value,
     unlink_edge_value,
 )
-from .types import CTypeRenderer, is_generic_class_type, mangle_generic_type
+from .types import CTypeRenderer, is_generic_class_type
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
@@ -295,7 +295,7 @@ def _lower_value(gen, value, field_type, type_renderer):
         or (isinstance(value, MapLiteral) and not value.entries)
     )
     if empty_collection and is_generic_class_type(field_type, gen.analyzed.class_table):
-        mangled = mangle_generic_type(field_type.base, field_type.generic_args)
+        mangled = gen.type_identity.specialization_symbol(field_type.base, field_type.generic_args)
         return IRCall(callee=f"{mangled}_new", args=[])
     return lower_expr(gen, value, type_renderer)
 

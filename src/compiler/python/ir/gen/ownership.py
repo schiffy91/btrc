@@ -20,11 +20,11 @@ from ...ast_nodes import (
     TernaryExpr,
     UnaryExpr,
 )
-from ...index_protocol import indexed_protocol_info
+from ...index_protocol import IndexedProtocolResolver
 from .call_boundary import CallOperand
 from .evaluation_order import borrowed_value_can_be_pinned
 from .lowering_context import LoweringContext
-from .types import CTypeRenderer, is_generic_class_type, mangle_generic_type
+from .types import CTypeRenderer, is_generic_class_type
 
 
 class OwnershipLowerer:
@@ -39,6 +39,7 @@ class OwnershipLowerer:
         boundaries,
         expressions,
         type_renderer: CTypeRenderer,
+        index_protocols: IndexedProtocolResolver,
     ) -> None:
         self.context = context
         self.types = types
@@ -50,6 +51,7 @@ class OwnershipLowerer:
         self.boundaries = boundaries
         self.expressions = expressions
         self.type_renderer = type_renderer
+        self.index_protocols = index_protocols
 
     def owns_result(self, expression) -> bool:
         """Whether evaluating ``expression`` produces caller-owned +1."""
@@ -113,7 +115,7 @@ class OwnershipLowerer:
         if self.types.is_mutex(type_expr):
             return MUTEX_RUNTIME_NAME
         if is_generic_class_type(type_expr, self.context.analyzed.class_table):
-            return mangle_generic_type(type_expr.base, type_expr.generic_args)
+            return self.type_renderer.type_identity.specialization_symbol(type_expr.base, type_expr.generic_args)
         return type_expr.base
 
     def receiver_pin_required(
@@ -170,9 +172,8 @@ class OwnershipLowerer:
             return False
         if isinstance(expression, IndexExpr):
             return (
-                indexed_protocol_info(
+                self.index_protocols.class_info(
                     receiver_type,
-                    self.context.analyzed.class_table,
                     method="get",
                 )
                 is not None

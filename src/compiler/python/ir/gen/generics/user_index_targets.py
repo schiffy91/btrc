@@ -7,13 +7,8 @@ def prepared_generic_index_targets(emitter, expression):
 
     if not isinstance(expression.target, IndexExpr):
         return {}
-    from ....index_protocol import indexed_protocol
-
     receiver_type = emitter._resolve_expr_type(expression.target.obj)
-    protocol = indexed_protocol(
-        receiver_type,
-        emitter._gen.analyzed.class_table,
-    )
+    protocol = emitter._gen.index_protocols.resolve(receiver_type)
     if protocol is None or protocol.setter is None:
         return {}
     expected = protocol.setter.params[0].type
@@ -25,6 +20,7 @@ def prepared_generic_index_targets(emitter, expression):
             expected,
             substitutions,
             emitter._gen.analyzed.typedef_table,
+            emitter.type_identity,
         )
     expected = emitter._resolve(expected)
     source = emitter._resolve_expr_type(expression.target.index)

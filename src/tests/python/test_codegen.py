@@ -12,7 +12,7 @@ import re
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -28,7 +28,7 @@ def emit_c(source: str) -> str:
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, f"analyzer errors: {analyzed.errors}"
     ir_module = IRLowerer(analyzed).lower()
-    ir_module = optimize(ir_module)
+    ir_module = IROptimizer(ir_module).optimize()
     return CEmitter().emit(ir_module)
 
 

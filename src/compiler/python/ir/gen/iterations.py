@@ -24,7 +24,7 @@ from ..nodes import (
 from .iteration_bindings import IterationBinding
 from .iteration_loops import _lower_c_for, _lower_range_for  # noqa: F401
 from .iteration_strings import lower_string_for_in as _lower_string_for_in
-from .types import CTypeRenderer, mangle_generic_type
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
@@ -180,7 +180,11 @@ def _lower_iterable_for_in(
     """Lower for-in via Iterable protocol (iterLen/iterGet/iterValueAt)."""
     from .statements import _lower_loop_body
 
-    mangled = mangle_generic_type(iter_type.base, iter_type.generic_args) if iter_type.generic_args else iter_type.base
+    mangled = (
+        gen.type_identity.specialization_symbol(iter_type.base, iter_type.generic_args)
+        if iter_type.generic_args
+        else iter_type.base
+    )
 
     # Hoist every managed iterable. Besides exact-once evaluation, the named
     # slot can own a fresh result or retain a borrowed projection/call for the
@@ -297,6 +301,7 @@ def _iter_method_return_type(gen, cls_info, iter_type, method_name):
         method.return_type,
         substitutions,
         gen.analyzed.typedef_table,
+        gen.type_identity,
     )
 
 

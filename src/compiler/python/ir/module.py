@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from .declaration_order import TypeDeclarationPlanner
 from .top_nodes import (
     IREnumDef,
     IRFunctionDecl,
@@ -68,20 +69,16 @@ class IRModule:
         """Refresh the stable strict-C order of typed type declarations."""
 
         self._validate_declaration_schema()
-        from .declaration_order import plan_type_declarations
-
-        self.ordered_type_declarations = plan_type_declarations(self)
+        self.ordered_type_declarations = TypeDeclarationPlanner(self).plan()
 
     def validate_declarations(self) -> None:
         """Reject malformed declarations and a stale derived type order."""
 
         self._validate_declaration_schema()
-        from .cleanup_validation import validate_cleanup_slots
+        from .cleanup_validation import CleanupSlotValidator
 
-        validate_cleanup_slots(self)
-        from .declaration_order import plan_type_declarations
-
-        planned = plan_type_declarations(self)
+        CleanupSlotValidator(self).validate()
+        planned = TypeDeclarationPlanner(self).plan()
         ordered = self.ordered_type_declarations
         if (
             not isinstance(ordered, list)

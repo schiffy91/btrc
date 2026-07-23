@@ -42,9 +42,11 @@ def lower_iterable_forin(emitter, statement) -> list:
     if not {"iterLen", "iterGet"}.issubset(methods):
         raise CodegenError(f"type '{iter_type.base}' does not implement iterable protocol")
 
-    from ..types import mangle_generic_type
-
-    mangled = mangle_generic_type(iter_type.base, iter_type.generic_args) if iter_type.generic_args else iter_type.base
+    mangled = (
+        emitter.type_identity.specialization_symbol(iter_type.base, iter_type.generic_args)
+        if iter_type.generic_args
+        else iter_type.base
+    )
     iterable = emitter._fresh_temp("__iter")
     length = emitter._fresh_temp("__n")
     index = emitter._fresh_temp("__i")
@@ -136,6 +138,7 @@ def _iter_method_return_type(emitter, cls, iter_type, method_name, fallback_inde
                 method.return_type,
                 substitutions,
                 emitter._typedefs(),
+                emitter.type_identity,
             )
         )
     if fallback_index < len(iter_type.generic_args):

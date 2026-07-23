@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import TypeExpr
-from ...reference_semantics import is_reference_type
 from ..nodes import (
     CType,
     IRCast,
@@ -131,7 +130,7 @@ def _requires_box(gen: IRLowerer, type_expr: TypeExpr) -> bool:
     # ISO C does not define conversions between function pointers and void*.
     if type_expr.base == "__fn_ptr":
         return True
-    return not is_reference_type(
+    return not gen.type_identity.is_reference(
         type_expr,
         gen.analyzed.class_table,
         gen.analyzed.interface_table,

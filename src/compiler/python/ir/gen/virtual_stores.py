@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from ...index_protocol import indexed_protocol
 from ..nodes import IRCommaExpr
 from .call_boundary import CallOperand
 from .managed_values import is_managed_type
@@ -31,7 +30,7 @@ def lower_virtual_store_boundary(
     setter = None
     if plan.kind == "collection":
         receiver_type = gen.analyzed.node_types.get(id(node.target.obj))
-        protocol = indexed_protocol(receiver_type, gen.analyzed.class_table)
+        protocol = gen.index_protocols.resolve(receiver_type)
         setter = protocol.setter if protocol is not None else None
         if setter is None:
             return None

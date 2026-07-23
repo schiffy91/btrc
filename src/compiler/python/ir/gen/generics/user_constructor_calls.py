@@ -18,8 +18,6 @@ def new_constructor_parameters(emitter, expression, class_info, resolved=None):
 
 
 def lower_new_constructor_call(emitter, expression):
-    from ..types import mangle_generic_type
-
     resolved = emitter._resolve(expression.type)
     if emitter._gen and resolved.base == "Mutex":
         if len(expression.args) != 1 or not resolved.generic_args:
@@ -35,7 +33,11 @@ def lower_new_constructor_call(emitter, expression):
             emitter._type_renderer,
         )
 
-    target = mangle_generic_type(resolved.base, resolved.generic_args) if resolved.generic_args else resolved.base
+    target = (
+        emitter.type_identity.specialization_symbol(resolved.base, resolved.generic_args)
+        if resolved.generic_args
+        else resolved.base
+    )
     args = [emitter._expr(argument) for argument in expression.args]
     class_info = emitter._gen.analyzed.class_table.get(resolved.base) if emitter._gen else None
     if class_info is not None and class_info.constructor:

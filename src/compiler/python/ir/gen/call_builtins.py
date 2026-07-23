@@ -16,7 +16,7 @@ from .errors import CodegenError
 from .mutex_values import create_mutex_value
 from .printf_args import adapt_printf_arg
 from .type_resolution import canonical_type
-from .types import CTypeRenderer, is_string_type
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
@@ -101,7 +101,7 @@ def lower_typed_print(
 def lower_len(gen, value, value_type):
     """Lower semantic string length through the checked runtime helper."""
     resolved = canonical_type(value_type, gen.analyzed.typedef_table)
-    if is_string_type(resolved):
+    if gen.type_identity.is_scalar_string(resolved):
         gen.helpers.use("__btrc_string_length")
         return IRCall(
             callee="__btrc_string_length",

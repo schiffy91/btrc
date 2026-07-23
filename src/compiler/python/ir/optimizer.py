@@ -1,60 +1,70 @@
-"""Public entry point for IR dead-code elimination."""
+"""Composition root for structured IR optimization."""
 
 from __future__ import annotations
 
-from .cycle_boundaries import install_program_cycle_boundary
-from .nodes import IRInclude, IRModule
-from .optimizer_functions import eliminate_dead_functions as _eliminate_dead_functions
-from .optimizer_globals import eliminate_dead_globals as _eliminate_dead_globals
-from .optimizer_gpu import eliminate_dead_gpu_kernels as _eliminate_dead_gpu_kernels
-from .optimizer_helpers import eliminate_dead_helpers as _eliminate_dead_helpers
-from .optimizer_types import eliminate_dead_externs as _eliminate_dead_externs
-from .optimizer_types import eliminate_dead_type_declarations as _eliminate_dead_type_declarations
-from .parameter_usage import consume_unused_parameters as _consume_unused_parameters
+from .cycle_boundaries import FunctionCycleBoundary
+from .module import IRModule
+from .parameter_usage import UnusedParameterConsumer
+from .reachability import (
+    DeclarationReachability,
+    ProgramReachability,
+    RuntimeSupportReachability,
+)
+from .runtime_dependencies import RuntimeDependencyMaterializer
+from .top_nodes import IRInclude
 
 
-def optimize(module: IRModule, *, dce: bool = True) -> IRModule:
-    """Run every dead-code-elimination pass on ``module`` in dependency order.
+class IROptimizer:
+    """Own the ordered optimization cascade for one mutable IR module."""
 
-    ``dce=False`` preserves the uneliminated module for reproducible ``--no-dce``
-    output and archive partitioning. The module is mutated in place and returned,
-    matching the original optimizer API.
-    """
-    module.validate_declarations()
-    if dce:
-        _eliminate_dead_globals(module)
-        _eliminate_dead_functions(module)
-    if install_program_cycle_boundary(module):
-        _materialize_cycle_boundary_helpers(module)
-    if dce:
-        _eliminate_dead_gpu_kernels(module)
-        _eliminate_dead_helpers(module)
-        _eliminate_dead_externs(module)
-        _eliminate_dead_type_declarations(module)
-    _consume_unused_parameters(module)
-    module.refresh_type_declarations()
-    from .runtime_dependencies import refresh_runtime_dependencies
+    def __init__(self, module: IRModule, *, dce: bool = True):
+        self._module = module
+        self._dce = dce
 
-    refresh_runtime_dependencies(module)
-    return module
+    def optimize(self) -> IRModule:
+        """Apply all enabled passes and return the optimized module."""
+
+        self._module.validate_declarations()
+        if self._dce:
+            ProgramReachability(self._module).prune()
+        if self._install_program_cycle_boundary():
+            self._materialize_cycle_boundary_helpers()
+        if self._dce:
+            RuntimeSupportReachability(self._module).prune()
+            DeclarationReachability(self._module).prune()
+        UnusedParameterConsumer(self._module).normalize()
+        self._module.refresh_type_declarations()
+        RuntimeDependencyMaterializer(self._module).refresh()
+        return self._module
+
+    def _install_program_cycle_boundary(self) -> bool:
+        """Drain suspects before live executable entry points return."""
+
+        boundaries = [FunctionCycleBoundary(function) for function in self._module.function_defs]
+        if not any(boundary.has_cyclable_release for boundary in boundaries):
+            return False
+        installed = False
+        for boundary in boundaries:
+            if boundary.is_program_entry:
+                installed = boundary.install(force=True) or installed
+        return installed
+
+    def _materialize_cycle_boundary_helpers(self) -> None:
+        """Merge helper closure introduced after initial helper collection."""
+
+        from .gen.helpers import RuntimeHelperRegistry
+
+        existing = {helper.name for helper in self._module.helper_decls}
+        boundary = RuntimeHelperRegistry().declarations_for({"__btrc_flush_cycles"})
+        missing = [helper for helper in boundary if helper.name not in existing]
+        self._module.helper_decls.extend(missing)
+        if self._module.freestanding:
+            return
+        for helper in missing:
+            for header in helper.required_headers:
+                include = IRInclude(header=header)
+                if include not in self._module.preprocessor_decls:
+                    self._module.preprocessor_decls.append(include)
 
 
-def _materialize_cycle_boundary_helpers(module: IRModule) -> None:
-    """Merge helper closure introduced after initial IR helper collection."""
-
-    from .gen.helpers import RuntimeHelperRegistry
-
-    existing = {helper.name for helper in module.helper_decls}
-    boundary = RuntimeHelperRegistry().declarations_for({"__btrc_flush_cycles"})
-    missing = [helper for helper in boundary if helper.name not in existing]
-    module.helper_decls.extend(missing)
-    if module.freestanding:
-        return
-    for helper in missing:
-        for header in helper.required_headers:
-            include = IRInclude(header=header)
-            if include not in module.preprocessor_decls:
-                module.preprocessor_decls.append(include)
-
-
-__all__ = ["optimize"]
+__all__ = ["IROptimizer"]

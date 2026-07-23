@@ -5,9 +5,10 @@ from src.compiler.python.ir.gen.types import (
     CTypeRenderer,
     is_numeric_type,
     is_pointer_type,
-    is_string_type,
-    mangle_tuple_type,
 )
+from src.compiler.python.type_identity import TypeIdentity
+
+IDENTITY = TypeIdentity()
 
 
 def T(base, **kw):
@@ -39,8 +40,8 @@ def test_type_renderer_const_qualifier():
 
 
 def test_mangle_tuple_type():
-    assert mangle_tuple_type(T("Tuple", generic_args=[T("int"), T("string")])) == "btrc_Tuple_int_string"
-    assert mangle_tuple_type(T("Tuple")) == "btrc_Tuple"
+    assert IDENTITY.generic_symbol("Tuple", [T("int"), T("string")]) == "btrc_Tuple_int_string"
+    assert IDENTITY.generic_symbol("Tuple", []) == "btrc_Tuple"
 
 
 def test_is_pointer_type():
@@ -52,9 +53,9 @@ def test_is_pointer_type():
 
 
 def test_is_string_and_numeric():
-    assert is_string_type(T("string")) is True
-    assert is_string_type(T("int")) is False
-    assert is_string_type(None) is False
+    assert IDENTITY.is_scalar_string(T("string")) is True
+    assert IDENTITY.is_scalar_string(T("int")) is False
+    assert IDENTITY.is_scalar_string(None) is False
     assert is_numeric_type(T("double")) is True
     assert is_numeric_type(T("string")) is False
     assert is_numeric_type(None) is False

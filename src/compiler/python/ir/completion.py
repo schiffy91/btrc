@@ -1,58 +1,45 @@
-"""Conservative normal-completion queries for structured IR statements."""
+"""Conservative control-flow facts for a structured IR statement sequence."""
 
 from __future__ import annotations
 
-import dataclasses
-
+from .expr_nodes import IRVar
 from .nodes import (
     IRBlock,
     IRBreak,
     IRContinue,
     IRIf,
-    IRLiteral,
     IRReturn,
-    IRVar,
 )
+from .optimizer_walk import IRTree
 
 
-def sequence_may_fall_through(statements) -> bool:
-    """Whether control can reach the end of a statement sequence."""
-    return all(statement_may_fall_through(statement) for statement in statements)
+class StatementSequence:
+    """A structured statement sequence and its conservative flow facts."""
+
+    def __init__(self, statements):
+        self._statements = statements
+
+    def may_fall_through(self) -> bool:
+        """Whether control can reach the end of this sequence."""
+
+        return all(self._statement_may_fall_through(statement) for statement in self._statements)
+
+    def references_variable(self, name: str) -> bool:
+        """Whether structured IR reads ``name`` anywhere in this sequence."""
+
+        return any(isinstance(node, IRVar) and node.name == name for node in IRTree(self._statements))
+
+    @classmethod
+    def _statement_may_fall_through(cls, statement) -> bool:
+        if isinstance(statement, (IRReturn, IRBreak, IRContinue)):
+            return False
+        if isinstance(statement, IRBlock):
+            return cls(statement.stmts).may_fall_through()
+        if isinstance(statement, IRIf) and statement.else_block is not None:
+            return cls._statement_may_fall_through(statement.then_block) or cls._statement_may_fall_through(
+                statement.else_block
+            )
+        return True
 
 
-def statement_may_fall_through(statement) -> bool:
-    if isinstance(statement, (IRReturn, IRBreak, IRContinue)):
-        return False
-    if isinstance(statement, IRBlock):
-        return sequence_may_fall_through(statement.stmts)
-    if isinstance(statement, IRIf) and statement.else_block is not None:
-        return statement_may_fall_through(statement.then_block) or statement_may_fall_through(statement.else_block)
-    return True
-
-
-def sequence_references_variable(statements, name: str) -> bool:
-    """Whether structured IR reads ``name`` anywhere in this sequence."""
-    return any(_references_variable(statement, name) for statement in statements)
-
-
-def _references_variable(value, name: str) -> bool:
-    if isinstance(value, IRVar):
-        return value.name == name
-    if isinstance(value, IRLiteral):
-        return False
-    if isinstance(value, (list, tuple)):
-        return any(_references_variable(item, name) for item in value)
-    if not dataclasses.is_dataclass(value):
-        return False
-    return any(
-        _references_variable(item, name)
-        for field in dataclasses.fields(value)
-        if not isinstance((item := getattr(value, field.name)), str)
-    )
-
-
-__all__ = [
-    "sequence_may_fall_through",
-    "sequence_references_variable",
-    "statement_may_fall_through",
-]
+__all__ = ["StatementSequence"]

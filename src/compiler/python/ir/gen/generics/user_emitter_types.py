@@ -65,7 +65,14 @@ class _UserGenericTypeMixin:
         from .core import _resolve_type
 
         substitutions = dict(zip(class_info.generic_params, receiver_type.generic_args))
-        return self._resolve(_resolve_type(member.type, substitutions, self._typedefs()))
+        return self._resolve(
+            _resolve_type(
+                member.type,
+                substitutions,
+                self._typedefs(),
+                self.type_identity,
+            )
+        )
 
     def _indexed_type(self, container_type):
         if not container_type:
@@ -91,12 +98,10 @@ class _UserGenericTypeMixin:
 
     def _mangle_type(self, type_expr):
         """Return a concrete class/collection C prefix, when available."""
-        from ..types import mangle_generic_type
-
         if not type_expr:
             return None
         if getattr(type_expr, "generic_args", None):
-            return mangle_generic_type(
+            return self.type_identity.specialization_symbol(
                 type_expr.base,
                 type_expr.generic_args,
             )
@@ -117,9 +122,7 @@ class _UserGenericTypeMixin:
         if not class_info:
             return None
         if getattr(resolved, "generic_args", None):
-            from ..types import mangle_generic_type
-
-            target = mangle_generic_type(
+            target = self.type_identity.specialization_symbol(
                 resolved.base,
                 resolved.generic_args,
             )

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from ..ast_nodes import MethodDecl, Program, RichEnumDecl, TypeExpr
 from ..numeric_literals import NumericLiteralSemantics
+from ..type_identity import TypeIdentity
 from .analysis_context import AnalysisContext
 from .core_models import (
     AnalyzedProgram,
@@ -22,9 +23,11 @@ class AnalyzerBase:
         self,
         context: AnalysisContext,
         numeric_literals: NumericLiteralSemantics,
+        type_identity: TypeIdentity,
     ):
         self.context = context
         self.numeric_literals = numeric_literals
+        self.type_identity = type_identity
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = {}
         self.generic_method_call_args: dict[int, tuple] = {}

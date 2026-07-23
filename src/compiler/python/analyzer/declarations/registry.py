@@ -20,6 +20,7 @@ from ...ast_nodes import (
     VarDeclStmt,
 )
 from ...class_storage import instance_storage_name
+from ...type_identity import TypeIdentity
 from ..analysis_context import AnalysisContext
 from ..core_models import AnalyzedProgram, ClassInfo, InterfaceInfo, Scope
 from .inheritance import InheritanceResolver
@@ -34,11 +35,13 @@ class DeclarationRegistry:
         self,
         context: AnalysisContext,
         global_scope: Scope,
+        type_identity: TypeIdentity,
         *,
         seed: AnalyzedProgram | None = None,
     ) -> None:
         self.context = context
         self.global_scope = global_scope
+        self.type_identity = type_identity
         self.class_table: dict[str, ClassInfo] = {}
         self.function_table: dict[str, FunctionDecl] = {}
         self.typedef_table: dict[str, TypeExpr] = {}

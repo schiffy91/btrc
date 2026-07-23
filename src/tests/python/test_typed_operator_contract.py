@@ -12,14 +12,16 @@ from src.compiler.python.ir.gen.errors import CodegenError
 from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.operator_semantics import (
+    OperatorSemantics,
     OperatorTypeError,
-    hash_domain,
-    is_scalar_string_type,
 )
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.type_identity import TypeIdentity
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+IDENTITY = TypeIdentity()
+OPERATORS = OperatorSemantics(IDENTITY)
 
 RUNTIME_SOURCE = r"""
 #include <assert.h>
@@ -178,15 +180,15 @@ def _analyze(source: str):
 
 
 def test_scalar_string_shape_excludes_arrays_and_extra_pointers():
-    assert is_scalar_string_type(TypeExpr(base="string"))
-    assert is_scalar_string_type(TypeExpr(base="string", pointer_depth=1, is_nullable=True))
-    assert not is_scalar_string_type(TypeExpr(base="string", pointer_depth=1))
-    assert not is_scalar_string_type(TypeExpr(base="string", is_array=True))
+    assert IDENTITY.is_scalar_string(TypeExpr(base="string"))
+    assert IDENTITY.is_scalar_string(TypeExpr(base="string", pointer_depth=1, is_nullable=True))
+    assert not IDENTITY.is_scalar_string(TypeExpr(base="string", pointer_depth=1))
+    assert not IDENTITY.is_scalar_string(TypeExpr(base="string", is_array=True))
 
 
 def test_opaque_t_suffix_is_not_assumed_numeric():
     with pytest.raises(OperatorTypeError, match="aggregate operand"):
-        hash_domain(TypeExpr(base="payload_t"))
+        OPERATORS.hash_domain(TypeExpr(base="payload_t"))
 
     _program, analyzed = _analyze("""
         void run() {

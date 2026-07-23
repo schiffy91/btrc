@@ -10,6 +10,7 @@ from src.compiler.python.analyzer.hierarchy_validator import HierarchyValidator
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.type_identity import TypeIdentity
 
 
 def _parse(source: str):
@@ -51,7 +52,7 @@ def test_hierarchy_validator_runs_as_an_independent_pass_two_atom():
         """
     )
     context = AnalysisContext()
-    registry = DeclarationRegistry(context, Scope())
+    registry = DeclarationRegistry(context, Scope(), TypeIdentity())
     registry.register(program)
     registry.resolve_interface_parents(program)
     validator = HierarchyValidator(context, registry, registry.policy.signatures)

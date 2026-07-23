@@ -46,19 +46,14 @@ def complete_generic_scope(
     statements: list[IRStmt],
 ) -> list[IRStmt]:
     """Append normal cleanup and materialize an active cleanup baseline."""
-    from ...completion import (
-        sequence_may_fall_through,
-        sequence_references_variable,
-    )
+    from ...completion import StatementSequence
 
-    falls_through = sequence_may_fall_through(statements)
+    sequence = StatementSequence(statements)
+    falls_through = sequence.may_fall_through()
     if falls_through:
         statements.extend(_emit_scope_release(emitter._managed_vars_stack[-1], emitter._gen))
     marker = frame.cleanup_marker
-    marker_referenced = falls_through or sequence_references_variable(
-        statements,
-        marker or "",
-    )
+    marker_referenced = falls_through or sequence.references_variable(marker or "")
     if marker in emitter._active_cleanup_markers and marker_referenced:
         statements[:0] = cleanup_scope_entry(emitter._gen, marker)
         if falls_through:

@@ -35,7 +35,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -77,7 +77,7 @@ def test_extern_roots_are_structured_symbols_not_incidental_text():
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert {declaration.name for declaration in module.function_decls} == {
         "called_extern",
@@ -115,7 +115,7 @@ def test_only_emitted_opaque_boundaries_root_externs():
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [helper.name for helper in module.helper_decls] == ["live_helper"]
     assert {declaration.name for declaration in module.function_decls} == {
@@ -155,7 +155,7 @@ def test_opaque_boundaries_root_types_but_literals_and_names_do_not():
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [enum.name for enum in module.enum_defs] == ["HelperEnum"]
     assert [alias.name for alias in module.typedef_defs] == ["MacroType", "HelperType"]
@@ -175,7 +175,7 @@ def test_opaque_boundaries_root_types_but_literals_and_names_do_not():
 def test_single_unreferenced_type_declaration_is_removed(field_name, declaration):
     module = IRModule(function_defs=[_main()], **{field_name: [declaration]})
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert getattr(module, field_name) == []
 
@@ -226,7 +226,7 @@ def _strict_declaration_module():
 def test_type_declarations_follow_transitive_typed_references():
     module = _strict_declaration_module()
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [enum.name for enum in module.enum_defs] == ["Color"]
     assert [forward.name for forward in module.struct_forwards] == ["Event", "Box"]
@@ -241,7 +241,7 @@ def test_type_declarations_follow_transitive_typed_references():
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_pruned_declaration_closure_is_strict_c11(tmp_path: Path, c_compiler: str):
     module = _strict_declaration_module()
-    optimize(module)
+    IROptimizer(module).optimize()
     source = tmp_path / "optimized_declarations.c"
     source.write_text(CEmitter().emit(module))
 

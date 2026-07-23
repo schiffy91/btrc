@@ -6,9 +6,6 @@ from ..ast_nodes import (
 from ..numeric_semantics import integer_mix_is_portable, is_numeric_type
 from ..operator_semantics import (
     OperatorTypeError,
-    coalesce_domain,
-    comparison_domain,
-    is_scalar_string_type,
 )
 
 
@@ -108,7 +105,7 @@ class ExpressionContractsMixin:
             self._validate_operator_argument(expression, operator, right, overload)
             self._validate_operator_access(left, operator, expression)
             return
-        if operator == "+" and is_scalar_string_type(left) and is_scalar_string_type(right):
+        if operator == "+" and self.type_identity.is_scalar_string(left) and self.type_identity.is_scalar_string(right):
             return
         if operator in {
             "+",
@@ -136,13 +133,10 @@ class ExpressionContractsMixin:
             return
         if operator == "??":
             try:
-                coalesce_domain(
+                self.operator_types.coalesce_domain(
                     self._canonical_type(left),
                     self._canonical_type(right),
                     left_is_optional_value=(isinstance(expression.left, FieldAccessExpr) and expression.left.optional),
-                    class_table=self.declarations.class_table,
-                    interface_table=self.declarations.interface_table,
-                    enum_names=frozenset(self.declarations.enum_table),
                 )
             except OperatorTypeError as error:
                 self.context.error(str(error), expression.line, expression.col)
@@ -167,13 +161,10 @@ class ExpressionContractsMixin:
             valid = self._is_numeric_value(left) and self._is_numeric_value(right)
         elif operator in ("==", "!=", "<", ">", "<=", ">="):
             try:
-                comparison_domain(
+                self.operator_types.comparison_domain(
                     operator,
                     self._canonical_type(left),
                     self._canonical_type(right),
-                    class_table=self.declarations.class_table,
-                    interface_table=self.declarations.interface_table,
-                    enum_names=frozenset(self.declarations.enum_table),
                 )
             except OperatorTypeError as error:
                 self.context.error(str(error), expression.line, expression.col)

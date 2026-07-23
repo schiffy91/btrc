@@ -39,7 +39,12 @@ def emit_generic_properties(gen, mangled, type_map, cls_info, emitter):
 
     emitted = []
     for name, prop in cls_info.properties.items():
-        resolved = _resolve_type(prop.type, type_map, gen.analyzed.typedef_table)
+        resolved = _resolve_type(
+            prop.type,
+            type_map,
+            gen.analyzed.typedef_table,
+            gen.type_identity,
+        )
         property_c = emitter.resolve_c(prop.type)
         backing = f"_prop_{name}"
         if prop.has_getter:

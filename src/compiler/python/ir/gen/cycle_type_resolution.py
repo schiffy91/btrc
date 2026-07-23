@@ -30,6 +30,7 @@ def substitute_cycle_type(gen, type_expr, substitutions):
         type_expr,
         substitutions,
         gen.analyzed.typedef_table,
+        gen.type_identity,
     )
 
 

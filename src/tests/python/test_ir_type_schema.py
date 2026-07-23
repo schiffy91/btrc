@@ -20,7 +20,7 @@ from src.compiler.python.ir.nodes import (
     IRSizeof,
     IRVar,
 )
-from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
+from src.compiler.python.ir.optimizer_walk import IRTree
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -144,7 +144,7 @@ def test_generic_allocation_uses_structured_sizeof_type_operands():
         int main() { Crate<int> crate = Crate(1); return 0; }
     """)
     constructor = next(function for function in module.function_defs if function.name == "btrc_Crate_int_new")
-    nodes = list(iter_ir_nodes(constructor))
+    nodes = list(IRTree(constructor))
     size_operands = [node.operand for node in nodes if isinstance(node, IRSizeof)]
 
     assert size_operands == [CType(text="btrc_Crate_int")]
@@ -157,7 +157,7 @@ def test_enum_constants_and_tags_are_symbol_references_not_literals():
         enum class Payload { Number(int value), Empty }
         int main() { Color color = RED; return color == GREEN ? 0 : 1; }
     """)
-    nodes = list(iter_ir_nodes(module))
+    nodes = list(IRTree(module))
     symbols = {node.name for node in nodes if isinstance(node, IRVar)}
     symbolic_names = {
         "Color_RED",
@@ -176,7 +176,7 @@ def test_cycle_visitor_calls_its_function_pointer_as_an_expression():
         int main() { return 0; }
     """)
     visitor = next(function for function in module.function_defs if function.name == cycle_visitor_symbol("Node"))
-    calls = [node for node in iter_ir_nodes(visitor) if isinstance(node, IRCall)]
+    calls = [node for node in IRTree(visitor) if isinstance(node, IRCall)]
 
     assert len(calls) == 1
     assert calls[0].callee == IRVar(name="fn")
@@ -199,7 +199,7 @@ def test_complex_function_pointer_member_calls_preserve_receiver_structure():
     ):
         materialized = next(
             node
-            for node in iter_ir_nodes(functions[function_name])
+            for node in IRTree(functions[function_name])
             if isinstance(node, IRBinOp) and isinstance(node.right, IRFieldAccess)
         )
         assert isinstance(materialized.left, IRVar)
@@ -209,7 +209,7 @@ def test_complex_function_pointer_member_calls_preserve_receiver_structure():
         assert materialized.right.obj == IRCall(callee=factory_name, args=[])
         member_call = next(
             node
-            for node in iter_ir_nodes(functions[function_name])
+            for node in IRTree(functions[function_name])
             if isinstance(node, IRCall) and node.callee == materialized.left
         )
         assert member_call.args == [IRLiteral(text="1")]

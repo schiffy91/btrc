@@ -11,7 +11,7 @@ from types import MappingProxyType
 from typing import TypeVar
 
 from ...ast_nodes import TypeExpr
-from ...type_identity import substitute_type_expr
+from ...type_identity import TypeIdentity
 
 _Result = TypeVar("_Result")
 _LineMap = Callable[[int], tuple[str, int] | None]
@@ -41,7 +41,8 @@ class DefaultArgumentLoweringContext:
     instances.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, type_identity: TypeIdentity | None = None) -> None:
+        self._type_identity = type_identity if type_identity is not None else TypeIdentity()
         self._state = ContextVar(
             f"btrc_default_arguments_{id(self)}",
             default=_EMPTY_STATE,
@@ -133,7 +134,7 @@ class DefaultArgumentLoweringContext:
         substitutions = self._state.get().substitutions
         if not substitutions or type_expr is None:
             return type_expr
-        return substitute_type_expr(type_expr, substitutions)
+        return self._type_identity.substitute(type_expr, substitutions)
 
     def predefined_identifier(self, node) -> str | None:
         """Freeze a predefined identifier at its declaration site."""

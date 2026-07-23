@@ -3,16 +3,8 @@
 from __future__ import annotations
 
 from ...ast_nodes import TypeExpr
-from ...operator_semantics import (
-    OperatorTypeError,
-    coalesce_domain,
-    comparison_domain,
-    is_null_type,
-    is_numeric_type,
-    is_scalar_string_type,
-    type_label,
-)
-from ...reference_semantics import is_c_string_pointer
+from ...numeric_semantics import is_numeric_type
+from ...operator_semantics import OperatorTypeError
 from ..nodes import (
     CType,
     IRBinOp,
@@ -29,8 +21,6 @@ from ..nodes import (
 from .errors import TypedOperatorError
 from .operator_context import (
     OperatorLoweringContext,
-    canonical_operator_type,
-    operator_context,
 )
 from .optional_fallback import replace_optional_fallback
 from .typed_hash import lower_typed_hash
@@ -54,15 +44,24 @@ def lower_typed_binary(
     left_is_optional_value: bool = False,
 ) -> IRExpr | None:
     """Lower an operation owned by the shared portable type contract."""
-    left_type = canonical_operator_type(context, left_type)
-    right_type = canonical_operator_type(context, right_type)
+    left_type = context.canonical_type(left_type)
+    right_type = context.canonical_type(right_type)
     if allow_unresolved_c_operands and (left_type is None or right_type is None):
         return IRBinOp(left=left, op=operator, right=right)
     if (
         operator == "+"
-        and (is_scalar_string_type(left_type) or is_c_string_pointer(left_type))
-        and (is_scalar_string_type(right_type) or is_c_string_pointer(right_type))
-        and (is_scalar_string_type(left_type) or is_scalar_string_type(right_type))
+        and (
+            context.operator_types.type_identity.is_scalar_string(left_type)
+            or context.operator_types.type_identity.is_c_string_pointer(left_type)
+        )
+        and (
+            context.operator_types.type_identity.is_scalar_string(right_type)
+            or context.operator_types.type_identity.is_c_string_pointer(right_type)
+        )
+        and (
+            context.operator_types.type_identity.is_scalar_string(left_type)
+            or context.operator_types.type_identity.is_scalar_string(right_type)
+        )
     ):
         _use(context, "__btrc_strcat")
         _use(context, "__btrc_str_track")
@@ -106,16 +105,13 @@ def lower_typed_comparison(
     right_type: TypeExpr | None,
     context: OperatorLoweringContext,
 ) -> IRExpr:
-    left_type = canonical_operator_type(context, left_type)
-    right_type = canonical_operator_type(context, right_type)
+    left_type = context.canonical_type(left_type)
+    right_type = context.canonical_type(right_type)
     try:
-        domain = comparison_domain(
+        domain = context.operator_types.comparison_domain(
             operator,
             left_type,
             right_type,
-            class_table=context.class_table,
-            interface_table=context.interface_table,
-            enum_names=context.enum_names,
         )
     except OperatorTypeError as error:
         raise TypedOperatorError(str(error)) from error
@@ -182,7 +178,8 @@ def _lower_reference_equality(
     right_type: TypeExpr | None,
     context: OperatorLoweringContext,
 ) -> IRExpr:
-    if is_null_type(left_type) or is_null_type(right_type):
+    identity = context.operator_types.type_identity
+    if identity.is_null(left_type) or identity.is_null(right_type):
         function_type = next(
             (item for item in (left_type, right_type) if item is not None and item.base == "__fn_ptr"),
             None,
@@ -192,7 +189,7 @@ def _lower_reference_equality(
                 target_type=CType(text=context.type_renderer.render(function_type)),
                 expr=IRLiteral(text="0"),
             )
-            if is_null_type(left_type):
+            if identity.is_null(left_type):
                 left = null_value
             else:
                 right = null_value
@@ -234,13 +231,10 @@ def _lower_null_coalesce(
     left_is_optional_value: bool,
 ) -> IRExpr:
     try:
-        domain = coalesce_domain(
+        domain = context.operator_types.coalesce_domain(
             left_type,
             right_type,
             left_is_optional_value=left_is_optional_value,
-            class_table=context.class_table,
-            interface_table=context.interface_table,
-            enum_names=context.enum_names,
         )
     except OperatorTypeError as error:
         raise TypedOperatorError(str(error)) from error
@@ -249,7 +243,7 @@ def _lower_null_coalesce(
         if optional is None:
             raise TypedOperatorError("optional-chain coalescing requires structured ternary IR")
         return optional
-    result_type = right_type if is_null_type(left_type) else left_type
+    result_type = right_type if context.operator_types.type_identity.is_null(left_type) else left_type
     if result_type is None:
         raise TypedOperatorError("cannot resolve null-coalescing result type")
     temp_name = context.fresh_temp("__nc")
@@ -279,15 +273,10 @@ def _use(context: OperatorLoweringContext, helper: str) -> None:
         context.use_helper(helper)
 
 
-def _label(type_expr: TypeExpr | None) -> str:
-    return type_label(type_expr) if type_expr is not None else "unknown"
-
-
 __all__ = [
     "OperatorLoweringContext",
     "lower_typed_binary",
     "lower_typed_comparison",
     "lower_typed_hash",
     "lower_typed_ternary",
-    "operator_context",
 ]

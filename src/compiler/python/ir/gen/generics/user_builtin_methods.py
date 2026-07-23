@@ -8,7 +8,6 @@ from ..methods import (
     _lower_string_special,
     _lower_to_string,
 )
-from ..types import is_string_type
 
 
 def lower_generic_builtin_method(
@@ -21,7 +20,7 @@ def lower_generic_builtin_method(
     gen = emitter._gen
     if gen is None:
         return None
-    if is_string_type(receiver_type):
+    if emitter.type_identity.is_scalar_string(receiver_type):
         if method_name in _STRING_METHODS:
             return _lower_string_method(gen, receiver, method_name, args)
         special = _lower_string_special(gen, receiver, method_name, args)

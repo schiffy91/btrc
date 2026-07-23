@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ...ast_nodes import FieldAccessExpr, Identifier, IndexExpr, SelfExpr
 from ...class_storage import property_needs_backing
-from ...index_protocol import indexed_protocol_info
 from ...string_conversion import requires_class_to_string
 from .assignment_ownership import (
     assignment_target_operands,
@@ -128,9 +127,8 @@ class OwnershipEffectResolver:
     def _virtual_assignment_target(self, target) -> bool:
         if isinstance(target, IndexExpr):
             return (
-                indexed_protocol_info(
+                self.ownership.index_protocols.class_info(
                     self.context.type_of(target.obj),
-                    self.context.analyzed.class_table,
                     method="set",
                 )
                 is not None

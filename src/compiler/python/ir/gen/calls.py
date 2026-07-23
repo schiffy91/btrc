@@ -21,7 +21,7 @@ from .errors import CodegenError
 from .function_symbols import source_function_c_name
 from .lowering_context import LoweringContext
 from .type_resolution import canonical_type
-from .types import CTypeRenderer, is_string_type, mangle_generic_type
+from .types import CTypeRenderer
 
 
 class CallLowerer:
@@ -193,7 +193,7 @@ class CallLowerer:
                 or len(instance_type.generic_args) != len(class_info.generic_params)
             ):
                 raise CodegenError(f"generic constructor '{class_name}()' has no concrete analyzed call type")
-            callee_prefix = mangle_generic_type(
+            callee_prefix = self.type_renderer.type_identity.specialization_symbol(
                 class_name,
                 instance_type.generic_args,
             )
@@ -243,7 +243,7 @@ class CallLowerer:
                 self.context.type_of(receiver),
                 self.context.analyzed.typedef_table,
             )
-            if is_string_type(receiver_type) and node.callee.field in STRING_METHODS:
+            if self.type_renderer.type_identity.is_scalar_string(receiver_type) and node.callee.field in STRING_METHODS:
                 return True
             if self.ownership.types.is_mutex(receiver_type):
                 return True

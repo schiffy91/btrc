@@ -5,11 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ....ast_nodes import TypeExpr
-from ....type_identity import generic_instance_key, type_references_names
 from ...nodes import IRStructDef, IRStructForward
 from ..arc_metadata import arc_header_field
 from ..class_storage_fields import lower_instance_storage_field
-from ..types import mangle_generic_type
 from .core import _resolve_type
 from .user_emitter import _UserGenericEmitter
 from .user_methods import _emit_user_generic_methods
@@ -26,29 +24,29 @@ def _register_transitive_generic_deps(gen: IRLowerer, cls_info, type_map: dict[s
     so the while-changed loop in core.py emits it.
     """
     for _name, fd in cls_info.instance_storage:
-        resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table)
+        resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table, gen.type_identity)
         _register_if_generic(gen, resolved)
     # Also scan method return types and parameter types
     for method in cls_info.methods.values():
         if method.return_type:
-            resolved = _resolve_type(method.return_type, type_map, gen.analyzed.typedef_table)
+            resolved = _resolve_type(method.return_type, type_map, gen.analyzed.typedef_table, gen.type_identity)
             _register_if_generic(gen, resolved, method.generic_params)
         for p in method.params:
             if p.type:
-                resolved = _resolve_type(p.type, type_map, gen.analyzed.typedef_table)
+                resolved = _resolve_type(p.type, type_map, gen.analyzed.typedef_table, gen.type_identity)
                 _register_if_generic(gen, resolved, method.generic_params)
 
 
 def _register_if_generic(gen: IRLowerer, t: TypeExpr, unresolved=()):
     """Register a resolved type as a generic instance if it's a generic class."""
-    if not t or not t.generic_args or type_references_names(t, unresolved):
+    if not t or not t.generic_args or gen.type_identity.references_names(t, unresolved):
         return
     cls = gen.analyzed.class_table.get(t.base)
     if cls and cls.generic_params:
         instances = gen.analyzed.generic_instances.setdefault(t.base, [])
         args_tuple = tuple(t.generic_args)
-        target = generic_instance_key(t.base, args_tuple)
-        if not any(generic_instance_key(t.base, existing) == target for existing in instances):
+        target = gen.type_identity.generic_instance_key(t.base, args_tuple)
+        if not any(gen.type_identity.generic_instance_key(t.base, existing) == target for existing in instances):
             instances.append(args_tuple)
 
 
@@ -70,7 +68,8 @@ def _emit_user_generic_instance(
     cls_info = gen.analyzed.class_table.get(base_name)
     if not cls_info:
         return
-    mangled = mangle_generic_type(base_name, args)
+    gen.type_identity.ensure_supported_generic_arguments(args)
+    mangled = gen.type_identity.generic_symbol(base_name, args)
 
     # Build type parameter mapping
     type_map = {}
@@ -84,11 +83,12 @@ def _emit_user_generic_instance(
     # Recursively emit transitive field-type dependencies FIRST
     if seen is not None:
         for _name, fd in cls_info.instance_storage:
-            resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table)
+            resolved = _resolve_type(fd.type, type_map, gen.analyzed.typedef_table, gen.type_identity)
             if resolved.generic_args and resolved.base in gen.analyzed.class_table:
                 dep_cls = gen.analyzed.class_table[resolved.base]
                 if dep_cls.generic_params:
-                    dep_mangled = mangle_generic_type(resolved.base, list(resolved.generic_args))
+                    gen.type_identity.ensure_supported_generic_arguments(resolved.generic_args)
+                    dep_mangled = gen.type_identity.generic_symbol(resolved.base, resolved.generic_args)
                     if dep_mangled not in seen:
                         seen.add(dep_mangled)
                         _emit_user_generic_instance(
@@ -122,6 +122,7 @@ def _emit_user_generic_instance(
             fd.type,
             type_map,
             gen.analyzed.typedef_table,
+            gen.type_identity,
         )
         fields.append(
             lower_instance_storage_field(

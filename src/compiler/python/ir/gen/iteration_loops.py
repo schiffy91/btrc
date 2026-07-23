@@ -197,22 +197,17 @@ def _lower_c_for(
         if not managed_scope_active:
             return loop
 
-        from ..completion import (
-            sequence_may_fall_through,
-            sequence_references_variable,
-        )
+        from ..completion import StatementSequence
         from .arc import _emit_scope_release
         from .cleanup_scopes import cleanup_scope_entry, cleanup_scope_exit
 
         scoped_statements = [*prefix, loop]
-        falls_through = sequence_may_fall_through(scoped_statements)
+        sequence = StatementSequence(scoped_statements)
+        falls_through = sequence.may_fall_through()
         managed = gen.pop_managed_scope()
         managed_scope_active = False
         marker_active = gen.cleanup_scope_is_active(cleanup_marker)
-        marker_referenced = falls_through or sequence_references_variable(
-            scoped_statements,
-            cleanup_marker or "",
-        )
+        marker_referenced = falls_through or sequence.references_variable(cleanup_marker or "")
         if marker_active and marker_referenced:
             scoped_statements[:0] = cleanup_scope_entry(gen, cleanup_marker)
         if falls_through:

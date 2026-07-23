@@ -14,7 +14,7 @@ from src.compiler.python.gpu_errors import (
     GPU_TRANSFER_FAILURE_MESSAGE,
     GPU_UNKNOWN_STATUS_MESSAGE,
 )
-from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
+from src.compiler.python.ir.optimizer_walk import IRTree
 from src.tests.python.test_codegen import emit_c
 from src.tests.python.test_gpu_dispatch_failures import (
     COMPILERS,
@@ -38,7 +38,7 @@ def test_shader_declares_lengths_and_final_atomic_status_binding() -> None:
     assert "@group(0) @binding(4) var<storage, read_write> btrc_status" in kernel.wgsl_source
     for code in GPU_STATUS_MESSAGES:
         assert f"atomicMax(&btrc_status.code, {code}u)" in kernel.wgsl_source
-    assert not any(type(node).__name__.startswith("IRRaw") for node in iter_ir_nodes(module))
+    assert not any(type(node).__name__.startswith("IRRaw") for node in IRTree(module))
 
 
 def test_dispatch_reads_status_before_guarded_user_data_and_cleans_before_failure() -> None:

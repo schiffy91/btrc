@@ -116,15 +116,13 @@ def lower_block(
                     default_arguments,
                 )
             )
-        from ..completion import (
-            sequence_may_fall_through,
-            sequence_references_variable,
-        )
+        from ..completion import StatementSequence
 
-        falls_through = sequence_may_fall_through(stmts)
+        sequence = StatementSequence(stmts)
+        falls_through = sequence.may_fall_through()
         managed = gen.pop_managed_scope()
         marker_active = gen.cleanup_scope_is_active(marker)
-        marker_referenced = falls_through or sequence_references_variable(stmts, marker or "")
+        marker_referenced = falls_through or sequence.references_variable(marker or "")
         if marker_active and marker_referenced:
             stmts[:0] = cleanup_scope_entry(gen, marker)
         if falls_through:

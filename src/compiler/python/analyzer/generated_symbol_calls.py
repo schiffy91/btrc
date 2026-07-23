@@ -21,7 +21,6 @@ from ..source_runtime_symbols import (
     is_source_runtime_helper,
     is_source_runtime_intrinsic,
 )
-from ..type_identity import mangle_method_instance_symbol
 
 
 def claim_gpu_symbols(analyzer, declaration, claims) -> None:
@@ -57,7 +56,7 @@ def claim_generic_method_symbols(analyzer, claims) -> None:
         if method is None:
             continue
         for class_args, method_args in instances:
-            symbol = mangle_method_instance_symbol(
+            symbol = analyzer.type_identity.method_instance_symbol(
                 class_name,
                 class_args,
                 method_name,

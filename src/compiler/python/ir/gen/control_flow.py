@@ -150,19 +150,14 @@ def _lower_switch(
                                 default_arguments,
                             )
                         )
-                    from ..completion import (
-                        sequence_may_fall_through,
-                        sequence_references_variable,
-                    )
+                    from ..completion import StatementSequence
 
-                    falls_through = sequence_may_fall_through(case_stmts)
+                    sequence = StatementSequence(case_stmts)
+                    falls_through = sequence.may_fall_through()
                     managed = gen.pop_managed_scope()
                     managed_scope_active = False
                     marker_active = gen.cleanup_scope_is_active(marker)
-                    marker_referenced = falls_through or sequence_references_variable(
-                        case_stmts,
-                        marker or "",
-                    )
+                    marker_referenced = falls_through or sequence.references_variable(marker or "")
                     if marker_active and marker_referenced:
                         case_stmts[:0] = cleanup_scope_entry(gen, marker)
                     if falls_through:

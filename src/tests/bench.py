@@ -40,7 +40,7 @@ from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.frontend.resolver import SourceResolver
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -54,9 +54,9 @@ class Result:
 
     name: str
     phases_ms: dict[str, float]  # best per-phase milliseconds
-    funcs_before: int  # IR functions before optimize()
-    funcs_after: int  # IR functions after optimize()
-    helpers_after: int  # runtime helpers after optimize()
+    funcs_before: int  # IR functions before optimization
+    funcs_after: int  # IR functions after optimization
+    helpers_after: int  # runtime helpers after optimization
     c_lines: int  # emitted C line count
     total_ms: float  # best end-to-end milliseconds
     cc_ms: float = 0.0  # gcc compile time (0 if not measured)
@@ -97,7 +97,7 @@ def _compile_once(source: str, filename: str) -> tuple[dict[str, float], dict]:
     funcs_before = len(ir_module.function_defs)
 
     t = time.perf_counter()
-    ir_module = optimize(ir_module)
+    ir_module = IROptimizer(ir_module).optimize()
     prof["optimize"] = (time.perf_counter() - t) * 1000
 
     t = time.perf_counter()

@@ -1,8 +1,6 @@
 """Contracts for collection shape snapshot-exclusion lowering."""
 
-from src.compiler.python.ir.cycle_boundaries import (
-    install_function_cycle_boundary,
-)
+from src.compiler.python.ir.cycle_boundaries import FunctionCycleBoundary
 from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.nodes import (
     CType,
@@ -21,12 +19,8 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
-from src.compiler.python.ir.topology_boundaries import (
-    install_collection_topology_boundary,
-)
-from src.compiler.python.ir.topology_queries import (
-    contains_self_storage_mutation,
-)
+from src.compiler.python.ir.topology_boundaries import CollectionTopologyBoundary
+from src.compiler.python.ir.topology_queries import CollectionTopologyMutation
 
 
 class _Generator:
@@ -93,12 +87,24 @@ def test_topology_query_follows_slot_and_receiver_aliases() -> None:
         value=IRLiteral(text="0"),
     )
 
-    assert contains_self_storage_mutation(direct)
-    assert contains_self_storage_mutation(IRBlock(stmts=[slot_alias, through_alias]))
-    assert contains_self_storage_mutation(IRBlock(stmts=[receiver_alias, compound]))
-    assert contains_self_storage_mutation(IRBlock(stmts=[raw_alias, raw_move]))
-    assert contains_self_storage_mutation(IRBlock(stmts=[IRExprStmt(expr=assigned_alias), assigned_mutation]))
-    assert not contains_self_storage_mutation(IRAssign(target=IRVar(name="local"), value=IRLiteral(text="1")))
+    assert CollectionTopologyMutation(direct).exists()
+    assert CollectionTopologyMutation(IRBlock(stmts=[slot_alias, through_alias])).exists()
+    assert CollectionTopologyMutation(IRBlock(stmts=[receiver_alias, compound])).exists()
+    assert CollectionTopologyMutation(IRBlock(stmts=[raw_alias, raw_move])).exists()
+    assert CollectionTopologyMutation(
+        IRBlock(
+            stmts=[
+                IRExprStmt(expr=assigned_alias),
+                assigned_mutation,
+            ]
+        )
+    ).exists()
+    assert not CollectionTopologyMutation(
+        IRAssign(
+            target=IRVar(name="local"),
+            value=IRLiteral(text="1"),
+        )
+    ).exists()
 
 
 def test_topology_boundary_keeps_return_evaluation_and_flush_inside_order() -> None:
@@ -121,8 +127,8 @@ def test_topology_boundary_keeps_return_evaluation_and_flush_inside_order() -> N
         ),
     )
 
-    assert install_collection_topology_boundary(generator, function)
-    assert install_function_cycle_boundary(function)
+    assert CollectionTopologyBoundary(generator, function).install()
+    assert FunctionCycleBoundary(function).install()
 
     statements = function.body.stmts
     marker, token, registration = statements[:3]

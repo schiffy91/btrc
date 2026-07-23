@@ -9,10 +9,12 @@ from src.compiler.python.ir.gen.cycle_metadata import (
     type_needs_visitor,
 )
 from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.gen.types import mangle_generic_type
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.type_identity import TypeIdentity
+
+IDENTITY = TypeIdentity()
 
 
 def _generate(source: str):
@@ -40,7 +42,7 @@ def test_every_concrete_managed_layout_starts_with_one_real_arc_header():
             return 0;
         }
     """)
-    mangled_box = mangle_generic_type("Box", [TypeExpr(base="int")])
+    mangled_box = IDENTITY.specialization_symbol("Box", [TypeExpr(base="int")])
     structures = {definition.name: definition for definition in module.struct_defs}
     for name in ("Base", "Child", mangled_box):
         first = structures[name].fields[0]
@@ -60,7 +62,7 @@ def test_every_concrete_managed_type_has_one_interned_descriptor():
             return 0;
         }
     """)
-    mangled_box = mangle_generic_type("Box", [TypeExpr(base="Base", pointer_depth=1)])
+    mangled_box = IDENTITY.specialization_symbol("Box", [TypeExpr(base="Base", pointer_depth=1)])
     globals_by_name = {declaration.name: declaration for declaration in module.global_decls}
     for name in ("Base", "Child", mangled_box):
         descriptor = globals_by_name[descriptor_symbol(name)]
@@ -77,7 +79,7 @@ def test_descriptor_reachability_tracks_live_constructors_and_lifecycle():
         }
     """)
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     global_names = {declaration.name for declaration in module.global_decls}
     function_names = {function.name for function in module.function_defs}

@@ -19,7 +19,7 @@ def lower_managed_compound_operator(
 ) -> IRExpr:
     """Return the ownership-producing operator result for one ``op=``."""
     from .errors import CodegenError
-    from .operator_context import operator_context
+    from .operator_context import OperatorLoweringContext
     from .operators import lower_overloaded_values
     from .typed_operators import lower_typed_binary
 
@@ -40,7 +40,7 @@ def lower_managed_compound_operator(
             right,
             target_type,
             right_type,
-            operator_context(
+            OperatorLoweringContext.from_lowerer(
                 gen,
                 type_renderer,
                 fresh_temp=fresh_temp,

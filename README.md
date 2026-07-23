@@ -1041,7 +1041,7 @@ btrc compiles through six stages. Two formal specs drive the front-end: [`src/la
          |
     [IR Gen]      --> IR tree           structured nodes (IRIf, IRCall, IRFor, ...)
          |
-    [Optimizer]   --> optimized IR      dead helper elimination
+    [Optimizer]   --> optimized IR      typed reachability + normalization
          |
     [C Emitter]   --> .c file           simple tree walk -- no lowering logic
          |
@@ -1106,6 +1106,8 @@ src/
         nodes.py               # Compatibility import surface for typed IR nodes
         module.py              # IRModule and top-level declarations
         optimizer.py           # Optimization composition root
+        reachability.py        # Program/runtime/declaration reachability owners
+        optimizer_walk.py      # IRTree and identifier-reference owners
         emitter.py             # C emission composition root
         gen/
           lowerer.py           # IRLowerer composition root

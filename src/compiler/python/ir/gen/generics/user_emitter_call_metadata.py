@@ -18,7 +18,6 @@ class _UserGenericCallMetadataMixin:
 
             raise CodegenError(f"Cannot resolve generic constructor instance '{class_info.name}'")
 
-        from ..types import mangle_generic_type
         from .user_call_arguments import resolved_generic_parameters
 
         substitutions = dict(zip(class_info.generic_params, instance_type.generic_args))
@@ -28,7 +27,7 @@ class _UserGenericCallMetadataMixin:
             substitutions,
         )
         return (
-            mangle_generic_type(instance_type.base, instance_type.generic_args),
+            self.type_identity.specialization_symbol(instance_type.base, instance_type.generic_args),
             params,
         )
 

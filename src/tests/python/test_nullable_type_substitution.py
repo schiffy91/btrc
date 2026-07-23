@@ -9,12 +9,11 @@ from src.compiler.python.ir.gen.type_resolution import canonical_type
 from src.compiler.python.ir.gen.types import CTypeRenderer
 from src.compiler.python.type_composition import add_outer_pointer, strip_outer_storage
 from src.compiler.python.type_identity import (
+    TypeIdentity,
     TypeShapeError,
-    generic_instance_key,
-    is_semantic_scalar_string,
-    mangle_generic_symbol,
-    substitute_type_expr,
 )
+
+IDENTITY = TypeIdentity()
 
 TYPEDEFS = {
     "ItemAlias": TypeExpr(base="Item", pointer_depth=1),
@@ -34,7 +33,7 @@ def _nullable_parameter() -> TypeExpr:
 def test_nullable_parameter_reuses_resolved_class_reference_layer() -> None:
     resolved = TypeExpr(base="Item", pointer_depth=1)
 
-    result = substitute_type_expr(_nullable_parameter(), {"T": resolved})
+    result = IDENTITY.substitute(_nullable_parameter(), {"T": resolved})
 
     assert result == TypeExpr(
         base="Item",
@@ -46,7 +45,7 @@ def test_nullable_parameter_reuses_resolved_class_reference_layer() -> None:
 def test_nullable_parameter_reuses_intrinsic_handle_layer() -> None:
     resolved = TypeExpr(base="Mutex", generic_args=[TypeExpr(base="int")])
 
-    result = substitute_type_expr(_nullable_parameter(), {"T": resolved})
+    result = IDENTITY.substitute(_nullable_parameter(), {"T": resolved})
 
     assert result == TypeExpr(
         base="Mutex",
@@ -56,19 +55,19 @@ def test_nullable_parameter_reuses_intrinsic_handle_layer() -> None:
 
 
 def test_normalized_nullable_string_remains_a_scalar_string() -> None:
-    result = substitute_type_expr(
+    result = IDENTITY.substitute(
         _nullable_parameter(),
         {"T": TypeExpr(base="string")},
     )
 
     assert result == TypeExpr(base="string", is_nullable=True)
-    assert is_semantic_scalar_string(result)
+    assert IDENTITY.is_scalar_string(result)
 
 
 def test_nullable_parameter_still_lifts_a_value_type() -> None:
     resolved = TypeExpr(base="int")
 
-    result = substitute_type_expr(_nullable_parameter(), {"T": resolved})
+    result = IDENTITY.substitute(_nullable_parameter(), {"T": resolved})
 
     assert result == TypeExpr(
         base="int",
@@ -92,7 +91,7 @@ def test_typedef_targets_are_transparent_to_nullable_shape_only(
     alias: str,
     canonical: TypeExpr,
 ) -> None:
-    result = substitute_type_expr(
+    result = IDENTITY.substitute(
         _nullable_parameter(),
         {"T": TypeExpr(base=alias)},
         reference_resolver=lambda value: canonical_type(value, TYPEDEFS),
@@ -114,12 +113,12 @@ def test_explicit_pointer_and_array_modifiers_compose_once_through_aliases() -> 
     def resolver(value):
         return canonical_type(value, TYPEDEFS)
 
-    pointer = substitute_type_expr(
+    pointer = IDENTITY.substitute(
         explicit_pointer,
         {"T": TypeExpr(base="AliasChain")},
         reference_resolver=resolver,
     )
-    array = substitute_type_expr(
+    array = IDENTITY.substitute(
         array_of_nullable,
         {"T": TypeExpr(base="AliasChain")},
         reference_resolver=resolver,
@@ -154,7 +153,7 @@ def test_explicit_pointer_and_array_modifiers_compose_once_through_aliases() -> 
 
 def test_alias_to_array_still_rejects_nested_array_composition() -> None:
     with pytest.raises(TypeShapeError, match="nested array composition"):
-        substitute_type_expr(
+        IDENTITY.substitute(
             TypeExpr(base="T", is_array=True),
             {"T": TypeExpr(base="IntArray")},
             reference_resolver=lambda value: canonical_type(value, TYPEDEFS),
@@ -209,6 +208,8 @@ def test_generic_c_rendering_preserves_template_pointer_boundaries(
         _resolve_type_c(
             template,
             {"T": concrete},
+            {},
+            IDENTITY,
             render=CTypeRenderer().render,
         )
         == expected
@@ -217,7 +218,7 @@ def test_generic_c_rendering_preserves_template_pointer_boundaries(
 
 def test_transitive_nullable_boundary_is_injective_in_instance_identity() -> None:
     direct = TypeExpr(base="int", pointer_depth=2, is_nullable=True)
-    transitive = substitute_type_expr(
+    transitive = IDENTITY.substitute(
         TypeExpr(base="T", pointer_depth=1),
         {"T": TypeExpr(base="int", pointer_depth=1, is_nullable=True)},
     )
@@ -228,8 +229,8 @@ def test_transitive_nullable_boundary_is_injective_in_instance_identity() -> Non
         is_nullable=True,
         nullable_outer_depth=1,
     )
-    assert generic_instance_key("Inner", [direct]) != generic_instance_key("Inner", [transitive])
-    assert mangle_generic_symbol("Inner", [direct]) != mangle_generic_symbol("Inner", [transitive])
+    assert IDENTITY.generic_instance_key("Inner", [direct]) != IDENTITY.generic_instance_key("Inner", [transitive])
+    assert IDENTITY.generic_symbol("Inner", [direct]) != IDENTITY.generic_symbol("Inner", [transitive])
     renderer = CTypeRenderer()
     assert renderer.render(direct) == "int*"
     assert renderer.render(transitive) == "int**"
@@ -243,14 +244,14 @@ def test_nullable_typedef_use_reuses_reference_shaped_alias(alias: str) -> None:
 
 def test_outer_storage_add_and_remove_preserve_nullable_boundary() -> None:
     nullable_int = TypeExpr(base="int", pointer_depth=1, is_nullable=True)
-    transitive_pointer = substitute_type_expr(
+    transitive_pointer = IDENTITY.substitute(
         TypeExpr(base="T", pointer_depth=1),
         {"T": nullable_int},
     )
 
     assert strip_outer_storage(TypeExpr(base="int", pointer_depth=2, is_nullable=True)) == TypeExpr(base="int")
     assert strip_outer_storage(transitive_pointer) == nullable_int
-    nullable_raw_pointer = substitute_type_expr(
+    nullable_raw_pointer = IDENTITY.substitute(
         TypeExpr(base="T", pointer_depth=2, is_nullable=True),
         {"T": TypeExpr(base="int")},
     )

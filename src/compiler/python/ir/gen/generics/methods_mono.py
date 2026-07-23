@@ -9,7 +9,7 @@ per combination.
 Mangling: ``{class_mangled}_{method}_{method_arg_mangles}``, e.g.
 ``btrc_Vector_int_mapTo_string`` for ``Vector<int>.mapTo<string>`` and
 ``btrc_Box_int_convert_string`` for ``Box<int>.convert<string>``. The class part
-is the existing ``mangle_generic_type`` output (or the bare class name for a
+is the concrete class specialization symbol (or the bare class name for a
 non-generic owner); the method part appends each method type argument's mangle.
 """
 
@@ -17,10 +17,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ....type_identity import mangle_method_instance_symbol
 from ...cycle_boundaries import (
     PUBLIC_COLLECTION_BASES,
-    install_function_cycle_boundary,
+    FunctionCycleBoundary,
 )
 from ...nodes import (
     CType,
@@ -32,19 +31,13 @@ from ...nodes import (
     IRParam,
     IRVar,
 )
-from ...topology_boundaries import install_collection_topology_boundary
+from ...topology_boundaries import CollectionTopologyBoundary
 from ..cycle_metadata import generic_instance_needs_visitor
 from ..parameters import lower_source_param
-from ..types import mangle_generic_type
 from .user_emitter import _UserGenericEmitter
 
 if TYPE_CHECKING:
     from ..lowerer import IRLowerer
-
-
-def generic_method_instance_name(class_base, class_args, method_name, method_args) -> str:
-    """C function name for a monomorphized generic-method instance."""
-    return mangle_method_instance_symbol(class_base, class_args, method_name, method_args)
 
 
 def emit_generic_method_instances(
@@ -107,10 +100,16 @@ def _emit_one_method_instance(
     default_arguments,
 ):
     if class_args:
-        self_mangled = mangle_generic_type(class_base, list(class_args))
+        gen.type_identity.ensure_supported_generic_arguments(class_args)
+        self_mangled = gen.type_identity.generic_symbol(class_base, class_args)
     else:
         self_mangled = class_base
-    fn_name = generic_method_instance_name(class_base, class_args, method.name, method_args)
+    fn_name = gen.type_identity.method_instance_symbol(
+        class_base,
+        class_args,
+        method.name,
+        method_args,
+    )
 
     type_map = _build_type_map(cls_info, method, class_args, method_args)
     emitter = _UserGenericEmitter(
@@ -161,7 +160,7 @@ def _emit_one_method_instance(
         is_static=True,
     )
     if class_base in PUBLIC_COLLECTION_BASES and generic_instance_needs_visitor(gen, class_base, list(class_args)):
-        install_collection_topology_boundary(gen, function)
-    if public_collection_method and install_function_cycle_boundary(function):
+        CollectionTopologyBoundary(gen, function).install()
+    if public_collection_method and FunctionCycleBoundary(function).install():
         gen.helpers.use("__btrc_flush_cycles")
     gen.module.function_defs.append(function)

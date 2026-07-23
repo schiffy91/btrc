@@ -8,7 +8,7 @@ from ....ast_nodes import TypeExpr
 from ....source_runtime_symbols import SOURCE_RUNTIME_HELPERS
 from ...cycle_boundaries import (
     PUBLIC_COLLECTION_BASES,
-    install_function_cycle_boundary,
+    FunctionCycleBoundary,
 )
 from ...nodes import (
     CType,
@@ -20,7 +20,7 @@ from ...nodes import (
     IRParam,
     IRVar,
 )
-from ...topology_boundaries import install_collection_topology_boundary
+from ...topology_boundaries import CollectionTopologyBoundary
 from ..cycle_metadata import generic_instance_needs_visitor
 from ..errors import TypedOperatorError
 from ..parameters import lower_source_param
@@ -123,8 +123,8 @@ def _emit_user_generic_methods(
             is_static=True,
         )
         if managed_collection:
-            install_collection_topology_boundary(gen, func_def)
-        if public_collection_method and install_function_cycle_boundary(func_def):
+            CollectionTopologyBoundary(gen, func_def).install()
+        if public_collection_method and FunctionCycleBoundary(func_def).install():
             gen.helpers.use("__btrc_flush_cycles")
         if is_type_incompatible(func_def, first_arg_c):
             skipped.add(mname)
@@ -137,6 +137,7 @@ def _emit_user_generic_methods(
         gen.analyzed.node_types,
         base_name,
         args,
+        gen.type_identity,
     )
     unavailable = called & skipped
     if unavailable:

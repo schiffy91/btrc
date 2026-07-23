@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ..ast_nodes import Identifier, TypeExpr
 from ..string_methods import STRING_METHODS
-from ..type_identity import is_semantic_scalar_string
 
 
 class BuiltinCallValidationMixin:
@@ -17,7 +16,7 @@ class BuiltinCallValidationMixin:
             return False
 
         receiver_type = self._canonical_type(receiver_type)
-        if is_semantic_scalar_string(receiver_type):
+        if self.type_identity.is_scalar_string(receiver_type):
             spec = STRING_METHODS.get(callee.field)
             if spec is None:
                 self.context.error(

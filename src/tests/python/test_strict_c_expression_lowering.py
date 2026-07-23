@@ -14,7 +14,7 @@ from src.compiler.python.ir.gen.literal_text import format_c_integer_literal
 from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.gen.types import CTypeRenderer
 from src.compiler.python.ir.nodes import IRBinOp, IRCall, IRLiteral, IRVar
-from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
+from src.compiler.python.ir.optimizer_walk import IRTree
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -91,13 +91,13 @@ def test_all_string_comparisons_are_structured_strcmp_operations():
     module = _generate(source)
     comparisons = [
         node
-        for node in iter_ir_nodes(module)
+        for node in IRTree(module)
         if (
             isinstance(node, IRBinOp)
             and node.op in {"==", "!=", "<", ">", "<=", ">="}
             and isinstance(node.right, IRLiteral)
             and node.right.text == "0"
-            and any(isinstance(inner, IRCall) and inner.callee == "strcmp" for inner in iter_ir_nodes(node.left))
+            and any(isinstance(inner, IRCall) and inner.callee == "strcmp" for inner in IRTree(node.left))
         )
     ]
 
@@ -123,12 +123,12 @@ def test_string_comparison_evaluates_each_operand_once():
         int main() { return (int)(left_value() < right_value()); }
     """
     module = _generate(source)
-    strcmp_call = next(node for node in iter_ir_nodes(module) if isinstance(node, IRCall) and node.callee == "strcmp")
+    strcmp_call = next(node for node in IRTree(module) if isinstance(node, IRCall) and node.callee == "strcmp")
 
     assert all(isinstance(argument, IRVar) for argument in strcmp_call.args)
     calls = [
         node.callee
-        for node in iter_ir_nodes(module)
+        for node in IRTree(module)
         if isinstance(node, IRCall) and node.callee in {"left_value", "right_value"}
     ]
     assert calls.count("left_value") == calls.count("right_value") == 1

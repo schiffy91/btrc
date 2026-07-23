@@ -349,9 +349,11 @@ def test_freestanding_system_include_replacement_keeps_source_position():
         ],
     )
 
-    from src.compiler.python.ir.runtime_dependencies import refresh_runtime_dependencies
+    from src.compiler.python.ir.runtime_dependencies import (
+        RuntimeDependencyMaterializer,
+    )
 
-    refresh_runtime_dependencies(module)
+    RuntimeDependencyMaterializer(module).refresh()
     emitted = CEmitter().emit(module)
     assert emitted.index("#define CONFIG_VALUE 37") < emitted.index('#include "btrc_rt.h"')
     assert emitted.index('#include "btrc_rt.h"') < emitted.index('#include "local_contract.h"')

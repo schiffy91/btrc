@@ -65,12 +65,9 @@ class ExpressionOwnershipContractsMixin:
                 ) and not isinstance(expression.obj, (SelfExpr, SuperExpr))
             if not isinstance(expression, IndexExpr):
                 return False
-            from ..index_protocol import indexed_protocol
-
             receiver = self._canonical_type(self._infer_type(expression.obj))
-            protocol = indexed_protocol(
+            protocol = self.index_protocols.resolve(
                 receiver,
-                self.declarations.class_table,
                 active_type_params=self._active_storage_type_parameters(),
             )
             return bool(protocol and protocol.getter is not None)
@@ -116,7 +113,8 @@ class ExpressionOwnershipContractsMixin:
             and not type_expr.is_array
             and type_expr.pointer_depth <= 1
             and (
-                type_expr.base in {"string", "Mutex"} or (not active_type_param and type_expr.base in self.declarations.class_table)
+                type_expr.base in {"string", "Mutex"}
+                or (not active_type_param and type_expr.base in self.declarations.class_table)
             )
         )
 
@@ -172,11 +170,19 @@ class ExpressionOwnershipContractsMixin:
             symbol = self.scope.lookup(callee.name)
             if symbol is not None and symbol.kind != "function":
                 return False
-            return callee.name == "Mutex" or callee.name in self.declarations.class_table or callee.name in self.declarations.function_table
+            return (
+                callee.name == "Mutex"
+                or callee.name in self.declarations.class_table
+                or callee.name in self.declarations.function_table
+            )
         if not isinstance(callee, FieldAccessExpr):
             return False
         if isinstance(callee.obj, Identifier):
-            owner = None if self.scope.lookup(callee.obj.name) is not None else self.declarations.class_table.get(callee.obj.name)
+            owner = (
+                None
+                if self.scope.lookup(callee.obj.name) is not None
+                else self.declarations.class_table.get(callee.obj.name)
+            )
             if owner is not None and callee.field in owner.methods:
                 return True
         receiver = self._canonical_type(self._infer_type(callee.obj))

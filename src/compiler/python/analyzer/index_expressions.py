@@ -3,8 +3,6 @@
 
 class IndexExpressionContractsMixin:
     def _validate_index_expr(self, expression):
-        from ..index_protocol import indexed_protocol
-
         object_type = self._canonical_type(self._infer_type(expression.obj))
         index_type = self._infer_type(expression.index)
         if object_type is None:
@@ -19,9 +17,8 @@ class IndexExpressionContractsMixin:
         expected_index = None
         if object_type.base == "Map" and len(object_type.generic_args) == 2:
             expected_index = object_type.generic_args[0]
-        protocol = indexed_protocol(
+        protocol = self.index_protocols.resolve(
             object_type,
-            self.declarations.class_table,
             active_type_params=self._active_storage_type_parameters(),
         )
         if expected_index is None and protocol is not None:

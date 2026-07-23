@@ -198,7 +198,8 @@ def lower_expr(
         )
 
     if isinstance(node, TernaryExpr):
-        from .typed_operators import lower_typed_ternary, operator_context
+        from .operator_context import OperatorLoweringContext
+        from .typed_operators import lower_typed_ternary
 
         true_expr = lower_expr(
             gen,
@@ -232,7 +233,7 @@ def lower_expr(
             false_expr,
             gen.analyzed.node_types.get(id(node.true_expr)),
             gen.analyzed.node_types.get(id(node.false_expr)),
-            operator_context(gen, type_renderer),
+            OperatorLoweringContext.from_lowerer(gen, type_renderer),
         )
 
     if isinstance(node, NewExpr):
@@ -396,7 +397,6 @@ def _lower_tuple(
 ) -> IRExpr:
     """Lower tuple literal to C struct initializer."""
     from .aggregate_ownership import reject_owned_elements
-    from .types import mangle_tuple_type
 
     reject_owned_elements(gen, node.elements, "a shallow aggregate")
     elems = [
@@ -410,7 +410,7 @@ def _lower_tuple(
     ]
     node_type = gen.analyzed.node_types.get(id(node))
     if node_type and node_type.generic_args:
-        mangled = mangle_tuple_type(node_type)
+        mangled = gen.type_identity.generic_symbol("Tuple", node_type.generic_args)
     else:
         # Fallback: construct from element count
         mangled = f"btrc_Tuple_{'_'.join(['int'] * len(node.elements))}"

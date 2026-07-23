@@ -12,7 +12,6 @@ from ..ast_nodes import (
     StructDecl,
     TypedefDecl,
 )
-from ..type_identity import is_semantic_scalar_void
 
 
 class AggregateLayoutContractsMixin:
@@ -186,7 +185,7 @@ class AggregateLayoutContractsMixin:
         canonical = self._canonical_type(type_expr)
         if canonical is None:
             return
-        if is_semantic_scalar_void(canonical):
+        if self.type_identity.is_scalar_void(canonical):
             self.context.error("sizeof cannot be applied to void", line, col)
             return
         self._validate_complete_aggregate_use(canonical, "sizeof", line, col, sizeof=True)

@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
 
 from .expr_nodes import CType, IRCall, IRLiteral, IRVar
-from .optimizer_walk import iter_ir_nodes
+from .module import IRModule
+from .optimizer_walk import IRTree
 from .top_nodes import IRInclude, IRMacroDef
-
-if TYPE_CHECKING:
-    from .module import IRModule
-
 
 _C_RUNTIME_CALLS = frozenset(
     {
@@ -116,118 +112,118 @@ _HEADER_FEATURES = {
 }
 
 
-def refresh_runtime_dependencies(module: IRModule) -> None:
-    """Recompute whether a live freestanding module needs ``btrc_rt.h``.
+class RuntimeDependencyMaterializer:
+    """Own runtime-feature derivation for one mutable IR module."""
 
-    Dependencies are derived from surviving helpers, typed calls, C types,
-    literal macros, and runtime objects. Re-running this after DCE removes
-    features owned only by dead code. Freestanding preprocessor lowering also
-    happens here, so the C emitter only formats typed declarations.
-    """
+    def __init__(self, module: IRModule):
+        self._module = module
 
-    _remove_generated_preprocessor(module)
-    _lower_freestanding_system_includes(module)
-    module.needs_runtime = bool(module.runtime_roots or module.helper_decls or _structured_runtime_use(module))
-    if not module.freestanding:
-        return
+    def refresh(self) -> None:
+        """Recompute and materialize the live freestanding runtime seam."""
 
-    generated_features: list[IRMacroDef] = []
-    required_headers = {header for helper in module.helper_decls for header in helper.required_headers}
-    required_features = _structured_runtime_features(module)
-    for header, feature in _HEADER_FEATURES.items():
-        if header in required_headers:
-            required_features.add(feature)
-    for feature in sorted(required_features):
-        if not any(
-            isinstance(declaration, IRMacroDef) and declaration.name == feature
-            for declaration in module.preprocessor_decls
-        ):
-            generated_features.append(IRMacroDef(name=feature, replacement="1"))
-
-    has_runtime_seam = any(
-        isinstance(declaration, IRInclude) and not declaration.is_system and declaration.header == "btrc_rt.h"
-        for declaration in module.preprocessor_decls
-    )
-    generated: list[IRInclude | IRMacroDef] = list(generated_features)
-    if has_runtime_seam:
-        seam_index = next(
-            index
-            for index, declaration in enumerate(module.preprocessor_decls)
-            if isinstance(declaration, IRInclude) and not declaration.is_system and declaration.header == "btrc_rt.h"
+        self._remove_generated_preprocessor()
+        self._lower_freestanding_system_includes()
+        self._module.needs_runtime = bool(
+            self._module.runtime_roots or self._module.helper_decls or self._has_structured_runtime_use()
         )
-        module.preprocessor_decls[seam_index:seam_index] = generated_features
-    elif module.needs_runtime:
-        seam = IRInclude(header="btrc_rt.h", is_system=False)
-        generated.append(seam)
-        module.preprocessor_decls.extend(generated)
+        if not self._module.freestanding:
+            return
 
-    module._generated_runtime_preprocessor.extend(generated)
-
-
-def _remove_generated_preprocessor(module: IRModule) -> None:
-    if not module._generated_runtime_preprocessor:
-        return
-    generated_ids = {id(declaration) for declaration in module._generated_runtime_preprocessor}
-    module.preprocessor_decls = [
-        declaration for declaration in module.preprocessor_decls if id(declaration) not in generated_ids
-    ]
-    module._generated_runtime_preprocessor.clear()
-
-
-def _lower_freestanding_system_includes(module: IRModule) -> None:
-    """Replace source system headers once with one typed local runtime seam."""
-
-    if not module.freestanding or module._freestanding_system_includes_lowered:
-        return
-    lowered = []
-    emitted_seam = False
-    for declaration in module.preprocessor_decls:
-        if not isinstance(declaration, IRInclude) or not declaration.is_system:
-            lowered.append(declaration)
-        elif not emitted_seam:
-            lowered.append(IRInclude(header="btrc_rt.h", is_system=False))
-            emitted_seam = True
-    module.preprocessor_decls = lowered
-    module._freestanding_system_includes_lowered = True
-
-
-def _structured_runtime_use(module: IRModule) -> bool:
-    defined_functions = {function.name for function in module.function_defs}
-    defined_globals = {declaration.name for declaration in module.global_decls}
-
-    for node in iter_ir_nodes(module):
-        if isinstance(node, IRCall) and isinstance(node.callee, str):
-            if node.callee not in defined_functions and (
-                node.callee in _C_RUNTIME_CALLS or node.callee.startswith(_C_RUNTIME_CALL_PREFIXES)
+        generated_features: list[IRMacroDef] = []
+        required_headers = {header for helper in self._module.helper_decls for header in helper.required_headers}
+        required_features = self._structured_runtime_features()
+        for header, feature in _HEADER_FEATURES.items():
+            if header in required_headers:
+                required_features.add(feature)
+        for feature in sorted(required_features):
+            if not any(
+                isinstance(declaration, IRMacroDef) and declaration.name == feature
+                for declaration in self._module.preprocessor_decls
             ):
-                return True
-        elif isinstance(node, CType):
-            if _C_RUNTIME_TYPES.intersection(_C_IDENTIFIER.findall(node.text)):
-                return True
-        elif isinstance(node, IRLiteral):
-            if node.text in _C_RUNTIME_LITERALS:
-                return True
-        elif isinstance(node, IRVar):
-            if node.name not in defined_globals and node.name in _C_RUNTIME_OBJECTS:
-                return True
-    return False
+                generated_features.append(IRMacroDef(name=feature, replacement="1"))
+
+        has_runtime_seam = any(
+            isinstance(declaration, IRInclude) and not declaration.is_system and declaration.header == "btrc_rt.h"
+            for declaration in self._module.preprocessor_decls
+        )
+        generated: list[IRInclude | IRMacroDef] = list(generated_features)
+        if has_runtime_seam:
+            seam_index = next(
+                index
+                for index, declaration in enumerate(self._module.preprocessor_decls)
+                if (
+                    isinstance(declaration, IRInclude)
+                    and not declaration.is_system
+                    and declaration.header == "btrc_rt.h"
+                )
+            )
+            self._module.preprocessor_decls[seam_index:seam_index] = generated_features
+        elif self._module.needs_runtime:
+            seam = IRInclude(header="btrc_rt.h", is_system=False)
+            generated.append(seam)
+            self._module.preprocessor_decls.extend(generated)
+
+        self._module._generated_runtime_preprocessor.extend(generated)
+
+    def _remove_generated_preprocessor(self) -> None:
+        generated = self._module._generated_runtime_preprocessor
+        if not generated:
+            return
+        generated_ids = {id(declaration) for declaration in generated}
+        self._module.preprocessor_decls = [
+            declaration for declaration in self._module.preprocessor_decls if id(declaration) not in generated_ids
+        ]
+        generated.clear()
+
+    def _lower_freestanding_system_includes(self) -> None:
+        """Replace source system headers once with one local runtime seam."""
+
+        if not self._module.freestanding or self._module._freestanding_system_includes_lowered:
+            return
+        lowered = []
+        emitted_seam = False
+        for declaration in self._module.preprocessor_decls:
+            if not isinstance(declaration, IRInclude) or not declaration.is_system:
+                lowered.append(declaration)
+            elif not emitted_seam:
+                lowered.append(IRInclude(header="btrc_rt.h", is_system=False))
+                emitted_seam = True
+        self._module.preprocessor_decls = lowered
+        self._module._freestanding_system_includes_lowered = True
+
+    def _has_structured_runtime_use(self) -> bool:
+        defined_functions = {function.name for function in self._module.function_defs}
+        defined_globals = {declaration.name for declaration in self._module.global_decls}
+        for node in IRTree(self._module):
+            if isinstance(node, IRCall) and isinstance(node.callee, str):
+                if node.callee not in defined_functions and (
+                    node.callee in _C_RUNTIME_CALLS or node.callee.startswith(_C_RUNTIME_CALL_PREFIXES)
+                ):
+                    return True
+            elif isinstance(node, CType):
+                if _C_RUNTIME_TYPES.intersection(_C_IDENTIFIER.findall(node.text)):
+                    return True
+            elif isinstance(node, IRLiteral):
+                if node.text in _C_RUNTIME_LITERALS:
+                    return True
+            elif isinstance(node, IRVar):
+                if node.name not in defined_globals and node.name in _C_RUNTIME_OBJECTS:
+                    return True
+        return False
+
+    def _structured_runtime_features(self) -> set[str]:
+        """Return feature macros reached by typed native-runtime calls."""
+
+        defined_functions = {function.name for function in self._module.function_defs}
+        features: set[str] = set()
+        for node in IRTree(self._module):
+            if not isinstance(node, IRCall) or not isinstance(node.callee, str) or node.callee in defined_functions:
+                continue
+            for prefix, feature in _RUNTIME_CALL_FEATURES.items():
+                if node.callee.startswith(prefix):
+                    features.add(feature)
+                    break
+        return features
 
 
-def _structured_runtime_features(module: IRModule) -> set[str]:
-    """Return native-runtime feature macros reached by typed external calls."""
-
-    defined_functions = {function.name for function in module.function_defs}
-    features: set[str] = set()
-    for node in iter_ir_nodes(module):
-        if not isinstance(node, IRCall) or not isinstance(node.callee, str):
-            continue
-        if node.callee in defined_functions:
-            continue
-        for prefix, feature in _RUNTIME_CALL_FEATURES.items():
-            if node.callee.startswith(prefix):
-                features.add(feature)
-                break
-    return features
-
-
-__all__ = ["refresh_runtime_dependencies"]
+__all__ = ["RuntimeDependencyMaterializer"]

@@ -97,17 +97,14 @@ def has_observable_effect(gen, node, *, type_of=None) -> bool:
             return True
         if has_observable_effect(gen, node.index, type_of=type_of):
             return True
-        from ...index_protocol import indexed_protocol_info
-
         receiver_type = _canonical_receiver_type(
             gen,
             (type_of or _analyzed_type(gen))(node.obj),
         )
         return bool(
             receiver_type is not None
-            and indexed_protocol_info(
+            and gen.index_protocols.class_info(
                 receiver_type,
-                gen.analyzed.class_table,
                 method="get",
             )
         )

@@ -16,11 +16,8 @@ class IndexedUpdateContractsMixin:
         if not isinstance(target, IndexExpr):
             return
         receiver_type = self._infer_type(target.obj)
-        from ..index_protocol import indexed_protocol
-
-        protocol = indexed_protocol(
+        protocol = self.index_protocols.resolve(
             receiver_type,
-            self.declarations.class_table,
             active_type_params=self._active_storage_type_parameters(),
         )
         if protocol is None:

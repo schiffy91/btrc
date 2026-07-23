@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from ...analyzer.core import AnalyzedProgram
+from ...type_identity import TypeIdentity
 from ..nodes import (
     CType,
     IRAddressOf,
@@ -29,6 +30,7 @@ class ArcLifetimeOwner(Protocol):
     analyzed: AnalyzedProgram
     context: LoweringContext
     helpers: RuntimeHelperRegistry
+    type_identity: TypeIdentity
     _cleanup_take_adapters: dict[str, str]
     _cleanup_take_adapter_defs: list[IRFunctionDef]
 
@@ -45,6 +47,7 @@ class ManagedLifetimeLowerer:
         self.analyzed = owner.analyzed
         self.context = owner.context
         self.helpers = owner.helpers
+        self.type_identity = owner.type_identity
         self.types = types
         # Cleanup-slot IR primitives use these registries directly. Sharing
         # their data keeps every adapter in the composition root's one
@@ -233,7 +236,7 @@ class ManagedLifetimeLowerer:
 
     def _runtime_name(self, type_expr) -> str:
         from .managed_values import MUTEX_RUNTIME_NAME, STRING_RUNTIME_NAME
-        from .types import is_generic_class_type, mangle_generic_type
+        from .types import is_generic_class_type
 
         if self.types.is_string(type_expr):
             return STRING_RUNTIME_NAME
@@ -241,7 +244,7 @@ class ManagedLifetimeLowerer:
             return MUTEX_RUNTIME_NAME
         canonical = self.types.canonical(type_expr)
         if is_generic_class_type(canonical, self.analyzed.class_table):
-            return mangle_generic_type(
+            return self.owner.type_identity.specialization_symbol(
                 canonical.base,
                 canonical.generic_args,
             )

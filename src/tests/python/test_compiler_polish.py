@@ -99,11 +99,12 @@ class TestPointerDepthMangling:
 
     def test_unit_mangling_includes_pointer_suffix(self):
         from src.compiler.python.ast_nodes import TypeExpr
-        from src.compiler.python.ir.gen.types import mangle_type_name
+        from src.compiler.python.type_identity import TypeIdentity
 
-        plain = mangle_type_name(TypeExpr(base="int"))
-        ptr = mangle_type_name(TypeExpr(base="int", pointer_depth=1))
-        ptr2 = mangle_type_name(TypeExpr(base="int", pointer_depth=2))
+        identity = TypeIdentity()
+        plain = identity.symbol_component(TypeExpr(base="int"))
+        ptr = identity.symbol_component(TypeExpr(base="int", pointer_depth=1))
+        ptr2 = identity.symbol_component(TypeExpr(base="int", pointer_depth=2))
         assert plain == "int"  # depth 0 unchanged (zero churn)
         assert ptr == "int_p1"
         assert ptr2 == "int_p2"

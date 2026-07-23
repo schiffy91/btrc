@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 
 from ..ast_nodes import TypeExpr
-from ..type_identity import generic_instance_key, type_shape_key
 
 
 def close_generic_instance_graph(analyzer) -> None:
@@ -51,7 +50,7 @@ def _pending_classes(analyzer, processed):
     work = []
     for base, instances in analyzer.generic_instances.items():
         for args in instances:
-            key = generic_instance_key(base, args)
+            key = analyzer.type_identity.generic_instance_key(base, args)
             if key not in processed:
                 work.append((base, tuple(args), key))
     return work
@@ -64,8 +63,8 @@ def _pending_methods(analyzer, processed):
             key = (
                 owner,
                 name,
-                tuple(type_shape_key(arg) for arg in class_args),
-                tuple(type_shape_key(arg) for arg in method_args),
+                tuple(analyzer.type_identity.shape_key(arg) for arg in class_args),
+                tuple(analyzer.type_identity.shape_key(arg) for arg in method_args),
             )
             if key not in processed:
                 work.append(

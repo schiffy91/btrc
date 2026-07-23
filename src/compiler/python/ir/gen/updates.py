@@ -182,7 +182,6 @@ def generator_update_context(
     """Build the normal IR generator's update dependency bundle."""
     from ...ast_nodes import FieldAccessExpr, SelfExpr
     from .expressions import lower_expr
-    from .operator_context import operator_context
     from .operators import lower_overloaded_values
     from .upcast import upcast_class_pointer
     from .virtual_stores import lower_virtual_store_boundary
@@ -207,6 +206,8 @@ def generator_update_context(
         fresh_temp=gen.fresh_temp,
         register_decl=gen.context.function_declarations.append,
         class_table=analyzed.class_table,
+        index_protocols=gen.index_protocols,
+        type_identity=gen.type_identity,
         direct_property=lambda target: bool(
             isinstance(target, FieldAccessExpr)
             and isinstance(target.obj, SelfExpr)
@@ -215,7 +216,7 @@ def generator_update_context(
     )
     return UpdateContext(
         lvalues=lvalues,
-        operators=operator_context(gen, type_renderer),
+        operators=OperatorLoweringContext.from_lowerer(gen, type_renderer),
         lower_overload=lambda left_type, right_type, operator, left, right: lower_overloaded_values(
             gen,
             left_type,

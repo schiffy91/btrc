@@ -3,8 +3,6 @@
 from ..operator_semantics import (
     GENERIC_COMPARISON_INTRINSICS,
     OperatorTypeError,
-    comparison_domain,
-    hash_domain,
 )
 
 
@@ -38,17 +36,11 @@ class GenericIntrinsicValidationMixin:
             self.context.error(str(error), expr.line, expr.col)
 
     def _validate_generic_intrinsic_types(self, name, operand_types):
-        context = {
-            "class_table": self.declarations.class_table,
-            "interface_table": self.declarations.interface_table,
-            "enum_names": frozenset(self.declarations.enum_table),
-        }
         if name in GENERIC_COMPARISON_INTRINSICS:
-            comparison_domain(
+            self.operator_types.comparison_domain(
                 GENERIC_COMPARISON_INTRINSICS[name],
                 operand_types[0],
                 operand_types[1],
-                **context,
             )
             return
-        hash_domain(operand_types[0], **context)
+        self.operator_types.hash_domain(operand_types[0])

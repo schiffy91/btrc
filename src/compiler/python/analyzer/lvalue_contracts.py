@@ -17,9 +17,7 @@ from ..ast_nodes import (
     TernaryExpr,
     UnaryExpr,
 )
-from ..index_protocol import indexed_protocol_info
 from ..source_runtime_symbols import is_source_runtime_helper
-from ..type_identity import is_semantic_scalar_string
 
 
 class LvalueContractsMixin:
@@ -98,7 +96,7 @@ class LvalueContractsMixin:
                 result_type.base in self.declarations.class_table
                 or result_type.base in self._MANAGED_COLLECTION_BASES
                 or result_type.base == "Mutex"
-                or is_semantic_scalar_string(result_type)
+                or self.type_identity.is_scalar_string(result_type)
             )
         )
         if isinstance(expression, (CallExpr, NewExpr)):
@@ -126,7 +124,7 @@ class LvalueContractsMixin:
             )
         if isinstance(expression, BinaryExpr) and expression.op != "??" and managed_result:
             if expression.op == "+" and all(
-                is_semantic_scalar_string(self._canonical_type(self._infer_type(operand)))
+                self.type_identity.is_scalar_string(self._canonical_type(self._infer_type(operand)))
                 for operand in (expression.left, expression.right)
             ):
                 return True
@@ -176,7 +174,7 @@ class LvalueContractsMixin:
             return False
         if receiver_type.is_array or receiver_type.base == "string" or self._is_raw_pointer_value(receiver_type):
             return False
-        return indexed_protocol_info(receiver_type, self.declarations.class_table) is not None
+        return self.index_protocols.class_info(receiver_type) is not None
 
     def _is_virtual_update_target(self, expression) -> bool:
         return (isinstance(expression, FieldAccessExpr) and self._is_property_projection(expression)) or (

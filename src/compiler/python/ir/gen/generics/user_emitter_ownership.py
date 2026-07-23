@@ -140,13 +140,11 @@ class _UserGenericOwnershipMixin:
     def _virtual_assignment_rhs_owns_result(self, target, value) -> bool:
         """Whether a generic setter preserves the RHS as an owned result."""
         from ....ast_nodes import FieldAccessExpr, IndexExpr
-        from ....index_protocol import indexed_protocol_info
 
         if isinstance(target, IndexExpr):
             virtual = (
-                indexed_protocol_info(
+                self._gen.index_protocols.class_info(
                     self._resolve_expr_type(target.obj),
-                    self._gen.analyzed.class_table,
                     method="set",
                 )
                 is not None
@@ -230,16 +228,14 @@ class _UserGenericOwnershipMixin:
 
     def _projection_is_call(self, expression):
         from ....ast_nodes import IndexExpr
-        from ....index_protocol import indexed_protocol_info
 
         receiver_type = self._resolve_expr_type(expression.obj)
         if receiver_type is None:
             return False
         if isinstance(expression, IndexExpr):
             return (
-                indexed_protocol_info(
+                self._gen.index_protocols.class_info(
                     receiver_type,
-                    self._gen.analyzed.class_table,
                     method="get",
                 )
                 is not None

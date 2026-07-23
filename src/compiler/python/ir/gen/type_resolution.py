@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...ast_nodes import TypeExpr
 from ...type_composition import compose_type_expr
-from ...type_identity import substitute_type_expr
+from ...type_identity import TypeIdentity
 
 
 def canonical_type(
@@ -38,9 +38,9 @@ def function_pointer_signature(type_expr, typedefs):
     return resolved.generic_args
 
 
-def substitute_concrete_type(type_expr, substitutions, typedefs):
+def substitute_concrete_type(type_expr, substitutions, typedefs, type_identity: TypeIdentity):
     """Substitute generics using canonical typedef targets for shape only."""
-    return substitute_type_expr(
+    return type_identity.substitute(
         type_expr,
         substitutions,
         reference_resolver=lambda value: canonical_type(value, typedefs),

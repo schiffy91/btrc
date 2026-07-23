@@ -16,8 +16,8 @@ from src.compiler.python.ir.nodes import (
     IRLiteral,
     IRTernary,
 )
-from src.compiler.python.ir.optimizer import optimize
-from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
+from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.ir.optimizer_walk import IRTree
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -37,7 +37,7 @@ def _analyze(source: str):
 
 
 def _spawn_calls(module):
-    return [node for node in iter_ir_nodes(module) if isinstance(node, IRCall) and node.callee == "__btrc_thread_spawn"]
+    return [node for node in IRTree(module) if isinstance(node, IRCall) and node.callee == "__btrc_thread_spawn"]
 
 
 def test_thread_only_program_includes_transitive_try_state_header():
@@ -93,7 +93,7 @@ def test_spawn_is_an_ordinary_call_with_structured_dynamic_entry():
 
 
 def test_spawn_call_drives_helper_and_wrapper_reachability():
-    module = optimize(
+    module = IROptimizer(
         _generate_ir("""
         int main() {
             int captured = 41;
@@ -101,7 +101,7 @@ def test_spawn_call_drives_helper_and_wrapper_reachability():
             return thread.join() == 42 ? 0 : 1;
         }
     """)
-    )
+    ).optimize()
 
     assert _spawn_calls(module)
     assert any(function.name.startswith("__btrc_spawn_wrapper_") for function in module.function_defs)
@@ -119,7 +119,7 @@ def test_spawn_call_drives_helper_and_wrapper_reachability():
 
 
 def test_managed_capture_disposer_retains_structured_raise_callback():
-    module = optimize(
+    module = IROptimizer(
         _generate_ir("""
         class Item {}
         int main() {
@@ -128,15 +128,13 @@ def test_managed_capture_disposer_retains_structured_raise_callback():
             return thread.join() == 1 ? 0 : 1;
         }
     """)
-    )
+    ).optimize()
 
     disposer = next(
         function for function in module.function_defs if function.name.startswith("__btrc_spawn_env_dispose_")
     )
     raise_call = next(
-        node
-        for node in iter_ir_nodes(disposer.body)
-        if isinstance(node, IRCall) and node.callee == "__btrc_raise_captured"
+        node for node in IRTree(disposer.body) if isinstance(node, IRCall) and node.callee == "__btrc_raise_captured"
     )
     assert isinstance(raise_call.args[0], IRFunctionRef)
     assert raise_call.args[0].name == "__btrc_throw"

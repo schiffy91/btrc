@@ -17,7 +17,7 @@ from ..nodes import CType, IRBlock, IRFunctionDecl, IRFunctionDef, IRParam
 from .function_symbols import source_function_c_name
 from .parameters import lower_source_param
 from .type_resolution import canonical_type
-from .types import CTypeRenderer, mangle_generic_type
+from .types import CTypeRenderer
 
 
 @dataclass(frozen=True)
@@ -128,13 +128,11 @@ def _resolve_target(gen, call, params, param_index: int) -> DefaultTarget:
             owner_name = class_info.method_owners.get(callee.field, class_info.name)
             owner = gen.analyzed.class_table[owner_name]
             class_args = [substitutions[name] for name in owner.generic_params if name in substitutions]
-            class_prefix = mangle_generic_type(owner_name, class_args) if class_args else owner_name
+            class_prefix = gen.type_identity.specialization_symbol(owner_name, class_args) if class_args else owner_name
             c_name = f"{class_prefix}_{method.name}"
             if method.generic_params:
-                from .generics.methods_mono import generic_method_instance_name
-
                 method_args = tuple(substitutions[name] for name in method.generic_params)
-                c_name = generic_method_instance_name(
+                c_name = gen.type_identity.method_instance_symbol(
                     owner_name,
                     tuple(class_args),
                     method.name,
@@ -163,7 +161,7 @@ def _resolve_target(gen, call, params, param_index: int) -> DefaultTarget:
 def _constructor_target(gen, class_name: str, substitutions: dict) -> DefaultTarget:
     owner = gen.analyzed.class_table[class_name]
     class_args = [substitutions[name] for name in owner.generic_params if name in substitutions]
-    prefix = mangle_generic_type(class_name, class_args) if class_args else class_name
+    prefix = gen.type_identity.specialization_symbol(class_name, class_args) if class_args else class_name
     return DefaultTarget(
         declaration=owner.constructor,
         c_name=f"{prefix}_new",

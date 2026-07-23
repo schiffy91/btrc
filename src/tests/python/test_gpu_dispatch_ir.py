@@ -10,8 +10,8 @@ from src.compiler.python.ir.nodes import (
     IRIf,
     IRStructDef,
 )
-from src.compiler.python.ir.optimizer import optimize
-from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
+from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.ir.optimizer_walk import IRTree
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -44,7 +44,7 @@ def test_dispatch_helper_contains_only_ordinary_control_and_call_nodes():
         "values",
         "__gpu_len_values",
     ]
-    nodes = list(iter_ir_nodes(helper.body))
+    nodes = list(IRTree(helper.body))
     assert any(isinstance(node, IRIf) for node in nodes)
     assert any(isinstance(node, IRFor) for node in nodes)
     assert {node.callee for node in nodes if isinstance(node, IRCall) and isinstance(node.callee, str)} >= {
@@ -59,7 +59,7 @@ def test_dispatch_helper_contains_only_ordinary_control_and_call_nodes():
 
 
 def test_ordinary_call_graph_keeps_dispatch_helper_and_cpu_fallback():
-    module = optimize(
+    module = IROptimizer(
         _generate("""
         @gpu
         void bump(int[] values) {
@@ -73,7 +73,7 @@ def test_ordinary_call_graph_keeps_dispatch_helper_and_cpu_fallback():
             return values[0] == 2 ? 0 : 1;
         }
     """)
-    )
+    ).optimize()
 
     names = {function.name for function in module.function_defs}
     assert "bump__gpucpu" in names
@@ -127,7 +127,7 @@ def test_gpu_kernel_dce_follows_surviving_dispatch_helper_reference():
     """)
 
     assert {kernel.name for kernel in module.gpu_kernels} == {"live", "dead"}
-    optimize(module)
+    IROptimizer(module).optimize()
     assert [kernel.name for kernel in module.gpu_kernels] == ["live"]
 
 
@@ -140,6 +140,6 @@ def test_no_dce_retains_unreferenced_gpu_kernel():
         int main() { return 0; }
     """)
 
-    optimize(module, dce=False)
+    IROptimizer(module, dce=False).optimize()
 
     assert [kernel.name for kernel in module.gpu_kernels] == ["dormant"]

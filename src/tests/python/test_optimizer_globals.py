@@ -24,7 +24,7 @@ from src.compiler.python.ir.nodes import (
     IRReturn,
     IRVar,
 )
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -54,7 +54,7 @@ def test_dead_function_and_internal_global_cycle_is_pruned() -> None:
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [function.name for function in module.function_defs] == ["main"]
     assert module.global_decls == []
@@ -76,7 +76,7 @@ def test_live_global_dependencies_are_closed_transitively() -> None:
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [declaration.name for declaration in module.global_decls] == [
         "live_value",
@@ -105,7 +105,7 @@ def test_direct_call_through_global_callback_roots_the_slot() -> None:
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [declaration.name for declaration in module.global_decls] == ["callback_slot"]
     assert {function.name for function in module.function_defs} == {
@@ -138,7 +138,7 @@ def test_external_effectful_roots_and_internal_volatile_pruning() -> None:
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert {declaration.name for declaration in module.global_decls} == {
         "exported",
@@ -162,7 +162,7 @@ def test_macro_replacements_root_whole_global_identifiers() -> None:
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [declaration.name for declaration in module.global_decls] == ["state"]
 
@@ -182,7 +182,7 @@ def test_pruned_internal_global_is_strict_c11(
             IRGlobalDecl(CType("int"), "dead_state", IRLiteral("41")),
         ],
     )
-    optimize(module)
+    IROptimizer(module).optimize()
     source = tmp_path / "global_dce.c"
     source.write_text(CEmitter().emit(module))
 

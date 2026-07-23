@@ -11,7 +11,6 @@ from .cycle_type_resolution import (
     cycle_type_key,
     substitute_cycle_type,
 )
-from .types import mangle_generic_type
 
 BUILTIN_COLLECTION_LAYOUTS = {
     "Vector": (1, frozenset({"data", "len"})),
@@ -76,7 +75,7 @@ def visitor_for_type(gen, type_expr: TypeExpr) -> str | None:
     if not type_needs_visitor(gen, type_expr, set()):
         return None
     if type_expr.generic_args:
-        emitted = mangle_generic_type(type_expr.base, type_expr.generic_args)
+        emitted = gen.type_identity.specialization_symbol(type_expr.base, type_expr.generic_args)
         return cycle_visitor_symbol(emitted)
     return cycle_visitor_symbol(type_expr.base)
 
@@ -141,7 +140,7 @@ def visit_action(gen, type_expr: TypeExpr, seen: set[tuple]) -> DirectVisitActio
         return None
     emitted = type_expr.base
     if type_expr.generic_args:
-        emitted = mangle_generic_type(type_expr.base, type_expr.generic_args)
+        emitted = gen.type_identity.specialization_symbol(type_expr.base, type_expr.generic_args)
     return DirectVisitAction(emitted)
 
 
@@ -193,7 +192,7 @@ def _concrete_type_may_cycle(gen, type_expr: TypeExpr) -> bool:
     info = gen.analyzed.class_table.get(type_expr.base)
     if info is not None and info.generic_params and not type_expr.generic_args:
         return True
-    root = _emitted_name(type_expr)
+    root = _emitted_name(gen, type_expr)
     cache = getattr(gen, "_cycle_may_cache", None)
     if cache is None:
         cache = {}
@@ -205,7 +204,7 @@ def _concrete_type_may_cycle(gen, type_expr: TypeExpr) -> bool:
     stack = _outgoing_managed_types(gen, type_expr)
     while stack:
         current = stack.pop()
-        emitted = _emitted_name(current)
+        emitted = _emitted_name(gen, current)
         if emitted == root:
             cache[root] = True
             return True
@@ -270,9 +269,9 @@ def _is_managed_reference(gen, type_expr: TypeExpr | None) -> bool:
     return bool(type_expr is not None and is_arc_type(gen, type_expr))
 
 
-def _emitted_name(type_expr: TypeExpr) -> str:
+def _emitted_name(gen, type_expr: TypeExpr) -> str:
     if type_expr.generic_args:
-        return mangle_generic_type(type_expr.base, type_expr.generic_args)
+        return gen.type_identity.specialization_symbol(type_expr.base, type_expr.generic_args)
     return type_expr.base
 
 

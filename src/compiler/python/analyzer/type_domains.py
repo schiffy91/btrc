@@ -5,7 +5,6 @@ from ..qualifier_provenance import (
     effective_outer_const,
     effective_outer_volatile,
 )
-from ..type_identity import is_semantic_scalar_void
 from .mutex_payload_domains import MutexPayloadDomainContractsMixin
 from .thread_type_domains import ThreadTypeDomainContractsMixin
 
@@ -203,9 +202,8 @@ class TypeDomainContractsMixin(
             return True
         return base.startswith(_EXPLICIT_C_TAG_PREFIXES)
 
-    @staticmethod
-    def _is_nonpointer_void_object(type_expr) -> bool:
-        return is_semantic_scalar_void(type_expr)
+    def _is_nonpointer_void_object(self, type_expr) -> bool:
+        return self.type_identity.is_scalar_void(type_expr)
 
     def _contains_thread_storage(self, type_expr) -> bool:
         """Whether a concrete value shape contains a uniquely owned handle."""

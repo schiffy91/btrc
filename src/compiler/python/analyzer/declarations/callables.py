@@ -6,7 +6,6 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import TypeExpr
-from ...type_identity import type_shape_key
 from ..semantic_keys import semantic_ast_key
 from .type_resolution import canonical_declaration_type
 
@@ -164,7 +163,7 @@ class CallableDeclarationPolicy:
         return all(
             first.name == second.name
             and first.keep == second.keep
-            and type_shape_key(first.type) == type_shape_key(second.type)
+            and self.registry.type_identity.shape_key(first.type) == self.registry.type_identity.shape_key(second.type)
             and self._compatible_defaults(first.default, second.default)
             for first, second in zip(left.params, right.params)
         )
@@ -232,9 +231,8 @@ class CallableDeclarationPolicy:
     def _function_linkage(declaration) -> str:
         return "internal" if declaration.return_type.is_static else "external"
 
-    @classmethod
-    def _function_type_key(cls, type_expr):
-        return type_shape_key(cls._signature_component(type_expr))
+    def _function_type_key(self, type_expr):
+        return self.registry.type_identity.shape_key(self._signature_component(type_expr))
 
 
 __all__ = ["CallableDeclarationPolicy"]

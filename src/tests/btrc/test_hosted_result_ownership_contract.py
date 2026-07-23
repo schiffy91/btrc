@@ -26,7 +26,7 @@ from src.compiler.python.ir.gen.hosted_result_conversion import (
     hosted_string_conversion_mode,
 )
 from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.pipeline.models import CompilerOptions
 from src.compiler.python.pipeline.pipeline import CompilerPipeline
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair, run_strict_pair
@@ -144,13 +144,13 @@ def _compile_hosted_shadow_pair(
     reference_c = tmp_path / "hosted-result-shadow.reference.c"
     reference_c.write_text(
         CEmitter().emit(
-            optimize(
+            IROptimizer(
                 IRLowerer(
                     analyzed,
                     debug=False,
                     source_file=program.name,
                 ).lower()
-            )
+            ).optimize()
         )
     )
     return ("selfhost", selfhost_c), ("reference", reference_c)

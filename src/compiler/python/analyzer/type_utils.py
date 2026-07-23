@@ -6,7 +6,7 @@ from ..ast_nodes import TypeExpr
 from ..numeric_semantics import is_known_integer_typedef_name
 from ..string_methods import STRING_METHODS
 from ..type_composition import nullable_collapses_reference_layer
-from ..type_identity import TypeShapeError, substitute_type_expr
+from ..type_identity import TypeShapeError
 from .declarations.type_resolution import canonical_declaration_type
 
 
@@ -285,7 +285,11 @@ class TypeUtilsMixin:
     def _substitute_type(self, t: TypeExpr | None, subs: dict) -> TypeExpr | None:
         """Recursively substitute type parameters in a TypeExpr."""
         try:
-            return substitute_type_expr(t, subs, reference_resolver=self._canonical_type)
+            return self.type_identity.substitute(
+                t,
+                subs,
+                reference_resolver=self._canonical_type,
+            )
         except TypeShapeError as error:
             self._report_type_shape_error(str(error), error.type_expr or t, getattr(t, "line", 0), getattr(t, "col", 0))
             return t

@@ -21,7 +21,7 @@ from src.compiler.python.ir.nodes import (
     IRTypedefDef,
     IRVar,
 )
-from src.compiler.python.ir.optimizer import optimize
+from src.compiler.python.ir.optimizer import IROptimizer
 
 
 def _fn(name, body_stmts=None):
@@ -52,7 +52,7 @@ def test_removes_unreferenced_function():
             _decl("dead_fn"),
         ],
     )
-    optimize(m)
+    IROptimizer(m).optimize()
     names = {f.name for f in m.function_defs}
     assert "main" in names
     assert "used_fn" in names
@@ -65,7 +65,7 @@ def test_removes_unreferenced_function():
 def test_sole_entry_point_survives_normal_reachability():
     module = IRModule(function_defs=[_fn("main")])
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [function.name for function in module.function_defs] == ["main"]
 
@@ -76,7 +76,7 @@ def test_sole_non_entry_function_is_removed():
         function_decls=[_decl("orphan")],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert module.function_defs == []
     assert module.function_decls == []
@@ -90,7 +90,7 @@ def test_string_literal_payload_does_not_root_function():
         ]
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [function.name for function in module.function_defs] == ["main"]
 
@@ -100,7 +100,7 @@ def test_keeps_function_referenced_in_macro_replacement():
         function_defs=[_fn("main"), _fn("callback_fn")],
         preprocessor_decls=[IRMacroDef(name="CALLBACK", replacement="&callback_fn")],
     )
-    optimize(m)
+    IROptimizer(m).optimize()
     assert {f.name for f in m.function_defs} == {"main", "callback_fn"}
 
 
@@ -121,14 +121,14 @@ def test_keeps_thread_entry_referenced_by_structured_helper_call():
         )
     ]
     m = IRModule(function_defs=[_fn("main", body), _fn("worker_fn")])
-    optimize(m)
+    IROptimizer(m).optimize()
     assert {f.name for f in m.function_defs} == {"main", "worker_fn"}
 
 
 def test_keeps_address_taken_function():
     body = [IRExprStmt(expr=IRFunctionRef(name="handler_fn"))]
     m = IRModule(function_defs=[_fn("main", body), _fn("handler_fn")])
-    optimize(m)
+    IROptimizer(m).optimize()
     assert "handler_fn" in {f.name for f in m.function_defs}
 
 
@@ -140,7 +140,7 @@ def test_local_value_with_function_name_does_not_keep_function():
         ]
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [function.name for function in module.function_defs] == ["main"]
 
@@ -156,7 +156,7 @@ def test_substring_name_not_spuriously_kept():
         function_defs=[_fn("main"), _fn("foo"), _fn("foobar")],
         preprocessor_decls=[IRMacroDef(name="CALLBACK", replacement="&foobar")],
     )
-    optimize(m)
+    IROptimizer(m).optimize()
     names = {f.name for f in m.function_defs}
     assert "main" in names
     assert "foobar" in names  # whole-word reference keeps it
@@ -169,7 +169,7 @@ def test_whole_word_reference_in_macro_replacement_still_kept():
         function_defs=[_fn("main"), _fn("foo"), _fn("foobar")],
         preprocessor_decls=[IRMacroDef(name="CALLBACKS", replacement="&foo, &foobar")],
     )
-    optimize(m)
+    IROptimizer(m).optimize()
     names = {f.name for f in m.function_defs}
     assert {"main", "foo", "foobar"} <= names
 
@@ -187,7 +187,7 @@ def test_externally_visible_global_initializer_roots_referenced_function():
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert {function.name for function in module.function_defs} == {
         "main",
@@ -208,7 +208,7 @@ def test_typed_global_keeps_its_struct_definition():
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [struct.name for struct in module.struct_defs] == ["Live"]
 
@@ -258,7 +258,7 @@ def test_typed_top_level_declarations_keep_referenced_structs():
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [struct.name for struct in module.struct_defs] == [
         "Aliased",
@@ -283,7 +283,7 @@ def test_literal_and_value_names_do_not_keep_dead_structs():
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert module.struct_defs == []
 
@@ -294,7 +294,7 @@ def test_single_unreferenced_struct_is_eliminated():
         struct_defs=[IRStructDef(name="OnlyDeadType")],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert module.struct_defs == []
 
@@ -316,7 +316,7 @@ def test_typed_global_initializer_keeps_extern_declaration():
         ],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert "live_extern" in {decl.name for decl in module.function_decls}
     assert "dead_extern" not in {decl.name for decl in module.function_decls}
@@ -356,7 +356,7 @@ def test_helper_dependencies_are_helper_names_not_categories():
         helper_decls=[base, consumer, dead],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [helper.name for helper in module.helper_decls] == [
         "base_types",
@@ -380,7 +380,7 @@ def test_helper_used_as_function_pointer_survives_elimination():
         helper_decls=[callback],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [helper.name for helper in module.helper_decls] == ["cleanup_callback"]
 
@@ -412,7 +412,7 @@ def test_typed_global_initializer_keeps_helper_dependency_closure():
         helper_decls=[base, consumer],
     )
 
-    optimize(module)
+    IROptimizer(module).optimize()
 
     assert [helper.name for helper in module.helper_decls] == [
         "base_types",

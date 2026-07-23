@@ -47,6 +47,7 @@ def callable_field_signature(gen, callee: FieldAccessExpr):
             member_type,
             dict(zip(owner.generic_params, receiver.generic_args)),
             analyzed.typedef_table,
+            gen.type_identity,
         )
     return function_pointer_signature(member_type, analyzed.typedef_table)
 

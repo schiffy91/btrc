@@ -4,8 +4,8 @@ from ....source_runtime_symbols import is_source_runtime_helper
 from ...nodes import IRCall, IRVar
 from ..call_builtins import lower_len, lower_typed_print
 from ..generic_intrinsics import lower_generic_intrinsic
+from ..operator_context import OperatorLoweringContext
 from ..type_resolution import function_pointer_signature
-from ..typed_operators import operator_context
 from .user_builtin_methods import lower_generic_builtin_method
 from .user_call_arguments import order_generic_call_arguments
 from .user_call_ordering import evaluated_callee, language_ordered_call
@@ -167,7 +167,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                 name,
                 args,
                 [self._resolve_expr_type(arg) for arg in expression.args],
-                operator_context(
+                OperatorLoweringContext.from_lowerer(
                     self._gen,
                     self._type_renderer,
                     fresh_temp=self._fresh_temp,

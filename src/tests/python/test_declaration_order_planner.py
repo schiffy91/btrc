@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.ir.declaration_order import plan_type_declarations
+from src.compiler.python.ir.declaration_order import TypeDeclarationPlanner
 from src.compiler.python.ir.emitter import CEmitter
 from src.compiler.python.ir.nodes import (
     CType,
@@ -22,7 +22,7 @@ from src.compiler.python.ir.nodes import (
 
 
 def _names(module: IRModule) -> list[str | None]:
-    return [declaration.name for declaration in plan_type_declarations(module)]
+    return [declaration.name for declaration in TypeDeclarationPlanner(module).plan()]
 
 
 def test_cross_kind_dependencies_have_one_stable_plan():
@@ -233,7 +233,7 @@ def test_by_value_aggregate_cycles_fail_closed():
     ]
 
     with pytest.raises(ValueError, match="cyclic typed C declaration dependency"):
-        plan_type_declarations(module)
+        TypeDeclarationPlanner(module).plan()
 
 
 def test_typedef_cycles_fail_closed():
@@ -244,7 +244,7 @@ def test_typedef_cycles_fail_closed():
     ]
 
     with pytest.raises(ValueError, match="cyclic typed C declaration dependency"):
-        plan_type_declarations(module)
+        TypeDeclarationPlanner(module).plan()
 
 
 def test_duplicate_type_providers_fail_closed():
@@ -253,7 +253,7 @@ def test_duplicate_type_providers_fail_closed():
     module.struct_defs = [IRStructDef("Value")]
 
     with pytest.raises(ValueError, match="duplicate typed C declaration provider 'Value'"):
-        plan_type_declarations(module)
+        TypeDeclarationPlanner(module).plan()
 
 
 def test_module_rejects_a_stale_ordered_declaration_view():

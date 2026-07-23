@@ -110,6 +110,7 @@ def emit_generic_lifecycle(
                 field_type,
                 type_map,
                 gen.analyzed.typedef_table,
+                gen.type_identity,
             ),
             emitter._type_renderer,
         )

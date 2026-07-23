@@ -32,11 +32,11 @@ if TYPE_CHECKING:
 
 def _get_destroy_name(gen: IRLowerer, type_expr, cls_name: str) -> str:
     """Get the terminal destroy function name for a managed class value."""
-    from .types import is_generic_class_type, mangle_generic_type
+    from .types import is_generic_class_type
 
     ct = gen.analyzed.class_table
     if type_expr.generic_args and is_generic_class_type(type_expr, ct):
-        mangled = mangle_generic_type(type_expr.base, type_expr.generic_args)
+        mangled = gen.type_identity.specialization_symbol(type_expr.base, type_expr.generic_args)
         return f"{mangled}_destroy"
     return f"{cls_name}_destroy"
 

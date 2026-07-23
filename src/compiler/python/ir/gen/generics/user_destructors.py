@@ -54,7 +54,16 @@ def build_generic_field_release_stmts(
     stmts = []
 
     for field_name, field in cls_info.instance_storage:
-        resolved = _resolve_type(field.type, type_map, gen.analyzed.typedef_table) if field.type else None
+        resolved = (
+            _resolve_type(
+                field.type,
+                type_map,
+                gen.analyzed.typedef_table,
+                gen.type_identity,
+            )
+            if field.type
+            else None
+        )
         if resolved is None:
             continue
         from ..managed_values import is_managed_type

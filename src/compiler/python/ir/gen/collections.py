@@ -15,7 +15,7 @@ from ..nodes import (
 )
 from .call_boundary import CallOperand
 from .prepared_values import prepare_normal_value, prepared_value_pin_flags
-from .types import CTypeRenderer, mangle_generic_type
+from .types import CTypeRenderer
 
 
 def lower_list_literal(
@@ -35,7 +35,7 @@ def lower_list_literal(
     )
     if list_type is None:
         list_type = TypeExpr(base="Vector", generic_args=[element_type])
-    mangled = mangle_generic_type(list_type.base, list_type.generic_args)
+    mangled = gen.type_identity.specialization_symbol(list_type.base, list_type.generic_args)
     declarations, sequence, collection, result = _collection_storage(
         gen,
         list_type,
@@ -79,7 +79,7 @@ def lower_map_literal(
     else:
         key_type, value_type = TypeExpr(base="string"), TypeExpr(base="int")
         map_type = TypeExpr(base="Map", generic_args=[key_type, value_type])
-    mangled = mangle_generic_type(map_type.base, map_type.generic_args)
+    mangled = gen.type_identity.specialization_symbol(map_type.base, map_type.generic_args)
     if not node.entries and not gen.exception_cleanup_active():
         return IRCall(callee=f"{mangled}_new", args=[])
 

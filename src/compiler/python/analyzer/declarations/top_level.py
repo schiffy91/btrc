@@ -6,7 +6,6 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from ...hosted_abi import hosted_owned_name
-from ...type_identity import type_shape_key
 from ..core_models import SymbolInfo
 from .enums import EnumRegistrar
 from .source_macros import collect_source_macros
@@ -215,11 +214,12 @@ class TopLevelRegistrar:
                 col,
             )
 
-    @staticmethod
-    def _global_types_compatible(left, right) -> bool:
+    def _global_types_compatible(self, left, right) -> bool:
         if left is None or right is None:
             return left is right
-        return type_shape_key(replace(left, is_extern=False)) == type_shape_key(replace(right, is_extern=False))
+        return self.registry.type_identity.shape_key(
+            replace(left, is_extern=False)
+        ) == self.registry.type_identity.shape_key(replace(right, is_extern=False))
 
 
 __all__ = ["TopLevelRegistrar"]

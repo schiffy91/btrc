@@ -11,9 +11,11 @@ import pytest
 from src.compiler.python.ast_nodes import IntLiteral, TypeExpr
 from src.compiler.python.ir.gen.generics.core import _resolve_type
 from src.compiler.python.ir.gen.types import CTypeRenderer
+from src.compiler.python.type_identity import TypeIdentity
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+IDENTITY = TypeIdentity()
 
 
 def test_nullable_parameter_substitution_merges_metadata_without_stacking_reference_layers():
@@ -39,7 +41,7 @@ def test_nullable_parameter_substitution_merges_metadata_without_stacking_refere
         col=3,
     )
 
-    result = _resolve_type(placeholder, {"T": mapped})
+    result = _resolve_type(placeholder, {"T": mapped}, {}, IDENTITY)
 
     assert result.base == "Item"
     assert [argument.base for argument in result.generic_args] == ["int"]
@@ -78,8 +80,8 @@ def test_substitution_falls_back_to_mapped_bounds_and_preserves_owner_metadata()
         col=17,
     )
 
-    direct = _resolve_type(TypeExpr(base="T"), {"T": mapped})
-    nested = _resolve_type(owner, {"T": TypeExpr(base="string")})
+    direct = _resolve_type(TypeExpr(base="T"), {"T": mapped}, {}, IDENTITY)
+    nested = _resolve_type(owner, {"T": TypeExpr(base="string")}, {}, IDENTITY)
 
     assert direct.is_array is True
     assert direct.array_size is mapped_size
@@ -110,6 +112,8 @@ def test_generic_array_layout_retains_the_mapped_element_type(
     storage = _resolve_type(
         TypeExpr(base="T", is_array=True),
         {"T": mapped},
+        {},
+        IDENTITY,
     )
     element = replace(storage, is_array=False, array_size=None)
 

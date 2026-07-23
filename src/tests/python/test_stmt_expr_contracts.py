@@ -17,7 +17,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
-from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
+from src.compiler.python.ir.optimizer_walk import IRTree
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -45,7 +45,7 @@ def _module(source: str) -> IRModule:
     ],
 )
 def test_generated_setups_are_declarations_only(source):
-    stmt_exprs = [node for node in iter_ir_nodes(_module(source)) if isinstance(node, IRStmtExpr)]
+    stmt_exprs = [node for node in IRTree(_module(source)) if isinstance(node, IRStmtExpr)]
     assert stmt_exprs
     for expression in stmt_exprs:
         assert expression.stmts

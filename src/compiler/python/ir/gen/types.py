@@ -7,18 +7,11 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from ...ast_nodes import TypeExpr
-from ...reference_semantics import is_c_string_pointer
 from ...type_composition import (
     nullable_collapses_reference_layer,
     resolved_reference_shape,
 )
-from ...type_identity import (
-    ensure_supported_generic_arguments,
-    is_semantic_scalar_string,
-    mangle_function_pointer_symbol,
-    mangle_generic_symbol,
-    type_symbol_component,
-)
+from ...type_identity import TypeIdentity
 from ..nodes import CType, IRFunctionPointerTypedef
 
 if TYPE_CHECKING:
@@ -47,7 +40,8 @@ _FnPtrSignature = tuple[str, tuple[str, ...]]
 class FunctionPointerTypedefRegistry:
     """Own ordered callback declarations for one C translation unit."""
 
-    def __init__(self) -> None:
+    def __init__(self, type_identity: TypeIdentity) -> None:
+        self._type_identity = type_identity
         self._definitions: dict[str, _FnPtrSignature] = {}
         self._emitted: set[str] = set()
 
@@ -58,7 +52,7 @@ class FunctionPointerTypedefRegistry:
         return_type: str,
         parameter_types: list[str],
     ) -> str:
-        name = mangle_function_pointer_symbol(type_expr.generic_args)
+        name = self._type_identity.function_pointer_symbol(type_expr.generic_args)
         self._definitions.setdefault(name, (return_type, tuple(parameter_types)))
         return name
 
@@ -83,9 +77,11 @@ class CTypeRenderer:
         self,
         typedefs: Mapping[str, TypeExpr] | None = None,
         default_arguments: DefaultArgumentLoweringContext | None = None,
+        type_identity: TypeIdentity | None = None,
     ) -> None:
+        self.type_identity = type_identity if type_identity is not None else TypeIdentity()
         self._typedefs = MappingProxyType(dict(typedefs or {}))
-        self._function_pointers = FunctionPointerTypedefRegistry()
+        self._function_pointers = FunctionPointerTypedefRegistry(self.type_identity)
         self._default_arguments = default_arguments
 
     def render(self, type_expr: TypeExpr | None) -> str:
@@ -106,9 +102,14 @@ class CTypeRenderer:
         elif base in _PRIMITIVE_MAP and not type_expr.generic_args:
             c_type = _PRIMITIVE_MAP[base]
         elif base == "Tuple" or base.startswith("("):
-            c_type = mangle_tuple_type(type_expr)
+            c_type = (
+                self.type_identity.generic_symbol("Tuple", type_expr.generic_args)
+                if type_expr.generic_args
+                else "btrc_Tuple"
+            )
         elif type_expr.generic_args:
-            c_type = mangle_generic_type(base, type_expr.generic_args)
+            self.type_identity.ensure_supported_generic_arguments(type_expr.generic_args)
+            c_type = self.type_identity.generic_symbol(base, type_expr.generic_args)
         else:
             c_type = base
 
@@ -137,7 +138,7 @@ class CTypeRenderer:
         base = type_expr.base
         if base == "__fn_ptr":
             return "%s"
-        if is_string_type(type_expr) or is_c_string_pointer(type_expr):
+        if self.type_identity.is_scalar_string(type_expr) or self.type_identity.is_c_string_pointer(type_expr):
             return "%s"
         if self.render(type_expr).rstrip().endswith("*") or type_expr.is_array:
             return "%p"
@@ -207,24 +208,6 @@ class CTypeRenderer:
         return bool(resolved and resolved_reference_shape(resolved))
 
 
-def mangle_generic_type(base: str, args: list[TypeExpr]) -> str:
-    """Mangle a generic type to a C-safe name: List<int> → btrc_List_int."""
-    ensure_supported_generic_arguments(args)
-    return mangle_generic_symbol(base, args)
-
-
-def mangle_type_name(t: TypeExpr) -> str:
-    """Mangle a single type for use in C identifiers."""
-    return type_symbol_component(t)
-
-
-def mangle_tuple_type(t: TypeExpr) -> str:
-    """Mangle a tuple type: (int, string) → btrc_Tuple_int_string."""
-    if t.generic_args:
-        return mangle_generic_symbol("Tuple", t.generic_args)
-    return "btrc_Tuple"
-
-
 def is_pointer_type(t: TypeExpr | None) -> bool:
     """Check if a type is a pointer (class instance, pointer depth > 0)."""
     if t is None:
@@ -235,11 +218,6 @@ def is_pointer_type(t: TypeExpr | None) -> bool:
         return t.base == "string"
     # User classes and generic collections are heap-allocated (pointers)
     return t.base not in _PRIMITIVE_MAP or t.generic_args
-
-
-def is_string_type(t: TypeExpr | None) -> bool:
-    """Check for a semantic scalar string, excluding arrays/raw pointers."""
-    return is_semantic_scalar_string(t)
 
 
 def is_numeric_type(t: TypeExpr | None) -> bool:
@@ -277,8 +255,4 @@ __all__ = [
     "is_generic_class_type",
     "is_numeric_type",
     "is_pointer_type",
-    "is_string_type",
-    "mangle_generic_type",
-    "mangle_tuple_type",
-    "mangle_type_name",
 ]

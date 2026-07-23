@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ...type_composition import nullable_collapses_reference_layer
-from ...type_identity import TypeShapeError, substitute_type_expr
+from ...type_identity import TypeShapeError
 from .type_resolution import canonical_declaration_type
 
 if TYPE_CHECKING:
@@ -54,7 +54,7 @@ class SignatureTypePolicy:
     ) -> TypeExpr | None:
         """Substitute signature parameters and report unrepresentable shapes."""
         try:
-            return substitute_type_expr(
+            return self.registry.type_identity.substitute(
                 type_expr,
                 substitutions,
                 reference_resolver=self.canonical,

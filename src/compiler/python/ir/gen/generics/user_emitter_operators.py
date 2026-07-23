@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from ...nodes import IRBinOp, IRCommaExpr, IRExpr, IRVar
 from ..lvalues import LValueContext
-from ..operator_context import operator_context
+from ..operator_context import OperatorLoweringContext
 from ..updates import (
     UpdateContext,
     lower_assignment,
@@ -49,7 +49,7 @@ class _UserGenericOperatorMixin:
             false_expr,
             self._resolve_expr_type(expression.true_expr),
             self._resolve_expr_type(expression.false_expr),
-            operator_context(
+            OperatorLoweringContext.from_lowerer(
                 self._gen,
                 self._type_renderer,
                 fresh_temp=self._fresh_temp,
@@ -216,12 +216,14 @@ class _UserGenericOperatorMixin:
             fresh_temp=self._fresh_temp,
             register_decl=self._func_var_decls.append,
             class_table=analyzed.class_table,
+            index_protocols=self._gen.index_protocols,
+            type_identity=self.type_identity,
             target_c_type=lambda target, resolved: _generic_lvalue_c_type(self, target, resolved),
             direct_property=self._direct_property_target,
         )
         return UpdateContext(
             lvalues=lvalues,
-            operators=operator_context(
+            operators=OperatorLoweringContext.from_lowerer(
                 self._gen,
                 self._type_renderer,
                 fresh_temp=self._fresh_temp,
