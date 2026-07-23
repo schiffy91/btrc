@@ -55,7 +55,7 @@ def lower_generic_array_var_decl(emitter, declaration):
     element_type = strip_outer_storage(declaration.type, array=True)
     element_c = emitter.resolve_c(element_type)
     binding_c_name = next_source_binding_c_name(emitter, declaration.name)
-    size = emitter._expr(declaration.type.array_size) if declaration.type.array_size is not None else None
+    size = emitter.lower_expression(declaration.type.array_size) if declaration.type.array_size is not None else None
     initializer = declaration.initializer
     if isinstance(initializer, (BraceInitializer, ListLiteral)):
         from ..aggregate_ownership import reject_owned_elements
@@ -65,7 +65,7 @@ def lower_generic_array_var_decl(emitter, declaration):
             initializer.elements,
             "a shallow C array",
         )
-        init = IRInitializerList(elements=[emitter._expr(item) for item in initializer.elements])
+        init = IRInitializerList(elements=[emitter.lower_expression(item) for item in initializer.elements])
         return [
             _track_array(
                 emitter,
@@ -172,7 +172,7 @@ def lower_generic_array_var_decl(emitter, declaration):
             IRExprStmt(expr=plan.call),
         ]
 
-    init = emitter._expr(initializer) if initializer is not None else None
+    init = emitter.lower_expression(initializer) if initializer is not None else None
     return [
         _track_array(
             emitter,

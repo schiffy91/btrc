@@ -15,7 +15,6 @@ from ..nodes import (
     IRTernary,
     IRVar,
 )
-from .arc_ops import release_if_present
 from .arguments import arg_names_for, bind_arg_nodes_to_params
 from .optional_call_temporaries import optional_call_temp
 from .optional_values import optional_zero_value
@@ -190,32 +189,25 @@ def _receiver_cleanup(
     receiver = IRVar(name=receiver_decl.name)
     owned = bool(receiver_type is not None and gen.ownership.owns_result(receiver_node))
     from .evaluation_order import borrowed_value_can_be_pinned
-    from .managed_values import is_managed_type
 
     pinned = bool(
         receiver_type is not None
         and pin_borrowed
         and borrowed_value_can_be_pinned(receiver_node)
         and not owned
-        and is_managed_type(gen, receiver_type)
+        and gen.managed_values.is_managed(receiver_type)
     )
     if not owned and not pinned:
         return []
     if pinned:
-        from .managed_values import retain_value
-
-        prelude.append(retain_value(gen, receiver, receiver_type))
-    from .temporary_cleanup import cleanup_registration
-
-    cleanup_decls, cleanup_exprs = cleanup_registration(
-        gen,
+        prelude.append(gen.lifetime.retain_value(receiver, receiver_type))
+    cleanup_decls, cleanup_exprs = gen.lifetime.cleanup_registration(
         receiver_decl,
         receiver_type,
         "__btrc_optional_receiver_cleanup",
     )
     declarations.extend(cleanup_decls)
     prelude.extend(cleanup_exprs)
-    from .arc_ops import poll_release_batch
 
     saved_decl = optional_call_temp(
         gen,
@@ -228,9 +220,9 @@ def _receiver_cleanup(
     suffix = [
         IRBinOp(left=saved, op="=", right=receiver),
         IRBinOp(left=receiver, op="=", right=IRLiteral(text="NULL")),
-        release_if_present(gen, saved, receiver_type),
+        gen.lifetime.release_value(saved, receiver_type),
     ]
-    flush = poll_release_batch(gen, types=[receiver_type])
+    flush = gen.lifetime.poll_release_batch(types=[receiver_type])
     if flush is not None:
         suffix.append(flush)
     return suffix
@@ -258,14 +250,12 @@ def _release_receiver_after_call(
         declarations.append(result_decl)
         result = IRVar(name=result_decl.name)
         sequence.append(IRBinOp(left=result, op="=", right=call))
-        from .managed_values import is_managed_type
 
-        protect_result = bool(result_owned and is_managed_type(gen, result_type) and gen.exception_cleanup_active())
+        protect_result = bool(
+            result_owned and gen.managed_values.is_managed(result_type) and gen.exception_cleanup_active()
+        )
         if protect_result:
-            from .temporary_cleanup import cleanup_registration
-
-            cleanup_decls, cleanup_exprs = cleanup_registration(
-                gen,
+            cleanup_decls, cleanup_exprs = gen.lifetime.cleanup_registration(
                 result_decl,
                 result_type,
                 "__btrc_optional_result_cleanup",

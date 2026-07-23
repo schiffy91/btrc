@@ -22,16 +22,6 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .managed_values import (
-    adopt_edge_value,
-    is_arc_type,
-    is_managed_type,
-    poll_released_values,
-    release_edge_value,
-    replace_edge_value,
-    retain_edge_value,
-    unlink_edge_value,
-)
 from .types import CTypeRenderer, is_generic_class_type
 
 if TYPE_CHECKING:
@@ -75,7 +65,7 @@ def lower_managed_field_assignment(
     # substituting the concrete receiver arguments, which is the type needed
     # for ARC temporaries and the destroy function at this call site.
     field_type = gen.analyzed.node_types.get(id(node.target)) or (field.type if field is not None else prop.type)
-    if not is_managed_type(gen, field_type):
+    if not gen.managed_values.is_managed(field_type):
         return None
 
     from .expressions import lower_expr
@@ -145,15 +135,13 @@ def lower_managed_field_assignment(
         IRBinOp(left=new_value, op="=", right=value),
     ]
     declarations = [receiver_decl, value_decl]
-    if is_arc_type(gen, field_type):
+    if gen.managed_values.is_arc(field_type):
         sequence.append(
-            replace_edge_value(
-                gen,
+            gen.lifetime.replace_edge_value(
                 target,
                 new_value,
                 field_type,
                 receiver,
-                type_renderer,
                 adopt=owned,
             )
         )
@@ -167,14 +155,14 @@ def lower_managed_field_assignment(
         declarations.append(old_decl)
         old_value = IRVar(name=old_decl.name)
         sequence.append(IRBinOp(left=old_value, op="=", right=target))
-        sequence.append(unlink_edge_value(gen, old_value, field_type, receiver))
+        sequence.append(gen.lifetime.unlink_edge_value(old_value, field_type, receiver))
         if owned:
-            sequence.append(adopt_edge_value(gen, new_value, field_type, receiver))
+            sequence.append(gen.lifetime.adopt_edge_value(new_value, field_type, receiver))
         else:
-            sequence.append(retain_edge_value(gen, new_value, field_type, receiver))
+            sequence.append(gen.lifetime.retain_edge_value(new_value, field_type, receiver))
         sequence.append(IRBinOp(left=target, op="=", right=new_value))
-        sequence.append(release_edge_value(gen, old_value, field_type, replacement=new_value))
-    flush = poll_released_values(gen, field_type)
+        sequence.append(gen.lifetime.release_edge_value(old_value, field_type, replacement=new_value))
+    flush = gen.lifetime.poll_released_values(field_type)
     if flush is not None:
         sequence.append(flush)
     sequence.append(target)
@@ -201,29 +189,27 @@ def _lower_managed_field_compound(
     from .managed_updates import lower_managed_compound_update
 
     right_type = gen.analyzed.node_types.get(id(node.value)) or field_type
-    class_edge = is_arc_type(gen, field_type)
+    class_edge = gen.managed_values.is_arc(field_type)
 
     def commit(old, replacement):
         if class_edge:
             return [
-                replace_edge_value(
-                    gen,
+                gen.lifetime.replace_edge_value(
                     target,
                     replacement,
                     field_type,
                     receiver,
-                    type_renderer,
                     adopt=True,
                 )
             ]
         return [
-            unlink_edge_value(gen, old, field_type, receiver),
-            adopt_edge_value(gen, replacement, field_type, receiver),
+            gen.lifetime.unlink_edge_value(old, field_type, receiver),
+            gen.lifetime.adopt_edge_value(replacement, field_type, receiver),
             IRBinOp(left=target, op="=", right=replacement),
         ]
 
     update = lower_managed_compound_update(
-        gen,
+        gen.lifetime,
         value_type=field_type,
         right_type=right_type,
         old_expr=target,
@@ -247,7 +233,7 @@ def _lower_managed_field_compound(
         commit=commit,
         result_expr=lambda: target,
         old_temporary_owned=False,
-        right_owned=bool(is_managed_type(gen, right_type) and _is_owned_value(gen, node.value)),
+        right_owned=bool(gen.managed_values.is_managed(right_type) and _is_owned_value(gen, node.value)),
         right_keep=managed_compound_keeps_rhs(
             gen,
             field_type,
@@ -312,6 +298,6 @@ def _static_managed_field_type(gen, target):
         return None
     class_info = gen.analyzed.class_table.get(target.obj.name)
     field = class_info.static_fields.get(target.field) if class_info else None
-    if field is None or not is_managed_type(gen, field.type):
+    if field is None or not gen.managed_values.is_managed(field.type):
         return None
     return gen.analyzed.node_types.get(id(target)) or field.type

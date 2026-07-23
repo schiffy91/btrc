@@ -226,10 +226,10 @@ class CallBoundaryLowerer:
                 raise ValueError("managed result promotion requires its semantic type")
             sequence.append(self.lifetime.retain_value(result, result_type))
         protect_result = bool(
-            self.lifetime.cleanup_active()
+            self.lifetime.cleanup_scope.exception_cleanup_active()
             and result_type is not None
             and (result_owned or promote_result)
-            and self.lifetime.is_managed_type(result_type)
+            and self.lifetime.values.is_managed(result_type)
         )
         if protect_result:
             self.lifetime.protect_temporary(

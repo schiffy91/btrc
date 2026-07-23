@@ -13,8 +13,6 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .managed_values import is_string_type, release_value, retain_value
-from .temporary_cleanup import cleanup_registration
 from .types import CTypeRenderer
 
 _FLAT_CHAIN_MIN_TERMS = 32
@@ -140,7 +138,7 @@ def lower_long_string_concat(
         )
         sequence.extend(
             [
-                release_value(gen, accumulator, result_type),
+                gen.lifetime.release_value(accumulator, result_type),
                 IRBinOp(
                     left=accumulator,
                     op="=",
@@ -191,7 +189,7 @@ def _is_scalar_concat(gen, node) -> bool:
     if not isinstance(node, BinaryExpr) or node.op != "+":
         return False
     types = gen.analyzed.node_types
-    return all(is_string_type(gen, types.get(id(value))) for value in (node, node.left, node.right))
+    return all(gen.managed_values.is_string(types.get(id(value))) for value in (node, node.left, node.right))
 
 
 def _temporary(gen, prefix: str, c_type: str) -> IRVarDecl:
@@ -212,8 +210,7 @@ def _register_cleanup(
     sequence,
     prefix,
 ):
-    cleanup_declarations, cleanup_expressions = cleanup_registration(
-        gen,
+    cleanup_declarations, cleanup_expressions = gen.lifetime.cleanup_registration(
         declaration,
         type_expr,
         prefix,
@@ -251,7 +248,7 @@ def _evaluate_leaf(
         )
     )
     if pinned:
-        sequence.append(retain_value(gen, value, type_expr))
+        sequence.append(gen.lifetime.retain_value(value, type_expr))
     if owned or pinned:
         _register_cleanup(
             gen,
@@ -268,7 +265,7 @@ def _release_leaf(gen, value, type_expr, owned: bool, sequence) -> None:
         return
     sequence.extend(
         [
-            release_value(gen, value, type_expr),
+            gen.lifetime.release_value(value, type_expr),
             IRBinOp(left=value, op="=", right=IRLiteral(text="NULL")),
         ]
     )

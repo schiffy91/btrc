@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ...nodes import IRBinOp, IRCall, IRExprStmt, IRLiteral, IRStmt, IRVar
-from ..arc import _emit_scope_release
 from ..cleanup_scopes import cleanup_scope_exit
 from ..managed_local import ManagedLocal
 from ..try_stack import pop_try_frames
@@ -11,11 +10,6 @@ from .user_emitter_bindings import (
     declare_source_binding,
     reset_source_bindings,
     source_binding_c_name,
-)
-from .user_emitter_cleanup import (
-    exception_cleanup_active,
-    mark_cleanup_registration,
-    register_exception_cleanup,
 )
 from .user_emitter_scope_frames import (
     complete_generic_scope,
@@ -77,9 +71,8 @@ def register_managed_local(
     """Make a caller-owned initializer the reference owned by this block."""
     if not emitter._is_managed_type(resolved_type) or not emitter._managed_vars_stack:
         return
-    from ..managed_values import runtime_name
 
-    type_name = runtime_name(emitter._gen, resolved_type)
+    type_name = emitter._gen.managed_values.runtime_name(resolved_type)
     c_name = source_binding_c_name(emitter, name)
     emitter._managed_vars_stack[-1].append(
         ManagedLocal(
@@ -90,8 +83,7 @@ def register_managed_local(
         )
     )
     emitter._local_ownership_scopes[-1][name] = type_name
-    register_exception_cleanup(
-        emitter,
+    emitter._boundary_lifetime.register_named_cleanup(
         c_name,
         type_name,
         statements,
@@ -110,7 +102,7 @@ def emit_return_release(emitter, returned_name: str | None) -> list[IRStmt]:
     managed = _all_managed(emitter)
     returned_c_name = source_binding_c_name(emitter, returned_name) if returned_name is not None else None
     managed = [local for local in managed if (local.c_name or local.name) != returned_c_name]
-    return _emit_scope_release(managed, emitter._gen)
+    return emitter._boundary_lifetime.release_scope(managed)
 
 
 def emit_return_cleanup_discard(emitter) -> list[IRStmt]:
@@ -142,7 +134,7 @@ def emit_control_release(emitter, targets: set[str]) -> list[IRStmt]:
     managed = []
     for scope in emitter._managed_vars_stack[depth:]:
         managed.extend(scope)
-    return _emit_scope_release(managed, emitter._gen, force=True)
+    return emitter._boundary_lifetime.release_scope(managed, force=True)
 
 
 def emit_control_cleanup_discard(emitter, targets: set[str]) -> list[IRStmt]:
@@ -211,9 +203,7 @@ __all__ = [
     "emit_return_release",
     "emit_scoped_stmts",
     "emit_try_pop",
-    "exception_cleanup_active",
     "managed_local_type",
-    "mark_cleanup_registration",
     "pop_control_context",
     "push_control_context",
     "register_managed_local",

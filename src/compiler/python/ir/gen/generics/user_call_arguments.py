@@ -58,7 +58,7 @@ def lower_generic_call_argument(emitter, param, node, *, is_default=False):
         emitter,
         param,
         is_default,
-        lambda: emitter._expr(node),
+        lambda: emitter.lower_expression(node),
     )
 
 

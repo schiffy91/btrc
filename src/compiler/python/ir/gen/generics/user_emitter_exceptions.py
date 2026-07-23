@@ -31,7 +31,7 @@ class _UserGenericExceptionMixin:
             IRExprStmt(
                 expr=IRCall(
                     callee="__btrc_throw",
-                    args=[self._expr(statement.expr)],
+                    args=[self.lower_expression(statement.expr)],
                     helper_ref="__btrc_throw",
                 )
             )

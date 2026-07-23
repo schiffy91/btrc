@@ -38,8 +38,6 @@ def lower_return(
     any local owners are released.
     """
     from ...ast_nodes import Identifier
-    from .arc import _emit_return_release
-    from .managed_values import is_managed_type, retain_value
     from .prepared_values import prepare_normal_value
     from .type_resolution import canonical_type
 
@@ -47,7 +45,9 @@ def lower_return(
         try_pop = _emit_return_try_pop(gen)
         cleanup_discard = _emit_return_cleanup_discard(gen)
         value = IRLiteral(text="0") if gen._normalizing_void_main else None
-        return _emit_return_release(gen, None) + try_pop + cleanup_discard + [IRReturn(value=value)]
+        return (
+            gen.lifetime.release_scope(gen.get_all_managed_vars()) + try_pop + cleanup_discard + [IRReturn(value=value)]
+        )
 
     from .callable_boundaries import reject_persistent_callable_escape
 
@@ -75,7 +75,7 @@ def lower_return(
         value,
         type_renderer,
     )
-    managed_value_type = is_managed_type(gen, gen.current_return_type)
+    managed_value_type = gen.managed_values.is_managed(gen.current_return_type)
     managed_return = managed_value_type and gen.current_return_owned
     expression_owned = bool(managed_value_type and prepared.owned)
     owned_value = bool(managed_return and expression_owned)
@@ -98,7 +98,10 @@ def lower_return(
     ):
         returned_local = node.value.name
 
-    release_stmts = _emit_return_release(gen, returned_local)
+    returned_c_name = gen.source_binding_c_name(returned_local) if returned_local is not None else None
+    release_stmts = gen.lifetime.release_scope(
+        [local for local in gen.get_all_managed_vars() if (local.c_name or local.name) != returned_c_name]
+    )
     promote_borrowed = managed_return and not owned_value
     # Lowering the value can register temporary exception cleanups. Query the
     # active marker only after that lowering, and query it again after a return
@@ -116,19 +119,15 @@ def lower_return(
     result = IRVar(name=temporary.name)
     promote = []
     if promote_borrowed:
-        promote.append(IRExprStmt(expr=retain_value(gen, result, gen.current_return_type)))
+        promote.append(IRExprStmt(expr=gen.lifetime.retain_value(result, gen.current_return_type)))
     prefix = [temporary, *promote]
     if managed_return and returned_local is None:
         # A later local destructor may throw across this return path. Give the
         # in-flight caller-owned result its own cleanup slot so that longjmp
         # cannot strand a fresh result. A returned managed local already has a
         # registered source slot and must not be registered twice.
-        from .cleanup_registration import maybe_register_cleanup
-        from .managed_values import runtime_name
-
-        runtime_type = runtime_name(gen, gen.current_return_type)
-        maybe_register_cleanup(
-            gen,
+        runtime_type = gen.managed_values.runtime_name(gen.current_return_type)
+        gen.lifetime.register_named_cleanup(
             temporary.name,
             runtime_type,
             prefix,
@@ -191,9 +190,8 @@ def _maybe_launder_return(gen: IRLowerer, value):
     if gen.in_trycatch_depth <= 0:
         return value
     return_type = gen.current_return_type
-    from .managed_values import is_managed_type
 
-    if not is_managed_type(gen, return_type):
+    if not gen.managed_values.is_managed(return_type):
         return value
     gen.helpers.use("__btrc_launder")
     laundered = IRCall(

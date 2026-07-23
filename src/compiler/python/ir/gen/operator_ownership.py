@@ -5,9 +5,8 @@ from __future__ import annotations
 
 def operator_rhs_keep(gen, left_type, operator: str, right_type) -> bool:
     """Whether an overloaded operator's RHS needs a call-duration keep."""
-    from .managed_values import is_managed_type
 
-    if not is_managed_type(gen, right_type) or left_type is None:
+    if not gen.managed_values.is_managed(right_type) or left_type is None:
         return False
     magic = {
         "+": "__add__",

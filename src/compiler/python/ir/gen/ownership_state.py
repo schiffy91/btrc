@@ -237,6 +237,12 @@ class _OwnershipStateMixin:
             result.extend(scope)
         return result
 
+    def mark_borrowed_cycle_seeds(self) -> None:
+        """Invalidate the cycle proof of every live lexical ARC alias."""
+        for scope in self._managed_vars_stack:
+            for local in scope:
+                local.mark_cycle_seed()
+
     def push_loop_scope(self) -> None:
         self._loop_scope_depths.append(len(self._managed_vars_stack))
 

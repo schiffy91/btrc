@@ -20,7 +20,7 @@ def lower_generic_sizeof(emitter, operand):
     if emitter._gen is not None:
         emitter._gen.context.unevaluated_depth += 1
     try:
-        return IRSizeof(operand=emitter._expr(operand.expr))
+        return IRSizeof(operand=emitter.lower_expression(operand.expr))
     finally:
         emitter._unevaluated_depth -= 1
         emitter._boundary_ownership.context.unevaluated_depth -= 1

@@ -198,7 +198,6 @@ def _lower_c_for(
             return loop
 
         from ..completion import StatementSequence
-        from .arc import _emit_scope_release
         from .cleanup_scopes import cleanup_scope_entry, cleanup_scope_exit
 
         scoped_statements = [*prefix, loop]
@@ -211,7 +210,7 @@ def _lower_c_for(
         if marker_active and marker_referenced:
             scoped_statements[:0] = cleanup_scope_entry(gen, cleanup_marker)
         if falls_through:
-            scoped_statements.extend(_emit_scope_release(managed, gen))
+            scoped_statements.extend(gen.lifetime.release_scope(managed))
             if marker_active and marker_referenced:
                 scoped_statements.extend(cleanup_scope_exit(gen, cleanup_marker))
         return IRBlock(stmts=scoped_statements)

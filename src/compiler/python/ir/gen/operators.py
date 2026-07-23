@@ -13,7 +13,6 @@ from ..nodes import (
     IRExpr,
     IRUnaryOp,
 )
-from .managed_values import is_managed_type
 from .operator_context import OperatorLoweringContext
 from .typed_operators import lower_typed_binary
 from .types import CTypeRenderer
@@ -57,7 +56,8 @@ def _lower_binary(
         keep_nodes = [node.right] if operator_rhs_keep(gen, left_type, node.op, right_type) else []
         pin_nodes = (
             [node.left]
-            if overloaded_binary_method(gen, left_type, node.op) is not None and is_managed_type(gen, left_type)
+            if overloaded_binary_method(gen, left_type, node.op) is not None
+            and gen.managed_values.is_managed(left_type)
             else []
         )
 
@@ -276,7 +276,9 @@ def _lower_prepared_overload(
             type_expr=left.effective_type,
             c_type=type_renderer.render(left.effective_type),
             pin=bool(
-                borrowed_value_can_be_pinned(node.left) and is_managed_type(gen, left.effective_type) and not left.owned
+                borrowed_value_can_be_pinned(node.left)
+                and gen.managed_values.is_managed(left.effective_type)
+                and not left.owned
             ),
             owned=left.owned,
             lowered=left.value,
@@ -348,7 +350,7 @@ def _lower_unary(
                 default_arguments,
             ),
             result_type=result_type,
-            promote_result=bool(is_managed_type(gen, result_type)),
+            promote_result=bool(gen.managed_values.is_managed(result_type)),
         )
         if sequenced is not None:
             return sequenced

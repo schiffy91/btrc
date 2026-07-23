@@ -10,16 +10,14 @@ def lower_generic_unary_plain(emitter, expression):
     if expression.op in {"++", "--"} and emitter._gen:
         result = lower_incdec(emitter._update_context(), expression)
         if emitter._mutates_self_storage(expression.operand):
-            from ..arc_ops import invalidate_cycle_proof
-
             return IRCommaExpr(
                 expressions=[
-                    invalidate_cycle_proof(emitter._gen, IRVar(name="self")),
+                    emitter._boundary_lifetime.invalidate_cycle_proof(IRVar(name="self")),
                     result,
                 ]
             )
         return result
-    operand = emitter._expr(expression.operand)
+    operand = emitter.lower_expression(expression.operand)
     if expression.op == "&":
         return IRAddressOf(expr=operand, source_expression=True)
     if expression.op == "*":

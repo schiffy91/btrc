@@ -57,7 +57,7 @@ def lower_iterable_forin(emitter, statement) -> list:
         IRVarDecl(
             c_type=CType(text=iter_c),
             name=iterable,
-            init=emitter._expr(statement.iterable),
+            init=emitter.lower_expression(statement.iterable),
         )
     ]
     from .user_emitter_iteration_arc import (
@@ -158,7 +158,7 @@ def lower_string_forin(emitter, statement) -> list:
         IRVarDecl(
             c_type=CType(text="char*"),
             name=iterable,
-            init=emitter._expr(statement.iterable),
+            init=emitter.lower_expression(statement.iterable),
         )
     ]
     from .user_emitter_iteration_arc import (

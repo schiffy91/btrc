@@ -56,7 +56,7 @@ def lower_fixed_array_forin(emitter, statement, array_type) -> list[IRStmt]:
             values=emitter._arc_overrides,
             types=storage_types,
             type_values=emitter._arc_type_overrides,
-            operation=lambda expression=expression: emitter._expr(expression),
+            operation=lambda expression=expression: emitter.lower_expression(expression),
         )
         name = emitter._fresh_temp("__array_storage")
         prefix.append(
@@ -83,7 +83,7 @@ def lower_fixed_array_forin(emitter, statement, array_type) -> list[IRStmt]:
         values=emitter._arc_overrides,
         types=storage_types,
         type_values=emitter._arc_type_overrides,
-        operation=lambda: emitter._expr(statement.iterable),
+        operation=lambda: emitter.lower_expression(statement.iterable),
     )
     iterable = emitter._fresh_temp("__iter")
     length = emitter._fresh_temp("__n")

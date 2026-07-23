@@ -27,13 +27,6 @@ from ..nodes import (
     IRVarDecl,
 )
 from .arc_metadata import arc_header_initialization
-from .managed_values import (
-    adopt_edge_value,
-    is_arc_type,
-    is_managed_type,
-    replace_edge_value,
-    retain_edge_value,
-)
 from .parameters import lower_source_param
 from .types import CTypeRenderer, is_generic_class_type
 
@@ -107,34 +100,23 @@ def emit_constructor(
                 value,
                 type_renderer,
             )
-            if is_arc_type(gen, member.type):
+            if gen.managed_values.is_arc(member.type):
                 init_stmts.append(
                     IRExprStmt(
-                        expr=replace_edge_value(
-                            gen,
+                        expr=gen.lifetime.replace_edge_value(
                             target,
                             value,
                             member.type,
                             IRVar(name="self"),
-                            type_renderer,
                             adopt=prepared.owned,
                         )
                     )
                 )
             else:
                 init_stmts.append(IRAssign(target=target, value=value))
-            if _is_managed_field(gen, member) and not is_arc_type(gen, member.type):
-                edge_op = adopt_edge_value if prepared.owned else retain_edge_value
-                init_stmts.append(
-                    IRExprStmt(
-                        expr=edge_op(
-                            gen,
-                            target,
-                            member.type,
-                            IRVar(name="self"),
-                        )
-                    )
-                )
+            if _is_managed_field(gen, member) and not gen.managed_values.is_arc(member.type):
+                edge_op = gen.lifetime.adopt_edge_value if prepared.owned else gen.lifetime.retain_edge_value
+                init_stmts.append(IRExprStmt(expr=edge_op(target, member.type, IRVar(name="self"))))
 
     if constructor and constructor.body:
         from .statements import lower_block
@@ -231,4 +213,4 @@ def _lower_field_init(
 
 
 def _is_managed_field(gen: IRLowerer, field: FieldDecl) -> bool:
-    return is_managed_type(gen, field.type)
+    return gen.managed_values.is_managed(field.type)

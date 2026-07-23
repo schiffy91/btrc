@@ -69,7 +69,7 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
             snapshot_callable_flow,
         )
 
-        cond = self._expr(s.condition)
+        cond = self.lower_expression(s.condition)
         incoming = snapshot_callable_flow(self)
         then_stmts, then_flow = lower_isolated_callable_flow(
             self,
@@ -133,7 +133,7 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
         return lower_string_forin(self, statement)
 
     def _while_stmt(self, s) -> IRWhile:
-        condition = self._expr(s.condition)
+        condition = self.lower_expression(s.condition)
         body_stmts = self._loop_stmts(s.body.statements)
         return IRWhile(condition=condition, body=IRBlock(stmts=body_stmts))
 
@@ -142,7 +142,7 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
             s.body.statements,
             may_skip=False,
         )
-        return IRDoWhile(body=IRBlock(stmts=body_stmts), condition=self._expr(s.condition))
+        return IRDoWhile(body=IRBlock(stmts=body_stmts), condition=self.lower_expression(s.condition))
 
     def _switch_stmt(self, statement) -> IRSwitch:
         from ...completion import StatementSequence
@@ -153,7 +153,7 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
             snapshot_callable_flow,
         )
 
-        switch_value = self._expr(statement.value)
+        switch_value = self.lower_expression(statement.value)
         incoming = snapshot_callable_flow(self)
         cases = []
         case_flows = []
@@ -161,7 +161,7 @@ class _UserGenericControlMixin(_UserGenericExceptionMixin):
         push_control_context(self, "switch")
         try:
             for clause in statement.cases:
-                case_value = self._expr(clause.value) if clause.value else None
+                case_value = self.lower_expression(clause.value) if clause.value else None
                 restore_callable_flow(self, incoming)
                 if fallthrough_flow is not None:
                     join_callable_flows(self, incoming, fallthrough_flow)

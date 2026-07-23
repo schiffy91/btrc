@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ...ast_nodes import AssignExpr, Identifier
 from ..nodes import IRBinOp
-from .managed_values import is_managed_type
 from .types import CTypeRenderer
 
 
@@ -19,13 +18,11 @@ def lower_managed_local_assignment(
     target_type = gen.analyzed.node_types.get(id(node.target))
     if not _owned_identifier_slot(gen, node.target, target_type):
         return None
-    from .managed_values import managed_local_value_type
-
-    target_type = managed_local_value_type(
+    target_type = gen.managed_values.local_value_type(
         target_type,
         gen.managed_local_type(node.target.name),
     )
-    if not is_managed_type(gen, target_type):
+    if not gen.managed_values.is_managed(target_type):
         return None
 
     from .expressions import lower_expr
@@ -85,7 +82,7 @@ def lower_managed_slot_assignment(
     from .managed_replacement import lower_managed_slot_replacement
 
     return lower_managed_slot_replacement(
-        gen,
+        gen.lifetime,
         target=target,
         target_type=target_type,
         value=value,
@@ -113,7 +110,7 @@ def _lower_managed_slot_compound(
 
     right_type = gen.analyzed.node_types.get(id(node.value)) or target_type
     return lower_managed_compound_update(
-        gen,
+        gen.lifetime,
         value_type=target_type,
         right_type=right_type,
         old_expr=target,
@@ -137,7 +134,7 @@ def _lower_managed_slot_compound(
         commit=lambda _old, replacement: [IRBinOp(left=target, op="=", right=replacement)],
         result_expr=lambda: target,
         old_temporary_owned=False,
-        right_owned=bool(is_managed_type(gen, right_type) and gen.ownership.owns_result(node.value)),
+        right_owned=bool(gen.managed_values.is_managed(right_type) and gen.ownership.owns_result(node.value)),
         right_keep=managed_compound_keeps_rhs(
             gen,
             target_type,

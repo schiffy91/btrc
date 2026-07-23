@@ -46,15 +46,15 @@ def lower_generic_cfor(emitter, statement) -> IRBlock:
                 # both retain a live, declaration-specific slot until loop exit.
                 prefix.extend(emitter._var_decl(statement.init.var_decl))
             elif isinstance(statement.init, ForInitExpr):
-                init_node = IRExprStmt(expr=emitter._expr(statement.init.expression))
-        condition = emitter._expr(statement.condition) if statement.condition else None
+                init_node = IRExprStmt(expr=emitter.lower_expression(statement.init.expression))
+        condition = emitter.lower_expression(statement.condition) if statement.condition else None
         body = emitter._loop_stmts(statement.body.statements)
         update = None
         if statement.update:
             before_update = snapshot_callable_flow(emitter)
             update, update_flow = lower_isolated_callable_flow(
                 emitter,
-                lambda: emitter._expr(statement.update),
+                lambda: emitter.lower_expression(statement.update),
             )
             join_callable_flows(emitter, before_update, update_flow)
         prefix.append(
@@ -83,16 +83,16 @@ def lower_generic_range_forin(emitter, statement) -> list:
     arguments = statement.iterable.args
     if len(arguments) == 1:
         start = IRLiteral(text="0")
-        end = emitter._expr(arguments[0])
+        end = emitter.lower_expression(arguments[0])
         step = None
     elif len(arguments) == 2:
-        start = emitter._expr(arguments[0])
-        end = emitter._expr(arguments[1])
+        start = emitter.lower_expression(arguments[0])
+        end = emitter.lower_expression(arguments[1])
         step = None
     elif len(arguments) == 3:
-        start = emitter._expr(arguments[0])
-        end = emitter._expr(arguments[1])
-        step = emitter._expr(arguments[2])
+        start = emitter.lower_expression(arguments[0])
+        end = emitter.lower_expression(arguments[1])
+        step = emitter.lower_expression(arguments[2])
     else:
         raise CodegenError(f"range() expects 1 to 3 arguments, got {len(arguments)}")
 

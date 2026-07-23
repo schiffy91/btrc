@@ -20,15 +20,6 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .managed_values import (
-    is_arc_type,
-    is_managed_type,
-    poll_released_values,
-    release_edge_value,
-    replace_edge_value,
-    retain_edge_value,
-    unlink_edge_value,
-)
 from .parameters import (
     lower_named_source_type_param,
     source_binding_c_name,
@@ -232,22 +223,20 @@ def _setter_body(
     default_arguments,
 ):
     if prop.setter_body is None:
-        if is_managed_type(gen, prop.type):
+        if gen.managed_values.is_managed(prop.type):
             target = IRFieldAccess(
                 obj=IRVar(name="self"),
                 field=backing,
                 arrow=True,
             )
-            if is_arc_type(gen, prop.type):
+            if gen.managed_values.is_arc(prop.type):
                 stmts = [
                     IRExprStmt(
-                        expr=replace_edge_value(
-                            gen,
+                        expr=gen.lifetime.replace_edge_value(
                             target,
                             IRVar(name=value_name),
                             prop.type,
                             IRVar(name="self"),
-                            type_renderer,
                             adopt=False,
                         )
                     )
@@ -261,16 +250,14 @@ def _setter_body(
                         init=target,
                     ),
                     IRExprStmt(
-                        expr=unlink_edge_value(
-                            gen,
+                        expr=gen.lifetime.unlink_edge_value(
                             IRVar(name=old_name),
                             prop.type,
                             IRVar(name="self"),
                         )
                     ),
                     IRExprStmt(
-                        expr=retain_edge_value(
-                            gen,
+                        expr=gen.lifetime.retain_edge_value(
                             IRVar(name=value_name),
                             prop.type,
                             IRVar(name="self"),
@@ -278,15 +265,14 @@ def _setter_body(
                     ),
                     IRAssign(target=target, value=IRVar(name=value_name)),
                     IRExprStmt(
-                        expr=release_edge_value(
-                            gen,
+                        expr=gen.lifetime.release_edge_value(
                             IRVar(name=old_name),
                             prop.type,
                             replacement=IRVar(name=value_name),
                         )
                     ),
                 ]
-            flush = poll_released_values(gen, prop.type)
+            flush = gen.lifetime.poll_released_values(prop.type)
             if flush is not None:
                 stmts.append(IRExprStmt(expr=flush))
             return IRBlock(stmts=stmts)

@@ -1,17 +1,12 @@
-"""White-box tests for terminal ARC destroy-name resolution.
+"""White-box tests for managed-value owner resolution.
 
 Mangled generic-instance names are awkward to reach through the auto-management
-path, so drive the helpers directly with a real analyzed program. An ordinary
+path, so drive the owner directly with a real analyzed program. An ordinary
 method named ``free`` must not affect the selected lifecycle entry point.
 """
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
-from src.compiler.python.ir.gen.arc import (
-    _destroy_fn_for_managed,
-    _get_destroy_name,
-)
-from src.compiler.python.ir.gen.arc_cycles import lookup_class_info
 from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -36,38 +31,39 @@ def _gen():
     return IRLowerer(analyzed)
 
 
-def test_get_destroy_name_generic_uses_terminal_destructor():
+def test_destroy_name_generic_uses_terminal_destructor():
     g = _gen()
     te = TypeExpr(base="Pool", generic_args=[TypeExpr(base="int")])
-    name = _get_destroy_name(g, te, "Pool")
+    name = g.managed_values.destroy_symbol(te)
     assert name.endswith("_destroy")
 
 
-def test_get_destroy_name_non_generic():
+def test_destroy_name_non_generic():
     g = _gen()
     te = TypeExpr(base="Plain", generic_args=[])
-    assert _get_destroy_name(g, te, "Plain") == "Plain_destroy"
+    assert g.managed_values.destroy_symbol(te) == "Plain_destroy"
 
 
-def test_destroy_fn_for_managed_generic_instance_ignores_ordinary_free_method():
+def test_cleanup_destroy_for_generic_instance_ignores_ordinary_free_method():
     g = _gen()
     # A mangled generic-instance name whose base class has an unrelated method.
     mangled = next((m for m in ["btrc_Pool_int", "Pool_int"]), "Pool_int")
-    assert _destroy_fn_for_managed(g, mangled) == f"{mangled}_destroy"
+    assert g.managed_values.cleanup_destroy_symbol(mangled) == f"{mangled}_destroy"
 
 
 def test_generic_release_never_uses_ordinary_free_method():
     g = _gen()
     te = TypeExpr(base="Pool", generic_args=[TypeExpr(base="int")])
-    assert _get_destroy_name(g, te, "Pool") == "btrc_Pool_int_destroy"
+    assert g.managed_values.destroy_symbol(te) == "btrc_Pool_int_destroy"
 
 
-def test_destroy_fn_for_managed_plain_class():
+def test_cleanup_destroy_for_plain_class():
     g = _gen()
-    assert _destroy_fn_for_managed(g, "Plain") == "Plain_destroy"
+    assert g.managed_values.cleanup_destroy_symbol("Plain") == "Plain_destroy"
 
 
 def test_lookup_cls_info_by_mangled_name():
     g = _gen()
-    info = lookup_class_info(g, "btrc_Pool_int")
-    assert info is None or info.name == "Pool"
+    info = g.cycles.lookup_class_info("btrc_Pool_int")
+    assert info is not None
+    assert info.name == "Pool"

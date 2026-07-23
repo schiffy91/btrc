@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ...nodes import CType, IRCall, IRCast, IRExprStmt, IRReturn, IRVar, IRVarDecl
-from ..managed_values import retain_value
 from .user_emitter_scopes import (
     emit_return_cleanup_discard,
     emit_return_release,
@@ -75,13 +74,14 @@ def lower_generic_return(emitter, statement):
     )
     emitter._func_var_decls.append(temporary)
     result = IRVar(name=temporary.name)
-    promote = [IRExprStmt(expr=retain_value(emitter._gen, result, emitter._return_type))] if promote_borrowed else []
+    promote = (
+        [IRExprStmt(expr=emitter._boundary_lifetime.retain_value(result, emitter._return_type))]
+        if promote_borrowed
+        else []
+    )
     prefix = [temporary, *promote]
     if managed_return and returned_local is None:
-        from ..temporary_cleanup import cleanup_registration
-
-        declarations, registrations = cleanup_registration(
-            emitter._gen,
+        declarations, registrations = emitter._boundary_lifetime.cleanup_registration(
             temporary,
             emitter._return_type,
             "__btrc_return_cleanup",

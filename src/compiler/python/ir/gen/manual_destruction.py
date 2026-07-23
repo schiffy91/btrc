@@ -32,7 +32,6 @@ def lower_taken_delete(
     edge_owner=None,
 ):
     """Move one lvalue to a temporary, clear its slot, then destroy it."""
-    from .managed_values import is_arc_type, is_string_type, release_value
 
     value_c = value_c_type(
         type_expr,
@@ -47,12 +46,9 @@ def lower_taken_delete(
     )
     gen.context.function_declarations.append(slot_decl)
 
-    if is_arc_type(gen, type_expr):
-        from .arc_ops import arc_type_descriptor
-        from .cleanup_slots import ensure_arc_slot_adapter
-
+    if gen.managed_values.is_arc(type_expr):
         helper = "__btrc_arc_destroy_edge" if edge_owner is not None else "__btrc_arc_destroy_slot"
-        access = ensure_arc_slot_adapter(gen, CType(text=value_c))
+        access = gen.cleanup_slots.ensure_arc_slot_adapter(CType(text=value_c))
         gen.helpers.use(helper)
         args = [
             IRCast(target_type=CType(text="volatile void*"), expr=IRVar(name=slot_name)),
@@ -60,7 +56,7 @@ def lower_taken_delete(
         ]
         if edge_owner is not None:
             args.append(edge_owner)
-        args.append(arc_type_descriptor(gen, type_expr))
+        args.append(gen.lifetime.arc_type_descriptor(type_expr))
         return [
             slot_decl,
             IRExprStmt(
@@ -82,8 +78,8 @@ def lower_taken_delete(
     slot = IRDeref(expr=IRVar(name=slot_name))
     value = IRVar(name=value_name)
 
-    if is_string_type(gen, type_expr):
-        destroy = release_value(gen, value, type_expr)
+    if gen.managed_values.is_string(type_expr):
+        destroy = gen.lifetime.release_value(value, type_expr)
     else:
         destroy = IRCall(callee="free", args=[value])
 

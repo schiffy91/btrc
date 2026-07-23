@@ -174,10 +174,7 @@ def _collection_storage(gen, type_expr, mangled, prefix):
     ]
     result = collection
     if gen.exception_cleanup_active():
-        from .temporary_cleanup import cleanup_registration
-
-        cleanup_decls, cleanup_exprs = cleanup_registration(
-            gen,
+        cleanup_decls, cleanup_exprs = gen.lifetime.cleanup_registration(
             temporary,
             type_expr,
             "__btrc_collection_cleanup",

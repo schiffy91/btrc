@@ -3,15 +3,6 @@
 from __future__ import annotations
 
 from ...nodes import CType, IRBinOp, IRCommaExpr, IRFieldAccess, IRStmtExpr, IRVar, IRVarDecl
-from ..managed_values import (
-    adopt_edge_value,
-    is_arc_type,
-    poll_released_values,
-    release_edge_value,
-    replace_edge_value,
-    retain_edge_value,
-    unlink_edge_value,
-)
 
 
 def lower_generic_field_assignment(emitter, expression):
@@ -110,20 +101,18 @@ def lower_generic_field_assignment(emitter, expression):
         IRBinOp(
             left=receiver,
             op="=",
-            right=emitter._expr(expression.target.obj),
+            right=emitter.lower_expression(expression.target.obj),
         ),
         IRBinOp(left=new_value, op="=", right=value),
     ]
     declarations = [receiver_decl, value_decl]
-    if is_arc_type(emitter._gen, field_type):
+    if emitter._gen.managed_values.is_arc(field_type):
         sequence.append(
-            replace_edge_value(
-                emitter._gen,
+            emitter._boundary_lifetime.replace_edge_value(
                 target,
                 new_value,
                 field_type,
                 receiver,
-                emitter._type_renderer,
                 adopt=owned,
             )
         )
@@ -136,23 +125,22 @@ def lower_generic_field_assignment(emitter, expression):
         declarations.append(old_decl)
         old_value = IRVar(name=old_decl.name)
         sequence.append(IRBinOp(left=old_value, op="=", right=target))
-        sequence.append(unlink_edge_value(emitter._gen, old_value, field_type, receiver))
+        sequence.append(emitter._boundary_lifetime.unlink_edge_value(old_value, field_type, receiver))
         if owned:
-            sequence.append(adopt_edge_value(emitter._gen, new_value, field_type, receiver))
+            sequence.append(emitter._boundary_lifetime.adopt_edge_value(new_value, field_type, receiver))
         else:
-            sequence.append(retain_edge_value(emitter._gen, new_value, field_type, receiver))
+            sequence.append(emitter._boundary_lifetime.retain_edge_value(new_value, field_type, receiver))
         sequence.extend(
             [
                 IRBinOp(left=target, op="=", right=new_value),
-                release_edge_value(
-                    emitter._gen,
+                emitter._boundary_lifetime.release_edge_value(
                     old_value,
                     field_type,
                     replacement=new_value,
                 ),
             ]
         )
-    flush = poll_released_values(emitter._gen, field_type)
+    flush = emitter._boundary_lifetime.poll_released_values(field_type)
     if flush is not None:
         sequence.append(flush)
     sequence.append(target)
@@ -177,29 +165,27 @@ def _lower_generic_field_compound(
     from ..managed_updates import lower_managed_compound_update
 
     right_type = emitter._resolve_expr_type(expression.value) or field_type
-    class_edge = is_arc_type(emitter._gen, field_type)
+    class_edge = emitter._gen.managed_values.is_arc(field_type)
 
     def commit(old, replacement):
         if class_edge:
             return [
-                replace_edge_value(
-                    emitter._gen,
+                emitter._boundary_lifetime.replace_edge_value(
                     target,
                     replacement,
                     field_type,
                     receiver,
-                    emitter._type_renderer,
                     adopt=True,
                 )
             ]
         return [
-            unlink_edge_value(emitter._gen, old, field_type, receiver),
-            adopt_edge_value(emitter._gen, replacement, field_type, receiver),
+            emitter._boundary_lifetime.unlink_edge_value(old, field_type, receiver),
+            emitter._boundary_lifetime.adopt_edge_value(replacement, field_type, receiver),
             IRBinOp(left=target, op="=", right=replacement),
         ]
 
     update = lower_managed_compound_update(
-        emitter._gen,
+        emitter._boundary_lifetime,
         value_type=field_type,
         right_type=right_type,
         old_expr=target,
@@ -240,7 +226,7 @@ def _lower_generic_field_compound(
                 IRBinOp(
                     left=receiver,
                     op="=",
-                    right=emitter._expr(expression.target.obj),
+                    right=emitter.lower_expression(expression.target.obj),
                 ),
                 update,
             ]

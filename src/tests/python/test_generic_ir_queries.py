@@ -183,7 +183,7 @@ def test_type_compatibility_queries_typed_calls_and_pointer_addition():
 
 def test_generic_sizeof_preserves_unknown_structured_operand():
     emitter = _generic_emitter()
-    emitter._expr = lambda _expression: FutureExpr()
+    emitter.lower_expression = lambda _expression: FutureExpr()
     operand = SizeofExprOp(expr=IntLiteral(value=1, raw="1"))
 
     result = emitter._sizeof(operand)

@@ -11,16 +11,19 @@ from ...index_protocol import IndexedProtocolResolver
 from ...operator_semantics import OperatorSemantics
 from ...type_identity import TypeIdentity
 from ..nodes import IRModule, IRVar
+from .arc import ManagedReleaseLowerer
 from .call_arguments import CallArgumentLowerer
 from .call_boundary import CallBoundaryLowerer
 from .call_emission import CallDispatchLowerer
 from .calls import CallLowerer
+from .cleanup_slots import CleanupSlotRegistry
+from .cycle_metadata import CycleMetadata
 from .default_arguments import DefaultArgumentLoweringContext
 from .feature_scan import _block_uses_trycatch, _stmt_uses_trycatch  # noqa: F401
 from .helpers import RuntimeHelperRegistry
 from .hosted_result_conversion import HostedResultLowerer
 from .lowering_context import LoweringContext
-from .managed_type_classifier import ManagedTypeClassifier
+from .managed_values import ManagedValueSemantics
 from .module_generation import _ModuleGenerationMixin
 from .ownership import OwnershipLowerer
 from .ownership_lifetime import ManagedLifetimeLowerer
@@ -63,6 +66,19 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
             module=self.module,
             helpers=self.helpers,
         )
+        self.managed_values = ManagedValueSemantics(
+            self.analyzed,
+            self.type_identity,
+        )
+        self.cycles = CycleMetadata(
+            self.analyzed,
+            self.managed_values,
+            self.type_identity,
+        )
+        self.cleanup_slots = CleanupSlotRegistry(
+            self.module,
+            self.helpers,
+        )
         self.operator_types = OperatorSemantics(
             self.type_identity,
             class_table=self.analyzed.class_table,
@@ -81,11 +97,6 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         self.module.debug = debug
         self._lambda_counter = 0
         self.context.temporaries.counter = 0
-        self._cleanup_take_adapters: dict[str, str] = {}
-        self._cleanup_take_adapter_defs = []
-        self._cleanup_take_adapters_finalized = False
-        self._arc_slot_adapters: dict[str, str] = {}
-        self._mutex_value_adapters: dict[str, str] = {}
         self._gpu_kernels = {}
         self._emitted_gpu_functions: set[str] = set()
         self.current_class: ClassInfo | None = None
@@ -111,13 +122,24 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         self.context.type_overrides: dict[int, object] = {}
         self.context.unevaluated_depth = 0
 
-        self.managed_types = ManagedTypeClassifier(self.analyzed, self.type_identity)
         self.ownership_order = OwnershipOperandOrder(
             self.context,
-            self.managed_types,
+            self.managed_values,
             self.index_protocols,
         )
-        self.lifetime = ManagedLifetimeLowerer(self, self.managed_types)
+        self.lifetime = ManagedLifetimeLowerer(
+            context=self.context,
+            helpers=self.helpers,
+            values=self.managed_values,
+            cycles=self.cycles,
+            cleanup_slots=self.cleanup_slots,
+            cleanup_scope=self,
+            type_renderer=self.type_renderer,
+        )
+        self.managed_releases = ManagedReleaseLowerer(
+            self.lifetime,
+            self.type_renderer,
+        )
         boundaries = CallBoundaryLowerer(self.context, self.lifetime)
         call_dispatch = CallDispatchLowerer(
             self,
@@ -126,7 +148,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         )
         self.ownership = OwnershipLowerer(
             self.context,
-            self.managed_types,
+            self.managed_values,
             self.ownership_order,
             self.lifetime,
             boundaries,
@@ -171,9 +193,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         self._emit_enums()
         self._emit_declarations()
         self._emit_fn_ptr_typedefs()
-        from .cleanup_slots import finalize_cleanup_take_adapters
-
-        finalize_cleanup_take_adapters(self)
+        self.cleanup_slots.finalize()
         from .setjmp_volatility import apply_setjmp_volatility
 
         apply_setjmp_volatility(self.module)

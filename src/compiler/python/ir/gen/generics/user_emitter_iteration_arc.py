@@ -16,14 +16,12 @@ def begin_owned_iterable(
     """Own a fresh or borrowed iterable until every loop exit is lowered."""
     if not emitter._is_managed_type(type_expr):
         return None
-    from ..managed_values import is_string_type, retain_value, runtime_name
     from .user_emitter_scopes import register_managed_local
 
     if not emitter._owns_expr(expression):
         prefix.append(
             IRExprStmt(
-                expr=retain_value(
-                    emitter._gen,
+                expr=emitter._boundary_lifetime.retain_value(
                     IRVar(name=name),
                     type_expr,
                 )
@@ -32,8 +30,8 @@ def begin_owned_iterable(
 
     owner = ManagedLocal(
         name=name,
-        type_name=runtime_name(emitter._gen, type_expr),
-        cycle_seed=not is_string_type(emitter._gen, type_expr),
+        type_name=emitter._gen.managed_values.runtime_name(type_expr),
+        cycle_seed=not emitter._gen.managed_values.is_string(type_expr),
         c_name=name,
     )
     register_managed_local(emitter, name, type_expr, owner.cycle_seed, prefix)
@@ -52,9 +50,7 @@ def finish_owned_iterable(emitter, owner) -> list[IRStmt]:
             del scope[owner.name]
             break
 
-    from ..arc import _emit_scope_release
-
-    result = _emit_scope_release([owner], emitter._gen)
+    result = emitter._boundary_lifetime.release_scope([owner])
     result.append(
         IRAssign(
             target=IRVar(name=owner_c_name),

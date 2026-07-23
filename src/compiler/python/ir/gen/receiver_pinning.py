@@ -26,10 +26,9 @@ def receiver_pin_required(
         return False
     if declared_call or later_effect:
         return True
-    from .managed_values import is_mutex_type
 
     resolve_type = type_of or (lambda node: gen.analyzed.node_types.get(id(node)))
-    return is_mutex_type(gen, resolve_type(receiver))
+    return gen.managed_values.is_mutex(resolve_type(receiver))
 
 
 __all__ = ["receiver_pin_required"]

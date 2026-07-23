@@ -125,23 +125,21 @@ class _UserGenericStmtMixin(
         resolved = self._resolve_expr_type(s.expr)
         if not self._is_managed_type(resolved):
             return []
-        expr = self._expr(s.expr)
-        from ..managed_values import retain_edge_value, retain_value
+        expr = self.lower_expression(s.expr)
 
         retained = (
-            retain_edge_value(self._gen, expr, resolved, IRVar(name="self"))
+            self._boundary_lifetime.retain_edge_value(expr, resolved, IRVar(name="self"))
             if self._collection_edge_keeps
-            else retain_value(self._gen, expr, resolved)
+            else self._boundary_lifetime.retain_value(expr, resolved)
         )
         return [IRExprStmt(expr=retained)]
 
     def _delete_stmt(self, s) -> list[IRStmt]:
-        from ..managed_local import mark_borrowed_cycle_seeds
         from ..manual_destruction import lower_taken_delete
         from ..persistent_slots import stabilize_persistent_slot
 
-        mark_borrowed_cycle_seeds(self._managed_vars_stack)
-        target = self._expr(s.expr)
+        self.mark_borrowed_cycle_seeds()
+        target = self.lower_expression(s.expr)
         resolved = self._resolve_expr_type(s.expr)
         target, edge_owner, owner_decls = stabilize_persistent_slot(
             self._gen,
@@ -245,12 +243,9 @@ class _UserGenericStmtMixin(
         if ownership_type is not None and s.initializer is not None and self._is_managed_type(ownership_type):
             owns_initializer = prepared.owned
             if not owns_initializer:
-                from ..managed_values import retain_value
-
                 result.append(
                     IRExprStmt(
-                        expr=retain_value(
-                            self._gen,
+                        expr=self._boundary_lifetime.retain_value(
                             IRVar(name=binding_c_name),
                             ownership_type,
                         )
@@ -272,4 +267,4 @@ class _UserGenericStmtMixin(
                     s.initializer,
                     self._resolve(s.type),
                 )
-        return self._expr(s.initializer)
+        return self.lower_expression(s.initializer)

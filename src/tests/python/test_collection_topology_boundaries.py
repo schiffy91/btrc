@@ -1,7 +1,9 @@
 """Contracts for collection shape snapshot-exclusion lowering."""
 
 from src.compiler.python.ir.cycle_boundaries import FunctionCycleBoundary
+from src.compiler.python.ir.gen.cleanup_slots import CleanupSlotRegistry
 from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
+from src.compiler.python.ir.module import IRModule
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -27,6 +29,7 @@ class _Generator:
     def __init__(self, *, cleanup: bool = False):
         self.cross_function_cleanup_enabled = cleanup
         self.helpers = RuntimeHelperRegistry()
+        self.cleanup_slots = CleanupSlotRegistry(IRModule(), self.helpers)
         self.counter = 0
 
     def fresh_temp(self, prefix: str) -> str:

@@ -39,7 +39,6 @@ def ordinary_gpu_host(
 
     from .gpu_arguments import bare_array_argument_length
     from .gpu_outputs import assignment_target
-    from .managed_values import is_managed_type
 
     def lower_argument(expression, overrides):
         from .expressions import lower_expr
@@ -73,7 +72,7 @@ def ordinary_gpu_host(
         owns_result=lambda expression: bool(
             id(expression) not in gen.context.owning_overrides and gen.ownership.owns_result(expression)
         ),
-        is_managed=lambda type_expr: is_managed_type(gen, type_expr),
+        is_managed=lambda type_expr: gen.managed_values.is_managed(type_expr),
         override_value=lambda expression: gen.context.owning_overrides.get(id(expression)),
         record_declaration=gen.context.function_declarations.append,
         cleanup_active=gen.exception_cleanup_active,

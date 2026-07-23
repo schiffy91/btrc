@@ -40,7 +40,6 @@ def _lower_field_access(
     default_arguments=None,
 ) -> IRExpr:
     """Lower field access, handling optional chaining and special types."""
-    from .managed_values import is_managed_type
 
     result_type = gen.analyzed.node_types.get(id(node))
     from ...class_storage import custom_property_getter
@@ -67,7 +66,9 @@ def _lower_field_access(
         ),
         result_type=result_type,
         pin_nodes=[node.obj] if custom_getter else [],
-        promote_result=bool(is_managed_type(gen, result_type) and not gen.ownership.projection_is_owned_call(node)),
+        promote_result=bool(
+            gen.managed_values.is_managed(result_type) and not gen.ownership.projection_is_owned_call(node)
+        ),
     )
     if sequenced is not None:
         return sequenced
@@ -263,7 +264,6 @@ def _lower_index(
     default_arguments=None,
 ) -> IRExpr:
     """Lower index expression: list[i] → List_get(list, i), map[k] → Map_get(map, k)."""
-    from .managed_values import is_managed_type
 
     result_type = gen.analyzed.node_types.get(id(node))
     projection_call = gen.ownership.projection_is_owned_call(node)
@@ -289,8 +289,8 @@ def _lower_index(
         ),
         result_type=result_type,
         pin_nodes=[node.obj] if protocol_getter is not None else [],
-        promote_result=bool(is_managed_type(gen, result_type) and not projection_call),
-        result_owned=bool(is_managed_type(gen, result_type) and projection_call),
+        promote_result=bool(gen.managed_values.is_managed(result_type) and not projection_call),
+        result_owned=bool(gen.managed_values.is_managed(result_type) and projection_call),
     )
     if sequenced is not None:
         return sequenced

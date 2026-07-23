@@ -66,9 +66,8 @@ def build_generic_field_release_stmts(
         )
         if resolved is None:
             continue
-        from ..managed_values import is_managed_type
 
-        if is_managed_type(gen, resolved):
+        if gen.managed_values.is_managed(resolved):
             stmts.append(_field_release(gen, field_name, resolved, type_renderer))
     return stmts
 
@@ -79,25 +78,16 @@ def _field_release(
     field_type,
     type_renderer: CTypeRenderer,
 ) -> IRBlock:
-    from ..managed_values import (
-        is_arc_type,
-        release_edge_value,
-        replace_edge_value,
-        unlink_edge_value,
-    )
-
     field = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
-    if is_arc_type(gen, field_type):
+    if gen.managed_values.is_arc(field_type):
         return IRBlock(
             stmts=[
                 IRExprStmt(
-                    expr=replace_edge_value(
-                        gen,
+                    expr=gen.lifetime.replace_edge_value(
                         field,
                         IRLiteral(text="NULL"),
                         field_type,
                         IRVar(name="self"),
-                        type_renderer,
                         adopt=False,
                     )
                 )
@@ -112,15 +102,14 @@ def _field_release(
                 init=field,
             ),
             IRExprStmt(
-                expr=unlink_edge_value(
-                    gen,
+                expr=gen.lifetime.unlink_edge_value(
                     IRVar(name=old_name),
                     field_type,
                     IRVar(name="self"),
                 )
             ),
             IRAssign(target=field, value=IRLiteral(text="NULL")),
-            IRExprStmt(expr=release_edge_value(gen, IRVar(name=old_name), field_type)),
+            IRExprStmt(expr=gen.lifetime.release_edge_value(IRVar(name=old_name), field_type)),
         ]
     )
 

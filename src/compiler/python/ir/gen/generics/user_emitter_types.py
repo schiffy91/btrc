@@ -114,9 +114,8 @@ class _UserGenericTypeMixin:
     def _class_destroy_fn(self, resolved):
         if not self._gen or not resolved:
             return None
-        from ..managed_values import is_class_type
 
-        if not is_class_type(self._gen, resolved):
+        if not self._gen.managed_values.is_class(resolved):
             return None
         class_info = self._gen.analyzed.class_table.get(resolved.base)
         if not class_info:

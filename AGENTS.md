@@ -242,8 +242,12 @@ src/compiler/python/
       call_emission.py           temporary expression-dispatch integration seam
       ownership.py               managed-value ownership policy owner
       ownership_effects.py       call/assignment ownership-effect resolution
-      ownership_lifetime.py      retain/release/cleanup IR lowering owner
+      managed_values.py          managed classification + runtime identity owner
+      cycle_metadata.py          cycle graph, visitor, and metadata-state owner
+      cleanup_slots.py           typed cleanup/access adapter registry
+      ownership_lifetime.py      context-bound retain/release/cleanup owner
       ownership_order.py         effect and operand-order classification
+      arc.py                      explicit release-statement lowering owner
       classes.py                 class/struct lowering
       class_members.py           field/method/property lowering
       enums.py                   enum lowering (simple + rich)
@@ -261,7 +265,6 @@ src/compiler/python/
       lambdas.py                 lambda lifting + capture structs
       types.py                   type-related IR generation
       helpers.py                 runtime helper registration
-      arc.py                     ARC reference counting lowering
       threads.py                 spawn/Thread/Mutex lowering
       variables.py               variable declaration lowering
       gpu.py                     @gpu kernel IR generation
@@ -269,7 +272,7 @@ src/compiler/python/
       generics/                  monomorphization
         core.py                  generic infrastructure
         user.py                  user-defined generic classes
-        user_emitter.py          generic class expression emitter
+        user_emitter.py          generic emitter + local lifetime binding owner
         user_emitter_stmts.py    generic class statement emitter
         user_methods.py          generic class method lowering
 

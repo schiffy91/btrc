@@ -67,8 +67,8 @@ def lower_generic_binary_plain(emitter, expression):
     from ..operators import lower_overloaded_values
     from ..typed_operators import lower_typed_binary
 
-    left = emitter._expr(expression.left)
-    right = emitter._expr(expression.right)
+    left = emitter.lower_expression(expression.left)
+    right = emitter.lower_expression(expression.right)
     if expression.op == "??" and emitter._owns_expr(expression):
         from .user_emitter_ownership import normalize_owned_branch
 

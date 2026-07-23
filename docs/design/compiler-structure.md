@@ -78,6 +78,11 @@ IRLowerer
   ExpressionLowerer
   CallLowerer
   OwnershipLowerer
+    ManagedValueSemantics
+    CycleMetadata
+    CleanupSlotRegistry
+    ManagedLifetimeLowerer
+    ManagedReleaseLowerer
   ControlFlowLowerer
   ExceptionLowerer
   GenericLowerer
@@ -88,6 +93,12 @@ IRLowerer
 Collaborators receive their context explicitly. They do not reach through an
 unbounded generator/analyzer object for unrelated state. Domain classes may
 be larger when their behavior is cohesive.
+
+`ManagedLifetimeLowerer` is bound to exactly one `LoweringContext` and cleanup
+scope. A generic emitter binds a new lifetime instance to its own context while
+sharing the immutable semantic owner and the translation-unit cycle, helper,
+and cleanup-adapter registries. Cleanup flags and release temporaries therefore
+belong to the function being emitted, never to the root lowering context.
 
 Production modules do not expose loose behavior functions. The narrow
 exceptions are process entry points, generated declarations/tables, and pure

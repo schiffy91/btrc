@@ -23,13 +23,6 @@ from ..nodes import (
     IRVarDecl,
 )
 from .destructor_hooks import build_destructor_hook
-from .managed_values import (
-    is_arc_type,
-    is_managed_type,
-    release_edge_value,
-    replace_edge_value,
-    unlink_edge_value,
-)
 from .parameters import lower_source_param, source_binding_c_name
 from .types import CTypeRenderer
 
@@ -88,7 +81,7 @@ def emit_destructor(
     for fname, fd in cls_info.instance_storage:
         # Generic class fields use their compiler-owned terminal destructor;
         # source lifecycle behavior is explicit in an isolated ``__del__`` hook.
-        if is_managed_type(gen, fd.type):
+        if gen.managed_values.is_managed(fd.type):
             body_stmts.append(
                 _emit_field_release(
                     gen,
@@ -97,7 +90,7 @@ def emit_destructor(
                     type_renderer,
                 )
             )
-            has_owned_field_cleanup = has_owned_field_cleanup or is_arc_type(gen, fd.type)
+            has_owned_field_cleanup = has_owned_field_cleanup or gen.managed_values.is_arc(fd.type)
 
     # Mark cascade destruction before freeing. The helper itself checks the
     # process-wide unwind scope under the ARC mutation lock.
@@ -245,17 +238,15 @@ def _emit_field_release(
 ) -> IRBlock:
     """Release one internal field without a reentrant collector flush."""
     fa = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
-    if is_arc_type(gen, field_type):
+    if gen.managed_values.is_arc(field_type):
         return IRBlock(
             stmts=[
                 IRExprStmt(
-                    expr=replace_edge_value(
-                        gen,
+                    expr=gen.lifetime.replace_edge_value(
                         fa,
                         IRLiteral(text="NULL"),
                         field_type,
                         IRVar(name="self"),
-                        type_renderer,
                         adopt=False,
                     )
                 )
@@ -270,14 +261,13 @@ def _emit_field_release(
                 init=fa,
             ),
             IRExprStmt(
-                expr=unlink_edge_value(
-                    gen,
+                expr=gen.lifetime.unlink_edge_value(
                     IRVar(name=old_name),
                     field_type,
                     IRVar(name="self"),
                 )
             ),
             IRAssign(target=fa, value=IRLiteral(text="NULL")),
-            IRExprStmt(expr=release_edge_value(gen, IRVar(name=old_name), field_type)),
+            IRExprStmt(expr=gen.lifetime.release_edge_value(IRVar(name=old_name), field_type)),
         ]
     )

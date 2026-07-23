@@ -17,7 +17,6 @@ from .type_resolution import canonical_type
 
 def managed_callable_type(gen, type_expr) -> bool:
     """Whether a bare function pointer returns an ARC-managed value."""
-    from .managed_values import is_managed_type
 
     resolved = canonical_type(type_expr, gen.analyzed.typedef_table)
     return bool(
@@ -26,7 +25,7 @@ def managed_callable_type(gen, type_expr) -> bool:
         and resolved.pointer_depth == 0
         and not resolved.is_array
         and resolved.generic_args
-        and is_managed_type(gen, resolved.generic_args[0])
+        and gen.managed_values.is_managed(resolved.generic_args[0])
     )
 
 

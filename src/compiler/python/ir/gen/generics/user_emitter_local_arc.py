@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ...nodes import CType, IRBinOp, IRExprStmt, IRVar, IRVarDecl
-from ..managed_values import poll_released_values, release_value
 from .user_emitter_scopes import managed_local_type
 
 
@@ -14,9 +13,7 @@ def lower_generic_local_assignment(emitter, expression):
     if not isinstance(expression.target, Identifier) or managed_local_type(emitter, expression.target.name) is None:
         return None
     target_type = emitter._resolve_expr_type(expression.target)
-    from ..managed_values import managed_local_value_type
-
-    target_type = managed_local_value_type(
+    target_type = emitter._gen.managed_values.local_value_type(
         target_type,
         managed_local_type(emitter, expression.target.name),
     )
@@ -73,7 +70,7 @@ def lower_generic_managed_slot_assignment(
     from ..managed_replacement import lower_managed_slot_replacement
 
     return lower_managed_slot_replacement(
-        emitter._gen,
+        emitter._boundary_lifetime,
         target=target,
         target_type=target_type,
         value=value,
@@ -95,7 +92,7 @@ def _lower_generic_local_compound(emitter, expression, target, target_type):
 
     right_type = emitter._resolve_expr_type(expression.value) or target_type
     return lower_managed_compound_update(
-        emitter._gen,
+        emitter._boundary_lifetime,
         value_type=target_type,
         right_type=right_type,
         old_expr=target,
@@ -134,11 +131,10 @@ def lower_generic_expression_statement(emitter, expression):
     """Consume a discarded caller-owned result at the statement boundary."""
     from ....ast_nodes import CallExpr, FieldAccessExpr
     from ..macro_boundaries import lower_assert_statement
-    from ..managed_values import is_mutex_type
 
     assertion = lower_assert_statement(
         expression,
-        lower_condition=emitter._expr,
+        lower_condition=emitter.lower_expression,
         fresh_temp=emitter._fresh_temp,
         record_decl=emitter._func_var_decls.append,
         hosted=(not emitter._gen.freestanding and "assert" not in emitter._gen.analyzed.function_table),
@@ -150,14 +146,11 @@ def lower_generic_expression_statement(emitter, expression):
         isinstance(expression, CallExpr)
         and isinstance(expression.callee, FieldAccessExpr)
         and expression.callee.field == "destroy"
-        and is_mutex_type(
-            emitter._gen,
-            emitter._resolve_expr_type(expression.callee.obj),
-        )
+        and emitter._gen.managed_values.is_mutex(emitter._resolve_expr_type(expression.callee.obj))
     ):
         return emitter._release_expression(expression.callee.obj)
     result_type = emitter._resolve_expr_type(expression)
-    value = emitter._expr(expression)
+    value = emitter.lower_expression(expression)
     from .user_gpu_dispatch import is_generic_gpu_output_assignment
 
     if is_generic_gpu_output_assignment(emitter, expression):
@@ -168,9 +161,9 @@ def lower_generic_expression_statement(emitter, expression):
     temporary.init = value
     statements = [
         temporary,
-        IRExprStmt(expr=release_value(emitter._gen, IRVar(name=temporary.name), result_type)),
+        IRExprStmt(expr=emitter._boundary_lifetime.release_value(IRVar(name=temporary.name), result_type)),
     ]
-    flush = poll_released_values(emitter._gen, result_type)
+    flush = emitter._boundary_lifetime.poll_released_values(result_type)
     if flush is not None:
         statements.append(IRExprStmt(expr=flush))
     return statements

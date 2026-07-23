@@ -18,7 +18,6 @@ def stabilize_persistent_slot(
     prefix="__btrc_slot_owner",
 ):
     """Evaluate a class owner once and return its physical child slot."""
-    from .managed_values import is_class_type
 
     resolve_type = resolve_type or (lambda node: gen.analyzed.node_types.get(id(node)))
     fresh_temp = fresh_temp or gen.fresh_temp
@@ -41,7 +40,7 @@ def stabilize_persistent_slot(
         owner_expr = target.obj.obj
         shape = "index"
     owner_type = resolve_type(owner_node) if owner_node is not None else None
-    if owner_expr is None or not is_class_type(gen, owner_type):
+    if owner_expr is None or not gen.managed_values.is_class(owner_type):
         return target, None, []
 
     declaration = IRVarDecl(

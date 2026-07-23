@@ -6,7 +6,6 @@ from collections.abc import Callable
 
 from ..nodes import IRCommaExpr
 from .call_boundary import CallOperand
-from .managed_values import is_managed_type
 from .types import CTypeRenderer
 
 
@@ -49,7 +48,7 @@ def lower_virtual_store_boundary(
     else:
         prepared = prepare(node.value, plan.value_type)
     source_type = prepared.effective_type
-    managed = is_managed_type(gen, source_type)
+    managed = gen.managed_values.is_managed(source_type)
     owned = bool(managed and prepared.owned)
     keep = bool(managed and setter is not None and setter.params[1].keep)
     if not managed and not prepared.converted:
@@ -74,7 +73,7 @@ def lower_virtual_store_boundary(
     # The setter ABI returns an owned assignment result when its RHS already
     # produced +1 or target-directed conversion created +1. The outer target
     # boundary recognizes that contract and does not promote it a second time.
-    result_owned = bool(is_managed_type(gen, plan.value_type) or owns_result(node.value) or prepared.converted)
+    result_owned = bool(gen.managed_values.is_managed(plan.value_type) or owns_result(node.value) or prepared.converted)
     boundary = ownership.boundaries.sequence(
         [operand],
         lower_expr=lambda _value: None,

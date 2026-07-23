@@ -197,7 +197,7 @@ def prepare_generic_value(
     lower_value=None,
 ) -> PreparedValue:
     """Prepare one value inside a monomorphized generic method body."""
-    lower_value = lower_value or emitter._expr
+    lower_value = lower_value or emitter.lower_expression
     return prepare_value(
         emitter._gen,
         node,

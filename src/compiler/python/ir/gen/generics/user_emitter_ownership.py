@@ -251,16 +251,14 @@ class _UserGenericOwnershipMixin:
     def _is_managed_type(self, type_expr):
         if not self._gen:
             return False
-        from ..managed_values import is_managed_type
 
-        return is_managed_type(self._gen, type_expr)
+        return self._gen.managed_values.is_managed(type_expr)
 
     def _is_string_type(self, type_expr):
         if not self._gen:
             return False
-        from ..managed_values import is_string_type
 
-        return is_string_type(self._gen, type_expr)
+        return self._gen.managed_values.is_string(type_expr)
 
     @staticmethod
     def _require_operand_type(type_expr):
@@ -281,7 +279,6 @@ def normalize_owned_branch(emitter, expression, lowered):
     if not emitter._is_managed_type(type_expr):
         return lowered
     from ...nodes import CType, IRBinOp, IRCommaExpr, IRStmtExpr, IRVar, IRVarDecl
-    from ..managed_values import retain_value
 
     declaration = IRVarDecl(
         c_type=CType(text=emitter.iter_value_c(type_expr)),
@@ -294,7 +291,7 @@ def normalize_owned_branch(emitter, expression, lowered):
         result=IRCommaExpr(
             expressions=[
                 IRBinOp(left=value, op="=", right=lowered),
-                retain_value(emitter._gen, value, type_expr),
+                emitter._boundary_lifetime.retain_value(value, type_expr),
                 value,
             ]
         ),

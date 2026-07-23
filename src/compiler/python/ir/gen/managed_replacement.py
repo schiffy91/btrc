@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from ..nodes import CType, IRBinOp, IRCommaExpr, IRLiteral, IRStmtExpr, IRVar, IRVarDecl
-from .managed_values import poll_released_values, release_value, retain_value
-from .temporary_cleanup import cleanup_registration
 
 
 def lower_managed_slot_replacement(
-    gen,
+    lifetime,
     *,
     target,
     target_type,
@@ -40,9 +38,8 @@ def lower_managed_slot_replacement(
     old = IRVar(name=old_decl.name)
     sequence = [IRBinOp(left=replacement, op="=", right=value)]
     if not value_owned:
-        sequence.append(retain_value(gen, replacement, target_type))
-    cleanup_decls, cleanup_exprs = cleanup_registration(
-        gen,
+        sequence.append(lifetime.retain_value(replacement, target_type))
+    cleanup_decls, cleanup_exprs = lifetime.cleanup_registration(
         replacement_decl,
         target_type,
         "__btrc_slot_cleanup",
@@ -61,10 +58,10 @@ def lower_managed_slot_replacement(
                 op="=",
                 right=IRLiteral(text="NULL"),
             ),
-            release_value(gen, old, target_type),
+            lifetime.release_value(old, target_type),
         ]
     )
-    flush = poll_released_values(gen, target_type)
+    flush = lifetime.poll_released_values(target_type)
     if flush is not None:
         sequence.append(flush)
     sequence.append(target)

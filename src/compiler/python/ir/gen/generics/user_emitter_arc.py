@@ -100,7 +100,7 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
 
         return self._boundary_ownership.boundaries.sequence(
             operands,
-            lower_expr=lower_expr or self._expr,
+            lower_expr=lower_expr or self.lower_expression,
             build_call=build_with_overrides,
             result_c_type=result_c_type,
             result_type=result_type,
@@ -114,14 +114,10 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
         )
 
     def _activate_cleanup_registration(self):
-        from .user_emitter_scopes import mark_cleanup_registration
-
-        mark_cleanup_registration(self)
+        self.mark_cleanup_registration()
 
     def _exception_cleanup_active(self):
-        from .user_emitter_scopes import exception_cleanup_active
-
-        return exception_cleanup_active(self)
+        return self.exception_cleanup_active()
 
     def _sequence_owned_nodes(
         self,

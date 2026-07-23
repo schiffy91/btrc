@@ -28,7 +28,7 @@ def lower_new_constructor_call(emitter, expression):
 
         return create_mutex_value(
             emitter._gen,
-            emitter._expr(expression.args[0]),
+            emitter.lower_expression(expression.args[0]),
             resolved.generic_args[0],
             emitter._type_renderer,
         )
@@ -38,7 +38,7 @@ def lower_new_constructor_call(emitter, expression):
         if resolved.generic_args
         else resolved.base
     )
-    args = [emitter._expr(argument) for argument in expression.args]
+    args = [emitter.lower_expression(argument) for argument in expression.args]
     class_info = emitter._gen.analyzed.class_table.get(resolved.base) if emitter._gen else None
     if class_info is not None and class_info.constructor:
         params = new_constructor_parameters(

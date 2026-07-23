@@ -24,13 +24,6 @@ from ...nodes import (
 from ..arc_metadata import arc_header_initialization, emit_arc_descriptor
 from ..collection_visitors import emit_generic_visitor
 from ..constructor_cleanup import constructor_cleanup_guard
-from ..cycle_metadata import (
-    cycle_visitor_symbol,
-    generic_instance_may_cycle,
-    generic_instance_needs_visitor,
-    register_cycle_classification,
-    register_cycle_visitor,
-)
 from ..parameters import lower_source_param, source_binding_c_name
 from .core import _resolve_type
 from .user_destructors import (
@@ -54,10 +47,10 @@ def emit_generic_lifecycle(
     emitter: _UserGenericEmitter,
 ) -> tuple[list[IRFunctionDecl], list[IRFunctionDef]]:
     """Emit init/new/destroy and the optional cycle visitor."""
-    has_visitor = generic_instance_needs_visitor(gen, base_name, args)
-    register_cycle_classification(gen, mangled, generic_instance_may_cycle(gen, base_name, args))
+    has_visitor = gen.cycles.generic_instance_needs_visitor(base_name, args)
+    gen.cycles.register_classification(mangled, gen.cycles.generic_instance_may_cycle(base_name, args))
     if has_visitor:
-        register_cycle_visitor(gen, mangled)
+        gen.cycles.register_visitor(mangled)
 
     ctor = cls_info.constructor
     ctor_params = (
@@ -117,7 +110,7 @@ def emit_generic_lifecycle(
     emit_arc_descriptor(
         gen,
         mangled,
-        cycle_visitor_symbol(mangled) if has_visitor else None,
+        gen.cycles.visitor_symbol(mangled) if has_visitor else None,
         destructor_hook_symbol(mangled) if destructor_hook is not None else None,
     )
     return declarations, definitions

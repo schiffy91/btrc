@@ -41,12 +41,9 @@ def lower_expression_statement(
 
     destroy_receiver = _mutex_destroy_receiver(gen, node.expr)
     if destroy_receiver is not None:
-        from .arc import lower_release_expression
-
-        return lower_release_expression(
+        return gen.managed_releases.lower_expression(
             gen,
             destroy_receiver,
-            type_renderer,
         )
     lowered = lower_expr(
         gen,
@@ -61,7 +58,6 @@ def lower_expression_statement(
         return [IRExprStmt(expr=lowered)]
 
     result_type = gen.analyzed.node_types.get(id(node.expr))
-    from .managed_values import is_managed_type
 
     if _is_fresh_thread_result(gen, node.expr, result_type):
         temporary = IRVarDecl(
@@ -81,7 +77,7 @@ def lower_expression_statement(
                 )
             ),
         ]
-    elif gen.ownership.owns_result(node.expr) and is_managed_type(gen, result_type):
+    elif gen.ownership.owns_result(node.expr) and gen.managed_values.is_managed(result_type):
         temporary = IRVarDecl(
             c_type=CType(text=type_renderer.render(result_type)),
             name=gen.fresh_temp("__btrc_discarded"),
@@ -99,13 +95,9 @@ def lower_expression_statement(
 
 def _release_owned_value(gen, target, value_type):
     """Build full-expression cleanup for one discarded owned value."""
-    from .arc_ops import poll_release_batch
-    from .managed_values import is_arc_type, release_value
-
-    expressions = [release_value(gen, target, value_type)]
-    flush = poll_release_batch(
-        gen,
-        types=[value_type] if is_arc_type(gen, value_type) else [],
+    expressions = [gen.lifetime.release_value(target, value_type)]
+    flush = gen.lifetime.poll_release_batch(
+        types=[value_type] if gen.managed_values.is_arc(value_type) else [],
     )
     if flush is not None:
         expressions.append(flush)
@@ -119,9 +111,8 @@ def _mutex_destroy_receiver(gen, expression):
         return None
     receiver = expression.callee.obj
     receiver_type = gen.analyzed.node_types.get(id(receiver))
-    from .managed_values import is_mutex_type
 
-    return receiver if is_mutex_type(gen, receiver_type) else None
+    return receiver if gen.managed_values.is_mutex(receiver_type) else None
 
 
 def _is_fresh_thread_result(gen, expression, result_type) -> bool:

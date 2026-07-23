@@ -130,7 +130,7 @@ def _emit_user_generic_instance(
                 name,
                 resolved,
                 type_renderer,
-                bound_lowerer=bound_emitter._expr,
+                bound_lowerer=bound_emitter.lower_expression,
             )
         )
     gen.module.struct_defs.append(IRStructDef(name=mangled, fields=fields))

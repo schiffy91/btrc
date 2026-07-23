@@ -8,9 +8,8 @@ from .managed_local import ManagedLocal
 
 def iterable_result_is_owned(gen, expression, type_expr) -> bool:
     """Whether the loop receives a fresh managed iterable reference."""
-    from .managed_values import is_managed_type
 
-    if not is_managed_type(gen, type_expr):
+    if not gen.managed_values.is_managed(type_expr):
         return False
 
     return gen.ownership.owns_result(expression)
@@ -30,18 +29,13 @@ def begin_owned_iterable(
     either form before lowering the body makes return/throw cleanup see it,
     while the loop control marker keeps it live across continue and break.
     """
-    from .managed_values import is_managed_type
 
-    if not is_managed_type(gen, type_expr):
+    if not gen.managed_values.is_managed(type_expr):
         return None
-    from .managed_values import is_string_type, retain_value, runtime_name
-    from .variables import _maybe_register_cleanup
-
     if not iterable_result_is_owned(gen, expression, type_expr):
         prefix.append(
             IRExprStmt(
-                expr=retain_value(
-                    gen,
+                expr=gen.lifetime.retain_value(
                     IRVar(name=name),
                     type_expr,
                 )
@@ -50,11 +44,15 @@ def begin_owned_iterable(
 
     owner = ManagedLocal(
         name=name,
-        type_name=runtime_name(gen, type_expr),
-        cycle_seed=not is_string_type(gen, type_expr),
+        type_name=gen.managed_values.runtime_name(type_expr),
+        cycle_seed=not gen.managed_values.is_string(type_expr),
     )
     gen.register_managed_var(owner.name, owner.type_name, cycle_seed=owner.cycle_seed)
-    _maybe_register_cleanup(gen, owner.name, owner.type_name, prefix)
+    gen.lifetime.register_named_cleanup(
+        owner.name,
+        owner.type_name,
+        prefix,
+    )
     return owner
 
 
@@ -62,10 +60,8 @@ def finish_owned_iterable(gen, owner: ManagedLocal | None) -> list[IRStmt]:
     """Release one owned hoist after exhaustion or a loop ``break``."""
     if owner is None:
         return []
-    from .arc import _emit_scope_release
-
     gen.unregister_managed_var(owner.name)
-    result = _emit_scope_release([owner], gen)
+    result = gen.lifetime.release_scope([owner])
     # A try-scope registration may remain until its enclosing lexical marker.
     # Null the still-live slot so a later throw cannot release it twice.
     result.append(

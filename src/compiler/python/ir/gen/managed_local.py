@@ -13,10 +13,7 @@ class ManagedLocal:
     c_name: str | None = None
     cleanup_kind: str = "arc"
 
-
-def mark_borrowed_cycle_seeds(scopes: list[list[ManagedLocal]]) -> None:
-    """Conservatively dirty live aliases after a managed ownership mutation."""
-    for scope in scopes:
-        for local in scope:
-            if local.cleanup_kind == "arc":
-                local.cycle_seed = True
+    def mark_cycle_seed(self) -> None:
+        """Conservatively dirty this live ARC alias after graph mutation."""
+        if self.cleanup_kind == "arc":
+            self.cycle_seed = True

@@ -92,7 +92,7 @@ def _plain_field_access(emitter, expression):
         if emitter._gen is not None and receiver_type is not None
         else None
     )
-    receiver = IRVar(name="self") if isinstance(expression.obj, SelfExpr) else emitter._expr(expression.obj)
+    receiver = IRVar(name="self") if isinstance(expression.obj, SelfExpr) else emitter.lower_expression(expression.obj)
     if isinstance(expression.obj, SelfExpr) and emitter._current_property_backing == field:
         return IRFieldAccess(
             obj=receiver,
@@ -129,8 +129,8 @@ def _plain_field_access(emitter, expression):
 
 def _plain_index(emitter, expression):
     receiver_type = emitter._resolve_expr_type(expression.obj)
-    receiver = emitter._expr(expression.obj)
-    index = emitter._expr(expression.index)
+    receiver = emitter.lower_expression(expression.obj)
+    index = emitter.lower_expression(expression.index)
     if (
         emitter._gen is not None
         and receiver_type is not None

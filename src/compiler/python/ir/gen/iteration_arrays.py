@@ -31,7 +31,6 @@ def lower_fixed_array_for_in(
     from ...hosted_alias_carriers import hosted_alias_argument
     from .expressions import lower_expr
     from .iteration_ownership import begin_owned_iterable, finish_owned_iterable
-    from .managed_values import is_managed_type
     from .projection_storage import (
         evaluate_with_operand_overrides,
         projection_storage_operands,
@@ -41,7 +40,7 @@ def lower_fixed_array_for_in(
     storage = projection_storage_operands(
         node.iterable,
         type_of=lambda expression: gen.analyzed.node_types.get(id(expression)),
-        is_managed=lambda type_expr: is_managed_type(gen, type_expr),
+        is_managed=lambda type_expr: gen.managed_values.is_managed(type_expr),
         owns=lambda expression: gen.ownership.owns_result(expression),
         overridden=lambda expression: id(expression) in gen.context.owning_overrides,
         struct_table=gen.analyzed.struct_table,

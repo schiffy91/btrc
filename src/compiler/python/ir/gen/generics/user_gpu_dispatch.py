@@ -30,7 +30,7 @@ def generic_gpu_host(emitter) -> GpuHostLowering:
         return evaluate_with_operand_overrides(
             overrides,
             values=emitter._arc_overrides,
-            operation=lambda: emitter._expr(expression),
+            operation=lambda: emitter.lower_expression(expression),
         )
 
     return GpuHostLowering(
@@ -109,7 +109,7 @@ def lower_generic_gpu_output_assignment(emitter, assignment) -> IRExpr | None:
         emitter._gen,
         assignment.value,
         assignment.target,
-        emitter._expr(assignment.target),
+        emitter.lower_expression(assignment.target),
         emitter._type_renderer,
         emitter._default_arguments,
         host=generic_gpu_host(emitter),
@@ -199,7 +199,7 @@ def _output_target(emitter, ast_target, ir_target: IRExpr) -> GpuOutputTarget:
             ir_target,
             target_type,
             capacity=(
-                emitter._expr(target_type.array_size)
+                emitter.lower_expression(target_type.array_size)
                 if target_type.array_size is not None
                 else bare_array_length(ir_target)
             ),

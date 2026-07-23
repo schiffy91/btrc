@@ -28,8 +28,8 @@ class _UserGenericOperatorMixin:
     def _ternary_expr(self, expression) -> IRExpr:
         from ..typed_operators import lower_typed_ternary
 
-        true_expr = self._expr(expression.true_expr)
-        false_expr = self._expr(expression.false_expr)
+        true_expr = self.lower_expression(expression.true_expr)
+        false_expr = self.lower_expression(expression.false_expr)
         if self._owns_expr(expression):
             from .user_emitter_ownership import normalize_owned_branch
 
@@ -44,7 +44,7 @@ class _UserGenericOperatorMixin:
                 false_expr,
             )
         return lower_typed_ternary(
-            self._expr(expression.condition),
+            self.lower_expression(expression.condition),
             true_expr,
             false_expr,
             self._resolve_expr_type(expression.true_expr),
@@ -93,18 +93,16 @@ class _UserGenericOperatorMixin:
     def _assignment_expr(self, expression) -> IRExpr:
         if not self._gen:
             return IRBinOp(
-                left=self._expr(expression.target),
+                left=self.lower_expression(expression.target),
                 op=expression.op,
-                right=self._expr(expression.value),
+                right=self.lower_expression(expression.value),
             )
         from .user_callable_provenance import reject_generic_erasing_callable_assignment
 
         reject_generic_erasing_callable_assignment(self, expression)
         target_type = self._resolve_expr_type(expression.target)
         if self._is_managed_type(target_type):
-            from ..managed_local import mark_borrowed_cycle_seeds
-
-            mark_borrowed_cycle_seeds(self._managed_vars_stack)
+            self.mark_borrowed_cycle_seeds()
         from ..assignment_ownership import (
             assignment_target_operands,
             kept_target_operands,
@@ -183,11 +181,9 @@ class _UserGenericOperatorMixin:
             return field_arc
         result = lower_assignment(self._update_context(), expression)
         if self._mutates_self_storage(expression.target):
-            from ..arc_ops import invalidate_cycle_proof
-
             return IRCommaExpr(
                 expressions=[
-                    invalidate_cycle_proof(self._gen, IRVar(name="self")),
+                    self._boundary_lifetime.invalidate_cycle_proof(IRVar(name="self")),
                     result,
                 ]
             )
@@ -210,7 +206,7 @@ class _UserGenericOperatorMixin:
 
         analyzed = self._gen.analyzed
         lvalues = LValueContext(
-            lower_expr=self._expr,
+            lower_expr=self.lower_expression,
             type_of=self._resolve_expr_type,
             c_type=self._ttc,
             fresh_temp=self._fresh_temp,
@@ -282,7 +278,7 @@ class _UserGenericOperatorMixin:
             target = self._mangle_type(target_type)
             if target:
                 return self._collection_literal(target, value, target_type)
-        return self._expr(value)
+        return self.lower_expression(value)
 
 
 def _prepare_generic_assignment(emitter, value, target_type):

@@ -90,12 +90,9 @@ class CollectionTopologyBoundary:
         )
         statements.append(token_declaration)
         if self._marker is not None:
-            from .gen.cleanup_slots import register_cleanup_slot
-
             statements.append(
                 IRExprStmt(
-                    expr=register_cleanup_slot(
-                        self._generator,
+                    expr=self._generator.cleanup_slots.register(
                         token_declaration,
                         IRFunctionRef(name="__btrc_arc_topology_cleanup"),
                         direct=True,

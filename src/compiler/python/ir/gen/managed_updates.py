@@ -14,12 +14,10 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .managed_values import poll_released_values, release_value, retain_value
-from .temporary_cleanup import cleanup_registration
 
 
 def lower_managed_compound_update(
-    gen,
+    lifetime,
     *,
     value_type,
     right_type,
@@ -82,9 +80,9 @@ def lower_managed_compound_update(
     current = IRVar(name=current_decl.name) if current_decl is not None else None
     sequence = [IRBinOp(left=old, op="=", right=old_expr)]
     if not old_temporary_owned:
-        sequence.append(retain_value(gen, old, value_type))
+        sequence.append(lifetime.retain_value(old, value_type))
     _guard(
-        gen,
+        lifetime,
         old_decl,
         value_type,
         declarations,
@@ -96,7 +94,7 @@ def lower_managed_compound_update(
     sequence.append(IRBinOp(left=right, op="=", right=right_expr))
     if right_owned:
         _guard(
-            gen,
+            lifetime,
             right_decl,
             right_type,
             declarations,
@@ -118,12 +116,12 @@ def lower_managed_compound_update(
         kept = IRVar(name=kept_decl.name)
         sequence.extend(
             [
-                retain_value(gen, right, right_type),
+                lifetime.retain_value(right, right_type),
                 IRBinOp(left=kept, op="=", right=right),
             ]
         )
         _guard(
-            gen,
+            lifetime,
             kept_decl,
             right_type,
             declarations,
@@ -133,7 +131,7 @@ def lower_managed_compound_update(
             activate_cleanup,
         )
     _guard(
-        gen,
+        lifetime,
         replacement_decl,
         value_type,
         declarations,
@@ -172,7 +170,7 @@ def lower_managed_compound_update(
         assert current is not None
         sequence.extend(
             _release_and_clear(
-                gen,
+                lifetime,
                 current,
                 value_type,
                 declarations,
@@ -183,7 +181,7 @@ def lower_managed_compound_update(
         )
     sequence.extend(
         _release_and_clear(
-            gen,
+            lifetime,
             old,
             value_type,
             declarations,
@@ -195,7 +193,7 @@ def lower_managed_compound_update(
     if kept is not None:
         sequence.extend(
             _release_and_clear(
-                gen,
+                lifetime,
                 kept,
                 right_type,
                 declarations,
@@ -207,7 +205,7 @@ def lower_managed_compound_update(
     if right_owned:
         sequence.extend(
             _release_and_clear(
-                gen,
+                lifetime,
                 right,
                 right_type,
                 declarations,
@@ -220,7 +218,7 @@ def lower_managed_compound_update(
     released_types = [value_type]
     if right_owned or right_keep:
         released_types.append(right_type)
-    flush = poll_released_values(gen, *released_types)
+    flush = lifetime.poll_released_values(*released_types)
     if flush is not None:
         sequence.append(flush)
 
@@ -229,7 +227,7 @@ def lower_managed_compound_update(
 
 
 def _guard(
-    gen,
+    lifetime,
     declaration,
     type_expr,
     declarations,
@@ -238,8 +236,7 @@ def _guard(
     fresh_temp,
     activate_cleanup,
 ):
-    guard_decls, guard_exprs = cleanup_registration(
-        gen,
+    guard_decls, guard_exprs = lifetime.cleanup_registration(
         declaration,
         type_expr,
         "__btrc_update_cleanup",
@@ -252,7 +249,7 @@ def _guard(
 
 
 def _release_and_clear(
-    gen,
+    lifetime,
     value,
     type_expr,
     declarations,
@@ -272,7 +269,7 @@ def _release_and_clear(
     return [
         IRBinOp(left=saved, op="=", right=value),
         _clear(value),
-        release_value(gen, saved, type_expr),
+        lifetime.release_value(saved, type_expr),
     ]
 
 

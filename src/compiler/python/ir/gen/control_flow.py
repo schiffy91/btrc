@@ -92,7 +92,6 @@ def _lower_switch(
     type_renderer: CTypeRenderer,
     default_arguments=None,
 ) -> IRSwitch:
-    from .arc import _emit_scope_release
     from .callable_provenance import (
         begin_callable_scope,
         finish_callable_scope,
@@ -161,7 +160,7 @@ def _lower_switch(
                     if marker_active and marker_referenced:
                         case_stmts[:0] = cleanup_scope_entry(gen, marker)
                     if falls_through:
-                        case_stmts.extend(_emit_scope_release(managed, gen))
+                        case_stmts.extend(gen.lifetime.release_scope(managed))
                         if marker_active and marker_referenced:
                             case_stmts.extend(cleanup_scope_exit(gen, marker))
                     return (
@@ -200,11 +199,10 @@ def _lower_delete(
     default_arguments=None,
 ) -> list[IRStmt]:
     """Lower delete through the shared take-clear destruction boundary."""
-    from .managed_local import mark_borrowed_cycle_seeds
     from .manual_destruction import lower_taken_delete
     from .persistent_slots import stabilize_persistent_slot
 
-    mark_borrowed_cycle_seeds(gen._managed_vars_stack)
+    gen.mark_borrowed_cycle_seeds()
     target = _lower_expr(
         gen,
         node.expr,

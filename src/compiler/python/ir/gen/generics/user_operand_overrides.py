@@ -8,7 +8,7 @@ def deferred_generic_operand(emitter, node):
         previous = {key: emitter._arc_overrides.get(key) for key in overrides}
         emitter._arc_overrides.update(overrides)
         try:
-            return emitter._expr(node)
+            return emitter.lower_expression(node)
         finally:
             for key, value in previous.items():
                 if value is None:

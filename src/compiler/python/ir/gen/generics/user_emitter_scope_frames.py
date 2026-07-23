@@ -5,13 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ...nodes import IRStmt
-from ..arc import _emit_scope_release
 from ..cleanup_scopes import cleanup_scope_entry, cleanup_scope_exit
 from .user_emitter_bindings import (
     pop_source_binding_scope,
     push_source_binding_scope,
 )
-from .user_emitter_cleanup import exception_cleanup_active
 
 
 @dataclass(frozen=True)
@@ -27,7 +25,7 @@ def enter_generic_scope(emitter) -> GenericScopeFrame:
     """Open one source, callable, ownership, and cleanup scope."""
     from .user_callable_provenance import begin_callable_scope
 
-    marker = emitter._fresh_temp("__btrc_cleanup_scope") if exception_cleanup_active(emitter) else None
+    marker = emitter._fresh_temp("__btrc_cleanup_scope") if emitter.exception_cleanup_active() else None
     frame = GenericScopeFrame(
         outer_types=emitter._var_types.copy(),
         enclosing_callables=begin_callable_scope(emitter),
@@ -51,7 +49,7 @@ def complete_generic_scope(
     sequence = StatementSequence(statements)
     falls_through = sequence.may_fall_through()
     if falls_through:
-        statements.extend(_emit_scope_release(emitter._managed_vars_stack[-1], emitter._gen))
+        statements.extend(emitter._boundary_lifetime.release_scope(emitter._managed_vars_stack[-1]))
     marker = frame.cleanup_marker
     marker_referenced = falls_through or sequence.references_variable(marker or "")
     if marker in emitter._active_cleanup_markers and marker_referenced:

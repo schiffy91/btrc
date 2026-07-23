@@ -30,9 +30,8 @@ def managed_capture_type(gen, capture):
     capture_type = capture.type
     if capture_type is None or capture_type.is_array:
         return None
-    from .managed_values import is_managed_type
 
-    return capture_type if is_managed_type(gen, capture_type) else None
+    return capture_type if gen.managed_values.is_managed(capture_type) else None
 
 
 def emit_capture_disposer(
@@ -77,7 +76,6 @@ def _capture_release_adapter(
     capture_type,
     type_renderer: CTypeRenderer,
 ) -> IRFunctionDef:
-    from .managed_values import release_value
 
     env = IRVar(name="__env")
     field = IRFieldAccess(
@@ -106,7 +104,7 @@ def _capture_release_adapter(
                     init=field,
                 ),
                 IRAssign(target=field, value=IRLiteral(text="NULL")),
-                IRExprStmt(expr=release_value(gen, value, capture_type)),
+                IRExprStmt(expr=gen.lifetime.release_value(value, capture_type)),
             ]
         ),
         is_static=True,

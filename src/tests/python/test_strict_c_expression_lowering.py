@@ -68,7 +68,7 @@ def test_generic_integer_literal_uses_the_same_c11_formatter():
     emitter = _UserGenericEmitter({}, "Box_int", CTypeRenderer())
     literal = IntLiteral(value=10, raw="0B1010ULL")
 
-    lowered = emitter._expr(literal)
+    lowered = emitter.lower_expression(literal)
 
     assert isinstance(lowered, IRLiteral)
     assert lowered.text == "0xaULL"

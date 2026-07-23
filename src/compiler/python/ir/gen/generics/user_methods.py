@@ -21,7 +21,6 @@ from ...nodes import (
     IRVar,
 )
 from ...topology_boundaries import CollectionTopologyBoundary
-from ..cycle_metadata import generic_instance_needs_visitor
 from ..errors import TypedOperatorError
 from ..parameters import lower_source_param
 from ..types import CTypeRenderer
@@ -82,7 +81,9 @@ def _emit_user_generic_methods(
     emitted = {}
     skipped = set()
     skip_reasons = {}
-    managed_collection = base_name in PUBLIC_COLLECTION_BASES and generic_instance_needs_visitor(gen, base_name, args)
+    managed_collection = base_name in PUBLIC_COLLECTION_BASES and gen.cycles.generic_instance_needs_visitor(
+        base_name, args
+    )
     for mname, method in cls_info.methods.items():
         if mname == "__del__" or method.is_constructor:
             continue

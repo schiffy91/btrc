@@ -25,18 +25,14 @@ def lower_assignment_expr(
     reject_shallow_store(gen, node)
     reject_erasing_callable_assignment(gen, node)
     target_type = gen.analyzed.node_types.get(id(node.target))
-    from .managed_values import is_arc_type
 
-    if is_arc_type(gen, target_type):
-        from .managed_local import mark_borrowed_cycle_seeds
-
-        mark_borrowed_cycle_seeds(gen._managed_vars_stack)
+    if gen.managed_values.is_arc(target_type):
+        gen.mark_borrowed_cycle_seeds()
     from .assignment_ownership import (
         assignment_target_operands,
         kept_target_operands,
         property_projection,
     )
-    from .managed_values import is_managed_type
 
     def type_of(expression):
         return gen.analyzed.node_types.get(id(expression))
@@ -45,7 +41,7 @@ def lower_assignment_expr(
         node.target,
         stabilize_receiver=lambda receiver: bool(
             gen.ownership.owns_result(receiver)
-            or is_managed_type(gen, type_of(receiver))
+            or gen.managed_values.is_managed(type_of(receiver))
             or property_projection(
                 receiver,
                 type_of=type_of,
@@ -82,10 +78,10 @@ def lower_assignment_expr(
                 node.target,
                 target_nodes,
                 type_of=type_of,
-                is_managed=lambda type_expr: is_managed_type(gen, type_expr),
+                is_managed=lambda type_expr: gen.managed_values.is_managed(type_expr),
                 owns=lambda expression: gen.ownership.owns_result(expression),
             ),
-            promote_result=bool(is_managed_type(gen, result_type) and not rhs_supplies_result),
+            promote_result=bool(gen.managed_values.is_managed(result_type) and not rhs_supplies_result),
             prepared_values=prepared_targets,
         )
         if sequenced is not None:

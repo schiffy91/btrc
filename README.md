@@ -1112,6 +1112,11 @@ src/
         gen/
           lowerer.py           # IRLowerer composition root
           lowering_context.py  # Per-lowering mutable state
+          managed_values.py    # Managed classification and runtime identity
+          cycle_metadata.py    # Cycle graph and visitor metadata owner
+          cleanup_slots.py     # Typed cleanup/access adapter registry
+          ownership_lifetime.py # Context-bound retain/release/cleanup owner
+          arc.py               # Explicit release-statement lowering owner
           generics/            # User/builtin monomorphization lowering
         helpers/               # Authored runtime-helper definitions and registry
       artifacts/               # Cache, stdlib, self-host bundle, publication

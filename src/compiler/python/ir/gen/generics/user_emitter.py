@@ -13,7 +13,11 @@ from ...nodes import (
     IRStmt,
     IRVar,
 )
+from ..call_boundary import CallBoundaryLowerer
 from ..literal_text import format_c_integer_literal
+from ..lowering_context import LoweringContext
+from ..ownership import OwnershipLowerer
+from ..ownership_order import OwnershipOperandOrder
 from ..types import CTypeRenderer
 from .core import _resolve_type, _resolve_type_c
 from .user_constructor_calls import lower_new_constructor_call
@@ -77,9 +81,54 @@ class _UserGenericEmitter(
         self._current_property_backing = None
         reset_scope_state(self)
         if gen is not None:
-            from .user_emitter_boundary import build_boundary_ownership
+            self._boundary_ownership = self._build_boundary_ownership(gen)
 
-            self._boundary_ownership = build_boundary_ownership(self, gen)
+    def _build_boundary_ownership(self, lowerer):
+        """Bind generic ownership sequencing to this emitter's local state."""
+        context = LoweringContext(
+            analyzed=lowerer.analyzed,
+            module=lowerer.module,
+            helpers=lowerer.helpers,
+            function_declarations=self._func_var_decls,
+            owning_overrides=self._arc_overrides,
+            type_overrides=self._arc_type_overrides,
+            local_ownership_scopes=self._local_ownership_scopes,
+            callable_types=self._callable_types,
+            callable_return_abis=self._callable_return_abis,
+            current_property_backing=self._current_property_backing,
+            gpu_cpu_index=lowerer.context.gpu_cpu_index,
+            unevaluated_depth=self._unevaluated_depth,
+            temporaries=lowerer.context.temporaries,
+        )
+        self.context = context
+        lifetime = lowerer.lifetime.bind(context, self)
+        self._boundary_lifetime = lifetime
+        return OwnershipLowerer(
+            context,
+            lowerer.managed_values,
+            OwnershipOperandOrder(
+                context,
+                lowerer.managed_values,
+                lowerer.index_protocols,
+            ),
+            lifetime,
+            CallBoundaryLowerer(context, lifetime),
+            self,
+            self._type_renderer,
+            lowerer.index_protocols,
+        )
+
+    def _sync_boundary_context(self) -> None:
+        """Rebind collections replaced at a generic function boundary."""
+        context = self._boundary_ownership.context
+        context.function_declarations = self._func_var_decls
+        context.owning_overrides = self._arc_overrides
+        context.type_overrides = self._arc_type_overrides
+        context.local_ownership_scopes = self._local_ownership_scopes
+        context.callable_types = self._callable_types
+        context.callable_return_abis = self._callable_return_abis
+        context.current_property_backing = self._current_property_backing
+        context.unevaluated_depth = self._unevaluated_depth
 
     def _fresh_temp(self, prefix: str = "__tmp") -> str:
         """Generate a unique temporary variable name."""
@@ -87,6 +136,24 @@ class _UserGenericEmitter(
             return self._gen.fresh_temp(prefix)
         self._temp_counter += 1
         return f"{prefix}_{self._temp_counter}"
+
+    def exception_cleanup_active(self) -> bool:
+        """Whether this generic body can unwind into a live try frame."""
+        return bool(self._gen is not None and (self._try_depth > 0 or self._gen.cross_function_cleanup_enabled))
+
+    def mark_cleanup_registration(self) -> None:
+        """Activate this generic body's innermost cleanup baseline."""
+        if not self._cleanup_scope_markers:
+            return
+        marker = self._cleanup_scope_markers[-1]
+        if marker is not None:
+            self._active_cleanup_markers.add(marker)
+
+    def mark_borrowed_cycle_seeds(self) -> None:
+        """Invalidate the cycle proof of every live generic ARC alias."""
+        for scope in self._managed_vars_stack:
+            for local in scope:
+                local.mark_cycle_seed()
 
     def resolve_c(self, t):
         return _resolve_type_c(
@@ -135,9 +202,7 @@ class _UserGenericEmitter(
         self._current_property_backing = None
         reset_scope_state(self)
         reset_source_bindings(self, params or ())
-        from .user_emitter_boundary import sync_boundary_context
-
-        sync_boundary_context(self)
+        self._sync_boundary_context()
         if params:
             for parameter in params:
                 if parameter.type:
@@ -152,7 +217,7 @@ class _UserGenericEmitter(
                 depth += 1
         return 0
 
-    def _expr(self, e) -> IRExpr:
+    def lower_expression(self, e) -> IRExpr:
         from ....ast_nodes import (
             AssignExpr,
             BinaryExpr,
@@ -238,7 +303,7 @@ class _UserGenericEmitter(
             return self._ternary_expr(e)
         if isinstance(e, CastExpr):
             resolved = self.resolve_c(e.target_type)
-            return IRCast(target_type=CType(text=resolved), expr=self._expr(e.expr))
+            return IRCast(target_type=CType(text=resolved), expr=self.lower_expression(e.expr))
         if isinstance(e, SizeofExpr):
             return self._sizeof(e.operand)
         if isinstance(e, CallExpr):
@@ -302,7 +367,7 @@ class _UserGenericEmitter(
             )
         return IRCompoundLiteral(
             c_type=CType(text=self.type_identity.generic_symbol("Tuple", tuple_type.generic_args)),
-            fields=[(f"_{index}", self._expr(element)) for index, element in enumerate(expression.elements)],
+            fields=[(f"_{index}", self.lower_expression(element)) for index, element in enumerate(expression.elements)],
         )
 
     def _new_expr(self, e) -> IRExpr:

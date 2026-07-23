@@ -122,9 +122,8 @@ def _ownership_callbacks(
     value_type: TypeExpr,
     type_renderer: CTypeRenderer,
 ):
-    from .managed_values import is_class_type, is_string_type
 
-    if is_string_type(gen, value_type):
+    if gen.managed_values.is_string(value_type):
         access = _value_access(gen, value_type, type_renderer)
         return (
             access,
@@ -136,13 +135,11 @@ def _ownership_callbacks(
             IRLiteral(text="NULL"),
             IRLiteral(text="NULL"),
         )
-    if is_class_type(gen, value_type):
-        from .arc_ops import arc_type_descriptor
-
+    if gen.managed_values.is_class(value_type):
         return (
             _value_access(gen, value_type, type_renderer),
             _slot_access(gen, value_type, type_renderer),
-            arc_type_descriptor(gen, value_type),
+            gen.lifetime.arc_type_descriptor(value_type),
             IRSizeof(operand=CType(text="__btrc_arc_type")),
             _callback(gen, "__btrc_mutex_arc_retain"),
             _callback(gen, "__btrc_mutex_arc_release"),
@@ -158,10 +155,7 @@ def _value_access(
     value_type: TypeExpr,
     type_renderer: CTypeRenderer,
 ):
-    from .cleanup_slots import ensure_mutex_value_adapter
-
-    name = ensure_mutex_value_adapter(
-        gen,
+    name = gen.cleanup_slots.ensure_mutex_value_adapter(
         CType(text=value_storage_c_type(value_type, type_renderer)),
     )
     return IRFunctionRef(name=name)
@@ -172,10 +166,7 @@ def _slot_access(
     value_type: TypeExpr,
     type_renderer: CTypeRenderer,
 ):
-    from .cleanup_slots import ensure_arc_slot_adapter
-
-    name = ensure_arc_slot_adapter(
-        gen,
+    name = gen.cleanup_slots.ensure_arc_slot_adapter(
         CType(text=value_storage_c_type(value_type, type_renderer)),
     )
     return IRFunctionRef(name=name)

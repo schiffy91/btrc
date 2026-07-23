@@ -152,19 +152,16 @@ def emit_class_decl(
     )
 
     # ARC: every representation with managed outgoing slots gets a visitor.
-    from .cycle_metadata import type_needs_visitor
 
     visitor_name = None
-    if type_needs_visitor(gen, TypeExpr(base=decl.name), set()):
+    if gen.cycles.type_needs_visitor(TypeExpr(base=decl.name), set()):
         emit_class_visitor(
             gen,
             decl.name,
             cls_info.instance_storage,
             type_renderer,
         )
-        from .cycle_metadata import cycle_visitor_symbol
-
-        visitor_name = cycle_visitor_symbol(decl.name)
+        visitor_name = gen.cycles.visitor_symbol(decl.name)
     emit_arc_descriptor(gen, decl.name, visitor_name, destructor_hook)
 
     # Methods

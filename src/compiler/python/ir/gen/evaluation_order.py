@@ -163,10 +163,9 @@ def source_order_pin_flags(
     if effects is None:
         effects = [has_observable_effect(gen, node, type_of=type_of) for node in nodes]
     if is_managed is None:
-        from .managed_values import is_managed_type
 
         def is_managed(value):
-            return is_managed_type(gen, value)
+            return gen.managed_values.is_managed(value)
 
     return [
         bool(

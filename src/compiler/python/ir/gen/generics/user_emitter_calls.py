@@ -110,7 +110,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                 return lower_typed_print(
                     self._gen,
                     expression.args,
-                    lower_value=self._expr,
+                    lower_value=self.lower_expression,
                     resolve_type=self._resolve_expr_type,
                     type_renderer=self._type_renderer,
                 )
@@ -118,7 +118,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                 argument = expression.args[0]
                 return lower_len(
                     self._gen,
-                    self._expr(argument),
+                    self.lower_expression(argument),
                     self._resolve_expr_type(argument),
                 )
 
@@ -134,7 +134,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
             if is_direct_generic_gpu_call(self, expression):
                 return lower_generic_gpu_call(self, expression, None)
 
-        args = [self._expr(arg) for arg in expression.args]
+        args = [self.lower_expression(arg) for arg in expression.args]
 
         if isinstance(expression.callee, Identifier):
             name = expression.callee.name
@@ -243,7 +243,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                     callee=f"{self.mangled}_{method_name}",
                     args=[IRVar(name="self"), *args],
                 )
-            receiver_ir = self._expr(receiver)
+            receiver_ir = self.lower_expression(receiver)
             receiver_type = self._resolve_expr_type(receiver)
             if self._gen and receiver_type is not None:
                 class_info = self._gen.analyzed.class_table.get(receiver_type.base)
@@ -291,7 +291,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
         return self._callable_expression_call(expression.callee, args)
 
     def _callable_expression_call(self, callee_node, args):
-        callee = self._expr(callee_node)
+        callee = self.lower_expression(callee_node)
         if self._gen is None:
             return IRCall(callee=callee, args=args)
         signature = function_pointer_signature(

@@ -39,21 +39,21 @@ def emit_iteration_bindings(gen, bindings) -> list[IRStmt]:
         result.append(IRExprStmt(expr=IRVar(name=binding_c_name)))
 
         type_expr = binding.type_expr
-        from .managed_values import is_managed_type
 
-        managed = binding.owned and is_managed_type(gen, type_expr)
+        managed = binding.owned and gen.managed_values.is_managed(type_expr)
         if managed:
-            from .managed_values import is_string_type, runtime_name
-            from .variables import _maybe_register_cleanup
-
-            runtime_type = runtime_name(gen, type_expr)
+            runtime_type = gen.managed_values.runtime_name(type_expr)
             gen.register_managed_var(
                 binding.name,
                 runtime_type,
-                cycle_seed=not is_string_type(gen, type_expr),
+                cycle_seed=not gen.managed_values.is_string(type_expr),
             )
             gen.declare_local_ownership(binding.name, runtime_type)
-            _maybe_register_cleanup(gen, binding_c_name, runtime_type, result)
+            gen.lifetime.register_named_cleanup(
+                binding_c_name,
+                runtime_type,
+                result,
+            )
     return result
 
 

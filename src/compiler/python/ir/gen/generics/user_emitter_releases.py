@@ -14,15 +14,6 @@ from ...nodes import (
     IRVar,
     IRVarDecl,
 )
-from ..managed_values import (
-    flush_released_values,
-    is_arc_type,
-    poll_released_values,
-    release_edge_value,
-    release_value,
-    replace_edge_value,
-    unlink_edge_value,
-)
 
 
 class _UserGenericReleaseMixin:
@@ -34,7 +25,7 @@ class _UserGenericReleaseMixin:
         resolved = self._resolve_expr_type(expression)
         if not self._is_managed_type(resolved):
             return []
-        expr = self._expr(expression)
+        expr = self.lower_expression(expression)
         from ..persistent_slots import stabilize_persistent_slot
 
         expr, edge_owner, owner_decls = stabilize_persistent_slot(
@@ -57,16 +48,14 @@ class _UserGenericReleaseMixin:
         self._func_var_decls.append(slot_decl)
         slot = IRDeref(expr=IRVar(name=slot_name))
         result = [*owner_decls, slot_decl]
-        if edge_owner is not None and is_arc_type(self._gen, resolved):
+        if edge_owner is not None and self._gen.managed_values.is_arc(resolved):
             result.append(
                 IRExprStmt(
-                    expr=replace_edge_value(
-                        self._gen,
+                    expr=self._boundary_lifetime.replace_edge_value(
                         slot,
                         IRLiteral(text="NULL"),
                         resolved,
                         edge_owner,
-                        self._type_renderer,
                         adopt=False,
                     )
                 )
@@ -79,15 +68,18 @@ class _UserGenericReleaseMixin:
                 init=slot,
             )
             self._func_var_decls.append(value_decl)
-            release = release_edge_value if edge_owner is not None else release_value
+            release = (
+                self._boundary_lifetime.release_edge_value
+                if edge_owner is not None
+                else self._boundary_lifetime.release_value
+            )
             result.extend(
                 [
                     value_decl,
                     *(
                         [
                             IRExprStmt(
-                                expr=unlink_edge_value(
-                                    self._gen,
+                                expr=self._boundary_lifetime.unlink_edge_value(
                                     IRVar(name=value_name),
                                     resolved,
                                     edge_owner,
@@ -98,17 +90,15 @@ class _UserGenericReleaseMixin:
                         else []
                     ),
                     IRAssign(target=slot, value=IRLiteral(text="NULL")),
-                    IRExprStmt(
-                        expr=release(
-                            self._gen,
-                            IRVar(name=value_name),
-                            resolved,
-                        )
-                    ),
+                    IRExprStmt(expr=release(IRVar(name=value_name), resolved)),
                 ]
             )
-        boundary = poll_released_values if self._batch_explicit_releases else flush_released_values
-        flush = boundary(self._gen, resolved)
+        boundary = (
+            self._boundary_lifetime.poll_released_values
+            if self._batch_explicit_releases
+            else self._boundary_lifetime.flush_released_values
+        )
+        flush = boundary(resolved)
         if flush is not None:
             result.append(IRExprStmt(expr=flush))
         return result

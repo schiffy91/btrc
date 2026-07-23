@@ -1,8 +1,9 @@
 """Statement lowering: AST stmt -> IRStmt.
 
 Main dispatch (lower_block and lower_stmt).
-Variable declarations live in variables.py; ARC scope-release logic
-lives in arc.py; control-flow lowering lives in control_flow.py.
+Variable declarations live in variables.py; managed lifetime behavior belongs
+to the lowerer's context-bound lifetime owner; control flow lives in
+control_flow.py.
 """
 
 from __future__ import annotations
@@ -37,11 +38,6 @@ from ..nodes import (
     IRExprStmt,
     IRStmt,
     IRWhile,
-)
-from .arc import (
-    _emit_control_exit_release,
-    _emit_scope_release,
-    _lower_release,
 )
 from .cleanup_scopes import (
     cleanup_scope_entry,
@@ -126,7 +122,7 @@ def lower_block(
         if marker_active and marker_referenced:
             stmts[:0] = cleanup_scope_entry(gen, marker)
         if falls_through:
-            stmts.extend(_emit_scope_release(managed, gen))
+            stmts.extend(gen.lifetime.release_scope(managed))
             if marker_active and marker_referenced:
                 stmts.extend(cleanup_scope_exit(gen, marker))
     finally:
@@ -290,7 +286,10 @@ def lower_stmt(
         record_callable_loop_exit(gen, "break")
         try_pop = _emit_try_pop(gen, gen.exited_try_depth({"loop", "switch"}))
         return (
-            _emit_control_exit_release(gen, {"loop", "switch"})
+            gen.lifetime.release_scope(
+                gen.get_control_managed_vars({"loop", "switch"}),
+                force=True,
+            )
             + control_cleanup_exit(gen, {"loop", "switch"})
             + try_pop
             + [IRBreak()]
@@ -303,7 +302,13 @@ def lower_stmt(
         record_callable_loop_exit(gen, "continue")
         try_pop = _emit_try_pop(gen, gen.exited_try_depth({"loop"}))
         return (
-            _emit_control_exit_release(gen, {"loop"}) + control_cleanup_exit(gen, {"loop"}) + try_pop + [IRContinue()]
+            gen.lifetime.release_scope(
+                gen.get_control_managed_vars({"loop"}),
+                force=True,
+            )
+            + control_cleanup_exit(gen, {"loop"})
+            + try_pop
+            + [IRContinue()]
         )
 
     if isinstance(node, ExprStmt):
@@ -359,13 +364,12 @@ def lower_stmt(
             type_renderer,
             default_arguments,
         )
-        from .arc_ops import retain_if_present
-
-        return [IRExprStmt(expr=retain_if_present(gen, expr))]
+        expr_type = gen.analyzed.node_types.get(id(node.expr))
+        return [IRExprStmt(expr=gen.lifetime.retain_value(expr, expr_type))]
 
     if isinstance(node, ReleaseStmt):
         # release expr -> if (--expr->__rc <= 0) destroy(expr); expr = NULL;
-        return _lower_release(gen, node, type_renderer)
+        return gen.managed_releases.lower_statement(gen, node)
 
     raise unsupported_node("statement", node)
 

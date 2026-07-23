@@ -13,13 +13,6 @@ from ...nodes import (
 from ..aggregate_initializers import lower_brace_initializer
 from ..callable_boundaries import reject_persistent_callable_escape
 from ..errors import CodegenError
-from ..managed_values import (
-    adopt_edge_value,
-    is_arc_type,
-    is_managed_type,
-    replace_edge_value,
-    retain_edge_value,
-)
 from ..type_resolution import canonical_type
 from ..upcast import upcast_class_pointer
 from .core import _resolve_type
@@ -90,16 +83,14 @@ def emit_generic_field_initializers(
         )
         owned = prepared.owned
 
-        if is_arc_type(gen, field_type):
+        if gen.managed_values.is_arc(field_type):
             statements.append(
                 IRExprStmt(
-                    expr=replace_edge_value(
-                        gen,
+                    expr=gen.lifetime.replace_edge_value(
                         target,
                         value,
                         field_type,
                         owner,
-                        emitter._type_renderer,
                         adopt=owned,
                     )
                 )
@@ -107,18 +98,9 @@ def emit_generic_field_initializers(
             continue
 
         statements.append(IRAssign(target=target, value=value))
-        if is_managed_type(gen, field_type):
-            publish = adopt_edge_value if owned else retain_edge_value
-            statements.append(
-                IRExprStmt(
-                    expr=publish(
-                        gen,
-                        target,
-                        field_type,
-                        owner,
-                    )
-                )
-            )
+        if gen.managed_values.is_managed(field_type):
+            publish = gen.lifetime.adopt_edge_value if owned else gen.lifetime.retain_edge_value
+            statements.append(IRExprStmt(expr=publish(target, field_type, owner)))
     return statements
 
 
@@ -166,7 +148,7 @@ def _lower_aggregate_element(gen, emitter, element):
         bool(resolved and resolved.is_array) or _is_value_aggregate(gen, resolved)
     ):
         return _lower_value_aggregate(gen, emitter, element, element_type)
-    return emitter._expr(element)
+    return emitter.lower_expression(element)
 
 
 def _is_value_aggregate(gen, resolved_type) -> bool:

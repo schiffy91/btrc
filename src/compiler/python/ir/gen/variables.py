@@ -20,12 +20,6 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .cleanup_registration import (
-    maybe_register_cleanup as _maybe_register_cleanup,
-)
-from .cleanup_registration import (
-    maybe_register_direct_cleanup as _maybe_register_direct_cleanup,
-)
 from .type_resolution import canonical_type
 from .types import CTypeRenderer
 
@@ -207,25 +201,24 @@ def _lower_var_decl(
     # Every managed declaration owns its slot. A caller-owned +1 initializer
     # transfers directly; a borrowed initializer is retained once.
     if managed_slot_type is not None:
-        from .managed_values import (
-            retain_value,
-            runtime_name,
-        )
-
-        arc_type = runtime_name(gen, managed_slot_type)
+        arc_type = gen.managed_values.runtime_name(managed_slot_type)
         owns_initializer = bool(
             node.initializer
             and (prepared.owned if prepared is not None else gen.ownership.owns_result(node.initializer))
         )
         if node.initializer and not owns_initializer:
-            result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=binding_c_name), managed_slot_type)))
+            result.append(IRExprStmt(expr=gen.lifetime.retain_value(IRVar(name=binding_c_name), managed_slot_type)))
         gen.register_managed_var(
             node.name,
             arc_type,
             cycle_seed=bool(owns_initializer and not _is_string_type(gen, node.type)),
         )
         gen.declare_local_ownership(node.name, arc_type)
-        _maybe_register_cleanup(gen, binding_c_name, arc_type, result)
+        gen.lifetime.register_named_cleanup(
+            binding_c_name,
+            arc_type,
+            result,
+        )
 
     canonical_type_expr = canonical_type(
         node.type,
@@ -239,8 +232,7 @@ def _lower_var_decl(
     ):
         gen.register_thread_var(node.name)
         gen.helpers.use("__btrc_thread_free")
-        _maybe_register_direct_cleanup(
-            gen,
+        gen.lifetime.register_direct_cleanup(
             binding_c_name,
             "__btrc_thread_free",
             result,
@@ -279,15 +271,13 @@ def _managed_type_name(gen: IRLowerer, type_expr) -> str:
 
 
 def _is_managed_type(gen: IRLowerer, type_expr) -> bool:
-    from .managed_values import is_managed_type
 
-    return is_managed_type(gen, type_expr)
+    return gen.managed_values.is_managed(type_expr)
 
 
 def _is_string_type(gen: IRLowerer, type_expr) -> bool:
-    from .managed_values import is_string_type
 
-    return is_string_type(gen, type_expr)
+    return gen.managed_values.is_string(type_expr)
 
 
 def _is_concrete_managed_type(gen: IRLowerer, type_expr) -> bool:
@@ -296,9 +286,8 @@ def _is_concrete_managed_type(gen: IRLowerer, type_expr) -> bool:
         return False
     if _is_string_type(gen, concrete):
         return True
-    from .managed_values import is_mutex_type
 
-    if is_mutex_type(gen, concrete):
+    if gen.managed_values.is_mutex(concrete):
         return True
     class_info = gen.analyzed.class_table.get(concrete.base)
     return bool(class_info and (not class_info.generic_params or concrete.generic_args))

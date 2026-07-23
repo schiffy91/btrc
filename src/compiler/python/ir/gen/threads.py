@@ -185,11 +185,8 @@ def lower_spawn(
             # Keep each direct managed capture alive until worker cleanup.
             capture_type = managed_capture_type(gen, cap)
             if capture_type is not None:
-                from .managed_values import retain_value
-
                 sequence.append(
-                    retain_value(
-                        gen,
+                    gen.lifetime.retain_value(
                         IRVar(name=gen.source_binding_c_name(cap.name)),
                         capture_type,
                     )

@@ -93,20 +93,16 @@ def thread_result_disposal_args(
     if canonical is None or is_scalar_void(canonical):
         return [null, zero, null, null]
 
-    from .managed_values import is_class_type, is_string_type
-
-    if is_string_type(gen, canonical):
+    if gen.managed_values.is_string(canonical):
         return [
             null,
             zero,
             _disposal_callback(gen, "__btrc_thread_string_dispose"),
             null,
         ]
-    if is_class_type(gen, canonical):
-        from .arc_ops import arc_type_descriptor
-
+    if gen.managed_values.is_class(canonical):
         return [
-            arc_type_descriptor(gen, canonical),
+            gen.lifetime.arc_type_descriptor(canonical),
             IRSizeof(operand=CType(text="__btrc_arc_type")),
             _disposal_callback(gen, "__btrc_thread_arc_dispose"),
             _disposal_callback(gen, "__btrc_throw"),

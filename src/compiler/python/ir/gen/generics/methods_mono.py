@@ -32,7 +32,6 @@ from ...nodes import (
     IRVar,
 )
 from ...topology_boundaries import CollectionTopologyBoundary
-from ..cycle_metadata import generic_instance_needs_visitor
 from ..parameters import lower_source_param
 from .user_emitter import _UserGenericEmitter
 
@@ -159,7 +158,9 @@ def _emit_one_method_instance(
         body=IRBlock(stmts=body_stmts),
         is_static=True,
     )
-    if class_base in PUBLIC_COLLECTION_BASES and generic_instance_needs_visitor(gen, class_base, list(class_args)):
+    if class_base in PUBLIC_COLLECTION_BASES and gen.cycles.generic_instance_needs_visitor(
+        class_base, list(class_args)
+    ):
         CollectionTopologyBoundary(gen, function).install()
     if public_collection_method and FunctionCycleBoundary(function).install():
         gen.helpers.use("__btrc_flush_cycles")

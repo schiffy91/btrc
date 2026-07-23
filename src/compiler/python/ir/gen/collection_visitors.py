@@ -27,13 +27,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .cycle_metadata import (
-    BUILTIN_COLLECTION_LAYOUTS,
-    cycle_visitor_symbol,
-    generic_instance_needs_visitor,
-    register_cycle_visitor,
-    visit_action,
-)
+from .cycle_metadata import BUILTIN_COLLECTION_LAYOUTS
 from .errors import CodegenError
 from .types import CTypeRenderer
 
@@ -50,14 +44,12 @@ def slot_visit_stmts(
     type_renderer: CTypeRenderer,
 ) -> list:
     """Visit one typed managed slot as a first-class graph edge."""
-    action = visit_action(gen, type_expr, set())
+    action = gen.cycles.visit_action(type_expr, set())
     if action is None:
         return []
-    from .cleanup_slots import ensure_arc_slot_adapter
     from .lvalues import value_c_type
 
-    access = ensure_arc_slot_adapter(
-        gen,
+    access = gen.cleanup_slots.ensure_arc_slot_adapter(
         CType(
             text=value_c_type(
                 type_expr,
@@ -66,7 +58,6 @@ def slot_visit_stmts(
             )
         ),
     )
-    from .arc_ops import arc_type_descriptor
 
     call = IRCall(
         callee=IRVar(name="fn"),
@@ -76,7 +67,7 @@ def slot_visit_stmts(
                 expr=IRAddressOf(expr=slot),
             ),
             IRFunctionRef(name=access),
-            arc_type_descriptor(gen, type_expr),
+            gen.lifetime.arc_type_descriptor(type_expr),
             IRVar(name="context"),
         ],
     )
@@ -98,9 +89,9 @@ def emit_generic_visitor(
     type_renderer: CTypeRenderer,
 ) -> bool:
     """Emit a concrete generic visitor, specializing collection layouts."""
-    if not generic_instance_needs_visitor(gen, base, arguments):
+    if not gen.cycles.generic_instance_needs_visitor(base, arguments):
         return False
-    register_cycle_visitor(gen, emitted_name)
+    gen.cycles.register_visitor(emitted_name)
     if base not in BUILTIN_COLLECTION_LAYOUTS:
         from .class_visitors import emit_class_visitor
 
@@ -115,7 +106,7 @@ def emit_generic_visitor(
 
     _validate_builtin_layout(gen, base, arguments, storage)
     ensure_cycle_callback_alias(gen)
-    visitor_name = cycle_visitor_symbol(emitted_name)
+    visitor_name = gen.cycles.visitor_symbol(emitted_name)
     params = [
         IRParam(c_type=CType(text="void*"), name="object"),
         IRParam(c_type=CType(text="__btrc_field_visit_fn"), name="fn"),

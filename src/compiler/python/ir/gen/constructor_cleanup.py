@@ -23,8 +23,6 @@ def constructor_cleanup_guard(
     gen.helpers.use("__btrc_cleanup_mark")
     gen.helpers.use("__btrc_discard_cleanups_to")
     gen.helpers.use("__btrc_arc_abandon")
-    from .cleanup_slots import register_cleanup_slot
-
     mark = gen.fresh_temp("__btrc_constructor_cleanup")
     before = [
         IRVarDecl(
@@ -37,8 +35,7 @@ def constructor_cleanup_guard(
             ),
         ),
         IRExprStmt(
-            expr=register_cleanup_slot(
-                gen,
+            expr=gen.cleanup_slots.register(
                 self_declaration,
                 IRFunctionRef(name="__btrc_arc_abandon"),
                 direct=True,

@@ -9,7 +9,7 @@ class _UserGenericFStringMixin:
             self._gen,
             node,
             ownership=self._boundary_ownership,
-            lower_value=self._expr,
+            lower_value=self.lower_expression,
             type_of=self._resolve_expr_type,
             owns=self._owns_expr,
             type_renderer=self._type_renderer,

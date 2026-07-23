@@ -23,9 +23,7 @@ def lower_collection_literal(emitter, target: str, literal, target_type=None):
     items = literal.elements if is_list else literal.entries
     if not items:
         return constructor
-    from .user_emitter_scopes import exception_cleanup_active
-
-    cleanup_active = exception_cleanup_active(emitter)
+    cleanup_active = emitter.exception_cleanup_active()
     if cleanup_active and target_type is None:
         from ..errors import CodegenError
 
@@ -41,10 +39,7 @@ def lower_collection_literal(emitter, target: str, literal, target_type=None):
 
     result = value
     if cleanup_active:
-        from ..temporary_cleanup import cleanup_registration
-
-        cleanup_decls, cleanup_exprs = cleanup_registration(
-            emitter._gen,
+        cleanup_decls, cleanup_exprs = emitter._boundary_lifetime.cleanup_registration(
             temporary_decl,
             target_type,
             "__btrc_collection_cleanup",
@@ -150,9 +145,7 @@ def _prepared_effect(emitter, values, build):
 
 
 def _activate_cleanup_registration(emitter):
-    from .user_emitter_scopes import mark_cleanup_registration
-
-    mark_cleanup_registration(emitter)
+    emitter.mark_cleanup_registration()
 
 
 __all__ = ["lower_collection_literal"]

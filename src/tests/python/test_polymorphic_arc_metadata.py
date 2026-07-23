@@ -3,11 +3,6 @@
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.arc_metadata import descriptor_symbol
-from src.compiler.python.ir.gen.cycle_metadata import (
-    generic_instance_may_cycle,
-    type_may_cycle,
-    type_needs_visitor,
-)
 from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer import Lexer
@@ -101,11 +96,11 @@ def test_cycle_boundaries_expand_subclasses_but_visitors_remain_exact():
     derived = TypeExpr(base="Derived")
     holder = TypeExpr(base="Holder")
 
-    assert type_may_cycle(generator, base)
-    assert type_may_cycle(generator, derived)
-    assert not type_may_cycle(generator, holder)
-    assert not type_needs_visitor(generator, base)
-    assert type_needs_visitor(generator, derived)
+    assert generator.cycles.type_may_cycle(base)
+    assert generator.cycles.type_may_cycle(derived)
+    assert not generator.cycles.type_may_cycle(holder)
+    assert not generator.cycles.type_needs_visitor(base)
+    assert generator.cycles.type_needs_visitor(derived)
 
 
 def test_generic_cycle_graph_expands_base_typed_edges():
@@ -115,8 +110,7 @@ def test_generic_cycle_graph_expands_base_typed_edges():
         class Derived extends Base { public Box<Base> owner; }
     """)
 
-    assert generic_instance_may_cycle(
-        generator,
+    assert generator.cycles.generic_instance_may_cycle(
         "Box",
         [TypeExpr(base="Base", pointer_depth=1)],
     )

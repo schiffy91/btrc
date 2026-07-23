@@ -18,7 +18,6 @@ from ..nodes import (
     IRVarDecl,
 )
 from .collection_visitors import ensure_cycle_callback_alias, slot_visit_stmts
-from .cycle_metadata import cycle_visitor_symbol, register_cycle_visitor
 from .types import CTypeRenderer
 
 
@@ -31,9 +30,9 @@ def emit_class_visitor(
 ) -> None:
     """Emit ``NAME_visit(object, fn)`` for one cyclable representation."""
 
-    register_cycle_visitor(gen, emitted_name)
+    gen.cycles.register_visitor(emitted_name)
     ensure_cycle_callback_alias(gen)
-    visitor_name = cycle_visitor_symbol(emitted_name)
+    visitor_name = gen.cycles.visitor_symbol(emitted_name)
 
     params = [
         IRParam(c_type=CType(text="void*"), name="object"),
