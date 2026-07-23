@@ -17,12 +17,12 @@ import pytest
 from src.compiler.python import (
     cache_keys,
     disk_cache,
-    frontend_stdlib,
     stdlib_archive,
 )
 from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
 from src.compiler.python.artifacts.publication.storage import ArtifactStorage
 from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
+from src.compiler.python.frontend import stdlib as frontend_stdlib
 from src.compiler.python.frontend.stdlib import StdlibRepository
 
 STDLIB = StdlibRepository()

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
+import re
 from contextlib import suppress
 
 from .. import ast_nodes as ast
-from .. import frontend_stdlib as legacy_stdlib
-from ..cache_keys import resolve_cache_dir
+from ..cache_keys import resolve_cache_dir, toolchain_hash
+from ..frontend_limits import ResolutionBudget
+from ..import_scan import scan_directives
 from ..lexer import Lexer
 from ..parser.parser import Parser
 from ..pipeline.models import StdlibSource
@@ -17,36 +19,110 @@ from ..source_macros import source_macro_name
 from ..stdlib_ast_cache import StdlibAstCache
 from .dependencies import SourceDependencyGraph
 
+_STDLIB_AST_VERSION = toolchain_hash("frontend")
+_DEFAULT_STDLIB_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "stdlib"))
+_PRIORITY_FILES = (
+    "vector.btrc",
+    "list.btrc",
+    "strings.btrc",
+    "platform.btrc",
+    "process.btrc",
+    "fs.btrc",
+    "daemon.btrc",
+    "ui.btrc",
+)
+_CLASS_NAME = re.compile(
+    r"^\s*(?:abstract\s+)?class\s+(\w+)(?:\s*<[^>\n]+>)?\s*"
+    r"(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?"
+    r"(?:implements\s+\w+(?:\s*,\s*\w+)*\s*)?\{",
+    re.MULTILINE,
+)
+_INTERFACE_NAME = re.compile(
+    r"^\s*interface\s+(\w+)(?:\s*<[^>\n]+>)?\s*"
+    r"(?:extends\s+\w+(?:\s*<[^>\n]+>)?\s*)?\{",
+    re.MULTILINE,
+)
+
 
 class StdlibRepository:
     """Own access to the compiler's canonical standard-library sources."""
 
-    def __init__(self, ast_cache: StdlibAstCache | None = None) -> None:
+    def __init__(
+        self,
+        ast_cache: StdlibAstCache | None = None,
+        *,
+        directory: str | None = None,
+    ) -> None:
         self.ast_cache = ast_cache or StdlibAstCache()
+        self._directory = os.path.abspath(directory or _DEFAULT_STDLIB_DIRECTORY)
         self._symbol_files: dict[str, frozenset[str]] | None = None
 
     @property
     def ast_version(self) -> str:
-        return legacy_stdlib._STDLIB_AST_VERSION
+        return _STDLIB_AST_VERSION
 
     def directory(self) -> str:
-        return legacy_stdlib._get_stdlib_dir()
+        return self._directory
 
     def discover_files(self) -> list[str]:
-        return legacy_stdlib._discover_stdlib_files()
+        """Return root stdlib modules in their deterministic composition order."""
+        try:
+            files = sorted(name for name in os.listdir(self._directory) if name.endswith(".btrc"))
+        except OSError:
+            return []
+        prioritized = [name for name in _PRIORITY_FILES if name in files]
+        prioritized.extend(name for name in files if name not in _PRIORITY_FILES)
+        return prioritized
 
     def find_file(self, include_path: str) -> str | None:
-        return legacy_stdlib._find_stdlib_file(include_path)
+        """Find a stdlib file by root-relative path or nested basename."""
+        direct = os.path.join(self._directory, include_path)
+        if os.path.isfile(direct):
+            return direct
+        filename = os.path.basename(include_path)
+        try:
+            entries = os.listdir(self._directory)
+        except OSError:
+            return None
+        for entry in entries:
+            candidate = os.path.join(self._directory, entry, filename)
+            if os.path.isfile(candidate):
+                return candidate
+        return None
 
     def defined_names(self, source: str) -> set[str]:
-        return legacy_stdlib._defined_stdlib_names(source)
+        return set(_CLASS_NAME.findall(source)) | set(_INTERFACE_NAME.findall(source))
 
     def source(self, user_source: str = "") -> str:
-        return legacy_stdlib.get_stdlib_source(user_source)
+        return self.source_mapped(user_source).source
 
     def source_mapped(self, user_source: str = "") -> StdlibSource:
-        source = legacy_stdlib.get_stdlib_source_mapped(user_source)
-        return StdlibSource(source.source, tuple(source.source_positions))
+        """Compose relaxed-mode stdlib text with native source positions."""
+        user_names = self.defined_names(user_source)
+        lines: list[str] = []
+        source_positions: list[tuple[str, int]] = []
+        budget = ResolutionBudget()
+        for filename in self.discover_files():
+            path = os.path.join(self._directory, filename)
+            if not os.path.isfile(path):
+                continue
+            try:
+                content = read_source(path)
+            except SourceReadError as error:
+                raise IncludeResolutionError(str(error)) from error
+            budget.enter(content, path, 0)
+            if self.defined_names(content) & user_names:
+                continue
+            file_lines, file_positions = self._source_without_imports(
+                content,
+                path,
+            )
+            lines.extend(file_lines)
+            source_positions.extend(file_positions)
+        return StdlibSource(
+            source="\n".join(lines),
+            source_positions=tuple(source_positions),
+        )
 
     def cached_declarations(self, stdlib_source: str) -> list:
         """Return independently decoded declarations from the persistent cache."""
@@ -73,6 +149,26 @@ class StdlibRepository:
     def _parse_declarations(stdlib_source: str) -> list:
         tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
         return Parser(tokens).parse().declarations
+
+    @staticmethod
+    def _source_without_imports(
+        content: str,
+        path: str,
+    ) -> tuple[list[str], list[tuple[str, int]]]:
+        covered = {
+            line
+            for directive in scan_directives(content)
+            if directive.kind == "import"
+            for line in range(directive.start, directive.end + 1)
+        }
+        lines: list[str] = []
+        positions: list[tuple[str, int]] = []
+        for line_number, line in enumerate(content.split("\n"), start=1):
+            if line_number in covered:
+                continue
+            lines.append(line)
+            positions.append((path, line_number))
+        return lines, positions
 
     @staticmethod
     def _declaration_names(declaration) -> tuple[str, ...]:

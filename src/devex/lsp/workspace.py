@@ -15,15 +15,14 @@ from collections import OrderedDict
 from contextlib import suppress
 from dataclasses import dataclass
 
-from src.compiler.python import pkg
 from src.compiler.python.ast_nodes import Program
 from src.compiler.python.cache_keys import resolve_cache_dir
-from src.compiler.python.frontend.resolver import SourceResolver
+from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.frontend_limits import ResolutionBudget
-from src.compiler.python.pkg import IncludeResolutionError
+from src.compiler.python.pkg import IncludeResolutionError, ResolvedPackages
 from src.compiler.python.source_io import MAX_SOURCE_BYTES, SourceReadError, read_source
-from src.devex.lsp.package_resolution import PackageResolver
+from src.devex.lsp.package_resolution import PackageResolutionCache
 from src.devex.lsp.unit_cache import (
     cache_path,
     load_unit,
@@ -61,11 +60,16 @@ class Workspace(WorkspaceCacheMixin):
     # per open file), so 4 covers real reuse while bounding memory.
     _STDLIB_BASE_CACHE_MAX = 4
 
-    def __init__(self):
+    def __init__(
+        self,
+        *,
+        package_cache: PackageResolutionCache | None = None,
+        stdlib: StdlibRepository | None = None,
+    ):
         self._init_caches()
-        self._package_resolver = PackageResolver()
-        self._stdlib = StdlibRepository()
-        self._source_resolver = SourceResolver(self._stdlib)
+        self._package_cache = package_cache or PackageResolutionCache()
+        self._stdlib = stdlib or StdlibRepository()
+        self._imports = ImportResolver(self._stdlib)
         self._stdlib_units: list[FileUnit] | None = None
         self._stdlib_lock = threading.Lock()  # one stdlib build/analysis at a time
         # included paths -> AnalyzedProgram, LRU-capped (see _STDLIB_BASE_CACHE_MAX)
@@ -159,11 +163,21 @@ class Workspace(WorkspaceCacheMixin):
         budget = ResolutionBudget()
         budget.enter(active.source, active.path, 0)
 
+        try:
+            packages = self._package_cache.resolve_for(active.path)
+        except IncludeResolutionError as error:
+            packages = ResolvedPackages.empty()
+            import_errors.append((1, str(error)))
+
         def visit(unit: FileUnit, attribute_line: int, depth: int = 0):
             for line, spec in unit.import_specs:
                 attr = line if unit is active else attribute_line
                 try:
-                    paths = self._source_resolver.import_paths(spec, os.path.dirname(unit.path))
+                    paths = self._imports.import_paths(
+                        spec,
+                        os.path.dirname(unit.path),
+                        packages,
+                    )
                 except IncludeResolutionError as e:
                     import_errors.append((attr, str(e)))
                     continue
@@ -187,16 +201,7 @@ class Workspace(WorkspaceCacheMixin):
                     imported.append(u)
                     visit(u, attr, depth + 1)
 
-        try:
-            packages = self._package_resolver.packages_for(active.path)
-        except IncludeResolutionError as error:
-            packages = {}
-            import_errors.append((1, str(error)))
-        # Package state is document-root-local. ContextVar scoping prevents one
-        # workspace/project from affecting another concurrent LSP analysis and
-        # restores any embedding host's prior context after composition.
-        with pkg.package_context(packages):
-            visit(active, 1)
+        visit(active, 1)
 
         user_names = set(active.defined_names)
         for u in imported:
@@ -217,6 +222,18 @@ class Workspace(WorkspaceCacheMixin):
             program=Program(declarations=decls),
             import_errors=import_errors,
         )
+
+    def project_manifest(self, path: str) -> str | None:
+        """Return the package-project boundary governing ``path``."""
+
+        return self._package_cache.manifest_for(path)
+
+    def shares_project_manifest(
+        self,
+        path: str,
+        active_manifest: str | None,
+    ) -> bool:
+        return self._package_cache.shares_manifest(path, active_manifest)
 
     def analyze(self, comp: Composition):
         """Semantic analysis over the composed program.

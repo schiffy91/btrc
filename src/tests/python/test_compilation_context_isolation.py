@@ -1,17 +1,17 @@
 """Concurrent compiler invocations must not share mutable translation state."""
 
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
 from threading import Barrier
 
 import pytest
 
-from src.compiler.python import pkg
 from src.compiler.python.analyzer.core import AnalyzedProgram
 from src.compiler.python.ast_nodes import Program, TypeExpr
-from src.compiler.python.ir.gen.generator import IRGenerator
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
+from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.ir.gen.lowering_context import LoweringContext
 from src.compiler.python.ir.gen.types import type_to_c
-from src.compiler.python.pkg import IncludeResolutionError
+from src.compiler.python.ir.nodes import IRModule
 
 
 def _generator(
@@ -21,13 +21,13 @@ def _generator(
     barrier: Barrier | None = None,
     fail: bool = False,
     repeat_in_declarations: bool = False,
-) -> IRGenerator:
+) -> IRLowerer:
     analyzed = AnalyzedProgram(
         program=Program(),
         generic_instances={},
         class_table={},
     )
-    generator = IRGenerator(analyzed)
+    generator = IRLowerer(analyzed)
     callback_type = TypeExpr(
         base="__fn_ptr",
         generic_args=[
@@ -67,8 +67,8 @@ def test_function_pointer_typedefs_are_isolated_between_threads():
     text = _generator("bool", "string", barrier=barrier)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        integer_future = executor.submit(integer.generate)
-        text_future = executor.submit(text.generate)
+        integer_future = executor.submit(integer.lower)
+        text_future = executor.submit(text.lower)
         integer_module = integer_future.result(timeout=20)
         text_module = text_future.result(timeout=20)
 
@@ -82,14 +82,14 @@ def test_failed_lowering_cannot_leak_typedefs_into_success():
     failing = _generator("bool", "string", barrier=barrier, fail=True)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        success_future = executor.submit(successful.generate)
-        failure_future = executor.submit(failing.generate)
+        success_future = executor.submit(successful.lower)
+        failure_future = executor.submit(failing.lower)
         successful_module = success_future.result(timeout=20)
         with pytest.raises(RuntimeError, match="forced lowering failure"):
             failure_future.result(timeout=20)
 
     assert _typedef_shapes(successful_module) == {("int", ("int",))}
-    fresh = _generator("double", "double").generate()
+    fresh = _generator("double", "double").lower()
     assert _typedef_shapes(fresh) == {("double", ("double",))}
 
 
@@ -98,89 +98,53 @@ def test_function_pointer_typedef_is_emitted_once_across_generation_phases():
         "int",
         "int",
         repeat_in_declarations=True,
-    ).generate()
+    ).lower()
 
     assert len(module.function_pointer_typedefs) == 1
     assert _typedef_shapes(module) == {("int", ("int",))}
 
 
-def test_package_scopes_are_isolated_between_threads(tmp_path: Path):
-    roots = {}
-    for name in ("left", "right"):
-        root = tmp_path / name
-        (root / "src").mkdir(parents=True)
-        (root / "src" / "dep.btrc").write_text(f"// {name}\n")
-        roots[name] = root
-    barrier = Barrier(2)
-
-    def resolve_in_scope(name):
-        with pkg.package_context({"dep": {"path": str(roots[name])}}):
-            barrier.wait(timeout=10)
-            resolved = pkg.package_import_paths("dep")[0]
-            barrier.wait(timeout=10)
-            active = pkg.configured_packages()["dep"]["path"]
-        return resolved, active, pkg.configured_packages()
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        left = executor.submit(resolve_in_scope, "left")
-        right = executor.submit(resolve_in_scope, "right")
-        left_result = left.result(timeout=20)
-        right_result = right.result(timeout=20)
-
-    assert left_result == (
-        str(roots["left"] / "src" / "dep.btrc"),
-        str(roots["left"]),
-        {},
+def test_nested_operand_scopes_restore_missing_and_explicit_none_values():
+    analyzed = AnalyzedProgram(
+        program=Program(),
+        generic_instances={},
+        class_table={},
     )
-    assert right_result == (
-        str(roots["right"] / "src" / "dep.btrc"),
-        str(roots["right"]),
-        {},
+    typed_node = object()
+    analyzed_type = TypeExpr(base="bool")
+    inner_type = TypeExpr(base="int")
+    analyzed.node_types[id(typed_node)] = analyzed_type
+    context = LoweringContext(
+        analyzed=analyzed,
+        module=IRModule(),
+        helpers=RuntimeHelperRegistry(),
+        owning_overrides={1: None, 2: "original"},
+        type_overrides={10: None, 20: "original-type"},
     )
 
+    with context.operand_scope(
+        {1: "outer-none", 2: "outer", 3: "outer-added"},
+        {10: "outer-none-type", 20: "outer-type", 30: "outer-added-type"},
+    ):
+        outer_values = context.owning_overrides.copy()
+        outer_types = context.type_overrides.copy()
+        with context.operand_scope(
+            {1: "inner-none", 2: "inner", 3: None, 4: "inner-added"},
+            {10: "inner-none-type", 20: "inner-type", 30: None, 40: "inner-added-type"},
+        ):
+            assert context.owning_overrides[4] == "inner-added"
+            assert context.type_overrides[40] == "inner-added-type"
 
-def test_package_configuration_success_and_failure_are_thread_local(
-    tmp_path: Path,
-    monkeypatch,
-):
-    success = tmp_path / "success"
-    failure = tmp_path / "failure"
-    dependency = tmp_path / "dependency"
-    for project in (success, failure):
-        project.mkdir()
-        (project / "btrc.toml").write_text('[package]\nname = "test"\n')
-    (dependency / "src").mkdir(parents=True)
-    (dependency / "src" / "dep.btrc").write_text("// dependency\n")
-    resolving = Barrier(2)
-    configured = Barrier(2)
+        assert context.owning_overrides == outer_values
+        assert context.type_overrides == outer_types
 
-    def fake_resolve(manifest, refresh=False):
-        resolving.wait(timeout=10)
-        if Path(manifest).parent == failure:
-            raise ValueError("broken dependency")
-        return {"dep": {"path": str(dependency)}}
+    assert context.owning_overrides == {1: None, 2: "original"}
+    assert context.type_overrides == {10: None, 20: "original-type"}
 
-    monkeypatch.setattr(pkg, "resolve", fake_resolve)
-
-    def configure(project, should_fail):
-        error = None
-        try:
-            pkg.configure_for(str(project / "main.btrc"))
-        except IncludeResolutionError as caught:
-            error = caught
-        configured.wait(timeout=10)
-        packages = pkg.configured_packages()
-        paths = pkg.package_import_paths("dep")
-        assert (error is not None) is should_fail
-        return packages, paths
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        success_future = executor.submit(configure, success, False)
-        failure_future = executor.submit(configure, failure, True)
-        success_packages, success_paths = success_future.result(timeout=20)
-        failure_packages, failure_paths = failure_future.result(timeout=20)
-
-    assert success_packages["dep"]["path"] == str(dependency)
-    assert success_paths == [str(dependency / "src" / "dep.btrc")]
-    assert failure_packages == {}
-    assert failure_paths == []
+    assert context.type_of(typed_node) is analyzed_type
+    with context.operand_scope({}, {id(typed_node): None}):
+        assert context.type_of(typed_node) is None
+        with context.operand_scope({}, {id(typed_node): inner_type}):
+            assert context.type_of(typed_node) is inner_type
+        assert context.type_of(typed_node) is None
+    assert context.type_of(typed_node) is analyzed_type

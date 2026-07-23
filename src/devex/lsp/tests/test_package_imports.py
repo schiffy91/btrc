@@ -1,4 +1,4 @@
-"""LSP package-import integration and package-context isolation."""
+"""LSP package-import integration and explicit resolution isolation."""
 
 from __future__ import annotations
 
@@ -32,18 +32,14 @@ def test_package_imports_are_scoped_to_each_document_root(tmp_path):
     first_path, first_source, first_module = _path_dependency_project(tmp_path, "first")
     second_path, second_source, second_module = _path_dependency_project(tmp_path, "second")
     workspace = Workspace()
-    sentinel = {"outer": {"path": "/embedding-host"}}
 
-    with pkg.package_context(sentinel):
-        first = workspace.compose(workspace.parse_active(str(first_path), first_source))
-        assert first.import_errors == []
-        assert [unit.path for unit in first.imported] == [str(first_module)]
-        assert pkg.configured_packages()["outer"]["path"] == "/embedding-host"
+    first = workspace.compose(workspace.parse_active(str(first_path), first_source))
+    assert first.import_errors == []
+    assert [unit.path for unit in first.imported] == [str(first_module)]
 
-        second = workspace.compose(workspace.parse_active(str(second_path), second_source))
-        assert second.import_errors == []
-        assert [unit.path for unit in second.imported] == [str(second_module)]
-        assert pkg.configured_packages()["outer"]["path"] == "/embedding-host"
+    second = workspace.compose(workspace.parse_active(str(second_path), second_source))
+    assert second.import_errors == []
+    assert [unit.path for unit in second.imported] == [str(second_module)]
 
     for active in (first_path, second_path):
         lock = json.loads((active.parent / "btrc.lock").read_text())
@@ -56,13 +52,17 @@ def test_broken_manifest_reports_error_without_leaking_package_state(tmp_path):
     (app / "btrc.toml").write_text('[dependencies]\nbad = { version = "unsupported" }\n')
     source = "import bad;\nint main() { return 0; }\n"
     active = app / "main.btrc"
-    sentinel = {"outer": {"path": "/embedding-host"}}
+    workspace = Workspace()
+    composition = workspace.compose(workspace.parse_active(str(active), source))
+    assert any("package resolution failed" in message for _, message in composition.import_errors)
 
-    with pkg.package_context(sentinel):
-        workspace = Workspace()
-        composition = workspace.compose(workspace.parse_active(str(active), source))
-        assert any("package resolution failed" in message for _, message in composition.import_errors)
-        assert pkg.configured_packages()["outer"]["path"] == "/embedding-host"
+    valid_path, valid_source, valid_module = _path_dependency_project(
+        tmp_path,
+        "recovered",
+    )
+    valid = workspace.compose(workspace.parse_active(str(valid_path), valid_source))
+    assert valid.import_errors == []
+    assert [unit.path for unit in valid.imported] == [str(valid_module)]
 
 
 def test_unchanged_manifest_reuses_workspace_package_resolution(tmp_path, monkeypatch):
@@ -74,7 +74,11 @@ def test_unchanged_manifest_reuses_workspace_package_resolution(tmp_path, monkey
     def unexpected_resolution(_input_path):
         raise AssertionError("warm keystroke re-resolved unchanged packages")
 
-    monkeypatch.setattr(pkg, "packages_for", unexpected_resolution)
+    monkeypatch.setattr(
+        workspace._package_cache.resolver,
+        "resolve_for",
+        unexpected_resolution,
+    )
     second = workspace.compose(workspace.parse_active(str(active), source + "\n"))
     assert second.import_errors == []
     assert [unit.path for unit in second.imported] == [str(module)]
@@ -86,22 +90,32 @@ def test_package_resolution_retries_when_manifest_changes_during_save(tmp_path, 
     active = tmp_path / "main.btrc"
     calls = []
 
-    monkeypatch.setattr(pkg, "find_manifest", lambda _start: str(manifest))
+    core = pkg.PackageResolver()
+    monkeypatch.setattr(core, "find_manifest", lambda _start: str(manifest))
 
     def resolve(_input_path):
         calls.append(manifest.read_text())
         if len(calls) == 1:
             manifest.write_text("[dependencies]\nfresh = '../fresh'\n")
-            return {"old": {"path": "../old"}}
-        return {"fresh": {"path": "../fresh"}}
+            return pkg.ResolvedPackages(
+                str(manifest),
+                {"old": {"path": "../old"}},
+            )
+        return pkg.ResolvedPackages(
+            str(manifest),
+            {"fresh": {"path": "../fresh"}},
+        )
 
-    monkeypatch.setattr(pkg, "packages_for", resolve)
-    resolver = package_resolution.PackageResolver()
+    monkeypatch.setattr(core, "resolve_for", resolve)
+    resolver = package_resolution.PackageResolutionCache(core)
 
-    expected = {"fresh": {"path": "../fresh"}}
-    assert resolver.packages_for(str(active)) == expected
+    expected = pkg.ResolvedPackages(
+        str(manifest),
+        {"fresh": {"path": "../fresh"}},
+    )
+    assert resolver.resolve_for(str(active)) == expected
     assert len(calls) == 2
-    assert resolver.packages_for(str(active)) == expected
+    assert resolver.resolve_for(str(active)) == expected
     assert len(calls) == 2
 
 
@@ -111,18 +125,22 @@ def test_package_resolution_never_caches_repeatedly_changing_inputs(tmp_path, mo
     active = tmp_path / "main.btrc"
     calls = []
 
-    monkeypatch.setattr(pkg, "find_manifest", lambda _start: str(manifest))
+    core = pkg.PackageResolver()
+    monkeypatch.setattr(core, "find_manifest", lambda _start: str(manifest))
 
     def unstable(_input_path):
         calls.append(len(calls) + 1)
         manifest.write_text(f"[dependencies]\ndep = '../version-{len(calls)}'\n")
-        return {"dep": {"path": f"../version-{len(calls)}"}}
+        return pkg.ResolvedPackages(
+            str(manifest),
+            {"dep": {"path": f"../version-{len(calls)}"}},
+        )
 
-    monkeypatch.setattr(pkg, "packages_for", unstable)
-    resolver = package_resolution.PackageResolver()
+    monkeypatch.setattr(core, "resolve_for", unstable)
+    resolver = package_resolution.PackageResolutionCache(core)
 
     with pytest.raises(pkg.IncludeResolutionError, match="changed repeatedly"):
-        resolver.packages_for(str(active))
+        resolver.resolve_for(str(active))
 
     assert len(calls) == resolver._STABLE_RESOLUTION_ATTEMPTS
     assert resolver._entries == {}
@@ -132,18 +150,28 @@ def test_package_fingerprints_bound_manifest_and_lock_reads(tmp_path):
     package_input = tmp_path / "package-input"
     package_input.write_bytes(b"12345")
 
-    assert package_resolution._file_digest(str(package_input), 4) == ("too-large",)
-    assert package_resolution._file_digest(str(package_input), 5)[0] == "sha256"
-    assert package_resolution._file_digest(str(tmp_path / "missing"), 5) == ("missing",)
+    resolver = package_resolution.PackageResolutionCache()
+    assert resolver._file_digest(str(package_input), 4) == ("too-large",)
+    assert resolver._file_digest(str(package_input), 5)[0] == "sha256"
+    assert resolver._file_digest(str(tmp_path / "missing"), 5) == ("missing",)
 
 
 def test_workspace_package_resolution_cache_is_lru_bounded(tmp_path, monkeypatch):
-    resolver = package_resolution.PackageResolver()
-    monkeypatch.setattr(pkg, "find_manifest", lambda start: f"{start}/btrc.toml")
-    monkeypatch.setattr(pkg, "packages_for", lambda _input: {})
+    core = pkg.PackageResolver()
+    monkeypatch.setattr(
+        core,
+        "find_manifest",
+        lambda start: f"{start}/btrc.toml",
+    )
+    monkeypatch.setattr(
+        core,
+        "resolve_for",
+        lambda input_path: pkg.ResolvedPackages.empty(),
+    )
+    resolver = package_resolution.PackageResolutionCache(core)
 
     for index in range(resolver._ENTRY_CACHE_MAX + 5):
-        resolver.packages_for(str(tmp_path / str(index) / "main.btrc"))
+        resolver.resolve_for(str(tmp_path / str(index) / "main.btrc"))
 
     assert len(resolver._entries) == resolver._ENTRY_CACHE_MAX
     evicted = os.path.normcase(os.path.realpath(tmp_path / "0" / "btrc.toml"))

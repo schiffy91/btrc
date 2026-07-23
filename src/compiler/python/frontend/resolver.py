@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 import time
-from collections.abc import Callable
 
-from .. import frontend_imports, pkg
 from ..frontend_limits import check_combined_source_size
+from ..pkg import PackageResolver
 from .dependencies import ResolvedSource
+from .imports import ImportResolver
 from .stdlib import StdlibRepository
 
 
@@ -19,10 +19,14 @@ class SourceResolver:
         self,
         stdlib: StdlibRepository | None = None,
         *,
-        configure_packages: Callable[..., None] = pkg.configure_for,
+        imports: ImportResolver | None = None,
+        package_resolver: PackageResolver | None = None,
     ) -> None:
-        self.stdlib = stdlib or StdlibRepository()
-        self._configure_packages = configure_packages
+        if imports is not None and stdlib is not None and imports.stdlib is not stdlib:
+            raise ValueError("SourceResolver imports and stdlib must share one repository")
+        self.stdlib = imports.stdlib if imports is not None else (stdlib or StdlibRepository())
+        self.imports = imports or ImportResolver(self.stdlib)
+        self.package_resolver = package_resolver or PackageResolver()
 
     @staticmethod
     def _timed(profile: dict[str, float] | None, label: str, start: float) -> None:
@@ -42,11 +46,15 @@ class SourceResolver:
     ) -> ResolvedSource:
         """Resolve one root file into text, provenance, and dependency graph."""
 
-        self._configure_packages(source_path, refresh=refresh_packages)
+        packages = self.package_resolver.resolve_for(
+            source_path,
+            refresh=refresh_packages,
+        )
         start = time.perf_counter()
-        user_source, provenance, source_positions, graph = frontend_imports._resolve_includes_mapped(
+        user_source, provenance, source_positions, graph = self.imports.resolve_mapped(
             source,
             source_path,
+            packages,
             exit_on_error=False,
         )
         self._timed(profile, "resolve_includes", start)
@@ -84,9 +92,11 @@ class SourceResolver:
         *,
         exit_on_error: bool = True,
     ) -> str:
-        return frontend_imports.resolve_includes(
+        packages = self.package_resolver.resolve_for(source_path)
+        return self.imports.resolve(
             source,
             source_path,
+            packages,
             included,
             exit_on_error=exit_on_error,
         )
@@ -98,11 +108,10 @@ class SourceResolver:
         *,
         exit_on_error: bool = True,
     ):
-        return frontend_imports.resolve_includes_traced(
+        packages = self.package_resolver.resolve_for(source_path)
+        return self.imports.resolve_with_graph(
             source,
             source_path,
+            packages,
             exit_on_error=exit_on_error,
         )
-
-    def import_paths(self, spec, source_dir: str) -> list[str]:
-        return frontend_imports.import_spec_paths(spec, source_dir)

@@ -10,6 +10,8 @@ import pytest
 from src.compiler.python import ebnf, pkg, pkg_git
 from src.compiler.python.pkg import IncludeResolutionError
 
+PACKAGE_RESOLVER = pkg.PackageResolver()
+
 # --------------------------------------------------------------------------
 # ebnf grammar loader
 # --------------------------------------------------------------------------
@@ -74,24 +76,44 @@ def test_get_grammar_info_loads_real_grammar():
 
 
 def test_resolve_dep_bare_string(tmp_path):
-    d = pkg._resolve_dep("x", "../sibling", str(tmp_path))
+    d = PACKAGE_RESOLVER._resolve_dependency(
+        "x",
+        "../sibling",
+        str(tmp_path),
+    )
     assert os.path.isabs(d["path"])
 
 
 def test_resolve_dep_path_dict_relative(tmp_path):
-    d = pkg._resolve_dep("x", {"path": "../sib"}, str(tmp_path))
+    d = PACKAGE_RESOLVER._resolve_dependency(
+        "x",
+        {"path": "../sib"},
+        str(tmp_path),
+    )
     assert d["path"].endswith("sib") and os.path.isabs(d["path"])
 
 
 def test_resolve_dep_path_dict_absolute():
-    d = pkg._resolve_dep("x", {"path": "/abs/path"}, "/manifest")
+    d = PACKAGE_RESOLVER._resolve_dependency(
+        "x",
+        {"path": "/abs/path"},
+        "/manifest",
+    )
     assert d["path"] == "/abs/path"
 
 
 def test_resolve_dep_git(monkeypatch):
-    monkeypatch.setattr(pkg, "_resolve_git", lambda n, u, r, refresh=False: "/clone/root")
-    monkeypatch.setattr(pkg, "_resolved_git_commit", lambda _path: "a" * 40)
-    d = pkg._resolve_dep("net", {"git": "https://x/n.git", "rev": "v1"}, "/m")
+    monkeypatch.setattr(
+        pkg_git,
+        "resolve_git",
+        lambda n, u, r, refresh=False: "/clone/root",
+    )
+    monkeypatch.setattr(pkg_git, "resolved_commit", lambda _path: "a" * 40)
+    d = PACKAGE_RESOLVER._resolve_dependency(
+        "net",
+        {"git": "https://x/n.git", "rev": "v1"},
+        "/m",
+    )
     assert d == {
         "commit": "a" * 40,
         "git": "https://x/n.git",
@@ -102,7 +124,11 @@ def test_resolve_dep_git(monkeypatch):
 
 def test_resolve_dep_invalid():
     with pytest.raises(ValueError):
-        pkg._resolve_dep("x", {"version": "1.0"}, "/m")
+        PACKAGE_RESOLVER._resolve_dependency(
+            "x",
+            {"version": "1.0"},
+            "/m",
+        )
 
 
 def _fake_git_run(calls):
@@ -120,7 +146,7 @@ def test_resolve_git_clones(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     calls = []
     monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
-    path = pkg._resolve_git("net", "https://x/n.git", "v1")
+    path = pkg_git.resolve_git("net", "https://x/n.git", "v1")
     assert os.path.isabs(path) and len(calls) == 3  # clone + checkout + rev-parse
 
 
@@ -135,7 +161,7 @@ def test_resolve_git_uses_pinned_ref_record(tmp_path, monkeypatch):
         return "/immutable/checkout"
 
     monkeypatch.setattr(pkg_git, "_ensure_commit_checkout", pinned)
-    assert pkg._resolve_git("net", "https://x/n.git", "v1") == "/immutable/checkout"
+    assert pkg_git.resolve_git("net", "https://x/n.git", "v1") == "/immutable/checkout"
     assert observed == [("net", "https://x/n.git", "v1", "a" * 40)]
 
 
@@ -143,7 +169,7 @@ def test_resolve_git_separates_url_from_options(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     calls = []
     monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
-    pkg._resolve_git("net", "--upload-pack=untrusted", "v1")
+    pkg_git.resolve_git("net", "--upload-pack=untrusted", "v1")
     assert calls[0][0:4] == ["git", "clone", "--quiet", "--"]
     assert calls[0][4] == "--upload-pack=untrusted"
 
@@ -169,7 +195,7 @@ def test_resolve_git_rejects_option_revision(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
     with pytest.raises(ValueError, match="invalid revision"):
-        pkg._resolve_git("net", "https://x/n.git", "--orphan")
+        pkg_git.resolve_git("net", "https://x/n.git", "--orphan")
     assert calls == []
 
 
@@ -184,7 +210,7 @@ def test_failed_git_checkout_does_not_poison_cache(tmp_path, monkeypatch):
     monkeypatch.setattr(pkg_git, "_checkout", fail_checkout)
 
     with pytest.raises(ValueError, match="bad revision"):
-        pkg._resolve_git("net", "https://x/n.git", "missing")
+        pkg_git.resolve_git("net", "https://x/n.git", "missing")
 
     assert list(cache.iterdir()) == []
 
@@ -192,19 +218,20 @@ def test_failed_git_checkout_does_not_poison_cache(tmp_path, monkeypatch):
 def test_resolve_uses_lock(tmp_path):
     (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n')
     lock = {
-        "manifest_hash": pkg._deps_hash({}),
+        "manifest_hash": PACKAGE_RESOLVER.dependencies_hash({}),
         "packages": {"dep": {"path": "/p"}},
         "schema": pkg.LOCK_SCHEMA,
     }
     (tmp_path / "btrc.lock").write_text(json.dumps(lock))
-    assert pkg.resolve(str(tmp_path / "btrc.toml")) == {"dep": {"path": "/p"}}
+    resolved = PACKAGE_RESOLVER.resolve_manifest(str(tmp_path / "btrc.toml"))
+    assert resolved.entries == {"dep": {"path": "/p"}}
 
 
 def test_resolve_ignores_stale_lock(tmp_path):
     # Legacy (hash-less) and out-of-date locks are re-resolved, not trusted.
     (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n')
     (tmp_path / "btrc.lock").write_text('{"packages": {"dep": {"path": "/p"}}}')
-    assert pkg.resolve(str(tmp_path / "btrc.toml")) == {}
+    assert PACKAGE_RESOLVER.resolve_manifest(str(tmp_path / "btrc.toml")).entries == {}
 
 
 @pytest.mark.parametrize(
@@ -228,68 +255,68 @@ def test_resolve_fails_closed_on_structurally_invalid_current_lock(tmp_path, loc
     manifest = tmp_path / "btrc.toml"
     manifest.write_text('[package]\nname = "x"\n')
     if isinstance(lock, dict):
-        lock["manifest_hash"] = pkg._deps_hash({})
+        lock["manifest_hash"] = PACKAGE_RESOLVER.dependencies_hash({})
     (tmp_path / "btrc.lock").write_text(json.dumps(lock))
     before = (tmp_path / "btrc.lock").read_bytes()
     with pytest.raises(pkg.LockfileError):
-        pkg.resolve(str(manifest))
+        PACKAGE_RESOLVER.resolve_manifest(str(manifest))
     assert (tmp_path / "btrc.lock").read_bytes() == before
 
 
-def test_configure_for_invalid_dependency_shape_is_controlled(tmp_path):
+def test_resolve_for_invalid_dependency_shape_is_controlled(tmp_path):
     (tmp_path / "btrc.toml").write_text("dependencies = 1\n")
     with pytest.raises(IncludeResolutionError, match=r"dependencies.*table"):
-        pkg.configure_for(str(tmp_path / "main.btrc"))
-    assert pkg.configured_packages() == {}
+        PACKAGE_RESOLVER.resolve_for(str(tmp_path / "main.btrc"))
 
 
 def test_resolve_writes_lock(tmp_path):
     (tmp_path / "sib").mkdir()
     (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n[dependencies]\nsib = { path = "./sib" }\n')
-    res = pkg.resolve(str(tmp_path / "btrc.toml"), refresh=True)
-    assert "sib" in res and (tmp_path / "btrc.lock").exists()
+    result = PACKAGE_RESOLVER.resolve_manifest(
+        str(tmp_path / "btrc.toml"),
+        refresh=True,
+    )
+    assert "sib" in result.entries and (tmp_path / "btrc.lock").exists()
 
 
-def test_configure_for_no_manifest(tmp_path):
-    pkg.configure_for(str(tmp_path / "x.btrc"))
-    assert pkg.configured_packages() == {}
+def test_resolve_for_no_manifest(tmp_path):
+    assert PACKAGE_RESOLVER.resolve_for(str(tmp_path / "x.btrc")).entries == {}
 
 
-def test_configure_for_failure(tmp_path):
+def test_resolve_for_failure(tmp_path):
     (tmp_path / "btrc.toml").write_text('[package]\nname = "x"\n[dependencies]\nbad = { version = "1" }\n')
     with pytest.raises(IncludeResolutionError, match="package resolution failed"):
-        pkg.configure_for(str(tmp_path / "x.btrc"), refresh=True)
-    assert pkg.configured_packages() == {}  # failure never leaves stale packages behind
+        PACKAGE_RESOLVER.resolve_for(
+            str(tmp_path / "x.btrc"),
+            refresh=True,
+        )
 
 
-def test_package_import_paths_unknown():
-    with pkg.package_context({}):
-        assert pkg.package_import_paths("unknowndep.mod") == []
+def test_resolved_packages_ignore_unknown_dependency():
+    assert pkg.ResolvedPackages.empty().paths_for_import("unknowndep.mod") == ()
 
 
-def test_package_import_paths_src_layout(tmp_path):
+def test_resolved_packages_support_src_layout(tmp_path):
     root = tmp_path / "mathx"
     (root / "src").mkdir(parents=True)
     (root / "src" / "mathx.btrc").write_text("int f() { return 0; }\n")
-    with pkg.package_context({"mathx": {"path": str(root)}}):
-        paths = pkg.package_import_paths("mathx")
-        assert paths and paths[0].endswith(os.path.join("src", "mathx.btrc"))
+    packages = pkg.ResolvedPackages(None, {"mathx": {"path": str(root)}})
+    paths = packages.paths_for_import("mathx")
+    assert paths and paths[0].endswith(os.path.join("src", "mathx.btrc"))
 
 
-def test_package_import_paths_root_layout(tmp_path):
+def test_resolved_packages_support_root_layout(tmp_path):
     root = tmp_path / "vec"
     root.mkdir()
     (root / "sub.btrc").write_text("int f() { return 0; }\n")
-    with pkg.package_context({"vec": {"path": str(root)}}):
-        paths = pkg.package_import_paths("vec.sub")
-        assert paths and paths[0].endswith("sub.btrc")
+    packages = pkg.ResolvedPackages(None, {"vec": {"path": str(root)}})
+    paths = packages.paths_for_import("vec.sub")
+    assert paths and paths[0].endswith("sub.btrc")
 
 
-def test_package_import_paths_not_found(tmp_path):
+def test_resolved_packages_report_missing_module(tmp_path):
     root = tmp_path / "empty"
     root.mkdir()
-    with (
-        pkg.package_context({"empty": {"path": str(root)}}),
-        pytest.raises(IncludeResolutionError, match="not found"),
-    ):
-        pkg.package_import_paths("empty.missing")
+    packages = pkg.ResolvedPackages(None, {"empty": {"path": str(root)}})
+    with pytest.raises(IncludeResolutionError, match="not found"):
+        packages.paths_for_import("empty.missing")

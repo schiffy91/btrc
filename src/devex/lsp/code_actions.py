@@ -22,13 +22,11 @@ import os
 
 from lsprotocol import types as lsp
 
-from src.compiler.python import pkg
 from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.tokens import TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current
 from src.devex.lsp.occurrences import build_index
-from src.devex.lsp.package_resolution import shares_project_manifest
 from src.devex.lsp.utils import (
     BUILTIN_TYPES,
     active_decls,
@@ -128,7 +126,7 @@ def _module_imports(result: AnalysisResult):
     stdlib_dir = os.path.abspath(StdlibRepository().directory())
     active = os.path.abspath(result.path) if result.path else None
     active_dir = os.path.dirname(active) if active else None
-    manifest = pkg.find_manifest(active_dir) if active_dir else None
+    manifest = WORKSPACE.project_manifest(active) if active else None
     project_root = os.path.dirname(manifest) if manifest else active_dir
     by_name: dict[str, str] = {}
 
@@ -145,7 +143,7 @@ def _module_imports(result: AnalysisResult):
     for unit in WORKSPACE.stdlib_units():
         consider(unit.path, unit.defined_names)
     for unit in WORKSPACE.cached_units(project_root):
-        if shares_project_manifest(unit.path, manifest):
+        if WORKSPACE.shares_project_manifest(unit.path, manifest):
             consider(unit.path, unit.defined_names)
     return by_name
 

@@ -1,10 +1,36 @@
 import pytest
 
 from src.compiler.python import frontend_limits
+from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.resolver import SourceResolver
-from src.compiler.python.pkg import IncludeResolutionError
+from src.compiler.python.frontend.stdlib import StdlibRepository
+from src.compiler.python.pkg import IncludeResolutionError, PackageResolver
 
 RESOLVER = SourceResolver()
+
+
+def test_source_resolver_owns_one_shared_import_repository(tmp_path):
+    stdlib = StdlibRepository(directory=str(tmp_path / "stdlib"))
+    imports = ImportResolver(stdlib)
+    packages = PackageResolver()
+    resolver = SourceResolver(
+        stdlib,
+        imports=imports,
+        package_resolver=packages,
+    )
+
+    assert resolver.imports is imports
+    assert resolver.stdlib is stdlib
+    assert resolver.imports.stdlib is resolver.stdlib
+    assert resolver.package_resolver is packages
+
+
+def test_source_resolver_rejects_inconsistent_import_ownership(tmp_path):
+    first = StdlibRepository(directory=str(tmp_path / "first"))
+    second = StdlibRepository(directory=str(tmp_path / "second"))
+
+    with pytest.raises(ValueError, match="share one repository"):
+        SourceResolver(first, imports=ImportResolver(second))
 
 
 def test_std_brace_import_resolves_stdlib():

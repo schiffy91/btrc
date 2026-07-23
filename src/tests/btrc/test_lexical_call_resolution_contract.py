@@ -1,5 +1,6 @@
 """Lexical call targets win before global and compiler special forms."""
 
+import json
 import os
 import shutil
 import subprocess
@@ -7,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import frontend_stdlib
+from src.compiler.python.frontend.resolver import SourceResolver
+from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.pipeline.models import CompilerOptions
 from src.compiler.python.pipeline.pipeline import CompilerPipeline
 from src.tests.btrc.production_readiness_harness import (
@@ -214,7 +216,7 @@ SOURCE_VALUE_HOSTED_SPELLING = """
 """
 
 
-def _custom_stdlib_root(tmp_path: Path, probe: str) -> Path:
+def _custom_stdlib_root(tmp_path: Path, probe: str, user_path: Path) -> Path:
     root = tmp_path / "hosted-value-data"
     language = root / "language"
     stdlib = root / "stdlib"
@@ -223,7 +225,9 @@ def _custom_stdlib_root(tmp_path: Path, probe: str) -> Path:
     shutil.copy2(REPO / "src/language/grammar.ebnf", language / "grammar.ebnf")
     for source in (REPO / "src/stdlib").glob("*.btrc"):
         shutil.copy2(source, stdlib / source.name)
-    (stdlib / "hosted_value_probe.btrc").write_text(probe)
+    (stdlib / "hosted_value_probe.btrc").write_text(
+        f"import {json.dumps(str(user_path))};\n{probe}"
+    )
     return root
 
 
@@ -329,13 +333,13 @@ def test_hosted_stdlib_calls_do_not_borrow_source_shadow_abi_or_effects(
 def test_hosted_stdlib_function_values_fail_closed_under_user_shadows(
     semantic_btrcc: Path,
     tmp_path: Path,
-    monkeypatch,
     probe: str,
     user_source: str,
 ) -> None:
-    data_root = _custom_stdlib_root(tmp_path, probe)
     program = tmp_path / "hosted-value-shadow.btrc"
-    program.write_text(user_source)
+    data_root = _custom_stdlib_root(tmp_path, probe, program)
+    source = f"import std.hosted_value_probe;\n{user_source}"
+    program.write_text(source)
 
     selfhost = subprocess.run(
         [str(semantic_btrcc), str(program)],
@@ -350,15 +354,15 @@ def test_hosted_stdlib_function_values_fail_closed_under_user_shadows(
     assert diagnostic in selfhost.stderr
 
     stdlib = data_root / "stdlib"
-    monkeypatch.setattr(frontend_stdlib, "_get_stdlib_dir", lambda: str(stdlib))
-    pipeline = CompilerPipeline()
+    repository = StdlibRepository(directory=str(stdlib))
+    pipeline = CompilerPipeline(resolver=SourceResolver(repository))
     options = CompilerOptions(
         include_stdlib=True,
         map_stdlib_positions=True,
         use_ast_cache=False,
     )
     resolved = pipeline.resolve(
-        user_source,
+        source,
         str(program),
         options,
     )

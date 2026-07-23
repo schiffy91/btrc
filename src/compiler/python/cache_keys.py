@@ -32,7 +32,7 @@ import hashlib
 import os
 import sys
 
-from . import pkg
+from .pkg import PackageResolver
 
 _COMPILER_DIR = os.path.dirname(os.path.abspath(__file__))
 _SRC_DIR = os.path.dirname(os.path.dirname(_COMPILER_DIR))  # .../src
@@ -64,8 +64,6 @@ def _toolchain_files(scope: str) -> list[str]:
         os.path.join(_COMPILER_DIR, "ast_nodes.py"),
         os.path.join(_COMPILER_DIR, "ast_codec.py"),
         os.path.join(_COMPILER_DIR, "cache_io.py"),
-        os.path.join(_COMPILER_DIR, "frontend_imports.py"),
-        os.path.join(_COMPILER_DIR, "frontend_stdlib.py"),
         os.path.join(_COMPILER_DIR, "import_scan.py"),
         os.path.join(_COMPILER_DIR, "pkg.py"),
         os.path.join(_COMPILER_DIR, "source_io.py"),
@@ -126,7 +124,7 @@ def resolve_cache_dir(input_path: str | None = None) -> str:
         cache = env
     else:
         start = os.path.dirname(os.path.abspath(input_path)) if input_path else os.getcwd()
-        manifest = pkg.find_manifest(start)
+        manifest = PackageResolver.find_manifest(start)
         if manifest is not None:
             cache = os.path.join(os.path.dirname(manifest), ".btrc-cache")
         else:

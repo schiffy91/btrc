@@ -9,9 +9,7 @@ import subprocess
 
 import pytest
 
-from src.compiler.python import Compiler
-from src.compiler.python import frontend_imports as frontend_imports
-from src.compiler.python import frontend_stdlib as frontend_stdlib
+from src.compiler.python import Compiler, frontend_c_imports
 from src.compiler.python import stdlib_ast_cache as ast_cache
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.cli.compiler_cli import CompilerCLI
@@ -481,12 +479,12 @@ def test_repeated_c_import_is_emitted_once_by_canonical_identity(tmp_path):
 @pytest.mark.parametrize("unsafe", ['bad"name.c', "bad\nname.c", "bad??/name.c"])
 def test_c_import_rejects_paths_that_c11_cannot_quote_safely(unsafe):
     with pytest.raises(IncludeResolutionError, match="cannot import C file"):
-        frontend_imports._c_include_directive(unsafe)
+        frontend_c_imports.c_include_directive(unsafe)
 
 
 def test_c_import_preserves_spaces_and_backslashes():
     path = r"C:\source tree\native.c"
-    assert frontend_imports._c_include_directive(path) == f'#include "{path}"'
+    assert frontend_c_imports.c_include_directive(path) == f'#include "{path}"'
 
 
 # --------------------------------------------------------------------------
@@ -628,19 +626,17 @@ def test_disk_cache_write_failure_does_not_fail_compilation(tmp_path, monkeypatc
         def store(self, *_args, **_kwargs):
             raise PermissionError("read-only cache root")
 
-    CompilerCLI(Compiler(cache=UnavailableCache())).run(
-        ["--no-stdlib", source, "-o", str(output)]
-    )
+    CompilerCLI(Compiler(cache=UnavailableCache())).run(["--no-stdlib", source, "-o", str(output)])
     assert "int main(void)" in output.read_text()
 
 
-def test_discover_stdlib_files_missing_dir(monkeypatch):
-    monkeypatch.setattr(frontend_stdlib, "_get_stdlib_dir", lambda: "/no/such/stdlib/dir")
-    assert STDLIB.discover_files() == []
+def test_discover_stdlib_files_missing_dir():
+    unavailable = StdlibRepository(directory="/no/such/stdlib/dir")
+    assert unavailable.discover_files() == []
 
 
 def test_get_stdlib_source_missing_listed_file(monkeypatch):
-    monkeypatch.setattr(frontend_stdlib, "_discover_stdlib_files", lambda: ["does_not_exist.btrc"])
+    monkeypatch.setattr(STDLIB, "discover_files", lambda: ["does_not_exist.btrc"])
     assert STDLIB.source("") == ""  # listed-but-absent file skipped
 
 
