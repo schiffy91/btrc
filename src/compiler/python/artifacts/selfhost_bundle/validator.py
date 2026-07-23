@@ -13,7 +13,7 @@ from typing import BinaryIO
 
 from ...btrcc_archive_metadata import canonical_epoch
 from ...btrcc_bundle_validation_archive import BundleArchiveValidator
-from ...btrcc_target_binary import target_spec, validate_target_binary_stream
+from ...btrcc_target_binary import TargetBinaryValidator, TargetCatalog
 from ...bundle_archive_source import BundleArchiveSource, ContentSnapshot
 from ..publication.storage import ArtifactStorage
 
@@ -37,8 +37,22 @@ class _BundleSnapshot:
 class BundleValidator:
     """Own exact staged-bundle, archive, and checksum validation."""
 
-    def __init__(self, storage: ArtifactStorage | None = None) -> None:
-        self._storage = storage or ArtifactStorage()
+    def __init__(
+        self,
+        storage: ArtifactStorage | None = None,
+        target_catalog: TargetCatalog | None = None,
+        binary_validator: TargetBinaryValidator | None = None,
+    ) -> None:
+        self._storage = storage if storage is not None else ArtifactStorage()
+        self._target_catalog = target_catalog if target_catalog is not None else TargetCatalog()
+        self._binary_validator = (
+            binary_validator
+            if binary_validator is not None
+            else TargetBinaryValidator(
+                self._target_catalog,
+                self._storage,
+            )
+        )
 
     def validate_generation(
         self,
@@ -135,7 +149,7 @@ class BundleValidator:
             raise ValueError("bundle manifest has an invalid schema")
         target = manifest["target"]
         try:
-            spec = target_spec(target)
+            spec = self._target_catalog.spec(target)
         except ValueError as error:
             raise ValueError(
                 "bundle manifest does not match its target artifacts",
@@ -210,7 +224,7 @@ class BundleValidator:
             if actual is None or actual.content != expected:
                 raise ValueError(f"bundle file does not match its manifest: {path}")
         with archive_source.open_regular(actual_files[executable]) as stream:
-            validate_target_binary_stream(stream, target)
+            self._binary_validator.validate_stream(stream, target)
         state = []
         modified_time = canonical_epoch(entry.modified_time_ns for entry in entries)
         for entry in entries:

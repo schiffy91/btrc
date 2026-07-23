@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import io
 import shutil
 import struct
@@ -10,11 +11,11 @@ from pathlib import Path
 
 import pytest
 
+import src.compiler.python.btrcc_binary_formats as binary_formats_module
 import src.compiler.python.btrcc_target_binary as target_module
 from src.compiler.python.btrcc_target_binary import (
-    host_target,
-    validate_target_binary,
-    validate_target_binary_stream,
+    TargetBinaryValidator,
+    TargetCatalog,
 )
 from src.tests.python.btrcc_binary_fixtures import binary_payload
 
@@ -29,6 +30,17 @@ class _ShortReader(io.BytesIO):
 
 
 @pytest.mark.parametrize(
+    "module",
+    [binary_formats_module, target_module],
+)
+def test_target_binary_behavior_has_explicit_owners(module) -> None:
+    syntax = ast.parse(Path(module.__file__).read_text())
+    loose_behavior = [node.name for node in syntax.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+    assert loose_behavior == []
+
+
+@pytest.mark.parametrize(
     "target",
     ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64", "windows-x64"],
 )
@@ -39,7 +51,7 @@ def test_target_binary_accepts_its_declared_format_and_machine(
     binary = tmp_path / "btrcc"
     binary.write_bytes(_binary(target))
 
-    validate_target_binary(binary, target)
+    TargetBinaryValidator().validate_path(binary, target)
 
 
 @pytest.mark.parametrize(
@@ -61,7 +73,7 @@ def test_target_binary_rejects_mislabeled_format_or_machine(
     binary.write_bytes(_binary(binary_target))
 
     with pytest.raises(ValueError, match=f"does not match target {declared_target!r}"):
-        validate_target_binary(binary, declared_target)
+        TargetBinaryValidator().validate_path(binary, declared_target)
 
 
 @pytest.mark.parametrize(
@@ -84,7 +96,7 @@ def test_target_binary_rejects_truncated_or_wrong_headers(
     binary.write_bytes(payload)
 
     with pytest.raises(ValueError, match=f"does not match target {target!r}"):
-        validate_target_binary(binary, target)
+        TargetBinaryValidator().validate_path(binary, target)
 
 
 def test_pe_header_must_start_at_its_declared_offset(tmp_path: Path) -> None:
@@ -97,7 +109,7 @@ def test_pe_header_must_start_at_its_declared_offset(tmp_path: Path) -> None:
     binary.write_bytes(payload)
 
     with pytest.raises(ValueError, match="does not match target 'windows-x64'"):
-        validate_target_binary(binary, "windows-x64")
+        TargetBinaryValidator().validate_path(binary, "windows-x64")
 
 
 @pytest.mark.parametrize(
@@ -132,7 +144,7 @@ def test_target_binary_rejects_structurally_incomplete_executables(
     binary.write_bytes(payload)
 
     with pytest.raises(ValueError, match=f"does not match target {target!r}"):
-        validate_target_binary(binary, target)
+        TargetBinaryValidator().validate_path(binary, target)
 
 
 @pytest.mark.parametrize(
@@ -161,7 +173,7 @@ def test_entrypoint_must_map_to_file_backed_executable_bytes(
     binary.write_bytes(payload)
 
     with pytest.raises(ValueError, match=f"does not match target {target!r}"):
-        validate_target_binary(binary, target)
+        TargetBinaryValidator().validate_path(binary, target)
 
 
 @pytest.mark.parametrize("extent_offset", [64, 80])
@@ -175,7 +187,7 @@ def test_mach_o_executable_extent_must_have_virtual_and_file_bytes(
     binary.write_bytes(payload)
 
     with pytest.raises(ValueError, match="does not match target 'macos-arm64'"):
-        validate_target_binary(binary, "macos-arm64")
+        TargetBinaryValidator().validate_path(binary, "macos-arm64")
 
 
 @pytest.mark.parametrize(
@@ -211,7 +223,7 @@ def test_virtual_extent_arithmetic_must_not_overflow(
     binary.write_bytes(payload)
 
     with pytest.raises(ValueError, match=f"does not match target {target!r}"):
-        validate_target_binary(binary, target)
+        TargetBinaryValidator().validate_path(binary, target)
 
 
 @pytest.mark.parametrize(
@@ -219,7 +231,10 @@ def test_virtual_extent_arithmetic_must_not_overflow(
     ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64", "windows-x64"],
 )
 def test_target_binary_accepts_short_stream_reads(target: str) -> None:
-    validate_target_binary_stream(_ShortReader(_binary(target)), target)
+    TargetBinaryValidator().validate_stream(
+        _ShortReader(_binary(target)),
+        target,
+    )
 
 
 def test_target_binary_accepts_a_real_native_executable(tmp_path: Path) -> None:
@@ -238,7 +253,11 @@ def test_target_binary_accepts_a_real_native_executable(tmp_path: Path) -> None:
     if result.returncode != 0:
         pytest.skip(f"native C compiler is unusable: {result.stderr}")
 
-    validate_target_binary(executable, host_target())
+    catalog = TargetCatalog()
+    TargetBinaryValidator(catalog).validate_path(
+        executable,
+        catalog.host_target(),
+    )
 
 
 @pytest.mark.parametrize(
@@ -260,7 +279,7 @@ def test_host_target_maps_supported_native_runners(
     monkeypatch.setattr(target_module.platform, "system", lambda: system)
     monkeypatch.setattr(target_module.platform, "machine", lambda: machine)
 
-    assert host_target() == target
+    assert TargetCatalog().host_target() == target
 
 
 def test_host_target_rejects_unpublished_architectures(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -268,4 +287,4 @@ def test_host_target_rejects_unpublished_architectures(monkeypatch: pytest.Monke
     monkeypatch.setattr(target_module.platform, "machine", lambda: "riscv64")
 
     with pytest.raises(ValueError, match="unsupported bundle host: linux riscv64"):
-        host_target()
+        TargetCatalog().host_target()

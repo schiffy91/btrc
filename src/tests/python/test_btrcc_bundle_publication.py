@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 import src.compiler.python.artifacts.publication.publisher as transaction_module
-import src.compiler.python.artifacts.selfhost_bundle.validator as bundle_validation_module
 import src.compiler.python.bundle_archive_source as archive_source_module
 from src.compiler.python.artifacts.publication.publisher import (
     ArtifactPublisher,
@@ -29,6 +28,7 @@ from src.compiler.python.artifacts.selfhost_bundle.publisher import (
 )
 from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
 from src.compiler.python.btrcc_bundle_archive import write_checksum
+from src.compiler.python.btrcc_target_binary import TargetBinaryValidator
 from src.tests.python.test_btrcc_bundle import _fixture, _manifest
 
 
@@ -572,20 +572,21 @@ def test_generation_validator_binds_target_check_to_captured_executable(
     replacement = tmp_path / "btrcc-replacement"
     replacement.write_bytes(executable.read_bytes())
     replacement.chmod(0o755)
-    original_validate = bundle_validation_module.validate_target_binary_stream
+    binary_validator = TargetBinaryValidator()
+    original_validate = binary_validator.validate_stream
 
     def swap_after_target_check(stream, target: str) -> None:
         original_validate(stream, target)
         replacement.replace(executable)
 
     monkeypatch.setattr(
-        bundle_validation_module,
-        "validate_target_binary_stream",
+        binary_validator,
+        "validate_stream",
         swap_after_target_check,
     )
 
     with pytest.raises(ValueError, match="archive source changed while packaging"):
-        BundleValidator().validate_generation(
+        BundleValidator(binary_validator=binary_validator).validate_generation(
             result.bundle,
             result.archive,
             result.checksum,

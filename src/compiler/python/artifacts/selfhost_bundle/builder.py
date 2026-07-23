@@ -13,7 +13,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ...btrcc_bundle_archive import write_checksum, write_tar_gz, write_zip
-from ...btrcc_target_binary import TargetSpec, target_spec, validate_target_binary
+from ...btrcc_target_binary import (
+    TargetBinaryValidator,
+    TargetCatalog,
+    TargetSpec,
+)
 from ..publication.publisher import ArtifactPublisher
 from ..publication.storage import ArtifactStorage
 from .copier import BundleCopier
@@ -42,12 +46,31 @@ class BundleBuilder:
         storage: ArtifactStorage | None = None,
         publication: ArtifactPublisher | None = None,
         validator: BundleValidator | None = None,
+        target_catalog: TargetCatalog | None = None,
+        binary_validator: TargetBinaryValidator | None = None,
     ) -> None:
-        self._storage = storage or ArtifactStorage()
+        self._storage = storage if storage is not None else ArtifactStorage()
+        self._target_catalog = target_catalog if target_catalog is not None else TargetCatalog()
+        self._binary_validator = (
+            binary_validator
+            if binary_validator is not None
+            else TargetBinaryValidator(
+                self._target_catalog,
+                self._storage,
+            )
+        )
         self._copier = BundleCopier(self._storage)
-        bundle_validator = validator or BundleValidator(self._storage)
+        bundle_validator = (
+            validator
+            if validator is not None
+            else BundleValidator(
+                self._storage,
+                self._target_catalog,
+                self._binary_validator,
+            )
+        )
         self._publisher = SelfhostBundlePublisher(
-            publication or ArtifactPublisher(self._storage),
+            publication if publication is not None else ArtifactPublisher(self._storage),
             bundle_validator,
         )
 
@@ -65,7 +88,7 @@ class BundleBuilder:
 
         if not TARGET_PATTERN.fullmatch(target) or ".." in target:
             raise ValueError(f"invalid target name: {target!r}")
-        spec = target_spec(target)
+        spec = self._target_catalog.spec(target)
         if epoch < 0 or epoch > MAX_ARCHIVE_EPOCH:
             raise ValueError(f"archive epoch must be between 0 and {MAX_ARCHIVE_EPOCH}")
         try:
@@ -105,7 +128,10 @@ class BundleBuilder:
             staged = Path(temporary) / bundle_name
             executable_name = Path(spec.executable).name
             self._copier.copy(binary, staged / "bin" / executable_name, 0o755, epoch)
-            validate_target_binary(staged / spec.executable, target)
+            self._binary_validator.validate_path(
+                staged / spec.executable,
+                target,
+            )
             self._copier.copy(license_file, staged / "LICENSE", 0o644, epoch)
             self._copier.copy(
                 grammar,
