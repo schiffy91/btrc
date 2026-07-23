@@ -1073,8 +1073,9 @@ class IRGen {
         self.markCleanupRegistration();
         IRNode declaration = self.cleanupSlots.requireDeclaration(
             stmts, varName);
-        /* Pass the exact layout visitor so a throw can traverse owned fields.
-         * Layouts without outgoing managed edges pass NULL. */
+        /* Preserve the static layout as fallback metadata. The exception
+         * runtime releases through the object's concrete ARC descriptor, so a
+         * base-typed slot cannot hide a cyclic subclass. */
         IRNode visitor = irLiteral("NULL");
         string visitorSymbol = self.cycles.visitorSymbol(clsName);
         if (visitorSymbol != "") {

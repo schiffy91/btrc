@@ -20,6 +20,7 @@ ROOTS = {
     "__btrc_mark_destroyed",
     "__btrc_try_state_cleanup",
     "__btrc_cycle_state_cleanup",
+    "__btrc_arc_release_acyclic",
 }
 HEADERS = """\
 #include <limits.h>

@@ -92,8 +92,10 @@ TRYCATCH_CLEANUP = {
             "        __btrc_arc_type type = {\n"
             "            .visit = entry.visit, .destroy = entry.fn,\n"
             "            .hook = NULL, .guard = NULL, .raise = NULL};\n"
-            "        if (entry.visit) __btrc_arc_release(object, &type);\n"
-            "        else __btrc_arc_release_acyclic(object, &type);\n"
+            "        /* The slot metadata is only a fallback. A base-typed slot\n"
+            "         * may hold a cyclic subclass, so the concrete ARC header\n"
+            "         * must choose whether release discovers a cycle. */\n"
+            "        __btrc_arc_release(object, &type);\n"
             "    }\n"
             "    __btrc_try_top--;\n"
             "}"
@@ -102,7 +104,6 @@ TRYCATCH_CLEANUP = {
             "__btrc_cleanup_types",
             "__btrc_push_try",
             "__btrc_arc_release",
-            "__btrc_arc_release_acyclic",
         ],
     ),
     "__btrc_arc_guard_hook": HelperDef(

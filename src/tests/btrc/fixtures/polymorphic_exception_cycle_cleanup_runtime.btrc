@@ -1,0 +1,47 @@
+#include <assert.h>
+
+int polymorphicCycleAlive = 0;
+int polymorphicCycleDestroyed = 0;
+
+class CleanupBase {}
+
+class CleanupDerived extends CleanupBase {
+    public CleanupDerived peer;
+
+    public CleanupDerived() {
+        self.peer = null;
+        polymorphicCycleAlive++;
+    }
+
+    public void __del__() {
+        polymorphicCycleAlive--;
+        polymorphicCycleDestroyed++;
+    }
+}
+
+CleanupBase makePolymorphicCycle() {
+    CleanupDerived first = new CleanupDerived();
+    CleanupDerived second = new CleanupDerived();
+    first.peer = second;
+    second.peer = first;
+    return first;
+}
+
+void abandonPolymorphicCycle() {
+    CleanupBase root = makePolymorphicCycle();
+    assert(polymorphicCycleAlive == 2);
+    throw "polymorphic cycle";
+}
+
+int main() {
+    bool caught = false;
+    try {
+        abandonPolymorphicCycle();
+    } catch (string error) {
+        caught = error.equals("polymorphic cycle");
+    }
+    assert(caught);
+    assert(polymorphicCycleAlive == 0);
+    assert(polymorphicCycleDestroyed == 2);
+    return 0;
+}
