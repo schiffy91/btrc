@@ -92,10 +92,17 @@ void semanticValidateSignature(string label, Vector<Node> params,
         }
         contextualizeGenericConstructor(
             expected, argument, state, vars);
-        semanticValidateVolatileReferenceConversion(
-            expected, argument,
-            "Argument '" + parameter.name + "' to '" + label + "()'",
-            state, vars);
+        /* GPU arrays have a stricter storage ABI that diagnoses volatile
+         * outer/element qualification together with capacity and element
+         * shape. Let that owned boundary report the domain-specific error
+         * instead of terminating early with the generic pointer-conversion
+         * diagnostic. */
+        if (!gpuArrayParameter) {
+            semanticValidateVolatileReferenceConversion(
+                expected, argument,
+                "Argument '" + parameter.name + "' to '" + label + "()'",
+                state, vars);
+        }
         /* Parameters receive expression values.  Apply initializer-shape
          * validation only when the argument is an aggregate literal; an
          * existing array expression is passed through the normal type-
