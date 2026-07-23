@@ -922,11 +922,16 @@ core stdlib (strings, collections, integer math) compile to an object with
 
 ### Standard Library
 
-btrc includes a standard library written in btrc itself (`src/stdlib/`), auto-included by the compiler.
+btrc includes a standard library written in btrc itself (`src/stdlib/`). Strict
+imports are the default, so programs import the modules they use explicitly;
+implicit whole-stdlib composition is available only through the legacy
+`--relaxed-imports` mode.
 
 #### Math
 
 ```
+import std.math;
+
 double pi = Math.PI();
 int abs = Math.abs(-5);
 int clamped = Math.clamp(x, 0, 100);
@@ -940,6 +945,8 @@ double sin = Math.sin(Math.PI() / 2.0);
 #### DateTime and Timer
 
 ```
+import std.datetime;
+
 DateTime now = DateTime.now();
 string date = now.dateString();     // "2025-01-15"
 string time = now.timeString();     // "14:30:00"
@@ -954,6 +961,8 @@ float elapsed = t.elapsed();       // seconds
 #### Random
 
 ```
+import std.random;
+
 Random rng = Random();
 rng.seedTime();
 int n = rng.randint(1, 100);
@@ -964,6 +973,8 @@ rng.shuffle(myVector);             // in-place Fisher-Yates
 #### File I/O
 
 ```
+import std.io;
+
 File f = File("data.txt", "r");
 if (f.ok()) {
     string content = f.read();
@@ -983,6 +994,8 @@ Path.writeAll("output.txt", "hello");
 #### Console
 
 ```
+import std.console;
+
 Console.log("message");            // stdout + newline
 Console.error("problem");          // stderr + newline
 ```
@@ -990,6 +1003,8 @@ Console.error("problem");          // stderr + newline
 #### Result
 
 ```
+import std.result;
+
 Result<int, string> divide(int a, int b) {
     if (b == 0) { return Result.err("division by zero"); }
     return Result.ok(a / b);
@@ -1003,7 +1018,8 @@ if (r.isErr()) {
 
 #### Error Classes
 
-`Error`, `ValueError`, `IOError`, `TypeError`, `IndexError`, `KeyError` -- all with `.toString()`.
+Import `std.error` to use `Error`, `ValueError`, `IOError`, `TypeError`,
+`IndexError`, and `KeyError`; each provides `.toString()`.
 
 ---
 
@@ -1043,7 +1059,15 @@ documented backend runtimes.
 
 ## Self-Hosting
 
-btrc compiles itself. Alongside the reference compiler in Python, the same six-stage pipeline is implemented in btrc under [`src/compiler/btrc/`](src/compiler/btrc/) -- lexer, parser, analyzer, IR generation, optimizer, and C emitter, plus a front-end that auto-composes the standard library and resolves `#include`/`import` directives. It is bootstrapped by transpiling its own source with the reference compiler (a C compiler does the rest); from then on `btrcc` compiles btrc programs on its own.
+btrc compiles itself. Alongside the reference compiler in Python, the same
+six-stage pipeline is implemented in btrc under
+[`src/compiler/btrc/`](src/compiler/btrc/): lexer, parser, analyzer, structured
+IR lowering, optimizer, and C emitter. Its front-end resolves directed
+`import` dependencies and textual `#include` composition with strict imports
+enabled by default. Implicit whole-stdlib composition exists only behind the
+explicit `--relaxed-imports` compatibility mode. The compiler is bootstrapped
+by transpiling its own source with the reference compiler (a C compiler does
+the rest); from then on `btrcc` compiles btrc programs on its own.
 
 Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The checked-in btrc AST node layer is generated from the same [`ast.asdl`](src/language/ast.asdl) contract by [`gen_btrc_ast.py`](src/compiler/python/ast/gen_btrc_ast.py); `make ast-generate-btrc` is the canonical regeneration command. The self-hosted AST tooling consumes the same schema and is verified against that generated contract.
 
@@ -1066,55 +1090,46 @@ src/
 
   compiler/
     python/                    # Reference compiler (Python)
-      ast/                     # AST tooling (Python-hosted)
-        asdl_parser.py         # ASDL file parser
-        asdl_python.py         # ASDL --> Python dataclasses
-        asdl_btrc.py           # ASDL --> btrc classes
-        gen_builtins.py        # stdlib .btrc --> LSP builtins
-      ebnf.py                  # EBNF parser --> GrammarInfo
-      tokens.py                # Token + TokenType (grammar-driven)
-      lexer.py                 # Grammar-driven lexer
-      lexer_literals.py        # Number/string literal parsing
-      ast_nodes.py             # GENERATED from ast.asdl
-      cache_io.py              # Atomic JSON/text cache writes
-      cache_keys.py            # Cache paths + toolchain fingerprints
-      disk_cache.py            # On-disk compiled-C cache
-      stdlib_ast_cache.py      # Schema-validated JSON stdlib AST cache
-      main.py                  # Pipeline entry point + CLI
-      parser/                  # Recursive descent parser (mixin-based)
-      analyzer/                # Type checking, scopes, generics, GPU validation
-      ir/                      # IR pipeline
-        nodes.py               # IR node dataclass definitions
-        optimizer.py           # Dead helper elimination
-        emitter.py             # IR --> C text (tree walk)
-        emitter_exprs.py       # Expression emission mixin
-        emitter_gpu.py         # GPU kernel + dispatch emission mixin
-        gen/                   # AST --> IR lowering
-          arc.py               # ARC reference counting
-          gpu.py               # @gpu kernel IR generation
-          gpu_wgsl.py          # btrc AST --> WGSL compute shader text
-          threads.py           # spawn/Thread/Mutex lowering
-          generics/            # Monomorphization (vectors, maps, sets, user types)
-        helpers/               # Runtime helper C source (strings, alloc, threads, ...)
+      __init__.py              # Stable Compiler/Options/Result API
+      compiler.py              # Compiler application object
+      main.py                  # Thin process entry point
+      cli/                     # CLI parsing, diagnostics, and output
+      pipeline/                # Ordered six-stage orchestration + result models
+      frontend/                # Resolution, provenance, strict visibility, stdlib
+      ast/                     # ASDL parser/generators and LSP builtin generator
+      parser/                  # Recursive-descent source parser
+      analyzer/
+        semantic_analyzer.py   # SemanticAnalyzer composition root
+        analysis_context.py    # Per-analysis diagnostics and provenance state
+        declarations/          # Declaration registry and owned policies
+      ir/
+        nodes.py               # Compatibility import surface for typed IR nodes
+        module.py              # IRModule and top-level declarations
+        optimizer.py           # Optimization composition root
+        emitter.py             # C emission composition root
+        gen/
+          lowerer.py           # IRLowerer composition root
+          lowering_context.py  # Per-lowering mutable state
+          generics/            # User/builtin monomorphization lowering
+        helpers/               # Authored runtime-helper definitions and registry
+      artifacts/               # Cache, stdlib, self-host bundle, publication
 
     btrc/                      # Self-hosted compiler (written in btrc)
-      btrcc_main.btrc          # Pipeline entry point
-      tokens.btrc              # Token types + Python-repr quoting
-      ebnf.btrc                # EBNF parser --> GrammarInfo
-      lexer.btrc               # Grammar-driven lexer
-      frontend.btrc            # stdlib auto-composition + #include/import resolution
-      parser.btrc              # Recursive descent parser --> fat-node AST
-      ast_identity.btrc        # Stable AST side-table keys shared across stages
-      analyzer.btrc            # Type checking, scopes, generics, enums
-      irgen.btrc               # AST --> IR lowering (the core)
-      ir_nodes.btrc            # IR node definitions (fat tagged node)
-      emitter.btrc             # IR --> C text
+      btrcc_main.btrc          # Thin process entry point
+      compiler.btrc            # Compiler and BtrccDriver application objects
+      pipeline/                # CompilerPipeline, options, and result models
+      lexer/stage.btrc         # Ordered lexer stage manifest
+      frontend/stage.btrc      # Resolution + strict visibility stage manifest
+      parser/stage.btrc        # Parser stage manifest
+      analyzer/stage.btrc      # Semantic stage manifest
+      ir/stage.btrc            # Structured IR/optimization/emission manifest
+      generated/hosted_abi/    # Generated hosted ABI tables under one owner
       ast/
         asdl.btrc              # ASDL parser (btrc-native, zero-dependency)
         gen_node.btrc          # ASDL --> node.btrc generator
         node.btrc              # GENERATED fat-node AST
 
-  stdlib/                      # Standard library (auto-included btrc source)
+  stdlib/                      # Standard-library modules (explicit in strict mode)
     vector.btrc                # Vector<T> (dynamic array)
     list.btrc                  # List<T> (doubly-linked list)
     array.btrc                 # Array<T> (fixed-size)

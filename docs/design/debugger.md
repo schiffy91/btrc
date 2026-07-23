@@ -23,7 +23,7 @@ coordinates with no extra mapping layer.
 
 ## Compiler: `--debug` and `#line`
 
-`generate_ir(..., line_map=...)` records, per statement, the originating
+`IRLowerer(..., line_map=...).lower()` records, per statement, the originating
 `(file, line)` (mapped from the combined stdlib+user parse via
 `FrontendSource.map_line`; `--debug` forces combined parsing so positions share
 one coordinate space). The emitter stamps **every** body line:

@@ -170,10 +170,12 @@ src/compiler/python/
     pipeline.py                 ordered six-stage orchestration
   frontend/
     dependencies.py             ResolvedSource + typed dependency graph
-    resolver.py                 package/import/include/stdlib resolution
+    resolver.py                 per-invocation frontend composition root
+    imports.py                  owned import/include filesystem resolution
     stdlib.py                   stdlib discovery, composition, symbol ownership
     parser.py                   lex/parse modes + AST provenance
     visibility.py               per-file strict-import validation
+  pkg.py                        immutable package universe + resolution owner
   cli/
     compiler_cli.py             arguments, diagnostics, and user-facing file I/O
 
@@ -223,8 +225,17 @@ src/compiler/python/
     emitter_exprs.py             expression emission mixin
     emitter_gpu.py               GPU kernel + dispatch emission mixin
 
-    gen/                         IR generation (AST → IR lowering)
-      generator.py               main class + generate_ir() entry point
+    gen/                         IR generation (AST → structured IR lowering)
+      lowerer.py                 IRLowerer composition root + lower() entry point
+      lowering_context.py        explicit mutable state for one lowering run
+      call_resolver.py           call target/signature resolution owner
+      call_operands.py           source-order + lifetime operand planning owner
+      call_arguments.py          argument binding/default lowering integration
+      call_emission.py           temporary expression-dispatch integration seam
+      ownership.py               managed-value ownership policy owner
+      ownership_effects.py       call/assignment ownership-effect resolution
+      ownership_lifetime.py      retain/release/cleanup IR lowering owner
+      ownership_order.py         effect and operand-order classification
       classes.py                 class/struct lowering
       class_members.py           field/method/property lowering
       enums.py                   enum lowering (simple + rich)
