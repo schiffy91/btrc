@@ -10,9 +10,11 @@ import pytest
 from src.compiler.python import ebnf, pkg, pkg_git
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.pkg import IncludeResolutionError
+from src.compiler.python.pkg_git import GitDependencyCache
 from src.compiler.python.tokens import TokenType, TokenVocabulary
 
-PACKAGE_RESOLVER = pkg.PackageResolver()
+GIT = GitDependencyCache()
+PACKAGE_RESOLVER = pkg.PackageResolver(GIT)
 GRAMMAR_PARSER = ebnf.EbnfGrammarParser()
 
 # --------------------------------------------------------------------------
@@ -136,11 +138,11 @@ def test_resolve_dep_path_dict_absolute():
 
 def test_resolve_dep_git(monkeypatch):
     monkeypatch.setattr(
-        pkg_git,
-        "resolve_git",
+        GIT,
+        "resolve",
         lambda n, u, r, refresh=False: "/clone/root",
     )
-    monkeypatch.setattr(pkg_git, "resolved_commit", lambda _path: "a" * 40)
+    monkeypatch.setattr(GIT, "resolved_commit", lambda _path: "a" * 40)
     d = PACKAGE_RESOLVER._resolve_dependency(
         "net",
         {"git": "https://x/n.git", "rev": "v1"},
@@ -178,22 +180,22 @@ def test_resolve_git_clones(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     calls = []
     monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
-    path = pkg_git.resolve_git("net", "https://x/n.git", "v1")
+    path = GIT.resolve("net", "https://x/n.git", "v1")
     assert os.path.isabs(path) and len(calls) == 3  # clone + checkout + rev-parse
 
 
 def test_resolve_git_uses_pinned_ref_record(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
-    record = pkg_git._ref_record_path("net", "https://x/n.git", "v1")
-    pkg_git._publish_ref_record(record, "net", "https://x/n.git", "v1", "a" * 40)
+    record = GIT._ref_record_path("net", "https://x/n.git", "v1")
+    GIT._publish_ref_record(record, "net", "https://x/n.git", "v1", "a" * 40)
     observed = []
 
     def pinned(name, url, rev, commit):
         observed.append((name, url, rev, commit))
         return "/immutable/checkout"
 
-    monkeypatch.setattr(pkg_git, "_ensure_commit_checkout", pinned)
-    assert pkg_git.resolve_git("net", "https://x/n.git", "v1") == "/immutable/checkout"
+    monkeypatch.setattr(GIT, "_ensure_commit_checkout", pinned)
+    assert GIT.resolve("net", "https://x/n.git", "v1") == "/immutable/checkout"
     assert observed == [("net", "https://x/n.git", "v1", "a" * 40)]
 
 
@@ -201,7 +203,7 @@ def test_resolve_git_separates_url_from_options(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     calls = []
     monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
-    pkg_git.resolve_git("net", "--upload-pack=untrusted", "v1")
+    GIT.resolve("net", "--upload-pack=untrusted", "v1")
     assert calls[0][0:4] == ["git", "clone", "--quiet", "--"]
     assert calls[0][4] == "--upload-pack=untrusted"
 
@@ -214,10 +216,10 @@ def test_git_subprocesses_are_noninteractive_and_bounded(monkeypatch):
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
     monkeypatch.setattr(pkg_git.subprocess, "run", run)
-    pkg_git._git(["status"])
+    GIT._git(["status"])
 
     assert observed["check"] is True
-    assert observed["timeout"] == pkg_git._GIT_TIMEOUT_SECONDS
+    assert observed["timeout"] == GIT.GIT_TIMEOUT_SECONDS
     assert observed["env"]["GIT_TERMINAL_PROMPT"] == "0"
     assert observed["env"]["GCM_INTERACTIVE"] == "Never"
 
@@ -227,22 +229,22 @@ def test_resolve_git_rejects_option_revision(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
     with pytest.raises(ValueError, match="invalid revision"):
-        pkg_git.resolve_git("net", "https://x/n.git", "--orphan")
+        GIT.resolve("net", "https://x/n.git", "--orphan")
     assert calls == []
 
 
 def test_failed_git_checkout_does_not_poison_cache(tmp_path, monkeypatch):
     cache = tmp_path / "cache"
     monkeypatch.setenv("BTRC_PKG_CACHE", str(cache))
-    monkeypatch.setattr(pkg_git, "_git", lambda _args: None)
+    monkeypatch.setattr(GIT, "_git", lambda _args: None)
 
     def fail_checkout(_dest, _rev):
         raise ValueError("bad revision")
 
-    monkeypatch.setattr(pkg_git, "_checkout", fail_checkout)
+    monkeypatch.setattr(GIT, "_checkout", fail_checkout)
 
     with pytest.raises(ValueError, match="bad revision"):
-        pkg_git.resolve_git("net", "https://x/n.git", "missing")
+        GIT.resolve("net", "https://x/n.git", "missing")
 
     assert list(cache.iterdir()) == []
 

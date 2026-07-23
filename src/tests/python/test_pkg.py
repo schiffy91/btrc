@@ -1,5 +1,6 @@
 """Unit tests for the package manager (pkg.py)."""
 
+import ast
 import json
 import os
 import pathlib
@@ -9,10 +10,23 @@ import subprocess
 
 import pytest
 
-from src.compiler.python import cache_io, manifest_io, pkg, pkg_git
+import src.compiler.python.pkg_git as pkg_git_module
+from src.compiler.python import cache_io, manifest_io, pkg
 from src.compiler.python.pkg import IncludeResolutionError
+from src.compiler.python.pkg_git import GitDependencyCache
 
-RESOLVER = pkg.PackageResolver()
+GIT = GitDependencyCache()
+RESOLVER = pkg.PackageResolver(GIT)
+
+
+def test_git_dependency_behavior_is_owned_by_the_package_resolver(tmp_path):
+    module = ast.parse(pathlib.Path(pkg_git_module.__file__).read_text())
+    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    git_dependencies = GitDependencyCache(str(tmp_path / "cache"))
+    resolver = pkg.PackageResolver(git_dependencies)
+
+    assert loose_behavior == []
+    assert resolver.git_dependencies is git_dependencies
 
 
 def test_find_manifest_walks_up(tmp_path):
@@ -55,7 +69,7 @@ def test_package_timeout_becomes_resolution_error(tmp_path, monkeypatch):
     def timeout(*_args, **_kwargs):
         raise subprocess.TimeoutExpired(["git", "clone"], 300)
 
-    monkeypatch.setattr(pkg_git, "resolve_git", timeout)
+    monkeypatch.setattr(GIT, "resolve", timeout)
     with pytest.raises(IncludeResolutionError, match="package resolution failed"):
         RESOLVER.resolve_for(str(tmp_path / "main.btrc"))
 
@@ -136,7 +150,7 @@ def test_git_cache_identity_includes_exact_url_and_ref():
     """The identity hashes exact bytes, including formerly-colliding refs."""
     url_a = "https://a.example/netkit.git"
     url_b = "https://b.example/netkit.git"
-    identity = pkg_git.cache_identity
+    identity = GIT.cache_identity
     assert identity("netkit", url_a, "v1.0") != identity("netkit", url_b, "v1.0")
     assert identity("netkit", url_a, "feature/a") != identity("netkit", url_a, "feature_a")
 
@@ -168,7 +182,7 @@ def test_git_branch_dep_repinned_on_refresh(tmp_path, monkeypatch):
     repo = _make_git_repo(tmp_path / "upstream", "rev one")
     url = repo.as_uri()  # hermetic local file:// URL — no network
 
-    clone = pkg_git.resolve_git("dep", url, "main")
+    clone = GIT.resolve("dep", url, "main")
     assert "rev one" in (pathlib.Path(clone) / "lib.btrc").read_text()
 
     # Upstream advances; a plain resolve stays pinned...
@@ -188,11 +202,11 @@ def test_git_branch_dep_repinned_on_refresh(tmp_path, monkeypatch):
         capture_output=True,
     )
     assert "rev one" in (pathlib.Path(clone) / "lib.btrc").read_text()
-    pkg_git.resolve_git("dep", url, "main")
+    GIT.resolve("dep", url, "main")
     assert "rev one" in (pathlib.Path(clone) / "lib.btrc").read_text()
 
     # ...and --fetch (refresh) re-pins to the new tip.
-    refreshed = pkg_git.resolve_git("dep", url, "main", refresh=True)
+    refreshed = GIT.resolve("dep", url, "main", refresh=True)
     assert refreshed != clone
     assert "rev one" in (pathlib.Path(clone) / "lib.btrc").read_text()
     assert "rev two" in (pathlib.Path(refreshed) / "lib.btrc").read_text()
@@ -208,13 +222,13 @@ def test_pinned_sha_never_refetched(tmp_path, monkeypatch):
         capture_output=True,
         text=True,
     ).stdout.strip()
-    checkout = pkg_git.resolve_git("dep", repo.as_uri(), sha)
+    checkout = GIT.resolve("dep", repo.as_uri(), sha)
 
     def unexpected_clone(*_args):
         raise AssertionError("an immutable cached SHA must not be refetched")
 
-    monkeypatch.setattr(pkg_git, "_clone_to_temporary", unexpected_clone)
-    assert pkg_git.resolve_git("dep", repo.as_uri(), sha, refresh=True) == checkout
+    monkeypatch.setattr(GIT, "_clone_to_temporary", unexpected_clone)
+    assert GIT.resolve("dep", repo.as_uri(), sha, refresh=True) == checkout
 
 
 # --------------------------------------------------------------------------
@@ -273,7 +287,7 @@ def test_lock_git_entries_have_no_paths(tmp_path, monkeypatch):
         str(app / "btrc.toml"),
         refresh=True,
     ).entries
-    commit = pkg_git.resolved_commit(resolved["net"]["path"])
+    commit = GIT.resolved_commit(resolved["net"]["path"])
     lock = json.loads((app / "btrc.lock").read_text())
     # Machine-local clone paths never enter the lock; requested + resolved refs do.
     assert lock == {
@@ -318,7 +332,7 @@ def test_branch_lock_pins_same_commit_across_fresh_caches(tmp_path, monkeypatch)
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "machine-b-cache"))
     second = RESOLVER.resolve_manifest(str(manifest)).entries
     assert second["dep"]["commit"] == pinned
-    assert pkg_git.resolved_commit(second["dep"]["path"]) == pinned
+    assert GIT.resolved_commit(second["dep"]["path"]) == pinned
     assert "rev one" in (pathlib.Path(second["dep"]["path"]) / "lib.btrc").read_text()
 
     refreshed = RESOLVER.resolve_manifest(str(manifest), refresh=True).entries
@@ -349,8 +363,8 @@ def test_formerly_colliding_refs_have_distinct_checkouts(tmp_path, monkeypatch):
     )
     subprocess.run(["git", "branch", "feature_a"], cwd=repo, check=True)
 
-    slash = pkg_git.resolve_git("dep", repo.as_uri(), "feature/a", refresh=True)
-    underscore = pkg_git.resolve_git(
+    slash = GIT.resolve("dep", repo.as_uri(), "feature/a", refresh=True)
+    underscore = GIT.resolve(
         "dep",
         repo.as_uri(),
         "feature_a",
@@ -413,7 +427,7 @@ def test_malformed_schema_two_lock_fails_closed_without_resolving_ref(tmp_path, 
     def unexpected_resolution(*_args, **_kwargs):
         raise AssertionError("malformed v2 lock must not re-resolve a moving ref")
 
-    monkeypatch.setattr(pkg_git, "resolve_git", unexpected_resolution)
+    monkeypatch.setattr(GIT, "resolve", unexpected_resolution)
     with pytest.raises(pkg.LockfileError, match="invalid locked Git dependency"):
         RESOLVER.resolve_manifest(str(manifest))
     assert lock_path.read_bytes() == original

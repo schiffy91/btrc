@@ -17,9 +17,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from . import pkg_git
 from .cache_io import atomic_write_json, load_json
 from .manifest_io import load_manifest
+from .pkg_git import GitDependencyCache
 
 
 class IncludeResolutionError(Exception):
@@ -77,6 +77,9 @@ class ResolvedPackages:
 
 class PackageResolver:
     """Own manifest discovery, lockfile policy, and dependency materialization."""
+
+    def __init__(self, git_dependencies: GitDependencyCache | None = None) -> None:
+        self.git_dependencies = git_dependencies or GitDependencyCache()
 
     @staticmethod
     def find_manifest(start_directory: str) -> str | None:
@@ -162,8 +165,8 @@ class PackageResolver:
         canonical = json.dumps(dependencies, sort_keys=True, default=str)
         return hashlib.sha256(canonical.encode()).hexdigest()[:16]
 
-    @staticmethod
     def _resolve_dependency(
+        self,
         name: str,
         specification,
         manifest_directory: str,
@@ -188,14 +191,14 @@ class PackageResolver:
             return {"path": path}
         if "git" in specification:
             revision = specification.get("rev") or specification.get("tag") or specification.get("branch") or "HEAD"
-            path = pkg_git.resolve_git(
+            path = self.git_dependencies.resolve(
                 name,
                 specification["git"],
                 revision,
                 refresh=refresh,
             )
             return {
-                "commit": pkg_git.resolved_commit(path),
+                "commit": self.git_dependencies.resolved_commit(path),
                 "git": specification["git"],
                 "path": path,
                 "rev": revision,
@@ -245,7 +248,7 @@ class PackageResolver:
             entry = dict(value)
             if "git" in entry:
                 entry["commit"] = entry["commit"].lower()
-                entry["path"] = pkg_git.resolve_git(
+                entry["path"] = self.git_dependencies.resolve(
                     name,
                     entry["git"],
                     entry["rev"],
@@ -256,8 +259,11 @@ class PackageResolver:
             packages[name] = entry
         return packages
 
-    @staticmethod
-    def _validate_locked_packages(locked_packages: dict, lock_path: str) -> None:
+    def _validate_locked_packages(
+        self,
+        locked_packages: dict,
+        lock_path: str,
+    ) -> None:
         for name, entry in locked_packages.items():
             if not isinstance(name, str) or not name or not isinstance(entry, dict):
                 raise LockfileError(f"invalid schema-{LOCK_SCHEMA} package entry in '{lock_path}'")
@@ -269,7 +275,7 @@ class PackageResolver:
                     and isinstance(entry["rev"], str)
                     and bool(entry["rev"])
                     and not entry["rev"].startswith("-")
-                    and pkg_git.is_commit_sha(entry["commit"])
+                    and self.git_dependencies.is_commit_sha(entry["commit"])
                 )
                 if not valid:
                     raise LockfileError(f"invalid locked Git dependency '{name}' in '{lock_path}'")
