@@ -24,6 +24,8 @@ def test_nested_borrowed_callback_literals_are_proved_safe(
     tmp_path: Path,
 ) -> None:
     source = """
+        import std.vector;
+        import std.map;
         extern void aggregateForeignSet(string value);
         extern string aggregateForeignString();
         struct Slot { __fn_ptr<string> callback; };
@@ -36,11 +38,19 @@ def test_nested_borrowed_callback_literals_are_proved_safe(
             Map<string, __fn_ptr<string>> map = {
                 "one": aggregateForeignString
             };
-            return 0;
+            return branch.leaf.callback == aggregateForeignString
+                && pair._1 == aggregateForeignString
+                && vector.len == 1
+                && map.len == 1 ? 0 : 1;
         }
     """
-    for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
+    for index, (result, generated) in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
         assert result.returncode == 0, result.stdout + result.stderr
+        generated.write_text(generated.read_text() + FOREIGN_CALLBACK_DEFINITION)
+        _tracked_strict_matrix(
+            (f"nested-borrowed-callback-literals-{index}", generated),
+            tmp_path,
+        )
 
 
 def test_recursive_struct_borrowed_callback_balances_promoted_result(

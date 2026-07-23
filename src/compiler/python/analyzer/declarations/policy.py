@@ -12,7 +12,7 @@ from .c_names import (
     compiler_reserved_prefix,
     trusted_native_binding,
 )
-from .callables import CallableDeclarationPolicy, is_magic_method_name
+from .callables import CallableDeclarationPolicy
 from .hosted import HostedDeclarationPolicy
 from .signature_types import SignatureTypePolicy
 
@@ -80,7 +80,7 @@ class DeclarationPolicy:
                 col,
             )
             return False
-        if c_reserved_identifier(name) and not (allow_magic and is_magic_method_name(name)):
+        if c_reserved_identifier(name) and not (allow_magic and self.callables.is_magic_method_name(name)):
             self.context.error(f"{subject} name '{name}' is reserved by C11", line, col)
             return False
         if file_scope and c_file_scope_reserved_identifier(name):

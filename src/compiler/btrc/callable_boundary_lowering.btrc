@@ -41,6 +41,13 @@ Node? callableBoundaryStructDeclaration(
     return declaration;
 }
 
+bool callableBoundaryValidatedReferenceOwner(
+        IRGen generator, Node typeExpr) {
+    return typeExpr.pointer_depth > 0
+        || generator.analyzed.isClass(typeExpr.base)
+        || generator.analyzed.isGenericClass(typeExpr.base);
+}
+
 bool callableBoundaryTypeContainsManagedSeen(
         IRGen generator, Node? typeExpr, Map<string, bool> active) {
     Node? canonicalType = callableBoundaryCanonicalType(
@@ -48,6 +55,9 @@ bool callableBoundaryTypeContainsManagedSeen(
     if (canonicalType == null) { return false; }
     Node canonical = canonicalType;
     if (callableBoundaryManagedType(generator, canonical)) { return true; }
+    if (callableBoundaryValidatedReferenceOwner(generator, canonical)) {
+        return false;
+    }
     string key = TypeIdentity.shapeKey(canonical);
     if (active.has(key)) { return false; }
     active.put(key, true);
@@ -103,9 +113,6 @@ bool callableBoundaryUnsafeValue(
     if (callableBoundaryManagedType(generator, canonical)) {
         return generator.callableExpressionAbi(value, varTypes) != 0;
     }
-    if (!callableBoundaryTypeContainsManaged(generator, canonical)) {
-        return false;
-    }
     if (value.kind == NK_LIST_LITERAL
             || value.kind == NK_BRACE_INITIALIZER) {
         Node? elementType = null;
@@ -156,7 +163,6 @@ bool callableBoundaryUnsafeValue(
             }
             return false;
         }
-        return true;
     }
     if (value.kind == NK_TUPLE_LITERAL
             && canonical.base == "Tuple") {
@@ -188,8 +194,11 @@ bool callableBoundaryUnsafeValue(
         }
         return false;
     }
+    if (callableBoundaryValidatedReferenceOwner(generator, canonical)) {
+        return false;
+    }
     /* Aggregate values carry no ABI tag for their callback leaves. */
-    return true;
+    return callableBoundaryTypeContainsManaged(generator, canonical);
 }
 
 void rejectPersistentCallableBoundary(IRGen generator,

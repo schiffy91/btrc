@@ -170,15 +170,29 @@ def _contains_unsafe_managed_callback(
     if managed_callable_type(gen, expected):
         return callable_abi(value) != BORROWED_RETURN
 
-    if not _type_contains_managed_callback(gen, expected):
-        return False
     slots = _literal_aggregate_slots(gen, expected, value)
-    if slots is None:
-        # Aggregate values carry no runtime ownership tag for callback leaves.
-        # Only a contextual literal lets us prove every stored callback is on
-        # the borrowed C ABI; identifiers/calls must therefore fail closed.
-        return True
-    return any(_contains_unsafe_managed_callback(gen, slot_type, element, callable_abi) for slot_type, element in slots)
+    if slots is not None:
+        return any(
+            _contains_unsafe_managed_callback(
+                gen,
+                slot_type,
+                element,
+                callable_abi,
+            )
+            for slot_type, element in slots
+        )
+    if _is_validated_reference_owner(gen, expected):
+        return False
+    # By-value aggregate values carry no runtime ownership tag for callback
+    # leaves. Only a contextual literal lets us prove every stored callback is
+    # on the borrowed C ABI; identifiers/calls must therefore fail closed.
+    return _type_contains_managed_callback(gen, expected)
+
+
+def _is_validated_reference_owner(gen, expected_type) -> bool:
+    """Whether storage behind this reference enforces callback boundaries."""
+    expected = canonical_type(expected_type, gen.analyzed.typedef_table)
+    return bool(expected is not None and (expected.pointer_depth > 0 or expected.base in gen.analyzed.class_table))
 
 
 def _type_contains_managed_callback(
@@ -192,6 +206,8 @@ def _type_contains_managed_callback(
         return False
     if managed_callable_type(gen, expected):
         return True
+    if _is_validated_reference_owner(gen, expected):
+        return False
     key = type_shape_key(expected)
     if key in seen:
         return False

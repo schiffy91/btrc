@@ -80,10 +80,7 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
                 return sym.type
             function = self.declarations.function_table.get(expr.name)
             if function:
-                return TypeExpr(
-                    base="__fn_ptr",
-                    generic_args=[function.return_type, *(param.type for param in function.params)],
-                )
+                return self.declaration_policy.callables.function_value_type(function)
             owners = self.declarations.enum_member_owners.get(expr.name, set())
             if len(owners) == 1:
                 owner = next(iter(owners))
@@ -206,7 +203,9 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
             rich_enum = self.declarations.rich_enum_table.get(expr.obj.name)
             if rich_enum and any(variant.name == expr.field for variant in rich_enum.variants):
                 return TypeExpr(base="int")
-            class_info = self.declarations.class_table.get(expr.obj.name) if self.scope.lookup(expr.obj.name) is None else None
+            class_info = (
+                self.declarations.class_table.get(expr.obj.name) if self.scope.lookup(expr.obj.name) is None else None
+            )
             if class_info and expr.field in class_info.static_fields:
                 return class_info.static_fields[expr.field].type
         obj_type = self._infer_type(expr.obj)

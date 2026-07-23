@@ -172,8 +172,19 @@ def test_generic_persistent_boundaries_reject_owned_callback_abi(
         "__fn_ptr<string> slot[1] = [sourceString];",
         'Map<string, __fn_ptr<string>> slot = {"one": sourceString};',
         "Vector<Slot> slot = [{sourceString}];",
+        "Branch slot = {{sourceString}};",
+        "(int, (bool, __fn_ptr<string>)) slot = (1, (true, sourceString));",
     ),
-    ids=("struct", "tuple", "sequence", "array", "map", "nested"),
+    ids=(
+        "struct",
+        "tuple",
+        "sequence",
+        "array",
+        "map",
+        "nested-vector-struct",
+        "nested-struct",
+        "nested-tuple",
+    ),
 )
 def test_aggregate_storage_recursively_rejects_owned_callback_abi(
     semantic_btrcc: Path,
@@ -181,7 +192,10 @@ def test_aggregate_storage_recursively_rejects_owned_callback_abi(
     declaration: str,
 ) -> None:
     source = f"""
+        import std.vector;
+        import std.map;
         struct Slot {{ __fn_ptr<string> callback; }};
+        struct Branch {{ Slot leaf; }};
         string sourceString() {{ return f"owned={{1}}"; }}
         int main() {{ {declaration} return 0; }}
     """

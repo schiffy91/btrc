@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+from ...ast_nodes import TypeExpr
 from ...type_identity import type_shape_key
 from ..semantic_keys import semantic_ast_key
 from .type_resolution import canonical_declaration_type
@@ -32,10 +33,6 @@ MAGIC_METHOD_SIGNATURES = {
 }
 
 
-def is_magic_method_name(name: str) -> bool:
-    return name in MAGIC_METHOD_SIGNATURES
-
-
 class CallableDeclarationPolicy:
     def __init__(
         self,
@@ -44,6 +41,10 @@ class CallableDeclarationPolicy:
     ) -> None:
         self.context = context
         self.registry = registry
+
+    @staticmethod
+    def is_magic_method_name(name: str) -> bool:
+        return name in MAGIC_METHOD_SIGNATURES
 
     def validate_array_return(self, declaration, owner=None) -> None:
         return_type = declaration.return_type
@@ -55,6 +56,21 @@ class CallableDeclarationPolicy:
             declaration.line,
             declaration.col,
         )
+
+    @classmethod
+    def function_value_type(cls, declaration) -> TypeExpr:
+        """Represent a function value without declaration storage flags."""
+        return TypeExpr(
+            base="__fn_ptr",
+            generic_args=[
+                cls._signature_component(declaration.return_type),
+                *(cls._signature_component(parameter.type) for parameter in declaration.params),
+            ],
+        )
+
+    @staticmethod
+    def _signature_component(type_expr: TypeExpr) -> TypeExpr:
+        return replace(type_expr, is_extern=False, is_static=False)
 
     def validate_class_shape(self, class_decl, method) -> None:
         owner = f"method '{class_decl.name}.{method.name}'"
@@ -216,9 +232,9 @@ class CallableDeclarationPolicy:
     def _function_linkage(declaration) -> str:
         return "internal" if declaration.return_type.is_static else "external"
 
-    @staticmethod
-    def _function_type_key(type_expr):
-        return type_shape_key(replace(type_expr, is_extern=False, is_static=False))
+    @classmethod
+    def _function_type_key(cls, type_expr):
+        return type_shape_key(cls._signature_component(type_expr))
 
 
-__all__ = ["CallableDeclarationPolicy", "is_magic_method_name"]
+__all__ = ["CallableDeclarationPolicy"]

@@ -118,8 +118,7 @@ class GenericMethodsMixin:
         """
         if isinstance(arg, Identifier) and arg.name in self.declarations.function_table:
             func = self.declarations.function_table[arg.name]
-            generic_args = [func.return_type] + [p.type for p in func.params]
-            return TypeExpr(base="__fn_ptr", generic_args=generic_args)
+            return self.declaration_policy.callables.function_value_type(func)
         if isinstance(arg, LambdaExpr):
             return self._infer_type(arg)
         return self._infer_type(arg)
