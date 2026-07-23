@@ -5,9 +5,9 @@ from __future__ import annotations
 import hashlib
 import os
 
+from .artifacts.cache.compiler_cache import ToolchainFingerprint
 from .artifacts.stdlib.publisher import StdlibArchivePublisher
 from .cache_io import load_json, open_regular_binary
-from .cache_keys import toolchain_hash
 
 MANIFEST_SCHEMA = 5
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
@@ -90,6 +90,7 @@ def load_manifest(
     stdlib_source: str,
     manifest_name: str,
     publisher: StdlibArchivePublisher,
+    fingerprint: ToolchainFingerprint | None = None,
 ) -> dict:
     """Load an archive manifest and verify compiler and canonical stdlib bytes."""
     if publisher.publication_in_progress(stdlib_dir):
@@ -106,7 +107,7 @@ def load_manifest(
             f"stdlib archive in '{stdlib_dir}' has an invalid or unsupported "
             "manifest; regenerate it with --build-stdlib"
         )
-    current = toolchain_hash("full")
+    current = (fingerprint or ToolchainFingerprint()).digest("full")
     stamped = manifest["toolchain"]
     if stamped != current:
         raise ArchiveVersionError(

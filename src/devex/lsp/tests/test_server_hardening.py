@@ -238,8 +238,8 @@ def test_stdlib_base_cache_is_lru_capped():
 def test_unit_cache_version_is_content_derived():
     v = units_mod._UNIT_CACHE_VERSION
     assert re.fullmatch(r"[0-9a-f]{16}", v), v  # a hash, not a hand-bumped counter
-    assert units_mod.FileUnitCacheSchema.current_version() == v  # deterministic
-    assert v != units_mod.toolchain_hash("frontend")  # LSP codec/extraction included
+    assert units_mod.FileUnitCacheSchema().current_version() == v  # deterministic
+    assert v != units_mod.ToolchainFingerprint().digest("frontend")  # LSP sources included
 
 
 def test_prune_unit_cache_removes_legacy_pickles_and_only_expired_json(tmp_path):

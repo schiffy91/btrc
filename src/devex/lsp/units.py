@@ -19,13 +19,13 @@ import os
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
+from src.compiler.python.artifacts.cache.compiler_cache import ToolchainFingerprint
 from src.compiler.python.ast_nodes import (
     ImportDecl,
     PreprocessorDirective,
     RelativePath,
     import_spec,
 )
-from src.compiler.python.cache_keys import toolchain_hash
 from src.compiler.python.frontend.dependencies import SourceDependencyKind
 from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.import_scan import CINCLUDE_BTRC_RE
@@ -40,18 +40,25 @@ class FileUnitCacheSchema:
 
     _SOURCE_FILES = ("unit_cache.py", "units.py")
 
-    @classmethod
-    def current_version(cls) -> str:
+    def __init__(
+        self,
+        fingerprint: ToolchainFingerprint | None = None,
+        *,
+        source_directory: str | None = None,
+    ) -> None:
+        self._fingerprint = fingerprint or ToolchainFingerprint()
+        self._source_directory = source_directory or os.path.dirname(__file__)
+
+    def current_version(self) -> str:
         """Hash every source contract that shapes a serialized ``FileUnit``."""
 
-        digest = hashlib.sha256(toolchain_hash("frontend").encode())
-        lsp_dir = os.path.dirname(__file__)
-        for name in cls._SOURCE_FILES:
+        digest = hashlib.sha256(self._fingerprint.digest("frontend").encode())
+        for name in self._SOURCE_FILES:
             encoded_name = name.encode()
             digest.update(len(encoded_name).to_bytes(8, "big"))
             digest.update(encoded_name)
             try:
-                with open(os.path.join(lsp_dir, name), "rb") as source_file:
+                with open(os.path.join(self._source_directory, name), "rb") as source_file:
                     content = source_file.read()
             except OSError:
                 content = b"<missing>"
@@ -60,7 +67,7 @@ class FileUnitCacheSchema:
         return digest.hexdigest()[:16]
 
 
-_UNIT_CACHE_VERSION = FileUnitCacheSchema.current_version()
+_UNIT_CACHE_VERSION = FileUnitCacheSchema().current_version()
 
 
 @dataclass(frozen=True)

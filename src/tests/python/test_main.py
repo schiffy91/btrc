@@ -606,12 +606,13 @@ def test_cached_stdlib_decls_write_failure(tmp_path, monkeypatch):
     assert decls
 
 
-def test_cached_stdlib_decls_unavailable_cache_still_parses(monkeypatch):
-    def unavailable():
-        raise PermissionError("read-only cache root")
+def test_cached_stdlib_decls_unavailable_cache_still_parses():
+    class UnavailableDirectory:
+        def resolve(self, _input_path=None):
+            raise PermissionError("read-only cache root")
 
-    monkeypatch.setattr(frontend_stdlib_owner, "resolve_cache_dir", unavailable)
-    decls = STDLIB.cached_declarations("class Cacheless { public int x; public Cacheless() { self.x = 1; } }\n")
+    repository = StdlibRepository(cache_directory=UnavailableDirectory())
+    decls = repository.cached_declarations("class Cacheless { public int x; public Cacheless() { self.x = 1; } }\n")
     assert decls
 
 

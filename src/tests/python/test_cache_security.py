@@ -9,7 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import ast_codec, cache_io, disk_cache
+from src.compiler.python import ast_codec, cache_io
+from src.compiler.python.artifacts.cache.compiler_cache import CompilationCache
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.stdlib_ast_cache import SCHEMA_VERSION, StdlibAstCache
@@ -129,16 +130,17 @@ def test_stdlib_cache_retries_pruning_after_unavailable_directory(tmp_path):
 
 def test_disk_cache_atomic_failure_preserves_previous_entry(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
-    disk_cache.store("source", "old output")
+    cache = CompilationCache()
+    cache.store_text("source", "old output")
 
     def interrupted(_source, _target):
         raise OSError("simulated crash before replace")
 
     monkeypatch.setattr(cache_io.os, "replace", interrupted)
     with pytest.raises(OSError, match="simulated crash"):
-        disk_cache.store("source", "partial new output")
+        cache.store_text("source", "partial new output")
 
-    assert disk_cache.get_cached("source") == "old output"
+    assert cache.load_text("source") == "old output"
     assert not list(tmp_path.glob(".btrc-cache-*"))
 
 
@@ -229,29 +231,30 @@ def test_atomic_text_explicit_mode_replaces_unsafe_existing_mode(tmp_path):
 
 def test_disk_cache_corrupt_utf8_is_a_cache_miss(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
-    disk_cache.store("source", "valid")
+    cache = CompilationCache()
+    cache.store_text("source", "valid")
     cached_file = next(tmp_path.glob("*.c"))
     cached_file.write_bytes(b"\xff\xfe")
 
-    assert disk_cache.get_cached("source") is None
+    assert cache.load_text("source") is None
 
 
 def test_disk_cache_oversized_entry_is_a_cache_miss(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path))
-    disk_cache.store("source", "valid")
+    writer = CompilationCache()
+    writer.store_text("source", "valid")
     cached_file = next(tmp_path.glob("*.c"))
     cached_file.write_bytes(b"12345")
-    monkeypatch.setattr(disk_cache, "MAX_C_CACHE_BYTES", 4)
 
-    assert disk_cache.get_cached("source") is None
+    assert CompilationCache(max_entry_bytes=4).load_text("source") is None
 
 
-def test_disk_cache_unavailable_directory_is_a_cache_miss(monkeypatch):
-    def unavailable(_input_path=None):
-        raise PermissionError("read-only cache root")
+def test_disk_cache_unavailable_directory_is_a_cache_miss():
+    class UnavailableDirectory:
+        def resolve(self, _input_path=None):
+            raise PermissionError("read-only cache root")
 
-    monkeypatch.setattr(disk_cache, "resolve_cache_dir", unavailable)
-    assert disk_cache.get_cached("source") is None
+    assert CompilationCache(directory=UnavailableDirectory()).load_text("source") is None
 
 
 @pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="platform has no no-follow open flag")

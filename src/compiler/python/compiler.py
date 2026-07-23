@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import os
 
-from .artifacts.cache.compiler_cache import CompilationCache
+from .artifacts.cache.compiler_cache import CompilationCache, ToolchainFingerprint
 from .pipeline.models import CompilerOptions, CompilerResult, FrontendResult
 from .pipeline.pipeline import CompilerPipeline
 
@@ -18,8 +18,9 @@ class Compiler:
         pipeline: CompilerPipeline | None = None,
         cache: CompilationCache | None = None,
     ) -> None:
-        self.pipeline = pipeline or CompilerPipeline()
-        self.cache = cache or CompilationCache()
+        fingerprint = ToolchainFingerprint()
+        self.pipeline = pipeline or CompilerPipeline(fingerprint=fingerprint)
+        self.cache = cache or CompilationCache(fingerprint=fingerprint)
 
     def compile(
         self,

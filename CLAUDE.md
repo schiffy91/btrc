@@ -185,8 +185,8 @@ src/compiler/python/
   lexer_literals.py             number/string literal parsing
   ast_nodes.py                  GENERATED from src/language/ast.asdl
   cache_io.py                   atomic JSON/text cache writes
-  cache_keys.py                 cache paths + toolchain fingerprints
-  disk_cache.py                 on-disk compiled-C cache
+  artifacts/cache/compiler_cache.py
+                                toolchain fingerprints + compiled-C cache
   stdlib_ast_cache.py           schema-validated JSON stdlib AST cache
 
   parser/                        recursive descent parser (mixin-based)

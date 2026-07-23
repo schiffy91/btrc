@@ -11,13 +11,13 @@ from pathlib import Path
 import pytest
 
 import src.compiler.python.artifacts.publication.publisher as transaction_module
+from src.compiler.python.artifacts.cache.compiler_cache import ToolchainFingerprint
 from src.compiler.python.artifacts.publication.publisher import (
     ArtifactPublisher,
     PublishedArtifact,
 )
 from src.compiler.python.artifacts.publication.storage import ArtifactStorage
 from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
-from src.compiler.python.cache_keys import toolchain_hash
 from src.compiler.python.stdlib_archive import (
     HEADER_NAME,
     IMPL_NAME,
@@ -82,7 +82,7 @@ def _stdlib_manifest(source: str, header: str, impl: str) -> dict:
         },
         "schema": MANIFEST_SCHEMA,
         "stdlib_source": hashlib.sha256(source.encode()).hexdigest(),
-        "toolchain": toolchain_hash("full"),
+        "toolchain": ToolchainFingerprint().digest("full"),
         "types": [],
         "functions": [],
         "function_declarations": [],

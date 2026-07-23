@@ -7,6 +7,7 @@ import os
 import threading
 import time
 
+from src.compiler.python.artifacts.cache.compiler_cache import CacheDirectory
 from src.compiler.python.ast_codec import decode_ast, encode_ast
 from src.compiler.python.ast_nodes import (
     PackagePath,
@@ -16,7 +17,6 @@ from src.compiler.python.ast_nodes import (
     StdModules,
 )
 from src.compiler.python.cache_io import atomic_write_json, load_json
-from src.compiler.python.cache_keys import resolve_cache_dir
 from src.compiler.python.frontend.dependencies import SourceDependencyKind
 from src.devex.lsp.units import (
     _UNIT_CACHE_VERSION,
@@ -140,11 +140,14 @@ class UnitCache:
         self._prune_lock = threading.Lock()
 
     @classmethod
-    def from_environment(cls) -> UnitCache:
+    def from_environment(
+        cls,
+        cache_directory: CacheDirectory | None = None,
+    ) -> UnitCache:
         """Resolve the shared compiler cache, disabling persistence on failure."""
 
         try:
-            return cls(resolve_cache_dir())
+            return cls((cache_directory or CacheDirectory()).resolve())
         except OSError:
             return cls(None)
 

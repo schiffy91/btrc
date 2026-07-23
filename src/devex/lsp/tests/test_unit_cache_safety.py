@@ -52,11 +52,16 @@ def test_json_unit_cache_roundtrip_is_deterministic(tmp_path):
     assert loaded.source == "" and loaded.tokens == []
 
 
-def test_unit_cache_version_covers_frontend_schema(monkeypatch):
-    monkeypatch.setattr(units, "toolchain_hash", lambda _scope: "frontend-a")
-    first = units.FileUnitCacheSchema.current_version()
-    monkeypatch.setattr(units, "toolchain_hash", lambda _scope: "frontend-b")
-    second = units.FileUnitCacheSchema.current_version()
+def test_unit_cache_version_covers_frontend_schema():
+    class FixedFingerprint:
+        def __init__(self, value):
+            self.value = value
+
+        def digest(self, _scope):
+            return self.value
+
+    first = units.FileUnitCacheSchema(FixedFingerprint("frontend-a")).current_version()
+    second = units.FileUnitCacheSchema(FixedFingerprint("frontend-b")).current_version()
 
     assert first != second
 
@@ -156,15 +161,16 @@ def test_parse_failures_are_not_persisted_as_successful_units(tmp_path):
     assert not list(cache_dir.glob("lspunit-*.json"))
 
 
-def test_unavailable_cache_does_not_disable_stdlib_analysis(tmp_path, monkeypatch):
+def test_unavailable_cache_does_not_disable_stdlib_analysis(tmp_path):
     source_file = tmp_path / "stdlib.btrc"
     source_file.write_text(_source())
 
-    def unavailable():
-        raise PermissionError("read-only cache root")
+    class UnavailableDirectory:
+        def resolve(self, _input_path=None):
+            raise PermissionError("read-only cache root")
 
-    monkeypatch.setattr(unit_cache, "resolve_cache_dir", unavailable)
-    unit = Workspace()._load_stdlib_unit(str(source_file))
+    unavailable_cache = UnitCache.from_environment(UnavailableDirectory())
+    unit = Workspace(unit_cache=unavailable_cache)._load_stdlib_unit(str(source_file))
 
     assert unit is not None and unit.error is None
     assert unit.decls

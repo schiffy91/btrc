@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 
 from ..analyzer.semantic_analyzer import SemanticAnalyzer
+from ..artifacts.cache.compiler_cache import ToolchainFingerprint
 from ..artifacts.stdlib.consumer import StdlibArchiveConsumer
 from ..ast_nodes import Program
 from ..frontend.dependencies import ResolvedSource
@@ -44,15 +45,20 @@ class CompilerPipeline:
         optimizer: Callable = optimize,
         emitter_factory: Callable[[], CEmitter] = CEmitter,
         archive_consumer: StdlibArchiveConsumer | None = None,
+        fingerprint: ToolchainFingerprint | None = None,
     ) -> None:
-        stdlib = resolver.stdlib if resolver is not None else StdlibRepository()
+        fingerprint = fingerprint or ToolchainFingerprint()
+        stdlib = resolver.stdlib if resolver is not None else StdlibRepository(fingerprint=fingerprint)
         self.resolver = resolver or SourceResolver(stdlib)
         self.parser = parser or FrontendParser(stdlib)
         self._analyzer_factory = analyzer_factory
         self._lowerer_factory = lowerer_factory
         self._optimizer = optimizer
         self._emitter_factory = emitter_factory
-        self._archive_consumer = archive_consumer or StdlibArchiveConsumer(stdlib)
+        self._archive_consumer = archive_consumer or StdlibArchiveConsumer(
+            stdlib,
+            fingerprint=fingerprint,
+        )
 
     @staticmethod
     def _timed(profile: dict[str, float] | None, label: str, start: float) -> None:

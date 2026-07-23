@@ -7,7 +7,7 @@ import re
 from contextlib import suppress
 
 from .. import ast_nodes as ast
-from ..cache_keys import resolve_cache_dir, toolchain_hash
+from ..artifacts.cache.compiler_cache import CacheDirectory, ToolchainFingerprint
 from ..frontend_limits import ResolutionBudget
 from ..import_scan import scan_directives
 from ..lexer import Lexer
@@ -19,7 +19,6 @@ from ..source_macros import source_macro_name
 from ..stdlib_ast_cache import StdlibAstCache
 from .dependencies import SourceDependencyGraph
 
-_STDLIB_AST_VERSION = toolchain_hash("frontend")
 _DEFAULT_STDLIB_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "stdlib"))
 _PRIORITY_FILES = (
     "vector.btrc",
@@ -50,16 +49,20 @@ class StdlibRepository:
     def __init__(
         self,
         ast_cache: StdlibAstCache | None = None,
+        cache_directory: CacheDirectory | None = None,
+        fingerprint: ToolchainFingerprint | None = None,
         *,
         directory: str | None = None,
     ) -> None:
         self.ast_cache = ast_cache or StdlibAstCache()
+        self._cache_directory = cache_directory or CacheDirectory()
+        self._ast_version = (fingerprint or ToolchainFingerprint()).digest("frontend")
         self._directory = os.path.abspath(directory or _DEFAULT_STDLIB_DIRECTORY)
         self._symbol_files: dict[str, frozenset[str]] | None = None
 
     @property
     def ast_version(self) -> str:
-        return _STDLIB_AST_VERSION
+        return self._ast_version
 
     def directory(self) -> str:
         return self._directory
@@ -127,7 +130,7 @@ class StdlibRepository:
     def cached_declarations(self, stdlib_source: str) -> list:
         """Return independently decoded declarations from the persistent cache."""
         try:
-            cache_dir = resolve_cache_dir()
+            cache_dir = self._cache_directory.resolve()
         except OSError:
             return self._parse_declarations(stdlib_source)
         self.ast_cache.prune(cache_dir)

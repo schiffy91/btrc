@@ -37,8 +37,8 @@ from __future__ import annotations
 import hashlib
 
 from . import stdlib_archive_validation as _archive_validation
+from .artifacts.cache.compiler_cache import ToolchainFingerprint
 from .artifacts.stdlib.publisher import StdlibArchivePublisher
-from .cache_keys import toolchain_hash
 from .stdlib_archive_helpers import (
     ARCHIVE_HELPER_API_NAMES,
     derive_archive_api_decls,
@@ -160,6 +160,7 @@ def _build_manifest(
     shared_helpers: list[str],
     stdlib_source: str,
     artifacts: dict[str, str] | None = None,
+    fingerprint: ToolchainFingerprint | None = None,
 ) -> dict:
     """Identify every top-level element the archive provides, so a program can
     drop its own copy. Named elements key by name; macro records preserve their
@@ -173,7 +174,7 @@ def _build_manifest(
         "artifacts": {name: hashlib.sha256(content.encode("utf-8")).hexdigest() for name, content in artifacts.items()},
         "schema": MANIFEST_SCHEMA,
         "stdlib_source": _stdlib_source_hash(stdlib_source),
-        "toolchain": toolchain_hash("full"),
+        "toolchain": (fingerprint or ToolchainFingerprint()).digest("full"),
         "types": sorted(
             {e.name for e in module.enum_defs if e.name is not None}
             | {f.name for f in module.struct_forwards}
@@ -202,6 +203,7 @@ def build_archive(
     module,
     stdlib_source: str,
     publisher: StdlibArchivePublisher,
+    fingerprint: ToolchainFingerprint | None = None,
 ) -> dict:
     """Transform ``module`` and write the header, impl, and manifest into
     ``out_dir``. Returns the manifest dict.
@@ -219,6 +221,7 @@ def build_archive(
         shared,
         stdlib_source,
         {HEADER_NAME: header, IMPL_NAME: impl},
+        fingerprint,
     )
 
     publisher.publish(
@@ -237,6 +240,7 @@ def load_manifest(
     stdlib_dir: str,
     stdlib_source: str,
     publisher: StdlibArchivePublisher,
+    fingerprint: ToolchainFingerprint | None = None,
 ) -> dict:
     """Load and validate an archive against the canonical whole stdlib."""
     return _archive_validation.load_manifest(
@@ -244,6 +248,7 @@ def load_manifest(
         stdlib_source,
         MANIFEST_NAME,
         publisher,
+        fingerprint or ToolchainFingerprint(),
     )
 
 
