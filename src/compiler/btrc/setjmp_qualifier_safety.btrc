@@ -2,8 +2,6 @@
  * btrc currently models only an outer object qualifier, so it cannot express
  * the layered C type required by an address or array-decay alias. */
 
-Vector<IRGlobalDecl> setjmpQualifierGlobals;
-
 IRNode? setjmpVisibleAutomatic(string name, Vector<IRNode> visible) {
     int index = visible.len - 1;
     while (index >= 0) {
@@ -20,16 +18,6 @@ IRParam? setjmpVisibleParameter(string name, Vector<IRParam> params) {
         IRParam parameter = params.get(index);
         if (parameter.name == name) { return parameter; }
         index = index + 1;
-    }
-    return null;
-}
-
-IRGlobalDecl? setjmpVisibleGlobal(string name) {
-    int index = setjmpQualifierGlobals.len - 1;
-    while (index >= 0) {
-        IRGlobalDecl declaration = setjmpQualifierGlobals.get(index);
-        if (declaration.name == name) { return declaration; }
-        index = index - 1;
     }
     return null;
 }
@@ -244,7 +232,6 @@ void validateSetjmpQualifierSafety(IRFunction definition) {
 }
 
 void validateGlobalQualifierSafety(IRModule module) {
-    setjmpQualifierGlobals = module.global_decls;
     Vector<IRNode> visible = [];
     Vector<IRParam> params = [];
     int index = 0;
