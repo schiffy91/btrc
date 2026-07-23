@@ -1,113 +1,90 @@
-"""Call, cast, and scalar-type contracts for WGSL-compatible GPU code."""
+"""Resolution policy for calls that have a WGSL intrinsic spelling."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..ast_nodes import CallExpr, CastExpr, Identifier, TypeExpr
-from ..gpu_builtins import (
-    WGSL_BUILTIN_ARITY,
-    WGSL_CALL_BUILTINS,
-    WGSL_FLOAT_UNARY_BUILTINS,
-    WGSL_SAME_TYPE_BUILTINS,
-)
+from ..ast_nodes import CallExpr, Identifier
+from ..gpu_builtins import WGSL_CALL_BUILTINS
+from ..hosted_abi import hosted_owned_name
+from ..source_provenance import is_compiler_stdlib_source
 
 if TYPE_CHECKING:
-    from .gpu_exprs import GpuValidationContext
+    from .analysis_context import AnalysisContext
+    from .core_models import Scope
+    from .declarations.registry import DeclarationRegistry
 
 
-def gpu_builtin_call_uses_intrinsic(analyzer, call: CallExpr) -> bool:
-    """Whether a direct call resolves to the GPU intrinsic, not a source symbol."""
-    if not analyzer.in_gpu_function or not isinstance(call.callee, Identifier):
-        return False
-    name = call.callee.name
-    if name not in WGSL_CALL_BUILTINS:
-        return False
-    symbol = analyzer.scope.lookup(name)
-    if symbol is not None and symbol.kind != "function":
-        return False
-    declaration = analyzer.declarations.function_table.get(name)
-    return declaration is None or analyzer._hosted_call_uses_owned_symbol(call)
+class GpuIntrinsicResolver:
+    """Own source-symbol versus WGSL-intrinsic call resolution."""
 
+    def __init__(
+        self,
+        context: AnalysisContext,
+        declarations: DeclarationRegistry,
+    ) -> None:
+        self._context = context
+        self._declarations = declarations
 
-def validate_gpu_call(context: GpuValidationContext, call: CallExpr) -> None:
-    from .gpu_exprs import validate_gpu_expr
+    def call_uses_intrinsic(
+        self,
+        call: CallExpr,
+        scope: Scope,
+        *,
+        in_gpu_function: bool,
+    ) -> bool:
+        """Whether a direct call resolves to the GPU intrinsic."""
+        if not in_gpu_function or not isinstance(call.callee, Identifier):
+            return False
+        name = call.callee.name
+        if name not in WGSL_CALL_BUILTINS:
+            return False
+        symbol = scope.lookup(name)
+        if symbol is not None and symbol.kind != "function":
+            return False
+        declaration = self._declarations.function_table.get(name)
+        return declaration is None or self._hosted_call_uses_owned_symbol(name, scope)
 
-    for argument in call.args:
-        validate_gpu_expr(context, argument)
-    if any(call.arg_names):
-        context.error("WGSL built-ins do not accept named arguments", call)
-    if not isinstance(call.callee, Identifier):
-        context.error("indirect and method calls have no WGSL definition", call.callee)
-        return
-    name = call.callee.name
-    source_function = name in context.analyzer.declarations.function_table and not gpu_builtin_call_uses_intrinsic(
-        context.analyzer,
-        call,
-    )
-    if context.knows(name) or source_function:
-        context.error(
-            f"call to '{name}' has no WGSL definition because it resolves to a source symbol",
-            call,
-        )
-        return
-    if name == "gpu_id":
-        if call.args:
-            context.error("gpu_id() takes no arguments", call)
-        return
-    if name not in WGSL_CALL_BUILTINS:
-        context.error(
-            f"call to '{name}' has no WGSL definition; only gpu_id() and WGSL built-ins are allowed",
-            call,
-        )
-        return
-    expected = WGSL_BUILTIN_ARITY[name]
-    if len(call.args) != expected:
-        context.error(f"{name}() expects {expected} argument(s), got {len(call.args)}", call)
-        return
-    argument_types = [context.type_of(argument) for argument in call.args]
-    bases = [type_expr.base for type_expr in argument_types if type_expr is not None]
-    if name in WGSL_FLOAT_UNARY_BUILTINS or name == "pow":
-        if any(not is_gpu_scalar(type_expr, {"float"}) for type_expr in argument_types if type_expr is not None):
-            context.error(f"{name}() requires float arguments in GPU functions", call)
-        result_base = "float"
-    elif name in WGSL_SAME_TYPE_BUILTINS:
-        if any(not is_gpu_scalar(type_expr, {"int", "float"}) for type_expr in argument_types if type_expr is not None):
-            context.error(f"{name}() requires int or float arguments in GPU functions", call)
-        if bases and any(base != bases[0] for base in bases[1:]):
-            context.error(f"{name}() arguments must have the same GPU scalar type", call)
-        result_base = bases[0] if bases else "float"
-    else:
-        result_base = "float"
-    context.analyzer._record_node_type(call, TypeExpr(base=result_base))
-
-
-def validate_gpu_cast(context: GpuValidationContext, cast: CastExpr) -> None:
-    target = cast.target_type
-    if not is_gpu_scalar(target, {"int", "float", "bool"}):
-        context.error(
-            f"cast target '{context.analyzer._format_type(target)}' has no WGSL scalar representation",
-            cast,
+    def call_resolves_to_source_symbol(
+        self,
+        call: CallExpr,
+        scope: Scope,
+        *,
+        in_gpu_function: bool,
+    ) -> bool:
+        """Whether a WGSL-shaped call is owned by a source declaration."""
+        return bool(
+            isinstance(call.callee, Identifier)
+            and call.callee.name in self._declarations.function_table
+            and not self.call_uses_intrinsic(
+                call,
+                scope,
+                in_gpu_function=in_gpu_function,
+            )
         )
 
+    def _hosted_call_uses_owned_symbol(self, name: str, scope: Scope) -> bool:
+        if not hosted_owned_name(name):
+            return False
+        symbol = scope.lookup(name)
+        if symbol is not None and symbol.kind != "function":
+            return False
+        declaration = self._declarations.function_table.get(name)
+        return bool(
+            declaration is None or declaration.body is None or self._hosted_name_bypasses_source_definition(name)
+        )
 
-def require_exact_gpu_type(
-    context: GpuValidationContext,
-    expression,
-    allowed: set[str],
-    role: str,
-) -> None:
-    type_expr = context.type_of(expression)
-    if type_expr is not None and not is_gpu_scalar(type_expr, allowed):
-        expected = " or ".join(sorted(allowed))
-        context.error(f"{role} must be {expected}, got '{type_expr.base}'", expression)
+    def _hosted_name_bypasses_source_definition(self, name: str) -> bool:
+        declaration = self._declarations.function_table.get(name)
+        return bool(
+            declaration is not None
+            and declaration.body is not None
+            and hosted_owned_name(name)
+            and is_compiler_stdlib_source(self._context.current_source_file)
+            and not is_compiler_stdlib_source(
+                getattr(declaration, "source_file", None),
+            )
+        )
 
 
-def is_gpu_scalar(type_expr, allowed: set[str]) -> bool:
-    return bool(
-        type_expr.base in allowed
-        and not type_expr.is_array
-        and type_expr.pointer_depth == 0
-        and not type_expr.generic_args
-        and not type_expr.is_nullable
-    )
+__all__ = ["GpuIntrinsicResolver"]

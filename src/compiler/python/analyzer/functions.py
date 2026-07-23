@@ -309,9 +309,11 @@ class FunctionsMixin:
         # GPU validation consumes inferred local/expression types, so it runs
         # after ordinary body analysis while the function scope is still live.
         if func.is_gpu:
-            from .gpu import validate_gpu_function
-
-            validate_gpu_function(self, func)
+            self.gpu_kernels.validate(
+                func,
+                self.scope,
+                array_target_has_capacity=self._array_target_has_capacity,
+            )
 
         if (
             func.return_type

@@ -7,7 +7,6 @@ from ..gpu_builtins import WGSL_SAME_TYPE_BUILTINS
 from ..hosted_abi import hosted_semantic_result
 from ..operator_semantics import GENERIC_COMPARISON_INTRINSICS
 from .c_call_types import C_POINTER_CALL_RESULTS, C_SCALAR_CALL_RESULTS
-from .gpu_type_contracts import gpu_builtin_call_uses_intrinsic
 
 
 class CallTypeInferenceMixin:
@@ -24,7 +23,11 @@ class CallTypeInferenceMixin:
                 return signature[0]
             if symbol is not None and symbol.kind != "function":
                 return None
-            if gpu_builtin_call_uses_intrinsic(self, expr):
+            if self.gpu_kernels.call_uses_intrinsic(
+                expr,
+                self.scope,
+                in_gpu_function=self.in_gpu_function,
+            ):
                 if name in WGSL_SAME_TYPE_BUILTINS and expr.args:
                     return self._infer_type(expr.args[0])
                 return TypeExpr(base="float")

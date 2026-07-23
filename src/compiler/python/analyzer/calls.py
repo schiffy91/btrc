@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ..ast_nodes import FieldAccessExpr, Identifier, LambdaExpr
 from ..operator_semantics import GENERIC_INTRINSICS
-from .gpu_type_contracts import gpu_builtin_call_uses_intrinsic
 
 
 class CallValidationMixin:
@@ -60,7 +59,11 @@ class CallValidationMixin:
         name = expr.callee.name
         if self._is_raw_lifetime_call(expr):
             self._validate_raw_lifetime_call(expr)
-        if gpu_builtin_call_uses_intrinsic(self, expr):
+        if self.gpu_kernels.call_uses_intrinsic(
+            expr,
+            self.scope,
+            in_gpu_function=self.in_gpu_function,
+        ):
             if name in self.declarations.function_table:
                 # A canonical bodyless hosted prototype is superseded by the
                 # closed GPU intrinsic in this context. Preserve that resolved

@@ -1,14 +1,8 @@
-"""GPU function validation for @gpu-annotated functions.
-
-Validates that @gpu functions only use the WGSL-compatible subset of btrc:
-- Parameters must be scalar primitives or typed arrays
-- Return type must be void or typed array
-- Body must use only arithmetic, comparisons, if/else, for, while, var decls
-- Rejects: strings, classes, collections, print, new/delete, lambdas, try/catch
-"""
+"""Owned semantic validation for ``@gpu`` kernels."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ..ast_nodes import (
@@ -30,212 +24,314 @@ from ..ast_nodes import (
     VarDeclStmt,
     WhileStmt,
 )
-from .gpu_exprs import (
-    GpuValidationContext,
-    is_gpu_expression_statement,
-    is_gpu_update_statement,
-    validate_gpu_expr,
-)
+from ..type_identity import is_semantic_scalar_void
+from .declarations.type_resolution import canonical_declaration_type
+from .gpu_exprs import GpuExpressionValidator, GpuKernelValidation
+from .gpu_type_contracts import GpuIntrinsicResolver
 
 if TYPE_CHECKING:
-    from .core import AnalyzerBase
+    from ..ast_nodes import CallExpr, FunctionDecl
+    from .analysis_context import AnalysisContext
+    from .core_models import Scope
+    from .declarations.registry import DeclarationRegistry
 
-# Types allowed in @gpu functions
-_GPU_SCALAR_TYPES = {"int", "float", "bool"}
-_GPU_ARRAY_ELEM_TYPES = {"int", "float"}
+_GPU_SCALAR_TYPES = frozenset({"int", "float", "bool"})
+_GPU_ARRAY_ELEM_TYPES = frozenset({"int", "float"})
 
 
-def validate_gpu_function(analyzer: AnalyzerBase, func) -> None:
-    """Validate the analyzed function against the WGSL kernel contract."""
-    name = func.name
-    line, col = func.line, func.col
+class GpuKernelValidator:
+    """Own the complete post-analysis contract for WGSL kernels."""
 
-    # Validate parameters
-    prior_array_params: set[str] = set()
-    for param in func.params:
-        _validate_gpu_type(analyzer, param.type, f"parameter '{param.name}'", name, line, col, allow_array=True)
-        canonical = analyzer._canonical_type(param.type)
-        if canonical is not None and canonical.is_array and param.default is not None:
-            actual = analyzer._infer_type(param.default)
-            inherited_capacity = isinstance(param.default, Identifier) and param.default.name in prior_array_params
-            if (
-                actual is not None
-                and not inherited_capacity
-                and not analyzer._array_target_has_capacity(param.default, actual)
-            ):
-                analyzer.context.error(
-                    f"Default for parameter '{param.name}' has no provable readable GPU buffer capacity",
-                    getattr(param.default, "line", line),
-                    getattr(param.default, "col", col),
+    def __init__(
+        self,
+        context: AnalysisContext,
+        declarations: DeclarationRegistry,
+        node_types: dict[int, TypeExpr],
+    ) -> None:
+        self._context = context
+        self._declarations = declarations
+        self._node_types = node_types
+        self._intrinsics = GpuIntrinsicResolver(context, declarations)
+        self._expressions = GpuExpressionValidator(self._intrinsics)
+
+    def validate(
+        self,
+        function: FunctionDecl,
+        scope: Scope,
+        *,
+        array_target_has_capacity: Callable[[object, TypeExpr], bool],
+    ) -> None:
+        """Validate one analyzed function without retaining function-local state."""
+        name = function.name
+        line, col = function.line, function.col
+
+        prior_array_params: set[str] = set()
+        for parameter in function.params:
+            self._validate_type(
+                parameter.type,
+                f"parameter '{parameter.name}'",
+                name,
+                line,
+                col,
+                allow_array=True,
+            )
+            canonical = self._canonical_type(parameter.type)
+            if canonical is not None and canonical.is_array and parameter.default is not None:
+                actual = self._node_types.get(id(parameter.default))
+                inherited_capacity = (
+                    isinstance(parameter.default, Identifier) and parameter.default.name in prior_array_params
                 )
-        if canonical is not None and canonical.is_array:
-            prior_array_params.add(param.name)
+                if (
+                    actual is not None
+                    and not inherited_capacity
+                    and not array_target_has_capacity(parameter.default, actual)
+                ):
+                    self._context.error(
+                        f"Default for parameter '{parameter.name}' has no provable readable GPU buffer capacity",
+                        getattr(parameter.default, "line", line),
+                        getattr(parameter.default, "col", col),
+                    )
+            if canonical is not None and canonical.is_array:
+                prior_array_params.add(parameter.name)
 
-    # Validate return type
-    ret = func.return_type
-    if ret and not analyzer._is_nonpointer_void_object(ret):
-        if ret.is_array:
-            if ret.base not in _GPU_ARRAY_ELEM_TYPES:
-                analyzer.context.error(
-                    f"@gpu function '{name}' return type must be void or a "
-                    f"typed array (int[] or float[]), got '{ret.base}[]'",
+        return_type = function.return_type
+        if return_type and not is_semantic_scalar_void(return_type):
+            if return_type.is_array:
+                if return_type.base not in _GPU_ARRAY_ELEM_TYPES:
+                    self._context.error(
+                        f"@gpu function '{name}' return type must be void or a "
+                        f"typed array (int[] or float[]), got '{return_type.base}[]'",
+                        line,
+                        col,
+                    )
+            else:
+                self._context.error(
+                    f"@gpu function '{name}' must return void or a typed array, got '{return_type.base}'",
                     line,
                     col,
                 )
-        else:
-            analyzer.context.error(
-                f"@gpu function '{name}' must return void or a typed array, got '{ret.base}'", line, col
-            )
 
-    scalar_params = frozenset(param.name for param in func.params if not param.type.is_array)
-    array_params = frozenset(param.name for param in func.params if param.type.is_array)
-    context = GpuValidationContext(
-        analyzer=analyzer,
-        function_name=name,
-        scalar_params=scalar_params,
-        array_params=array_params,
-        scopes=[],
-    )
-    if func.body:
-        _validate_gpu_block(context, func.body)
+        validation = GpuKernelValidation(
+            self._context,
+            self._declarations.typedef_table,
+            self._node_types,
+            scope,
+            function_name=name,
+            scalar_params=frozenset(parameter.name for parameter in function.params if not parameter.type.is_array),
+            array_params=frozenset(parameter.name for parameter in function.params if parameter.type.is_array),
+        )
+        if function.body:
+            self._validate_block(validation, function.body)
 
+    def call_uses_intrinsic(
+        self,
+        call: CallExpr,
+        scope: Scope,
+        *,
+        in_gpu_function: bool,
+    ) -> bool:
+        """Resolve a WGSL-shaped call for ordinary expression analysis."""
+        return self._intrinsics.call_uses_intrinsic(
+            call,
+            scope,
+            in_gpu_function=in_gpu_function,
+        )
 
-def _validate_gpu_type(
-    analyzer, type_expr: TypeExpr, context: str, func_name: str, line: int, col: int, allow_array: bool = False
-) -> None:
-    """Validate a type is GPU-compatible."""
-    if type_expr is None:
-        return
+    def _canonical_type(self, type_expr: TypeExpr | None) -> TypeExpr | None:
+        return canonical_declaration_type(
+            type_expr,
+            self._declarations.typedef_table,
+        )
 
-    if type_expr.is_nullable:
-        analyzer.context.error(f"@gpu function '{func_name}': nullable types not allowed in {context}", line, col)
-        return
-
-    if type_expr.pointer_depth > 0:
-        analyzer.context.error(f"@gpu function '{func_name}': pointer types not allowed in {context}", line, col)
-        return
-
-    if type_expr.is_array and allow_array:
-        if type_expr.is_const or type_expr.is_volatile:
-            analyzer.context.error(
-                f"@gpu function '{func_name}': GPU array buffers are read-write "
-                f"and cannot be const- or volatile-qualified in {context}",
+    def _validate_type(
+        self,
+        type_expr: TypeExpr | None,
+        subject: str,
+        function_name: str,
+        line: int,
+        col: int,
+        *,
+        allow_array: bool = False,
+    ) -> None:
+        if type_expr is None:
+            return
+        if type_expr.is_nullable:
+            self._context.error(
+                f"@gpu function '{function_name}': nullable types not allowed in {subject}",
                 line,
                 col,
             )
             return
-        if type_expr.base not in _GPU_ARRAY_ELEM_TYPES:
-            analyzer.context.error(
-                f"@gpu function '{func_name}': array element type must be "
-                f"int or float in {context}, got '{type_expr.base}'",
+        if type_expr.pointer_depth > 0:
+            self._context.error(
+                f"@gpu function '{function_name}': pointer types not allowed in {subject}",
                 line,
                 col,
             )
-        return
+            return
+        if type_expr.is_array and allow_array:
+            if type_expr.is_const or type_expr.is_volatile:
+                self._context.error(
+                    f"@gpu function '{function_name}': GPU array buffers are read-write "
+                    f"and cannot be const- or volatile-qualified in {subject}",
+                    line,
+                    col,
+                )
+                return
+            if type_expr.base not in _GPU_ARRAY_ELEM_TYPES:
+                self._context.error(
+                    f"@gpu function '{function_name}': array element type must be "
+                    f"int or float in {subject}, got '{type_expr.base}'",
+                    line,
+                    col,
+                )
+            return
+        if type_expr.is_array:
+            self._context.error(
+                f"@gpu function '{function_name}': array types not allowed in {subject}",
+                line,
+                col,
+            )
+            return
+        if type_expr.generic_args:
+            self._context.error(
+                f"@gpu function '{function_name}': generic types not allowed in {subject}",
+                line,
+                col,
+            )
+            return
+        if type_expr.base not in _GPU_SCALAR_TYPES:
+            self._context.error(
+                f"@gpu function '{function_name}': type '{type_expr.base}' not allowed "
+                f"in {subject} (use int, float, or bool)",
+                line,
+                col,
+            )
 
-    if type_expr.is_array and not allow_array:
-        analyzer.context.error(f"@gpu function '{func_name}': array types not allowed in {context}", line, col)
-        return
+    def _validate_block(
+        self,
+        validation: GpuKernelValidation,
+        block: Block | None,
+    ) -> None:
+        if block is None:
+            return
+        validation.push_scope()
+        try:
+            for statement in block.statements:
+                self._validate_statement(validation, statement)
+        finally:
+            validation.pop_scope()
 
-    if type_expr.generic_args:
-        analyzer.context.error(f"@gpu function '{func_name}': generic types not allowed in {context}", line, col)
-        return
+    def _validate_statement(self, validation: GpuKernelValidation, statement) -> None:
+        line = getattr(statement, "line", 0)
+        col = getattr(statement, "col", 0)
 
-    if type_expr.base not in _GPU_SCALAR_TYPES:
-        analyzer.context.error(
-            f"@gpu function '{func_name}': type '{type_expr.base}' not allowed in {context} (use int, float, or bool)",
+        if isinstance(statement, VarDeclStmt):
+            if statement.type:
+                self._validate_type(
+                    statement.type,
+                    f"variable '{statement.name}'",
+                    validation.function_name,
+                    line,
+                    col,
+                )
+            if statement.initializer:
+                self._expressions.validate(validation, statement.initializer)
+            validation.declare(statement.name)
+            return
+        if isinstance(statement, ReturnStmt):
+            if statement.value:
+                self._expressions.validate(validation, statement.value)
+            return
+        if isinstance(statement, IfStmt):
+            self._expressions.validate(validation, statement.condition)
+            self._validate_condition(validation, statement.condition)
+            self._validate_block(validation, statement.then_block)
+            if statement.else_block:
+                else_block = statement.else_block
+                if hasattr(else_block, "body"):
+                    self._validate_block(validation, else_block.body)
+                if hasattr(else_block, "if_stmt"):
+                    self._validate_statement(validation, else_block.if_stmt)
+            return
+        if isinstance(statement, WhileStmt):
+            self._expressions.validate(validation, statement.condition)
+            self._validate_condition(validation, statement.condition)
+            self._validate_block(validation, statement.body)
+            return
+        if isinstance(statement, CForStmt):
+            validation.push_scope()
+            try:
+                if statement.init:
+                    initializer = statement.init
+                    if hasattr(initializer, "var_decl"):
+                        self._validate_statement(validation, initializer.var_decl)
+                    if hasattr(initializer, "expression"):
+                        self._validate_update(validation, initializer.expression)
+                if statement.condition:
+                    self._expressions.validate(validation, statement.condition)
+                    self._validate_condition(validation, statement.condition)
+                if statement.update:
+                    self._validate_update(validation, statement.update)
+                self._validate_block(validation, statement.body)
+            finally:
+                validation.pop_scope()
+            return
+        if isinstance(statement, ExprStmt):
+            if not self._expressions.is_expression_statement(statement.expr):
+                validation.error(
+                    "expression statement must be an assignment, increment, decrement, or WGSL built-in call",
+                    statement.expr,
+                )
+            self._expressions.validate(
+                validation,
+                statement.expr,
+                update=self._expressions.is_update_statement(statement.expr),
+            )
+            return
+        if isinstance(statement, (BreakStmt, ContinueStmt)):
+            return
+        if isinstance(
+            statement,
+            (ForInStmt, TryCatchStmt, ThrowStmt, DeleteStmt, KeepStmt, ReleaseStmt),
+        ):
+            self._context.error(
+                f"@gpu function '{validation.function_name}': "
+                f"'{type(statement).__name__}' not allowed in GPU functions",
+                line,
+                col,
+            )
+            return
+        self._context.error(
+            f"@gpu function '{validation.function_name}': unsupported statement '{type(statement).__name__}'",
             line,
             col,
         )
 
-
-def _validate_gpu_block(context: GpuValidationContext, block: Block) -> None:
-    """Validate all statements in a block are GPU-compatible."""
-    if block is None:
-        return
-    context.push_scope()
-    for stmt in block.statements:
-        _validate_gpu_stmt(context, stmt)
-    context.pop_scope()
-
-
-def _validate_gpu_stmt(context: GpuValidationContext, stmt) -> None:
-    """Validate a single statement is GPU-compatible."""
-    line = getattr(stmt, "line", 0)
-    col = getattr(stmt, "col", 0)
-    analyzer = context.analyzer
-    func_name = context.function_name
-
-    if isinstance(stmt, VarDeclStmt):
-        if stmt.type:
-            _validate_gpu_type(analyzer, stmt.type, f"variable '{stmt.name}'", func_name, line, col)
-        if stmt.initializer:
-            validate_gpu_expr(context, stmt.initializer)
-        context.declare(stmt.name)
-
-    elif isinstance(stmt, ReturnStmt):
-        if stmt.value:
-            validate_gpu_expr(context, stmt.value)
-
-    elif isinstance(stmt, IfStmt):
-        validate_gpu_expr(context, stmt.condition)
-        _validate_gpu_condition(context, stmt.condition)
-        _validate_gpu_block(context, stmt.then_block)
-        if stmt.else_block:
-            eb = stmt.else_block
-            if hasattr(eb, "body"):
-                _validate_gpu_block(context, eb.body)
-            if hasattr(eb, "if_stmt"):
-                _validate_gpu_stmt(context, eb.if_stmt)
-
-    elif isinstance(stmt, WhileStmt):
-        validate_gpu_expr(context, stmt.condition)
-        _validate_gpu_condition(context, stmt.condition)
-        _validate_gpu_block(context, stmt.body)
-
-    elif isinstance(stmt, CForStmt):
-        context.push_scope()
-        if stmt.init:
-            init = stmt.init
-            if hasattr(init, "var_decl"):
-                _validate_gpu_stmt(context, init.var_decl)
-            if hasattr(init, "expression"):
-                _validate_gpu_update(context, init.expression)
-        if stmt.condition:
-            validate_gpu_expr(context, stmt.condition)
-            _validate_gpu_condition(context, stmt.condition)
-        if stmt.update:
-            _validate_gpu_update(context, stmt.update)
-        _validate_gpu_block(context, stmt.body)
-        context.pop_scope()
-
-    elif isinstance(stmt, ExprStmt):
-        if not is_gpu_expression_statement(stmt.expr):
-            context.error(
-                "expression statement must be an assignment, increment, decrement, or WGSL built-in call",
-                stmt.expr,
+    def _validate_update(
+        self,
+        validation: GpuKernelValidation,
+        expression,
+    ) -> None:
+        update = self._expressions.is_update_statement(expression)
+        if not update:
+            validation.error(
+                "for-loop initializer/update must update a variable or buffer element",
+                expression,
             )
-        validate_gpu_expr(context, stmt.expr, update=is_gpu_update_statement(stmt.expr))
+        self._expressions.validate(validation, expression, update=update)
 
-    elif isinstance(stmt, (BreakStmt, ContinueStmt)):
-        pass  # allowed
-
-    elif isinstance(stmt, (ForInStmt, TryCatchStmt, ThrowStmt, DeleteStmt, KeepStmt, ReleaseStmt)):
-        analyzer.context.error(
-            f"@gpu function '{func_name}': '{type(stmt).__name__}' not allowed in GPU functions", line, col
-        )
-
-    else:
-        analyzer.context.error(f"@gpu function '{func_name}': unsupported statement '{type(stmt).__name__}'", line, col)
-
-
-def _validate_gpu_update(context: GpuValidationContext, expression) -> None:
-    if not is_gpu_update_statement(expression):
-        context.error("for-loop initializer/update must update a variable or buffer element", expression)
-    validate_gpu_expr(context, expression, update=is_gpu_update_statement(expression))
+    def _validate_condition(
+        self,
+        validation: GpuKernelValidation,
+        expression,
+    ) -> None:
+        type_expr = validation.type_of(expression)
+        if type_expr is not None and type_expr.base != "bool":
+            validation.error(
+                f"control-flow condition must be bool, got '{type_expr.base}'",
+                expression,
+            )
 
 
-def _validate_gpu_condition(context: GpuValidationContext, expression) -> None:
-    type_expr = context.type_of(expression)
-    if type_expr is not None and type_expr.base != "bool":
-        context.error(f"control-flow condition must be bool, got '{type_expr.base}'", expression)
+__all__ = ["GpuKernelValidator"]

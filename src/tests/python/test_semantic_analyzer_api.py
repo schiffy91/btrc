@@ -5,7 +5,9 @@ import importlib.util
 from src.compiler.python.analyzer.analysis_context import AnalysisContext
 from src.compiler.python.analyzer.declarations.policy import DeclarationPolicy
 from src.compiler.python.analyzer.declarations.registry import DeclarationRegistry
+from src.compiler.python.analyzer.gpu import GpuKernelValidator
 from src.compiler.python.analyzer.gpu_dispatch import GpuDispatchValidator
+from src.compiler.python.analyzer.gpu_type_contracts import GpuIntrinsicResolver
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -80,9 +82,57 @@ def test_gpu_dispatch_validation_is_a_composed_owner_not_analyzer_mro():
     assert not hasattr(analyzer, "_gpu_array_result_boundary")
 
 
+def test_gpu_kernel_validation_is_a_composed_owner_not_analyzer_mro():
+    analyzer, _ = analyze("int main() { return 0; }")
+    owners = {owner.__name__ for owner in SemanticAnalyzer.__mro__}
+
+    assert isinstance(analyzer.gpu_kernels, GpuKernelValidator)
+    assert analyzer.gpu_kernels._context is analyzer.context
+    assert analyzer.gpu_kernels._declarations is analyzer.declarations
+    assert analyzer.gpu_kernels._node_types is analyzer.node_types
+    assert isinstance(analyzer.gpu_kernels._intrinsics, GpuIntrinsicResolver)
+    assert not hasattr(analyzer.gpu_kernels, "analyzer")
+    assert not hasattr(analyzer.gpu_kernels._intrinsics, "analyzer")
+    assert "GpuValidationMixin" not in owners
+
+
+def test_gpu_kernel_validator_is_reentrant_across_function_sessions():
+    analyzer, analyzed = analyze(
+        "extern int defaults[]; "
+        "@gpu void outer(int[] values = defaults) { int index = gpu_id(); } "
+        "@gpu void inner(int[] values) { int index = gpu_id(); }"
+    )
+    outer = analyzed.program.declarations[1]
+    inner = analyzed.program.declarations[2]
+    reentered: list[str] = []
+
+    def reenter(_target, _actual):
+        reentered.append(inner.name)
+        analyzer.gpu_kernels.validate(
+            inner,
+            analyzer.global_scope,
+            array_target_has_capacity=lambda _nested_target, _nested_actual: True,
+        )
+        return True
+
+    analyzer.gpu_kernels.validate(
+        outer,
+        analyzer.global_scope,
+        array_target_has_capacity=reenter,
+    )
+
+    assert reentered == ["inner"]
+    assert not hasattr(analyzer.gpu_kernels, "function_name")
+    assert not hasattr(analyzer.gpu_kernels, "scopes")
+
+
 def test_legacy_gpu_dispatch_mixins_are_removed():
     for module in ("gpu_array_contracts", "gpu_result_contexts"):
         assert importlib.util.find_spec(f"src.compiler.python.analyzer.{module}") is None
+
+
+def test_legacy_gpu_validation_function_modules_are_removed():
+    assert importlib.util.find_spec("src.compiler.python.analyzer.gpu_result_types") is None
 
 
 def test_legacy_analyzer_module_is_removed():

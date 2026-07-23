@@ -33,6 +33,7 @@ from .generated_symbols import GeneratedSymbolContractsMixin
 from .generic_intrinsics import GenericIntrinsicValidationMixin
 from .generic_methods import GenericMethodsMixin
 from .generic_validation import GenericValidationMixin
+from .gpu import GpuKernelValidator
 from .gpu_dispatch import GpuDispatchValidator
 from .hierarchy_validator import HierarchyValidator
 from .hosted_abi_contracts import HostedAbiContractsMixin
@@ -158,6 +159,11 @@ class SemanticAnalyzer(
             self.declarations,
             canonical_type=self._canonical_type,
             analyze_expression=self._analyze_expr,
+        )
+        self.gpu_kernels = GpuKernelValidator(
+            context,
+            self.declarations,
+            self.node_types,
         )
         self.initializers = InitializerAnalyzer(
             context,
