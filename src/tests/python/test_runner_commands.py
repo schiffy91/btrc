@@ -237,3 +237,26 @@ def test_selfhost_transpile_uses_configured_timeout(monkeypatch: pytest.MonkeyPa
         "command": ["/tmp/btrcc", "/tmp/program.btrc"],
         "timeout": 432.5,
     }
+
+
+def test_python_corpus_runner_uses_the_strict_import_default(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    program = tmp_path / "program.btrc"
+    program.write_text("int main() { return 0; }\n")
+    observed = {}
+
+    class CapturingCompiler:
+        def compile_frontend(self, _source, _source_path, options, *, filename):
+            observed["options"] = options
+            observed["filename"] = filename
+            raise RuntimeError("captured before lowering")
+
+    monkeypatch.setattr(runner, "_PYTHON_COMPILER", CapturingCompiler())
+
+    with pytest.raises(RuntimeError, match="captured before lowering"):
+        runner._transpile_python(str(program), program.name)
+
+    assert observed["options"].strict_imports is True
+    assert observed["filename"] == program.name

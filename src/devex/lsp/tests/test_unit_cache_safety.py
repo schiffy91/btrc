@@ -8,14 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ast_codec import encode_ast
+from src.compiler.python.ast_codec import AstJsonCodec
 from src.compiler.python.ast_nodes import ClassDecl, StructDecl
+from src.compiler.python.cache_io import AtomicFileStore
 from src.compiler.python.frontend.source_io import SourceFileReader, SourceReadError
 from src.devex.lsp import unit_cache, units
 from src.devex.lsp import workspace as workspace_module
 from src.devex.lsp.unit_cache import FileUnitCacheCodec, UnitCache
 from src.devex.lsp.units import FileUnit
 from src.devex.lsp.workspace import Workspace
+
+AST_CODEC = AstJsonCodec()
 
 
 def _source() -> str:
@@ -132,7 +135,7 @@ def test_unknown_schema_and_ast_node_are_rejected(tmp_path):
     "mutate",
     (
         lambda dependency: dependency.update(kind="not-a-dependency-kind"),
-        lambda dependency: dependency.update(spec=encode_ast(ClassDecl(name="NotAnImportSpec"))),
+        lambda dependency: dependency.update(spec=AST_CODEC.encode(ClassDecl(name="NotAnImportSpec"))),
     ),
     ids=("invalid-kind", "invalid-import-spec-ast"),
 )
@@ -207,6 +210,26 @@ def test_cache_and_workspace_behavior_is_instance_owned() -> None:
         assert loose == []
 
     assert not hasattr(unit_cache, "_pruned_dirs")
+
+
+def test_unit_cache_uses_its_owned_codec_and_file_store(tmp_path, monkeypatch):
+    codec = FileUnitCacheCodec()
+    store = AtomicFileStore()
+    cache = UnitCache(str(tmp_path), codec=codec, file_store=store)
+    unit = FileUnit.parse(str(tmp_path / "probe.btrc"), _source())
+    writes = []
+    write_json = store.write_json
+
+    def track_write(path, payload, *, file_mode=None):
+        writes.append((path, payload))
+        write_json(path, payload, file_mode=file_mode)
+
+    monkeypatch.setattr(store, "write_json", track_write)
+
+    assert cache.store(_source(), unit) is not None
+    assert writes
+    assert writes[0][1] == codec.encode(unit)
+    assert cache.load(unit.path, _source()) is not None
 
 
 def test_disk_unit_cache_detects_same_size_same_mtime_rewrite(tmp_path):

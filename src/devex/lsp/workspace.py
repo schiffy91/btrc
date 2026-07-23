@@ -23,7 +23,7 @@ from src.compiler.python.frontend.source_io import (
     SourceReadError,
 )
 from src.compiler.python.frontend.stdlib import StdlibRepository
-from src.compiler.python.frontend_limits import ResolutionBudget
+from src.compiler.python.frontend_limits import SourceResolutionPolicy
 from src.compiler.python.pkg import IncludeResolutionError, ResolvedPackages
 from src.devex.lsp.package_resolution import PackageResolutionCache
 from src.devex.lsp.unit_cache import UnitCache
@@ -79,20 +79,36 @@ class Workspace(WorkspaceCacheMixin):
         unit_cache: UnitCache | None = None,
         source_reader: SourceFileReader | None = None,
         directive_scanner: SourceDirectiveScanner | None = None,
+        resolution_policy: SourceResolutionPolicy | None = None,
     ):
         self._init_caches()
         self._package_cache = package_cache or PackageResolutionCache()
-        self._source_reader = source_reader or SourceFileReader()
+        if stdlib is not None:
+            if resolution_policy is not None and stdlib.resolution_policy != resolution_policy:
+                raise ValueError("Workspace and stdlib must share one source resolution policy")
+            resolution_policy = stdlib.resolution_policy
+        elif resolution_policy is None and source_reader is not None:
+            resolution_policy = SourceResolutionPolicy(
+                max_source_bytes=source_reader.max_bytes,
+            )
+        self._resolution_policy = resolution_policy or SourceResolutionPolicy()
+        if source_reader is not None and source_reader.max_bytes != self._resolution_policy.max_source_bytes:
+            raise ValueError("Workspace and source reader must share one source byte limit")
+        self._source_reader = source_reader or SourceFileReader(
+            self._resolution_policy.max_source_bytes,
+        )
         self._directives = directive_scanner or SourceDirectiveScanner()
         self._stdlib = stdlib or StdlibRepository(
             source_reader=self._source_reader,
             directive_scanner=self._directives,
+            resolution_policy=self._resolution_policy,
         )
         self._unit_cache = unit_cache or UnitCache.from_environment()
         self._imports = ImportResolver(
             self._stdlib,
             source_reader=self._source_reader,
             directive_scanner=self._directives,
+            resolution_policy=self._resolution_policy,
         )
         self._stdlib_units: list[FileUnit] | None = None
         self._stdlib_lock = threading.Lock()  # one stdlib build/analysis at a time
@@ -196,7 +212,7 @@ class Workspace(WorkspaceCacheMixin):
         included = {path_identity(active.path)}
         graph = SourceDependencyGraph()
         graph.ensure_source(active.path)
-        budget = ResolutionBudget()
+        budget = self._resolution_policy.new_budget()
         budget.enter(active.source, active.path, 0)
 
         try:

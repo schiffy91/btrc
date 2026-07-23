@@ -358,7 +358,11 @@ def test_stdlib_behavior_has_one_explicit_instance_owner() -> None:
 def test_strict_imports_are_the_application_default() -> None:
     models = _source("pipeline/models.btrc")
     options = _source("driver_options.btrc")
+    frontend_main = _source("frontend_main.btrc")
 
     assert "self.strictImports = true;" in models
     assert 'option.equals("--relaxed-imports")' in options
     assert "options.strictImports = false;" in options
+    assert "bool strictImports = true;" in frontend_main
+    assert 'option.equals("--relaxed-imports")' in frontend_main
+    assert "strictImports = false;" in frontend_main

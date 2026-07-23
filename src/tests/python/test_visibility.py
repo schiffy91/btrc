@@ -1,6 +1,6 @@
 import pytest
 
-from src.compiler.python import Compiler, CompilerOptions
+from src.compiler.python import Compiler
 from src.compiler.python.cli.compiler_cli import CompilerCLI
 from src.compiler.python.frontend.dependencies import SourceDependencyKind
 from src.compiler.python.frontend.resolver import SourceResolver
@@ -146,8 +146,19 @@ def test_compile_frontend_api_defaults_to_strict_imports(tmp_path):
         Compiler().compile_frontend(
             entry.read_text(),
             str(entry),
-            CompilerOptions(include_stdlib=False),
         )
+
+
+def test_compile_api_defaults_to_strict_imports(tmp_path):
+    write(tmp_path / "b.btrc", "class B {}\n")
+    write(tmp_path / "a.btrc", "B makeB() { return new B(); }\n")
+    entry = tmp_path / "main.btrc"
+    write(entry, "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
+
+    result = Compiler().compile(entry.read_text(), str(entry))
+
+    assert isinstance(result.failure, FrontendVisibilityError)
+    assert result.options.strict_imports is True
 
 
 def test_cache_identity_prevents_valid_graph_from_masking_missing_import(tmp_path, monkeypatch, capsys):

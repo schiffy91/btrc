@@ -2,8 +2,9 @@
 
 `btrcc` is the production self-hosted implementation of the same six-stage
 pipeline as the Python reference compiler. It reads the shared grammar and AST
-specifications, composes imports and the standard library, analyzes the program,
-lowers it to structured IR, and emits strict C11.
+specifications, resolves the explicit dependency graph, enforces per-file
+import visibility, analyzes the program, lowers it to structured IR, and emits
+strict C11.
 
 Because btrc has no dynamic downcasts, the self-hosted AST and IR use fat tagged
 nodes: one node class per layer, a `kind` tag, and the union of fields needed by
@@ -52,6 +53,10 @@ make bootstrap              # fixed-point self-hosting proof
 `stdlib/`; an invalid explicit override fails rather than falling back. The
 cross-build targets emit relocatable `.tar.gz`/`.zip` archives and SHA-256
 sidecars in `dist/`.
+
+Strict imports are the default. `--strict-imports` explicitly reasserts that
+mode; `--relaxed-imports` is the only legacy compatibility opt-out and enables
+implicit cross-file visibility plus whole-stdlib composition.
 
 Native-module output keeps its C header include. Compile it with the active
 stdlib and relevant module directory on the include path, such as

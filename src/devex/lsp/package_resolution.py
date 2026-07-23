@@ -8,8 +8,6 @@ import threading
 from collections import OrderedDict
 from weakref import WeakValueDictionary
 
-from src.compiler.python.cache_io import open_regular_binary
-from src.compiler.python.manifest_io import MAX_MANIFEST_BYTES
 from src.compiler.python.pkg import (
     MAX_LOCK_BYTES,
     IncludeResolutionError,
@@ -95,17 +93,29 @@ class PackageResolutionCache:
     def _fingerprint(self, manifest: str) -> tuple:
         lock_path = os.path.join(os.path.dirname(manifest), "btrc.lock")
         return (
-            self._file_digest(manifest, MAX_MANIFEST_BYTES),
+            self._file_digest(
+                manifest,
+                self.resolver.manifest_reader.max_bytes,
+                follow_symlinks=True,
+            ),
             self._file_digest(lock_path, MAX_LOCK_BYTES),
             os.environ.get("BTRC_PKG_CACHE"),
         )
 
-    @staticmethod
-    def _file_digest(path: str, max_bytes: int) -> tuple:
+    def _file_digest(
+        self,
+        path: str,
+        max_bytes: int,
+        *,
+        follow_symlinks: bool = False,
+    ) -> tuple:
         """Fingerprint one bounded package input without trusting its size."""
 
         try:
-            source_file = open_regular_binary(path)
+            source_file = self.resolver.file_store.open_regular_binary(
+                path,
+                follow_symlinks=follow_symlinks,
+            )
             if source_file is None:
                 return ("not-regular",)
             with source_file:

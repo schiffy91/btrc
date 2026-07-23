@@ -8,7 +8,7 @@ import threading
 import time
 
 from src.compiler.python.artifacts.cache.compiler_cache import CacheDirectory
-from src.compiler.python.ast_codec import decode_ast, encode_ast
+from src.compiler.python.ast_codec import AstJsonCodec
 from src.compiler.python.ast_nodes import (
     PackagePath,
     QuotedPath,
@@ -16,7 +16,7 @@ from src.compiler.python.ast_nodes import (
     StdGlob,
     StdModules,
 )
-from src.compiler.python.cache_io import atomic_write_json, load_json
+from src.compiler.python.cache_io import AtomicFileStore
 from src.compiler.python.frontend.dependencies import SourceDependencyKind
 from src.devex.lsp.units import (
     _UNIT_CACHE_VERSION,
@@ -33,34 +33,35 @@ class FileUnitCacheCodec:
     _IMPORT_SPEC_TYPES = (StdGlob, StdModules, PackagePath, RelativePath, QuotedPath)
     _DEPENDENCY_KINDS = frozenset(kind.value for kind in SourceDependencyKind)
 
-    @classmethod
-    def encode(cls, unit: FileUnit) -> dict:
+    def __init__(self, ast_codec: AstJsonCodec | None = None) -> None:
+        self._ast_codec = ast_codec if ast_codec is not None else AstJsonCodec()
+
+    def encode(self, unit: FileUnit) -> dict:
         return {
             "content_hash": unit.content_hash,
-            "decls": [encode_ast(declaration) for declaration in unit.decls],
+            "decls": [self._ast_codec.encode(declaration) for declaration in unit.decls],
             "dependencies": [
                 {
                     "kind": dependency.kind.value,
                     "line": dependency.line,
-                    "spec": encode_ast(dependency.spec),
+                    "spec": self._ast_codec.encode(dependency.spec),
                 }
                 for dependency in unit.dependencies
             ],
             "defined_names": sorted(unit.defined_names),
-            "schema": cls.SCHEMA_VERSION,
+            "schema": self.SCHEMA_VERSION,
         }
 
-    @classmethod
     def decode(
-        cls,
+        self,
         payload,
         source_path: str,
         content_hash: str,
     ) -> FileUnit | None:
-        if not cls._payload_is_valid(payload, content_hash):
+        if not self._payload_is_valid(payload, content_hash):
             return None
         try:
-            declarations = [decode_ast(value) for value in payload["decls"]]
+            declarations = [self._ast_codec.decode(value) for value in payload["decls"]]
             if not all(hasattr(declaration, "source_file") for declaration in declarations):
                 return None
             absolute_path = os.path.abspath(source_path)
@@ -71,7 +72,7 @@ class FileUnitCacheCodec:
                 source="",
                 content_hash=content_hash,
                 decls=declarations,
-                dependencies=cls._decode_dependencies(payload["dependencies"]),
+                dependencies=self._decode_dependencies(payload["dependencies"]),
                 defined_names=frozenset(payload["defined_names"]),
             )
         except (ValueError, TypeError, RecursionError):
@@ -103,12 +104,11 @@ class FileUnitCacheCodec:
             and isinstance(record["spec"], dict)
         )
 
-    @classmethod
-    def _decode_dependencies(cls, records: list[dict]) -> FileDependencies:
+    def _decode_dependencies(self, records: list[dict]) -> FileDependencies:
         dependencies: list[FileDependency] = []
         for record in records:
-            spec = decode_ast(record["spec"])
-            if not isinstance(spec, cls._IMPORT_SPEC_TYPES):
+            spec = self._ast_codec.decode(record["spec"])
+            if not isinstance(spec, self._IMPORT_SPEC_TYPES):
                 raise ValueError("cached file dependency has an invalid import spec")
             dependencies.append(
                 FileDependency(
@@ -133,9 +133,13 @@ class UnitCache:
         directory: str | None,
         *,
         unit_version: str = _UNIT_CACHE_VERSION,
+        codec: FileUnitCacheCodec | None = None,
+        file_store: AtomicFileStore | None = None,
     ) -> None:
         self._directory = os.path.abspath(directory) if directory is not None else None
         self._unit_version = unit_version
+        self._codec = codec if codec is not None else FileUnitCacheCodec()
+        self._file_store = file_store if file_store is not None else AtomicFileStore()
         self._pruned = False
         self._prune_lock = threading.Lock()
 
@@ -143,13 +147,20 @@ class UnitCache:
     def from_environment(
         cls,
         cache_directory: CacheDirectory | None = None,
+        *,
+        codec: FileUnitCacheCodec | None = None,
+        file_store: AtomicFileStore | None = None,
     ) -> UnitCache:
         """Resolve the shared compiler cache, disabling persistence on failure."""
 
         try:
-            return cls((cache_directory or CacheDirectory()).resolve())
+            return cls(
+                (cache_directory or CacheDirectory()).resolve(),
+                codec=codec,
+                file_store=file_store,
+            )
         except OSError:
-            return cls(None)
+            return cls(None, codec=codec, file_store=file_store)
 
     @classmethod
     def disabled(cls) -> UnitCache:
@@ -182,8 +193,8 @@ class UnitCache:
             return None
         self.prune()
         content_hash = hashlib.sha256(source.encode()).hexdigest()
-        return FileUnitCacheCodec.decode(
-            load_json(path),
+        return self._codec.decode(
+            self._file_store.read_json(path),
             source_path,
             content_hash,
         )
@@ -195,7 +206,7 @@ class UnitCache:
         if path is None:
             return None
         try:
-            atomic_write_json(path, FileUnitCacheCodec.encode(unit))
+            self._file_store.write_json(path, self._codec.encode(unit))
         except (OSError, TypeError, ValueError):
             return None
         return path

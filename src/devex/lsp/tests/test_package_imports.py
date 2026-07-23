@@ -7,7 +7,9 @@ import os
 
 import pytest
 
-from src.compiler.python import frontend_limits, pkg
+from src.compiler.python import pkg
+from src.compiler.python.cache_io import AtomicFileStore
+from src.compiler.python.frontend_limits import SourceResolutionPolicy
 from src.devex.lsp import package_resolution
 from src.devex.lsp.diagnostics import compute_diagnostics
 from src.devex.lsp.workspace import Workspace
@@ -156,6 +158,50 @@ def test_package_fingerprints_bound_manifest_and_lock_reads(tmp_path):
     assert resolver._file_digest(str(tmp_path / "missing"), 5) == ("missing",)
 
 
+def test_package_fingerprints_use_the_resolver_owned_store_and_manifest_limit(
+    tmp_path,
+    monkeypatch,
+):
+    package_input = tmp_path / "btrc.toml"
+    package_input.write_bytes(b"12345")
+    store = AtomicFileStore()
+    reader = pkg.PackageManifestReader(max_bytes=4, file_store=store)
+    core = pkg.PackageResolver(file_store=store, manifest_reader=reader)
+    resolver = package_resolution.PackageResolutionCache(core)
+    opened = []
+    open_regular_binary = store.open_regular_binary
+
+    def track_open(path, *, follow_symlinks=False):
+        opened.append((path, follow_symlinks))
+        return open_regular_binary(path, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(store, "open_regular_binary", track_open)
+
+    fingerprint = resolver._fingerprint(str(package_input))
+
+    assert fingerprint[0] == ("too-large",)
+    assert opened[0] == (str(package_input), True)
+
+
+def test_symlinked_manifest_fingerprint_tracks_its_resolved_contents(tmp_path):
+    target = tmp_path / "manifest-target.toml"
+    target.write_text("[dependencies]\n")
+    manifest = tmp_path / "btrc.toml"
+    try:
+        manifest.symlink_to(target)
+    except OSError as error:
+        pytest.skip(f"file symlinks unavailable: {error}")
+    resolver = package_resolution.PackageResolutionCache()
+
+    before = resolver._fingerprint(str(manifest))
+    target.write_text("[dependencies]\ndep = '../dep'\n")
+    after = resolver._fingerprint(str(manifest))
+
+    assert before[0][0] == "sha256"
+    assert after[0][0] == "sha256"
+    assert before != after
+
+
 def test_workspace_package_resolution_cache_is_lru_bounded(tmp_path, monkeypatch):
     core = pkg.PackageResolver()
     monkeypatch.setattr(
@@ -178,19 +224,28 @@ def test_workspace_package_resolution_cache_is_lru_bounded(tmp_path, monkeypatch
     assert evicted not in resolver._entries
 
 
-def test_workspace_import_composition_enforces_the_shared_byte_budget(tmp_path, monkeypatch):
+def test_workspace_import_composition_enforces_the_shared_byte_budget(tmp_path):
     active, source, module = _path_dependency_project(tmp_path, "bounded")
-    monkeypatch.setattr(
-        frontend_limits,
-        "MAX_RESOLVED_SOURCE_BYTES",
-        len(source.encode()) + len(module.read_bytes()) - 1,
+    workspace = Workspace(
+        resolution_policy=SourceResolutionPolicy(
+            max_source_bytes=len(source.encode()) + len(module.read_bytes()) - 1,
+        )
     )
-    workspace = Workspace()
 
     composition = workspace.compose(workspace.parse_active(str(active), source))
 
     assert composition.imported == []
     assert any("resolved source exceeds" in message for _, message in composition.import_errors)
+
+
+def test_workspace_composes_one_owned_source_resolution_policy():
+    policy = SourceResolutionPolicy(max_source_bytes=4096)
+    workspace = Workspace(resolution_policy=policy)
+
+    assert workspace._resolution_policy is policy
+    assert workspace._stdlib.resolution_policy is policy
+    assert workspace._imports.resolution_policy is policy
+    assert workspace._source_reader.max_bytes == policy.max_source_bytes
 
 
 def test_diagnostic_snapshot_invalidates_when_import_error_changes(tmp_path):

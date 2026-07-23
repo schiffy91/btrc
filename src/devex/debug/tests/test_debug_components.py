@@ -13,6 +13,8 @@ import lldb_session
 import pytest
 import summaries
 
+REPO = Path(__file__).resolve().parents[4]
+
 
 def _materialize_output(command):
     output = Path(command[command.index("-o") + 1])
@@ -58,6 +60,20 @@ def test_failed_build_removes_its_temporary_directory(monkeypatch, tmp_path):
 
     assert artifact_dirs
     assert not artifact_dirs[0].exists()
+
+
+def test_debug_build_preserves_the_compiler_strict_import_default(tmp_path):
+    (tmp_path / "owner.btrc").write_text("class Hidden {}\n")
+    (tmp_path / "consumer.btrc").write_text("Hidden makeHidden() { return new Hidden(); }\n")
+    program = tmp_path / "main.btrc"
+    program.write_text("import ./owner.btrc;\nimport ./consumer.btrc;\nint main() { return 0; }\n")
+
+    with pytest.raises(builder.BuildError, match=r"consumer\.btrc does not import it"):
+        builder.build(
+            program,
+            btrcpy_cmd=["python3", "-m", "src.compiler.python.main"],
+            cwd=str(REPO),
+        )
 
 
 def test_missing_build_tool_is_reported_as_a_build_error(monkeypatch):
