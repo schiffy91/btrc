@@ -43,9 +43,7 @@ class LoweringContext:
     callable_types: dict[str, TypeExpr] = field(default_factory=dict)
     callable_return_abis: dict[str, str] = field(default_factory=dict)
     callable_environments: dict[str, tuple[str, str]] = field(default_factory=dict)
-    hosted_result_conversion_requests: dict[int, tuple[str, object]] = field(
-        default_factory=dict
-    )
+    hosted_result_conversion_requests: dict[int, tuple[str, object]] = field(default_factory=dict)
     current_property_backing: str | None = None
     gpu_cpu_index: str | None = None
     unevaluated_depth: int = 0

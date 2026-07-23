@@ -117,7 +117,8 @@ def _prepared_effect(gen, values, build):
                 lowered=value.value,
             )
         )
-    return gen.ownership.boundaries.sequence(operands,
+    return gen.ownership.boundaries.sequence(
+        operands,
         lower_expr=lambda _node: None,
         build_call=build,
         result_c_type=None,

@@ -9,9 +9,9 @@ import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import IntLiteral
-from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.gen.generics.user_emitter import _UserGenericEmitter
 from src.compiler.python.ir.gen.literal_text import format_c_integer_literal
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRBinOp, IRCall, IRLiteral, IRVar
 from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
 from src.compiler.python.lexer import Lexer

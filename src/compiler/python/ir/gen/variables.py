@@ -188,7 +188,8 @@ def _lower_var_decl(gen: IRLowerer, node: VarDeclStmt) -> list[IRStmt]:
 
         arc_type = runtime_name(gen, managed_slot_type)
         owns_initializer = bool(
-            node.initializer and (prepared.owned if prepared is not None else gen.ownership.owns_result(node.initializer))
+            node.initializer
+            and (prepared.owned if prepared is not None else gen.ownership.owns_result(node.initializer))
         )
         if node.initializer and not owns_initializer:
             result.append(IRExprStmt(expr=retain_value(gen, IRVar(name=binding_c_name), managed_slot_type)))

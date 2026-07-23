@@ -48,9 +48,7 @@ def lower_optional_method_call(gen, node: CallExpr):
     params = gen.calls.resolver.resolved_params(node)
     plain_callee = replace(node.callee, optional=False)
     plain_node = replace(node, callee=plain_callee)
-    callable_field = (
-        gen.calls.resolver.callable_field_signature(node.callee) is not None
-    )
+    callable_field = gen.calls.resolver.callable_field_signature(node.callee) is not None
     from .evaluation_order import has_observable_effect
 
     has_later_operand = any(
@@ -116,7 +114,8 @@ def lower_optional_method_call(gen, node: CallExpr):
                     gen.context.owning_overrides[key] = value
 
     if needs_boundary:
-        call = gen.ownership.boundaries.sequence(operands,
+        call = gen.ownership.boundaries.sequence(
+            operands,
             lower_expr=lower_guarded_operand,
             build_call=build_call,
             result_c_type=(type_to_c(result_type) if result_type is not None else None),

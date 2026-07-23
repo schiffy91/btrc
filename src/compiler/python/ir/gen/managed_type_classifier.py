@@ -22,12 +22,7 @@ class ManagedTypeClassifier:
 
     def is_class(self, type_expr) -> bool:
         canonical = self.canonical(type_expr)
-        depth = (
-            canonical.pointer_depth
-            - int(nullable_collapses_reference_layer(canonical))
-            if canonical
-            else 0
-        )
+        depth = canonical.pointer_depth - int(nullable_collapses_reference_layer(canonical)) if canonical else 0
         return bool(
             canonical is not None
             and not canonical.is_array

@@ -158,7 +158,8 @@ def _lower_prepared_overload(emitter, expression):
         ),
     ]
     result_type = emitter._resolve_expr_type(expression)
-    return emitter._boundary_ownership.boundaries.sequence(operands,
+    return emitter._boundary_ownership.boundaries.sequence(
+        operands,
         lower_expr=lambda _node: None,
         build_call=lambda values: lower_overloaded_values(
             emitter._gen,

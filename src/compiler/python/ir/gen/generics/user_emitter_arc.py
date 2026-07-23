@@ -98,7 +98,8 @@ class _UserGenericArcMixin(_UserGenericCallMetadataMixin, _UserGenericOwnershipM
                     else:
                         self._arc_type_overrides[key] = value
 
-        return self._boundary_ownership.boundaries.sequence(operands,
+        return self._boundary_ownership.boundaries.sequence(
+            operands,
             lower_expr=lower_expr or self._expr,
             build_call=build_with_overrides,
             result_c_type=result_c_type,

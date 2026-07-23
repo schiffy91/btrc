@@ -60,11 +60,15 @@ int main() {
 
 @functools.lru_cache(maxsize=1)
 def _emit_collection_runtime() -> str:
-    analyzed = Compiler().compile_frontend(
-        COLLECTION_SOURCE,
-        __file__,
-        filename="<typed-collections>",
-    ).analyzed
+    analyzed = (
+        Compiler()
+        .compile_frontend(
+            COLLECTION_SOURCE,
+            __file__,
+            filename="<typed-collections>",
+        )
+        .analyzed
+    )
     assert not analyzed.errors
     return CEmitter().emit(optimize(IRLowerer(analyzed).lower()))
 

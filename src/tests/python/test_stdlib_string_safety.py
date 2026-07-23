@@ -48,11 +48,15 @@ int main() {
 
 @functools.lru_cache(maxsize=1)
 def _emit_string_runtime() -> str:
-    analyzed = Compiler().compile_frontend(
-        STRING_SOURCE,
-        __file__,
-        filename="<stdlib-string-safety>",
-    ).analyzed
+    analyzed = (
+        Compiler()
+        .compile_frontend(
+            STRING_SOURCE,
+            __file__,
+            filename="<stdlib-string-safety>",
+        )
+        .analyzed
+    )
     assert not analyzed.errors
     return CEmitter().emit(optimize(IRLowerer(analyzed).lower()))
 

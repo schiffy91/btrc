@@ -60,7 +60,8 @@ def lower_new_expr(gen: IRLowerer, node: NewExpr):
     result_type = gen.analyzed.node_types.get(id(node)) or instance_type
     from .expressions import lower_expr
 
-    return gen.ownership.boundaries.sequence(operands,
+    return gen.ownership.boundaries.sequence(
+        operands,
         lower_expr=lambda value: lower_expr(gen, value),
         build_call=build_call,
         result_c_type=type_to_c(result_type),

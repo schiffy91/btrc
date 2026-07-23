@@ -45,7 +45,8 @@ def _lower_binary(gen: IRLowerer, node: BinaryExpr) -> IRExpr:
             else []
         )
 
-        sequenced = gen.ownership.sequence_operands([node.left, node.right],
+        sequenced = gen.ownership.sequence_operands(
+            [node.left, node.right],
             build=lambda: _lower_binary_plain(gen, node),
             result_type=gen.analyzed.node_types.get(id(node)),
             keep_nodes=keep_nodes,
@@ -67,7 +68,6 @@ def _lower_binary_plain(gen: IRLowerer, node: BinaryExpr) -> IRExpr:
     right = lower_expr(gen, node.right)
 
     if node.op == "??":
-
         if gen.ownership.owns_result(node):
             left = gen.ownership.normalize_branch(node.left, left)
             right = gen.ownership.normalize_branch(node.right, right)
@@ -194,7 +194,8 @@ def _lower_prepared_overload(gen, node):
         ),
     ]
 
-    return gen.ownership.boundaries.sequence(operands,
+    return gen.ownership.boundaries.sequence(
+        operands,
         lower_expr=lambda _node: None,
         build_call=lambda values: lower_overloaded_values(
             gen,
@@ -231,12 +232,12 @@ def _lower_unary(gen: IRLowerer, node: UnaryExpr) -> IRExpr:
         node.operand,
         (FieldAccessExpr, IndexExpr),
     ):
-
         target_nodes = [node.operand.obj]
         if isinstance(node.operand, IndexExpr):
             target_nodes.append(node.operand.index)
         result_type = gen.analyzed.node_types.get(id(node))
-        sequenced = gen.ownership.sequence_operands(target_nodes,
+        sequenced = gen.ownership.sequence_operands(
+            target_nodes,
             build=lambda: _lower_unary_plain(gen, node),
             result_type=result_type,
             promote_result=bool(is_managed_type(gen, result_type)),
@@ -244,8 +245,8 @@ def _lower_unary(gen: IRLowerer, node: UnaryExpr) -> IRExpr:
         if sequenced is not None:
             return sequenced
     if node.op not in {"++", "--", "&", "*"}:
-
-        sequenced = gen.ownership.sequence_operands([node.operand],
+        sequenced = gen.ownership.sequence_operands(
+            [node.operand],
             build=lambda: _lower_unary_plain(gen, node),
             result_type=gen.analyzed.node_types.get(id(node)),
         )
