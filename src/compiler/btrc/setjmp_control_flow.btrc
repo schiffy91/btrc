@@ -191,7 +191,9 @@ void scanSetjmpFor(IRNode statement, Vector<IRNode> visible,
 }
 
 void applySetjmpVolatility(IRModule module) {
-    validateGlobalQualifierSafety(module);
+    SetjmpQualifierValidator qualifierValidator =
+        SetjmpQualifierValidator();
+    qualifierValidator.validateGlobals(module);
     bool hasSetjmp = false;
     int index = 0;
     while (index < module.functions.len) {
@@ -215,7 +217,7 @@ void applySetjmpVolatility(IRModule module) {
             scanSetjmpBlock(definition.body, visible, definition.params,
                 effectsByFunction.get(definition.name));
         }
-        validateSetjmpQualifierSafety(definition);
+        qualifierValidator.validateFunction(definition);
         index = index + 1;
     }
 }

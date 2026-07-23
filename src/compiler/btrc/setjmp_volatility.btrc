@@ -56,7 +56,7 @@ void markSetjmpVisible(Vector<IRNode> visible, Vector<IRParam> params,
          * setjmp and consumed after its branch even without a direct write. */
         while (index < visible.len) {
             IRNode declaration = visible.get(index);
-            if (compilerSetjmpAutomatic(declaration.name)) {
+            if (setjmpCompilerOwnedStorage(declaration.name)) {
                 string key = setjmpVisibleDeclarationKey(
                     declaration, effects);
                 if (key != "") { remaining.put(key, true); }
