@@ -23,7 +23,7 @@ from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
 from src.compiler.python.frontend.stdlib import StdlibRepository
-from src.compiler.python.tokens import KEYWORDS, Token, TokenType
+from src.compiler.python.tokens import DEFAULT_VOCABULARY, Token, TokenType
 from src.devex.lsp.definition import DefinitionMap
 from src.devex.lsp.diagnostics import AnalysisResult, analysis_is_current
 from src.devex.lsp.reference_finders import (
@@ -238,7 +238,9 @@ _IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
 def _valid_rename_identifier(name: str) -> bool:
     """Apply the grammar's ASCII identifier shape and keyword reservation."""
-    return isinstance(name, str) and bool(_IDENTIFIER_PATTERN.fullmatch(name)) and name not in KEYWORDS
+    return (
+        isinstance(name, str) and bool(_IDENTIFIER_PATTERN.fullmatch(name)) and name not in DEFAULT_VOCABULARY.keywords
+    )
 
 
 def prepare_rename(

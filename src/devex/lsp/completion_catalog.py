@@ -3,7 +3,7 @@
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.core import ClassInfo
-from src.compiler.python.tokens import KEYWORDS
+from src.compiler.python.tokens import DEFAULT_VOCABULARY
 from src.devex.lsp.builtins import _MEMBER_TABLES, STDLIB_STATIC_METHODS
 
 _RESERVED_WITHOUT_SYNTAX = frozenset({"auto", "goto", "override", "register"})
@@ -118,7 +118,7 @@ def keyword_completions() -> list[lsp.CompletionItem]:
             detail=_KEYWORD_DOCS.get(keyword, f"btrc keyword: {keyword}"),
             insert_text=keyword,
         )
-        for keyword in sorted(KEYWORDS)
+        for keyword in sorted(DEFAULT_VOCABULARY.keywords)
         if keyword not in _RESERVED_WITHOUT_SYNTAX
     ]
 
