@@ -9,7 +9,7 @@ import subprocess
 
 import pytest
 
-from src.compiler.python import Compiler, frontend_c_imports
+from src.compiler.python import Compiler
 from src.compiler.python import stdlib_ast_cache as ast_cache
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.cli.compiler_cli import CompilerCLI
@@ -479,12 +479,12 @@ def test_repeated_c_import_is_emitted_once_by_canonical_identity(tmp_path):
 @pytest.mark.parametrize("unsafe", ['bad"name.c', "bad\nname.c", "bad??/name.c"])
 def test_c_import_rejects_paths_that_c11_cannot_quote_safely(unsafe):
     with pytest.raises(IncludeResolutionError, match="cannot import C file"):
-        frontend_c_imports.c_include_directive(unsafe)
+        RESOLVER.imports.render_c_include(unsafe)
 
 
 def test_c_import_preserves_spaces_and_backslashes():
     path = r"C:\source tree\native.c"
-    assert frontend_c_imports.c_include_directive(path) == f'#include "{path}"'
+    assert RESOLVER.imports.render_c_include(path) == f'#include "{path}"'
 
 
 # --------------------------------------------------------------------------

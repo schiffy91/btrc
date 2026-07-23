@@ -12,21 +12,35 @@ from ..ast_nodes import (
     StdGlob,
     StdModules,
 )
-from ..frontend_c_imports import c_include_directive
 from ..frontend_limits import ResolutionBudget
-from ..frontend_path_scan import scan_import_directory
-from ..import_scan import scan_directives
 from ..pkg import IncludeResolutionError, ResolvedPackages
-from ..source_io import SourceReadError, read_source
 from .dependencies import SourceDependencyGraph
+from .source_io import (
+    SourceDirectiveScanner,
+    SourceDirectoryScanner,
+    SourceFileReader,
+    SourceReadError,
+)
 from .stdlib import StdlibRepository
 
 
 class ImportResolver:
     """Resolve one source graph against packages and a stdlib repository."""
 
-    def __init__(self, stdlib: StdlibRepository | None = None) -> None:
+    _C_TRIGRAPH_SUFFIXES = frozenset("=/'()!<>-")
+
+    def __init__(
+        self,
+        stdlib: StdlibRepository | None = None,
+        *,
+        source_reader: SourceFileReader | None = None,
+        directive_scanner: SourceDirectiveScanner | None = None,
+        directory_scanner: SourceDirectoryScanner | None = None,
+    ) -> None:
         self.stdlib = stdlib or StdlibRepository()
+        self._source_reader = source_reader or SourceFileReader()
+        self._directives = directive_scanner or SourceDirectiveScanner()
+        self._directories = directory_scanner or SourceDirectoryScanner()
 
     def import_paths(
         self,
@@ -146,21 +160,33 @@ class ImportResolver:
             root = base if os.path.isabs(base) else os.path.join(source_dir, base)
             if not os.path.isdir(root):
                 raise IncludeResolutionError(f"import directory '{spec}' not found\n  searched: {root}")
-            return scan_import_directory(root, recursive=recursive)
+            return self._directories.scan(root, recursive=recursive)
 
         candidate = spec if os.path.isabs(spec) else os.path.join(source_dir, spec)
         if os.path.isdir(candidate):
-            return scan_import_directory(candidate, recursive=False)
+            return self._directories.scan(candidate, recursive=False)
         if os.path.exists(candidate):
             return [candidate]
         return [self._resolve_include_path(spec, source_dir)]
 
-    @staticmethod
-    def _read_source(path: str) -> str:
+    def _read_source(self, path: str) -> str:
         try:
-            return read_source(path)
+            return self._source_reader.read(path)
         except SourceReadError as error:
             raise IncludeResolutionError(str(error)) from error
+
+    def render_c_include(self, path: str) -> str:
+        """Return a safe quoted C include directive for one imported C file."""
+
+        for character in path:
+            if character == '"' or ord(character) < 0x20 or ord(character) == 0x7F:
+                raise IncludeResolutionError(
+                    f"cannot import C file with a quote or control character in its path: {path!r}"
+                )
+        for index in range(len(path) - 2):
+            if path[index : index + 2] == "??" and path[index + 2] in self._C_TRIGRAPH_SUFFIXES:
+                raise IncludeResolutionError(f"cannot import C file whose path contains a C trigraph: {path!r}")
+        return f'#include "{path}"'
 
     def _inline_paths(
         self,
@@ -183,7 +209,7 @@ class ImportResolver:
                     continue
                 budget.enter("", absolute, depth)
                 included.add(identity)
-                output.append((c_include_directive(absolute), source_path, line_number))
+                output.append((self.render_c_include(absolute), source_path, line_number))
                 continue
             output.extend(
                 self._resolve_traced(
@@ -216,7 +242,7 @@ class ImportResolver:
         budget.enter(source, absolute, depth)
         included.add(identity)
 
-        directives = scan_directives(source)
+        directives = self._directives.scan(source)
         by_start = {directive.start: directive for directive in directives}
         covered = {line for directive in directives for line in range(directive.start, directive.end + 1)}
         output: list[tuple[str, str, int]] = []

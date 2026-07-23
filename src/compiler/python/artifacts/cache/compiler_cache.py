@@ -24,9 +24,8 @@ class ToolchainSourceInventory:
         "ast_nodes.py",
         "ast_codec.py",
         "cache_io.py",
-        "import_scan.py",
         "pkg.py",
-        "source_io.py",
+        "frontend/source_io.py",
         "stdlib_ast_cache.py",
         "artifacts/cache/compiler_cache.py",
     )

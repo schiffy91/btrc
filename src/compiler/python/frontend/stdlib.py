@@ -9,15 +9,14 @@ from contextlib import suppress
 from .. import ast_nodes as ast
 from ..artifacts.cache.compiler_cache import CacheDirectory, ToolchainFingerprint
 from ..frontend_limits import ResolutionBudget
-from ..import_scan import scan_directives
 from ..lexer import Lexer
 from ..parser.parser import Parser
 from ..pipeline.models import StdlibSource
 from ..pkg import IncludeResolutionError
-from ..source_io import SourceReadError, read_source
 from ..source_macros import source_macro_name
 from ..stdlib_ast_cache import StdlibAstCache
 from .dependencies import SourceDependencyGraph
+from .source_io import SourceDirectiveScanner, SourceFileReader, SourceReadError
 
 _DEFAULT_STDLIB_DIRECTORY = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "stdlib"))
 _PRIORITY_FILES = (
@@ -51,12 +50,16 @@ class StdlibRepository:
         ast_cache: StdlibAstCache | None = None,
         cache_directory: CacheDirectory | None = None,
         fingerprint: ToolchainFingerprint | None = None,
+        source_reader: SourceFileReader | None = None,
+        directive_scanner: SourceDirectiveScanner | None = None,
         *,
         directory: str | None = None,
     ) -> None:
         self.ast_cache = ast_cache or StdlibAstCache()
         self._cache_directory = cache_directory or CacheDirectory()
         self._ast_version = (fingerprint or ToolchainFingerprint()).digest("frontend")
+        self._source_reader = source_reader or SourceFileReader()
+        self._directives = directive_scanner or SourceDirectiveScanner()
         self._directory = os.path.abspath(directory or _DEFAULT_STDLIB_DIRECTORY)
         self._symbol_files: dict[str, frozenset[str]] | None = None
 
@@ -110,7 +113,7 @@ class StdlibRepository:
             if not os.path.isfile(path):
                 continue
             try:
-                content = read_source(path)
+                content = self._source_reader.read(path)
             except SourceReadError as error:
                 raise IncludeResolutionError(str(error)) from error
             budget.enter(content, path, 0)
@@ -153,14 +156,14 @@ class StdlibRepository:
         tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
         return Parser(tokens).parse().declarations
 
-    @staticmethod
     def _source_without_imports(
+        self,
         content: str,
         path: str,
     ) -> tuple[list[str], list[tuple[str, int]]]:
         covered = {
             line
-            for directive in scan_directives(content)
+            for directive in self._directives.scan(content)
             if directive.kind == "import"
             for line in range(directive.start, directive.end + 1)
         }
@@ -218,7 +221,7 @@ class StdlibRepository:
             if not os.path.isfile(path):
                 continue
             try:
-                source = read_source(path)
+                source = self._source_reader.read(path)
             except SourceReadError as error:
                 raise IncludeResolutionError(str(error)) from error
             program = Parser(Lexer(source, path).tokenize()).parse()

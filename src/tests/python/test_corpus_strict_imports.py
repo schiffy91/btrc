@@ -10,9 +10,9 @@ import pytest
 from src.compiler.python import ast_nodes as ast
 from src.compiler.python.cli.compiler_cli import CompilerCLI
 from src.compiler.python.frontend.dependencies import SourceDependencyGraph
+from src.compiler.python.frontend.source_io import SourceDirectiveScanner
 from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.frontend.visibility import ImportVisibilityChecker
-from src.compiler.python.import_scan import scan_directives
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -76,6 +76,7 @@ class CorpusImportAudit:
     def __init__(self, repository: Path = REPO) -> None:
         self.repository = repository
         self.stdlib = StdlibRepository()
+        self.directives = SourceDirectiveScanner()
         self.owner_files = self.stdlib.symbol_files()
         self.all_owner_files = frozenset(owner for owners in self.owner_files.values() for owner in owners)
 
@@ -125,7 +126,7 @@ class CorpusImportAudit:
             for path in root.rglob("*.btrc"):
                 if any(
                     directive.kind == "import" and isinstance(directive.payload, ast.StdGlob)
-                    for directive in scan_directives(path.read_text())
+                    for directive in self.directives.scan(path.read_text())
                 ):
                     consumers.add(path.relative_to(self.repository).as_posix())
         return frozenset(consumers)

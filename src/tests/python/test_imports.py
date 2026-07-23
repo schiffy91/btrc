@@ -3,6 +3,7 @@ import pytest
 from src.compiler.python import frontend_limits
 from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.resolver import SourceResolver
+from src.compiler.python.frontend.source_io import SourceDirectoryScanner
 from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.pkg import IncludeResolutionError, PackageResolver
 
@@ -94,23 +95,37 @@ def test_import_graph_unique_file_count_is_bounded(tmp_path, monkeypatch):
         RESOLVER.resolve_includes(root.read_text(), str(root), exit_on_error=False)
 
 
-def test_directory_import_is_bounded_while_scanning(tmp_path, monkeypatch):
+def test_directory_import_is_bounded_while_scanning(tmp_path):
     modules = tmp_path / "modules"
     modules.mkdir()
     for index in range(3):
         (modules / f"module_{index}.btrc").write_text(f"class Module{index} {{}}\n")
-    monkeypatch.setattr(frontend_limits, "MAX_RESOLVED_FILES", 2)
+    imports = ImportResolver(
+        directory_scanner=SourceDirectoryScanner(max_files=2),
+    )
+    resolver = SourceResolver(imports=imports)
 
     with pytest.raises(IncludeResolutionError, match="import directory exceeds"):
-        RESOLVER.resolve_includes("import ./modules/*\n", str(tmp_path / "main.btrc"), exit_on_error=False)
+        resolver.resolve_includes(
+            "import ./modules/*\n",
+            str(tmp_path / "main.btrc"),
+            exit_on_error=False,
+        )
 
 
-def test_directory_import_scan_counts_non_source_entries(tmp_path, monkeypatch):
+def test_directory_import_scan_counts_non_source_entries(tmp_path):
     modules = tmp_path / "modules"
     modules.mkdir()
     for index in range(3):
         (modules / f"ignored_{index}.txt").write_text("not source\n")
-    monkeypatch.setattr(frontend_limits, "MAX_IMPORT_SCAN_ENTRIES", 2)
+    imports = ImportResolver(
+        directory_scanner=SourceDirectoryScanner(max_entries=2),
+    )
+    resolver = SourceResolver(imports=imports)
 
     with pytest.raises(IncludeResolutionError, match="entry scan limit"):
-        RESOLVER.resolve_includes("import ./modules/*\n", str(tmp_path / "main.btrc"), exit_on_error=False)
+        resolver.resolve_includes(
+            "import ./modules/*\n",
+            str(tmp_path / "main.btrc"),
+            exit_on_error=False,
+        )

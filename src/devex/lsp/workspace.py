@@ -17,10 +17,14 @@ from dataclasses import dataclass
 from src.compiler.python.ast_nodes import Program
 from src.compiler.python.frontend.dependencies import SourceDependencyGraph
 from src.compiler.python.frontend.imports import ImportResolver
+from src.compiler.python.frontend.source_io import (
+    SourceDirectiveScanner,
+    SourceFileReader,
+    SourceReadError,
+)
 from src.compiler.python.frontend.stdlib import StdlibRepository
 from src.compiler.python.frontend_limits import ResolutionBudget
 from src.compiler.python.pkg import IncludeResolutionError, ResolvedPackages
-from src.compiler.python.source_io import MAX_SOURCE_BYTES, SourceReadError, read_source
 from src.devex.lsp.package_resolution import PackageResolutionCache
 from src.devex.lsp.unit_cache import UnitCache
 from src.devex.lsp.units import FileUnit
@@ -73,12 +77,23 @@ class Workspace(WorkspaceCacheMixin):
         package_cache: PackageResolutionCache | None = None,
         stdlib: StdlibRepository | None = None,
         unit_cache: UnitCache | None = None,
+        source_reader: SourceFileReader | None = None,
+        directive_scanner: SourceDirectiveScanner | None = None,
     ):
         self._init_caches()
         self._package_cache = package_cache or PackageResolutionCache()
-        self._stdlib = stdlib or StdlibRepository()
+        self._source_reader = source_reader or SourceFileReader()
+        self._directives = directive_scanner or SourceDirectiveScanner()
+        self._stdlib = stdlib or StdlibRepository(
+            source_reader=self._source_reader,
+            directive_scanner=self._directives,
+        )
         self._unit_cache = unit_cache or UnitCache.from_environment()
-        self._imports = ImportResolver(self._stdlib)
+        self._imports = ImportResolver(
+            self._stdlib,
+            source_reader=self._source_reader,
+            directive_scanner=self._directives,
+        )
         self._stdlib_units: list[FileUnit] | None = None
         self._stdlib_lock = threading.Lock()  # one stdlib build/analysis at a time
         # included paths -> AnalyzedProgram, LRU-capped (see _STDLIB_BASE_CACHE_MAX)
@@ -93,7 +108,12 @@ class Workspace(WorkspaceCacheMixin):
         cached = self._cached_file(key)
         if cached and cached[0] == sig:
             return cached[1]
-        unit = FileUnit.parse(path, source, stdlib=self._stdlib)
+        unit = FileUnit.parse(
+            path,
+            source,
+            stdlib=self._stdlib,
+            directive_scanner=self._directives,
+        )
         self._store_file(key, sig, unit)
         return unit
 
@@ -109,18 +129,28 @@ class Workspace(WorkspaceCacheMixin):
             cached = self._cached_file(key)
             if cached and cached[0] == sig:
                 return cached[1]
-            unit = FileUnit.parse(path, overlay, stdlib=self._stdlib)
+            unit = FileUnit.parse(
+                path,
+                overlay,
+                stdlib=self._stdlib,
+                directive_scanner=self._directives,
+            )
             self._store_file(key, sig, unit)
             return unit
         try:
-            text = read_source(path)
+            text = self._source_reader.read(path)
         except SourceReadError:
             return None
         sig = ("disk", hashlib.sha256(text.encode()).hexdigest())
         cached = self._cached_file(key)
         if cached and cached[0] == sig:
             return cached[1]
-        unit = FileUnit.parse(path, text, stdlib=self._stdlib)
+        unit = FileUnit.parse(
+            path,
+            text,
+            stdlib=self._stdlib,
+            directive_scanner=self._directives,
+        )
         self._store_file(key, sig, unit)
         return unit
 
@@ -142,13 +172,18 @@ class Workspace(WorkspaceCacheMixin):
 
     def _load_stdlib_unit(self, path: str) -> FileUnit | None:
         try:
-            source = read_source(path)
+            source = self._source_reader.read(path)
         except SourceReadError:
             return None
         cached = self._unit_cache.load(path, source)
         if cached is not None:
             return cached
-        unit = FileUnit.parse(path, source, stdlib=self._stdlib)
+        unit = FileUnit.parse(
+            path,
+            source,
+            stdlib=self._stdlib,
+            directive_scanner=self._directives,
+        )
         if unit.error is None:
             self._unit_cache.store(source, unit)
         unit.source = ""
@@ -300,14 +335,14 @@ class Workspace(WorkspaceCacheMixin):
                 self._stdlib_base_cache.popitem(last=False)
             return base
 
-    @staticmethod
-    def _live_source_digest(source: str) -> str:
+    def _live_source_digest(self, source: str) -> str:
         """Hash one editor buffer after enforcing the compiler's source limit."""
 
         try:
             encoded = source.encode("utf-8")
         except UnicodeEncodeError as error:
             raise ValueError("document contains invalid Unicode") from error
-        if len(encoded) > MAX_SOURCE_BYTES:
-            raise ValueError(f"document exceeds the {MAX_SOURCE_BYTES}-byte source limit")
+        max_bytes = self._source_reader.max_bytes
+        if len(encoded) > max_bytes:
+            raise ValueError(f"document exceeds the {max_bytes}-byte source limit")
         return hashlib.sha256(encoded).hexdigest()

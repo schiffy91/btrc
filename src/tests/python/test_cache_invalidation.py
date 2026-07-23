@@ -88,7 +88,7 @@ def test_full_scope_covers_codegen_sources():
     assert any(p.endswith("ast_codec.py") for p in frontend_files)
     assert any(p.endswith("frontend/resolver.py") for p in frontend_files)
     assert any(p.endswith("frontend/visibility.py") for p in frontend_files)
-    assert any(p.endswith("import_scan.py") for p in frontend_files)
+    assert any(p.endswith("frontend/source_io.py") for p in frontend_files)
 
 
 def test_hash_changes_when_a_source_byte_changes(tmp_path):

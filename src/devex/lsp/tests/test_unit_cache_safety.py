@@ -10,7 +10,7 @@ import pytest
 
 from src.compiler.python.ast_codec import encode_ast
 from src.compiler.python.ast_nodes import ClassDecl, StructDecl
-from src.compiler.python.source_io import SourceReadError
+from src.compiler.python.frontend.source_io import SourceFileReader, SourceReadError
 from src.devex.lsp import unit_cache, units
 from src.devex.lsp import workspace as workspace_module
 from src.devex.lsp.unit_cache import FileUnitCacheCodec, UnitCache
@@ -225,9 +225,8 @@ def test_disk_unit_cache_detects_same_size_same_mtime_rewrite(tmp_path):
     assert second.decls[0].name == "B"
 
 
-def test_live_document_and_overlay_sources_share_the_compiler_size_limit(monkeypatch, tmp_path):
-    monkeypatch.setattr(workspace_module, "MAX_SOURCE_BYTES", 4)
-    workspace = Workspace()
+def test_live_document_and_overlay_sources_share_the_compiler_size_limit(tmp_path):
+    workspace = Workspace(source_reader=SourceFileReader(max_bytes=4))
 
     with pytest.raises(ValueError, match="4-byte source limit"):
         workspace.parse_active(str(tmp_path / "active.btrc"), "12345")
@@ -236,13 +235,12 @@ def test_live_document_and_overlay_sources_share_the_compiler_size_limit(monkeyp
     assert workspace.get_file_unit(str(tmp_path / "import.btrc")) is None
 
 
-def test_disk_units_delegate_to_the_bounded_source_reader(monkeypatch, tmp_path):
+def test_disk_units_delegate_to_the_bounded_source_reader(tmp_path):
     source_file = tmp_path / "import.btrc"
     source_file.write_text("class Imported {}\n")
 
-    def reject(_path):
-        raise SourceReadError("source exceeds limit")
+    class RejectingSourceReader(SourceFileReader):
+        def read(self, _path: str) -> str:
+            raise SourceReadError("source exceeds limit")
 
-    monkeypatch.setattr(workspace_module, "read_source", reject)
-
-    assert Workspace().get_file_unit(str(source_file)) is None
+    assert Workspace(source_reader=RejectingSourceReader()).get_file_unit(str(source_file)) is None

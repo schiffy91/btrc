@@ -27,8 +27,8 @@ from src.compiler.python.ast_nodes import (
     import_spec,
 )
 from src.compiler.python.frontend.dependencies import SourceDependencyKind
+from src.compiler.python.frontend.source_io import SourceDirectiveScanner
 from src.compiler.python.frontend.stdlib import StdlibRepository
-from src.compiler.python.import_scan import CINCLUDE_BTRC_RE
 from src.compiler.python.lexer import Lexer, LexerError
 from src.compiler.python.parser.core import ParseError
 from src.compiler.python.parser.parser import Parser
@@ -86,7 +86,11 @@ class FileDependencies:
     entries: tuple[FileDependency, ...] = ()
 
     @classmethod
-    def from_declarations(cls, declarations: list) -> FileDependencies:
+    def from_declarations(
+        cls,
+        declarations: list,
+        directive_scanner: SourceDirectiveScanner,
+    ) -> FileDependencies:
         dependencies: list[FileDependency] = []
         for declaration in declarations:
             if isinstance(declaration, ImportDecl):
@@ -100,12 +104,12 @@ class FileDependencies:
                 continue
             if not isinstance(declaration, PreprocessorDirective):
                 continue
-            include = CINCLUDE_BTRC_RE.match(declaration.text)
-            if include:
+            include_path = directive_scanner.btrc_include_path(declaration.text)
+            if include_path is not None:
                 dependencies.append(
                     FileDependency(
                         line=declaration.line,
-                        spec=RelativePath(path=include.group(1)),
+                        spec=RelativePath(path=include_path),
                         kind=SourceDependencyKind.INCLUDE,
                     )
                 )
@@ -143,6 +147,7 @@ class FileUnit:
         source: str,
         *,
         stdlib: StdlibRepository | None = None,
+        directive_scanner: SourceDirectiveScanner | None = None,
     ) -> FileUnit:
         """Lex and parse one file in its own coordinate space."""
 
@@ -163,7 +168,10 @@ class FileUnit:
             unit.parse_error = error
             return unit
         unit.decls = program.declarations
-        unit.dependencies = FileDependencies.from_declarations(unit.decls)
+        unit.dependencies = FileDependencies.from_declarations(
+            unit.decls,
+            directive_scanner or SourceDirectiveScanner(),
+        )
         for declaration in unit.decls:
             declaration.source_file = unit.path
         return unit

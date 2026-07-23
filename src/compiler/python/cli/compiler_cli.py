@@ -9,7 +9,7 @@ import pprint
 import sys
 from collections.abc import Callable, Sequence
 
-from .. import cli_diagnostics, cli_io
+from .. import cli_diagnostics
 from ..cli_archive import build_stdlib_archive
 from ..compiler import Compiler
 from ..freestanding import RUNTIME_HEADER
@@ -21,6 +21,7 @@ from ..parser.core import ParseError
 from ..pipeline.models import CompilerOptions, CompilerOutput, CompilerResult
 from ..pkg import IncludeResolutionError
 from ..stdlib_archive import ArchiveVersionError
+from .file_io import CompilerFileIO
 
 
 class PrintStdlibDir(argparse.Action):
@@ -48,9 +49,11 @@ class CompilerCLI:
         compiler: Compiler | None = None,
         *,
         archive_builder: Callable[[str], None] = build_stdlib_archive,
+        file_io: CompilerFileIO | None = None,
     ) -> None:
         self.compiler = compiler or Compiler()
         self._archive_builder = archive_builder
+        self._file_io = file_io or CompilerFileIO()
 
     def argument_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(description="btrc transpiler")
@@ -200,8 +203,8 @@ class CompilerCLI:
             parser.error("the following arguments are required: input")
 
         output = self._requested_output(args)
-        out_path = None if output is not CompilerOutput.C else cli_io.output_path(args.input, args.output)
-        input_source = cli_io.read_input(args.input)
+        out_path = None if output is not CompilerOutput.C else self._file_io.output_path(args.input, args.output)
+        input_source = self._file_io.read_input(args.input)
         options = CompilerOptions(
             output=output,
             include_stdlib=not args.no_stdlib,
@@ -249,11 +252,11 @@ class CompilerCLI:
             raise AssertionError("successful C compilation omitted its output")
         if args.profile:
             cli_diagnostics.print_profile(dict(result.profile), len(result.source_bundle.source))
-        cli_io.write_output(out_path, result.c_source)
+        self._file_io.write_output(out_path, result.c_source)
 
         if args.freestanding:
             rt_path = os.path.join(os.path.dirname(out_path) or ".", "btrc_rt.h")
-            if cli_io.write_output_if_missing(rt_path, RUNTIME_HEADER):
+            if self._file_io.write_output_if_missing(rt_path, RUNTIME_HEADER):
                 print(f"Wrote freestanding runtime seam → {rt_path}")
 
         cached = " (cached)" if result.cache_hit else ""
