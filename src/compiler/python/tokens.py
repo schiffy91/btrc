@@ -4,8 +4,12 @@ TokenType enum and keyword table are validated against src/language/grammar.ebnf
 at import time to ensure the grammar is the single source of truth.
 """
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from enum import Enum, auto
+from types import MappingProxyType
+
+from .ebnf import GrammarInfo, GrammarRepository
 
 
 class TokenType(Enum):
@@ -154,90 +158,97 @@ class Token:
         return f"Token({self.type.name}, {self.value!r}, {self.line}:{self.col})"
 
 
-def _build_keyword_table() -> dict[str, TokenType]:
-    """Build keyword lookup table, validated against the grammar."""
-    from .ebnf import get_grammar_info
+class TokenVocabulary:
+    """Own validated token lookup tables and longest-operator matching."""
 
-    gi = get_grammar_info()
-    table: dict[str, TokenType] = {}
-    for kw in gi.keywords:
-        token_name = gi.keyword_to_token[kw]
-        try:
-            table[kw] = TokenType[token_name]
-        except KeyError as err:
-            raise RuntimeError(
-                f"Grammar keyword {kw!r} maps to TokenType.{token_name} "
-                f"which does not exist in the TokenType enum. "
-                f"Add it to tokens.py."
-            ) from err
-    return table
+    def __init__(self, grammar: GrammarInfo) -> None:
+        self.grammar = grammar
+        self.keywords = self._token_table(
+            grammar.keywords,
+            grammar.keyword_to_token,
+            "keyword",
+        )
+        self.operators = self._token_table(
+            grammar.operators,
+            grammar.op_to_token,
+            "operator",
+        )
+        self.annotations = self._token_table(
+            grammar.annotations,
+            grammar.annotation_to_token,
+            "annotation",
+        )
+        self._operator_trie = self._build_operator_trie()
+
+    @staticmethod
+    def _token_table(
+        spellings: Iterable[str],
+        token_names: Mapping[str, str],
+        kind: str,
+    ) -> Mapping[str, TokenType]:
+        table: dict[str, TokenType] = {}
+        for spelling in spellings:
+            token_name = token_names[spelling]
+            try:
+                table[spelling] = TokenType[token_name]
+            except KeyError as error:
+                raise RuntimeError(
+                    f"Grammar {kind} {spelling!r} maps to TokenType.{token_name} "
+                    "which does not exist in the TokenType enum. Add it to tokens.py."
+                ) from error
+        return MappingProxyType(table)
+
+    def _build_operator_trie(self) -> dict:
+        root: dict = {}
+        for operator, token_type in self.operators.items():
+            node = root
+            for character in operator:
+                node = node.setdefault(character, {})
+            node[""] = token_type
+        return root
+
+    def match_operator(self, source: str, position: int) -> tuple[TokenType, int] | None:
+        """Return the longest grammar operator beginning at ``position``."""
+
+        node = self._operator_trie
+        best: tuple[TokenType, int] | None = None
+        offset = 0
+        while position + offset < len(source):
+            character = source[position + offset]
+            child = node.get(character)
+            if not isinstance(child, dict):
+                break
+            node = child
+            offset += 1
+            token_type = node.get("")
+            if isinstance(token_type, TokenType):
+                best = (token_type, offset)
+        return best
 
 
-def _build_operator_table() -> dict[str, TokenType]:
-    """Build operator lookup table, validated against the grammar."""
-    from .ebnf import get_grammar_info
-
-    gi = get_grammar_info()
-    table: dict[str, TokenType] = {}
-    for op in gi.operators:
-        token_name = gi.op_to_token[op]
-        try:
-            table[op] = TokenType[token_name]
-        except KeyError as err:
-            raise RuntimeError(
-                f"Grammar operator {op!r} maps to TokenType.{token_name} "
-                f"which does not exist in the TokenType enum. "
-                f"Add it to tokens.py."
-            ) from err
-    return table
-
-
-def _build_annotation_table() -> dict[str, TokenType]:
-    """Build annotation lookup table, validated against the grammar."""
-    from .ebnf import get_grammar_info
-
-    gi = get_grammar_info()
-    table: dict[str, TokenType] = {}
-    for ann in gi.annotations:
-        token_name = gi.annotation_to_token[ann]
-        try:
-            table[ann] = TokenType[token_name]
-        except KeyError as err:
-            raise RuntimeError(
-                f"Grammar annotation {ann!r} maps to TokenType.{token_name} "
-                f"which does not exist in the TokenType enum. "
-                f"Add it to tokens.py."
-            ) from err
-    return table
-
-
-# Keyword lookup table: string -> TokenType (validated against grammar)
-KEYWORDS: dict[str, TokenType] = _build_keyword_table()
-
-# Operator lookup table: string -> TokenType (validated against grammar)
-OPERATORS: dict[str, TokenType] = _build_operator_table()
-
-# Annotation lookup table: string -> TokenType (validated against grammar)
-ANNOTATIONS: dict[str, TokenType] = _build_annotation_table()
+# Immutable canonical language data, validated once when token definitions load.
+DEFAULT_VOCABULARY = TokenVocabulary(GrammarRepository.canonical().load())
 
 # Set of token types that represent type keywords (used by parser for disambiguation)
-TYPE_KEYWORDS: set[TokenType] = {
-    TokenType.VOID,
-    TokenType.INT,
-    TokenType.FLOAT,
-    TokenType.DOUBLE,
-    TokenType.CHAR,
-    TokenType.SHORT,
-    TokenType.LONG,
-    TokenType.UNSIGNED,
-    TokenType.SIGNED,
-    TokenType.STRING,
-    TokenType.BOOL,
-    TokenType.STRUCT,
-    TokenType.ENUM,
-    TokenType.UNION,
-    TokenType.CONST,
-    TokenType.STATIC,
-    TokenType.EXTERN,
-    TokenType.VOLATILE,
-}
+TYPE_KEYWORDS: frozenset[TokenType] = frozenset(
+    {
+        TokenType.VOID,
+        TokenType.INT,
+        TokenType.FLOAT,
+        TokenType.DOUBLE,
+        TokenType.CHAR,
+        TokenType.SHORT,
+        TokenType.LONG,
+        TokenType.UNSIGNED,
+        TokenType.SIGNED,
+        TokenType.STRING,
+        TokenType.BOOL,
+        TokenType.STRUCT,
+        TokenType.ENUM,
+        TokenType.UNION,
+        TokenType.CONST,
+        TokenType.STATIC,
+        TokenType.EXTERN,
+        TokenType.VOLATILE,
+    }
+)

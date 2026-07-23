@@ -19,8 +19,8 @@ the sum is emitted with the base-class type. btrc classes are reference types,
 so a base-class-typed field can hold any subclass instance. Product types map
 to their single constructor class, exactly as asdl_python does.
 
-Field names that collide with a btrc keyword (read from the grammar via
-ebnf.get_grammar_info(), the same source tokens.py uses -- never hardcoded) are
+Field names that collide with a btrc keyword (read through the grammar
+repository, the same source tokens.py uses -- never hardcoded) are
 deterministically renamed by appending an underscore: ``default`` -> ``default_``,
 ``keep`` -> ``keep_``. The rename is applied consistently to field declarations
 and to the constructor's initialiser statements.
@@ -60,9 +60,9 @@ def _btrc_keywords() -> set[str]:
     root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(here))))
     if root not in sys.path:
         sys.path.insert(0, root)
-    from src.compiler.python.ebnf import get_grammar_info
+    from src.compiler.python.ebnf import GrammarRepository
 
-    return set(get_grammar_info().keywords)
+    return set(GrammarRepository.canonical().load().keywords)
 
 
 _KEYWORDS = _btrc_keywords()

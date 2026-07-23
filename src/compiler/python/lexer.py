@@ -5,10 +5,9 @@ via the ebnf module. Literal parsing (numbers, strings, f-strings) is
 hand-coded for robustness, with the grammar's @literals serving as the spec.
 """
 
-from .ebnf import get_grammar_info
 from .lexer_literal_rules import is_ascii_alnum, is_ascii_alpha, is_ascii_digit
 from .lexer_literals import read_char, read_fstring, read_number, read_string
-from .tokens import ANNOTATIONS, KEYWORDS, OPERATORS, Token, TokenType
+from .tokens import DEFAULT_VOCABULARY, Token, TokenType, TokenVocabulary
 
 
 class LexerError(Exception):
@@ -19,19 +18,21 @@ class LexerError(Exception):
 
 
 class Lexer:
-    def __init__(self, source: str, filename: str = "<stdin>"):
+    def __init__(
+        self,
+        source: str,
+        filename: str = "<stdin>",
+        vocabulary: TokenVocabulary | None = None,
+    ):
         self.source = source
         self.filename = filename
+        self._vocabulary = vocabulary or DEFAULT_VOCABULARY
         self.pos = 0
         self.line = 1
         self.col = 1
         self.tokens: list[Token] = []
         self._failure: LexerError | None = None
         self._complete = False
-
-        # Build operator trie from grammar for longest-match tokenization
-        gi = get_grammar_info()
-        self._op_trie = _build_trie(gi.operators)
 
     def tokenize(self) -> list[Token]:
         if self._failure is not None:
@@ -172,7 +173,7 @@ class Lexer:
         while self.pos < len(self.source) and (is_ascii_alnum(self._peek()) or self._peek() == "_"):
             self._advance()
         name = self.source[start : self.pos]
-        token_type = ANNOTATIONS.get(name)
+        token_type = self._vocabulary.annotations.get(name)
         if token_type is not None:
             self._emit(token_type, f"@{name}", line, col)
         else:
@@ -203,7 +204,7 @@ class Lexer:
             read_fstring(self, line, col)
             return
 
-        token_type = KEYWORDS.get(value, TokenType.IDENT)
+        token_type = self._vocabulary.keywords.get(value, TokenType.IDENT)
         self._emit(token_type, value, line, col)
 
         # Import path mode: after the `import` keyword, a relative/absolute path
@@ -241,47 +242,16 @@ class Lexer:
     def _read_operator(self):
         line, col = self.line, self.col
 
-        # Walk the operator trie for longest match
-        node = self._op_trie
-        best_match = None
-        best_len = 0
-        i = 0
-        while self.pos + i < len(self.source):
-            ch = self.source[self.pos + i]
-            if ch not in node:
-                break
-            node = node[ch]
-            i += 1
-            if "" in node:  # terminal marker
-                best_match = node[""]
-                best_len = i
-
-        if best_match is not None:
-            value = self.source[self.pos : self.pos + best_len]
-            for _ in range(best_len):
+        match = self._vocabulary.match_operator(self.source, self.pos)
+        if match is not None:
+            token_type, width = match
+            value = self.source[self.pos : self.pos + width]
+            for _ in range(width):
                 self._advance()
-            self._emit(best_match, value, line, col)
+            self._emit(token_type, value, line, col)
             return
 
         ch = self._peek()
         if ord(ch) > 0x7F:
             raise LexerError("Unexpected non-ASCII character", line, col)
         raise LexerError(f"Unexpected character '{ch}'", line, col)
-
-
-def _build_trie(operators: list[str]) -> dict:
-    """Build a trie from operator strings for longest-match tokenization.
-
-    Each node is a dict mapping character -> child node.
-    Terminal nodes have '' -> TokenType entry.
-    """
-    root: dict = {}
-    for op in operators:
-        token_type = OPERATORS[op]
-        node = root
-        for ch in op:
-            if ch not in node:
-                node[ch] = {}
-            node = node[ch]
-        node[""] = token_type  # terminal marker
-    return root

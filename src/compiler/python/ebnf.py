@@ -1,231 +1,203 @@
-"""EBNF grammar parser for the btrc language.
-
-Reads src/language/grammar.ebnf and extracts:
-  - keywords: the set of reserved keywords
-  - operators: the list of operators/delimiters (sorted longest-first)
-  - keyword_to_token: mapping from keyword string to TokenType name
-  - op_to_token: mapping from operator string to TokenType name
-
-The lexer and tokens module import from here to build their lookup tables,
-making the grammar the single source of truth for what tokens exist.
-"""
+"""Owned loading and parsing of the language's lexical EBNF contract."""
 
 from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
 
 
-@dataclass
+@dataclass(frozen=True)
 class GrammarInfo:
-    """Structured information extracted from the EBNF grammar."""
+    """Immutable lexical information derived from ``grammar.ebnf``."""
 
-    keywords: set[str] = field(default_factory=set)
-    operators: list[str] = field(default_factory=list)  # sorted longest-first
-    keyword_to_token: dict[str, str] = field(default_factory=dict)
-    op_to_token: dict[str, str] = field(default_factory=dict)
-    annotations: set[str] = field(default_factory=set)  # e.g. {"gpu"}
-    annotation_to_token: dict[str, str] = field(default_factory=dict)
-
-
-# Character → TokenType name component (single source for deriving operator names)
-_CHAR_NAMES: dict[str, str] = {
-    "+": "PLUS",
-    "-": "MINUS",
-    "*": "STAR",
-    "/": "SLASH",
-    "%": "PERCENT",
-    "=": "EQ",
-    "<": "LT",
-    ">": "GT",
-    "!": "BANG",
-    "&": "AMP",
-    "|": "PIPE",
-    "^": "CARET",
-    "~": "TILDE",
-    "?": "QUESTION",
-    ".": "DOT",
-    ",": "COMMA",
-    ";": "SEMICOLON",
-    ":": "COLON",
-    "(": "LPAREN",
-    ")": "RPAREN",
-    "[": "LBRACKET",
-    "]": "RBRACKET",
-    "{": "LBRACE",
-    "}": "RBRACE",
-}
-
-# Operators whose TokenType name doesn't follow the character-join convention
-_SPECIAL_OPS: dict[str, str] = {
-    "->": "ARROW",
-    "=>": "FAT_ARROW",
-}
+    keywords: frozenset[str]
+    operators: tuple[str, ...]
+    keyword_to_token: Mapping[str, str]
+    op_to_token: Mapping[str, str]
+    annotations: frozenset[str]
+    annotation_to_token: Mapping[str, str]
 
 
-def _op_to_token_name(op: str) -> str:
-    """Derive a TokenType name from an operator string.
+class EbnfGrammarParser:
+    """Parse the lexical portion of one EBNF document.
 
-    Single-char operators use _CHAR_NAMES directly (e.g. "+" → "PLUS").
-    Multi-char operators join character names with "_" (e.g. "+=" → "PLUS_EQ").
-    Special cases (like "->" → "ARROW") are handled by _SPECIAL_OPS.
+    Token names are derived here so the grammar remains the only keyword and
+    operator inventory.  The parser has no process-global state and can be
+    reused safely for generated-code tools and tests.
     """
-    if op in _SPECIAL_OPS:
-        return _SPECIAL_OPS[op]
-    if len(op) == 1:
-        name = _CHAR_NAMES.get(op)
-        if name is None:
-            raise ValueError(f"No character name for {op!r}. Add it to _CHAR_NAMES.")
-        return name
-    parts = []
-    for ch in op:
-        name = _CHAR_NAMES.get(ch)
-        if name is None:
-            raise ValueError(f"No character name for {ch!r} in operator {op!r}. Add it to _CHAR_NAMES.")
-        parts.append(name)
-    return "_".join(parts)
 
+    _CHAR_NAMES: Mapping[str, str] = MappingProxyType(
+        {
+            "+": "PLUS",
+            "-": "MINUS",
+            "*": "STAR",
+            "/": "SLASH",
+            "%": "PERCENT",
+            "=": "EQ",
+            "<": "LT",
+            ">": "GT",
+            "!": "BANG",
+            "&": "AMP",
+            "|": "PIPE",
+            "^": "CARET",
+            "~": "TILDE",
+            "?": "QUESTION",
+            ".": "DOT",
+            ",": "COMMA",
+            ";": "SEMICOLON",
+            ":": "COLON",
+            "(": "LPAREN",
+            ")": "RPAREN",
+            "[": "LBRACKET",
+            "]": "RBRACKET",
+            "{": "LBRACE",
+            "}": "RBRACE",
+        }
+    )
+    _SPECIAL_OPERATORS: Mapping[str, str] = MappingProxyType(
+        {
+            "->": "ARROW",
+            "=>": "FAT_ARROW",
+        }
+    )
 
-def _keyword_to_token_name(kw: str) -> str:
-    """Convert a keyword string to its TokenType enum name.
+    def parse(self, text: str) -> GrammarInfo:
+        """Return an immutable lexical snapshot from EBNF source text."""
 
-    e.g. "class" -> "CLASS", "if" -> "IF"
-    """
-    return kw.upper()
+        lexical_body = self.extract_brace_block(text, "@lexical")
+        if lexical_body is None:
+            raise ValueError("No @lexical section found in grammar")
 
+        keyword_body = self.extract_brace_block(lexical_body, "@keywords")
+        keywords = self._words_without_comments(keyword_body)
 
-def _annotation_to_token_name(name: str) -> str:
-    """Convert an annotation name to its TokenType enum name.
+        operator_body = self.extract_brace_block(lexical_body, "@operators")
+        operators = self._operators_without_comments(operator_body)
 
-    e.g. "gpu" -> "AT_GPU"
-    """
-    return f"AT_{name.upper()}"
+        annotation_body = self.extract_brace_block(lexical_body, "@annotations")
+        annotations = self._words_without_comments(annotation_body)
 
+        return GrammarInfo(
+            keywords=frozenset(keywords),
+            operators=tuple(operators),
+            keyword_to_token=MappingProxyType({keyword: keyword.upper() for keyword in keywords}),
+            op_to_token=MappingProxyType({operator: self.operator_token_name(operator) for operator in operators}),
+            annotations=frozenset(annotations),
+            annotation_to_token=MappingProxyType(
+                {annotation: f"AT_{annotation.upper()}" for annotation in annotations}
+            ),
+        )
 
-def _extract_brace_block(text: str, marker: str) -> str | None:
-    """Extract the content between { } after a @marker, handling nested braces."""
-    # Find marker followed (possibly with whitespace) by {
-    pattern = re.compile(re.escape(marker) + r"\s*\{")
-    m = pattern.search(text)
-    if m is None:
-        return None
-    brace_start = m.end() - 1  # position of the '{'
-    # Count braces to find the matching close, skipping quoted strings
-    # and -- line comments and /.../ regex patterns
-    depth = 1
-    i = brace_start + 1
-    while i < len(text) and depth > 0:
-        ch = text[i]
-        if ch == "-" and i + 1 < len(text) and text[i + 1] == "-":
-            # Line comment: skip to end of line
-            while i < len(text) and text[i] != "\n":
-                i += 1
-            continue
-        elif ch == "(" and i + 1 < len(text) and text[i + 1] == "*":
-            # Block comment (* ... *)
-            i += 2
-            while i + 1 < len(text) and not (text[i] == "*" and text[i + 1] == ")"):
-                i += 1
-            i += 2
-            continue
-        elif ch == "/":
-            # Possible regex pattern: /.../ (not followed by / for //)
-            if i + 1 < len(text) and text[i + 1] != "/":
-                # Skip regex pattern: scan to next /
-                i += 1
-                while i < len(text) and text[i] != "/" and text[i] != "\n":
-                    if text[i] == "\\":
-                        i += 1  # skip escaped char
-                    i += 1
-                if i < len(text) and text[i] == "/":
-                    i += 1  # skip closing /
+    def operator_token_name(self, operator: str) -> str:
+        """Derive the ``TokenType`` member name for an operator."""
+
+        special = self._SPECIAL_OPERATORS.get(operator)
+        if special is not None:
+            return special
+        if len(operator) == 1:
+            name = self._CHAR_NAMES.get(operator)
+            if name is None:
+                raise ValueError(f"No character name for {operator!r}. Add it to EbnfGrammarParser._CHAR_NAMES.")
+            return name
+
+        parts: list[str] = []
+        for character in operator:
+            name = self._CHAR_NAMES.get(character)
+            if name is None:
+                raise ValueError(
+                    f"No character name for {character!r} in operator {operator!r}. "
+                    "Add it to EbnfGrammarParser._CHAR_NAMES."
+                )
+            parts.append(name)
+        return "_".join(parts)
+
+    def extract_brace_block(self, text: str, marker: str) -> str | None:
+        """Extract a marker's balanced brace body, ignoring literal braces."""
+
+        match = re.compile(re.escape(marker) + r"\s*\{").search(text)
+        if match is None:
+            return None
+        brace_start = match.end() - 1
+        depth = 1
+        index = brace_start + 1
+        while index < len(text) and depth > 0:
+            character = text[index]
+            if character == "-" and index + 1 < len(text) and text[index + 1] == "-":
+                while index < len(text) and text[index] != "\n":
+                    index += 1
                 continue
-        elif ch == '"':
-            # Skip quoted string
-            i += 1
-            while i < len(text) and text[i] != '"':
-                if text[i] == "\\":
-                    i += 1  # skip escaped char
-                i += 1
-            i += 1  # skip closing "
-            continue
-        elif ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-        i += 1
-    if depth != 0:
-        return None
-    return text[brace_start + 1 : i - 1]
+            if character == "(" and index + 1 < len(text) and text[index + 1] == "*":
+                index += 2
+                while index + 1 < len(text) and not (text[index] == "*" and text[index + 1] == ")"):
+                    index += 1
+                index += 2
+                continue
+            if character == "/" and index + 1 < len(text) and text[index + 1] != "/":
+                index += 1
+                while index < len(text) and text[index] not in ("/", "\n"):
+                    if text[index] == "\\":
+                        index += 1
+                    index += 1
+                if index < len(text) and text[index] == "/":
+                    index += 1
+                continue
+            if character == '"':
+                index += 1
+                while index < len(text) and text[index] != '"':
+                    if text[index] == "\\":
+                        index += 1
+                    index += 1
+                index += 1
+                continue
+            if character == "{":
+                depth += 1
+            elif character == "}":
+                depth -= 1
+            index += 1
+        if depth != 0:
+            return None
+        return text[brace_start + 1 : index - 1]
+
+    @staticmethod
+    def _words_without_comments(body: str | None) -> tuple[str, ...]:
+        if body is None:
+            return ()
+        body = re.sub(r"--[^\n]*", "", body)
+        return tuple(re.findall(r"[a-zA-Z_]\w*", body))
+
+    @staticmethod
+    def _operators_without_comments(body: str | None) -> tuple[str, ...]:
+        if body is None:
+            return ()
+        operators = [operator for operator in re.findall(r'--[^\n]*|"([^"]+)"', body) if operator]
+        return tuple(sorted(operators, key=lambda operator: (-len(operator), operator)))
 
 
-def parse_grammar(text: str) -> GrammarInfo:
-    """Parse EBNF grammar text and extract lexical information."""
-    info = GrammarInfo()
+class GrammarRepository:
+    """Own one grammar path and its immutable, lazily loaded snapshot."""
 
-    # Extract @lexical { ... } section
-    lexical_body = _extract_brace_block(text, "@lexical")
-    if lexical_body is None:
-        raise ValueError("No @lexical section found in grammar")
+    def __init__(self, path: str, parser: EbnfGrammarParser | None = None) -> None:
+        self._path = os.path.abspath(path)
+        self._parser = parser or EbnfGrammarParser()
+        self._snapshot: GrammarInfo | None = None
 
-    # Extract @keywords { ... }
-    kw_body = _extract_brace_block(lexical_body, "@keywords")
-    if kw_body is not None:
-        # Strip comments (-- ...)
-        kw_body = re.sub(r"--[^\n]*", "", kw_body)
-        # Extract all words
-        keywords = re.findall(r"[a-zA-Z_]\w*", kw_body)
-        info.keywords = set(keywords)
-        info.keyword_to_token = {kw: _keyword_to_token_name(kw) for kw in keywords}
+    @classmethod
+    def canonical(cls) -> GrammarRepository:
+        compiler_directory = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(compiler_directory)))
+        return cls(os.path.join(project_root, "src", "language", "grammar.ebnf"))
 
-    # Extract @operators { ... }
-    op_body = _extract_brace_block(lexical_body, "@operators")
-    if op_body is not None:
-        # Extract quoted strings, properly handling -- comments.
-        # Match either a comment (--...) or a quoted string ("...").
-        # Only capture content of quoted strings.
-        operators = re.findall(r'--[^\n]*|"([^"]+)"', op_body)
-        # Filter out empty matches (from comment captures)
-        operators = [op for op in operators if op]
-        # Sort longest-first for greedy matching
-        operators.sort(key=lambda x: (-len(x), x))
-        info.operators = operators
-        info.op_to_token = {op: _op_to_token_name(op) for op in operators}
+    @property
+    def path(self) -> str:
+        return self._path
 
-    # Extract @annotations { ... }
-    ann_body = _extract_brace_block(lexical_body, "@annotations")
-    if ann_body is not None:
-        ann_body = re.sub(r"--[^\n]*", "", ann_body)
-        annotations = re.findall(r"[a-zA-Z_]\w*", ann_body)
-        info.annotations = set(annotations)
-        info.annotation_to_token = {ann: _annotation_to_token_name(ann) for ann in annotations}
+    def load(self) -> GrammarInfo:
+        """Read and parse the owned grammar once for this repository."""
 
-    return info
-
-
-def parse_file(filepath: str) -> GrammarInfo:
-    """Parse an EBNF grammar file."""
-    with open(filepath) as f:
-        return parse_grammar(f.read())
-
-
-def _find_grammar_file() -> str:
-    """Find src/language/grammar.ebnf relative to this file's location."""
-    # This file is at src/compiler/python/ebnf.py
-    # Grammar is at src/language/grammar.ebnf
-    here = os.path.dirname(os.path.abspath(__file__))
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(here)))
-    return os.path.join(project_root, "src", "language", "grammar.ebnf")
-
-
-# Module-level grammar info, loaded on first access
-_grammar_info: GrammarInfo | None = None
-
-
-def get_grammar_info() -> GrammarInfo:
-    """Get the parsed grammar info, loading it on first access."""
-    global _grammar_info
-    if _grammar_info is None:
-        _grammar_info = parse_file(_find_grammar_file())
-    return _grammar_info
+        if self._snapshot is None:
+            with open(self._path, encoding="utf-8") as grammar_file:
+                self._snapshot = self._parser.parse(grammar_file.read())
+        return self._snapshot

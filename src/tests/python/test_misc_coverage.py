@@ -8,9 +8,12 @@ import subprocess
 import pytest
 
 from src.compiler.python import ebnf, pkg, pkg_git
+from src.compiler.python.lexer import Lexer
 from src.compiler.python.pkg import IncludeResolutionError
+from src.compiler.python.tokens import TokenType, TokenVocabulary
 
 PACKAGE_RESOLVER = pkg.PackageResolver()
+GRAMMAR_PARSER = ebnf.EbnfGrammarParser()
 
 # --------------------------------------------------------------------------
 # ebnf grammar loader
@@ -19,39 +22,39 @@ PACKAGE_RESOLVER = pkg.PackageResolver()
 
 def test_op_to_token_name_single_unknown():
     with pytest.raises(ValueError):
-        ebnf._op_to_token_name("§")
+        GRAMMAR_PARSER.operator_token_name("§")
 
 
 def test_op_to_token_name_multi_unknown():
     with pytest.raises(ValueError):
-        ebnf._op_to_token_name("+§")  # multi-char with an unknown component
+        GRAMMAR_PARSER.operator_token_name("+§")  # multi-char with an unknown component
 
 
 def test_op_to_token_name_known():
-    assert ebnf._op_to_token_name("+=") == "PLUS_EQ"
-    assert ebnf._op_to_token_name("->") == "ARROW"
+    assert GRAMMAR_PARSER.operator_token_name("+=") == "PLUS_EQ"
+    assert GRAMMAR_PARSER.operator_token_name("->") == "ARROW"
 
 
 def test_extract_brace_block_missing_marker():
-    assert ebnf._extract_brace_block("nothing here", "@nope") is None
+    assert GRAMMAR_PARSER.extract_brace_block("nothing here", "@nope") is None
 
 
 def test_extract_brace_block_unbalanced():
-    assert ebnf._extract_brace_block("@x { unbalanced", "@x") is None
+    assert GRAMMAR_PARSER.extract_brace_block("@x { unbalanced", "@x") is None
 
 
 def test_extract_brace_block_with_comments_and_strings():
-    body = ebnf._extract_brace_block('@x { -- line comment\n (* block *) "a" /regex/ }', "@x")
+    body = GRAMMAR_PARSER.extract_brace_block('@x { -- line comment\n (* block *) "a" /regex/ }', "@x")
     assert '"a"' in body
 
 
 def test_parse_grammar_no_lexical():
     with pytest.raises(ValueError):
-        ebnf.parse_grammar("no lexical section here")
+        GRAMMAR_PARSER.parse("no lexical section here")
 
 
 def test_parse_grammar_minimal():
-    info = ebnf.parse_grammar('@lexical { @keywords { if while } @operators { "+" "==" } @annotations { gpu } }')
+    info = GRAMMAR_PARSER.parse('@lexical { @keywords { if while } @operators { "+" "==" } @annotations { gpu } }')
     assert "if" in info.keywords and "while" in info.keywords
     assert "+" in info.operators and "==" in info.operators
     assert "gpu" in info.annotations
@@ -60,14 +63,43 @@ def test_parse_grammar_minimal():
 
 def test_extract_brace_block_escapes():
     # Escaped quote inside a string and escaped slash inside a regex.
-    body = ebnf._extract_brace_block(r'@x { "a\"b" /a\/b/ }', "@x")
+    body = GRAMMAR_PARSER.extract_brace_block(r'@x { "a\"b" /a\/b/ }', "@x")
     assert body is not None
 
 
-def test_get_grammar_info_loads_real_grammar():
-    info = ebnf.get_grammar_info()
+def test_grammar_repository_loads_real_grammar_once():
+    repository = ebnf.GrammarRepository.canonical()
+    info = repository.load()
     assert "class" in info.keywords
-    assert ebnf.get_grammar_info() is info  # cached on subsequent calls
+    assert repository.load() is info  # cached by this explicit owner
+
+
+def test_grammar_repository_does_not_publish_a_failed_snapshot(tmp_path):
+    grammar_path = tmp_path / "grammar.ebnf"
+    grammar_path.write_text("malformed")
+    repository = ebnf.GrammarRepository(str(grammar_path))
+
+    with pytest.raises(ValueError):
+        repository.load()
+
+    grammar_path.write_text('@lexical { @keywords { class } @operators { "+" } }')
+    assert repository.load().keywords == frozenset({"class"})
+
+
+def test_lexer_uses_its_explicit_immutable_vocabulary():
+    grammar = GRAMMAR_PARSER.parse('@lexical { @keywords { class } @operators { "+" } @annotations { gpu } }')
+    vocabulary = TokenVocabulary(grammar)
+
+    tokens = Lexer("class + value", vocabulary=vocabulary).tokenize()
+
+    assert [token.type for token in tokens] == [
+        TokenType.CLASS,
+        TokenType.PLUS,
+        TokenType.IDENT,
+        TokenType.EOF,
+    ]
+    with pytest.raises(TypeError):
+        vocabulary.keywords["while"] = TokenType.WHILE
 
 
 # --------------------------------------------------------------------------
