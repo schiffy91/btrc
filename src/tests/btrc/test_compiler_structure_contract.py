@@ -108,6 +108,38 @@ def test_application_and_pipeline_have_real_instance_owners() -> None:
         assert loose_helper not in output
 
 
+def test_frontend_scanning_and_recursive_resolution_are_instance_owned() -> None:
+    frontend = _source("frontend.btrc")
+    pipeline = _source("pipeline/pipeline.btrc")
+    visibility = _source("import_visibility.btrc")
+    frontend_main = _source("frontend_main.btrc")
+
+    assert "class FeDirectiveScanner {" in frontend
+    assert "private GrammarInfo grammar;" in frontend
+    assert "public Vector<FeDirective> scan(string source)" in frontend
+    assert "private void inlinePaths(" in frontend
+    assert "private void resolveInto(" in frontend
+    assert "self.dependencies = FeDependencyGraph();" in frontend
+
+    for loose_behavior in (
+        "feGrammarCache",
+        "GrammarInfo feGrammar(",
+        "feScanDirectives(",
+        "feInlinePaths(",
+        "feResolveTracedInto",
+        "feResolveIncludes(",
+        "feResolveFrontendSource(",
+    ):
+        assert loose_behavior not in frontend
+
+    assert "self.grammar, options.includeStdlib, options.strictImports" in pipeline
+    assert "FeImportVisibilityChecker(program, resolved, self.grammar)" in pipeline
+    assert "Lexer lexer = Lexer(source, self.grammar);" in visibility
+    assert "Parser parser = Parser(tokens, self.grammar);" in visibility
+    assert "FeFrontendResolver resolver = FeFrontendResolver(" in frontend_main
+    assert "resolver.resolve(src, path)" in frontend_main
+
+
 def test_strict_imports_are_the_application_default() -> None:
     models = _source("pipeline/models.btrc")
     options = _source("driver_options.btrc")

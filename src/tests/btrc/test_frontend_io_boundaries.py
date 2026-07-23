@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import json
+import os
+import shlex
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[3]
+CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 
 
 def _selfhost(compiler: Path, program: Path, *, timeout: int = 120):
@@ -268,3 +273,72 @@ def test_frontend_scan_limits_are_wired_before_materialization() -> None:
     assert "budget.addFile()" in frontend
     assert "Vector<string> pending = []" in frontend
     assert "result.len > maxEntries" in filesystem
+
+
+@pytest.mark.skipif(
+    not CC or shutil.which(CC[0]) is None,
+    reason="needs a C compiler",
+)
+def test_frontend_resolver_reuse_resets_state_and_isolates_results(
+    tmp_path: Path,
+) -> None:
+    stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
+    grammar_path = REPO / "src/language/grammar.ebnf"
+    virtual_source = tmp_path / "virtual.btrc"
+    isolated_source = tmp_path / "isolated.btrc"
+    program = tmp_path / "resolver_reuse.btrc"
+    generated = tmp_path / "resolver_reuse.c"
+    executable = tmp_path / "resolver_reuse"
+    first_source = "int firstValue;\n"
+    second_source = "int secondValue;\n"
+    program.write_text(
+        f"import {json.dumps(str(stage))};\n"
+        "\n"
+        "int main() {\n"
+        f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
+        "    FeFrontendResolver resolver = FeFrontendResolver(grammar, false, true);\n"
+        f"    string firstSource = {json.dumps(first_source)};\n"
+        f"    string secondSource = {json.dumps(second_source)};\n"
+        f"    string sourcePath = {json.dumps(str(virtual_source))};\n"
+        "    FeResolvedSource first = resolver.resolve(firstSource, sourcePath);\n"
+        "    FeResolvedSource second = resolver.resolve(secondSource, sourcePath);\n"
+        "    if (!first.userSource.equals(firstSource)) { return 1; }\n"
+        "    if (!second.userSource.equals(secondSource)) { return 2; }\n"
+        f"    string isolatedPath = {json.dumps(str(isolated_source))};\n"
+        "    second.dependencies.ensureSource(isolatedPath);\n"
+        "    if (first.dependencies.hasSource(isolatedPath)) { return 3; }\n"
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    transpile = _reference(program, generated, timeout=300)
+    assert transpile.returncode == 0, transpile.stderr
+    native = subprocess.run(
+        [
+            *CC,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(generated),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert native.returncode == 0, native.stderr
+    executed = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert executed.returncode == 0, executed.stderr

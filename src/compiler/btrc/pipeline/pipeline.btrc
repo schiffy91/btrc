@@ -25,7 +25,7 @@ class CompilerPipeline {
     public BtrccCompilationResult compile(string source, string sourcePath,
                                           BtrccOptions options) {
         FeFrontendResolver resolver = FeFrontendResolver(
-            options.includeStdlib, options.strictImports);
+            self.grammar, options.includeStdlib, options.strictImports);
         FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 
         Lexer lexer = Lexer(resolved.source, self.grammar);
@@ -42,7 +42,7 @@ class CompilerPipeline {
 
         if (options.strictImports) {
             FeImportVisibilityChecker visibility =
-                FeImportVisibilityChecker(program, resolved);
+                FeImportVisibilityChecker(program, resolved, self.grammar);
             Vector<FeVisibilityDiagnostic> diagnostics = visibility.check();
             if (diagnostics.len > 0) {
                 return self.failure(self.visibilityDiagnostic(diagnostics));

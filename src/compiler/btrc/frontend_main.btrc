@@ -2,14 +2,15 @@
  * verbatim to stdout (byte-identical to btrcpy's
  * resolve_frontend_source(...).source).
  *
- * Usage:
- *   frontend <file.btrc>             # stdlib + includes/imports composed
- *   frontend --no-stdlib <file.btrc> # includes/imports only (no auto-stdlib)
+ * Strict imports are the default. `--relaxed-imports` explicitly enables
+ * legacy whole-stdlib composition; `--no-stdlib` disables that composition
+ * without affecting explicit includes/imports.
  *
  * Verification:
  *   (cd /tmp/shv && frontend F.btrc) | diff - oracle_source.txt
  */
 
+import std.console;
 import ./frontend/stage.btrc;
 
 #include "driver_output.btrc"
@@ -17,26 +18,43 @@ import ./frontend/stage.btrc;
 int main(int argc, char** argv) {
     BtrccOutput output = BtrccOutput(stdout);
     if (argc < 2) {
-        Console.error("usage: frontend [--no-stdlib] <file.btrc>");
+        Console.error(
+            "usage: frontend [--strict-imports | --relaxed-imports] "
+            + "[--no-stdlib] <file.btrc>");
         return 1;
     }
 
     bool includeStdlib = true;
+    bool strictImports = true;
     int argIdx = 1;
-    string first = Strings.copy(argv[1]);
-    if (first.equals("--no-stdlib")) {
-        includeStdlib = false;
-        argIdx = 2;
+    while (argIdx < argc) {
+        string option = Strings.copy(argv[argIdx]);
+        if (option.equals("--no-stdlib")) {
+            includeStdlib = false;
+        } else if (option.equals("--strict-imports")) {
+            strictImports = true;
+        } else if (option.equals("--relaxed-imports")) {
+            strictImports = false;
+        } else {
+            break;
+        }
+        argIdx++;
     }
     if (argIdx >= argc) {
-        Console.error("usage: frontend [--no-stdlib] <file.btrc>");
+        Console.error(
+            "usage: frontend [--strict-imports | --relaxed-imports] "
+            + "[--no-stdlib] <file.btrc>");
         return 1;
     }
 
     string path = Strings.copy(argv[argIdx]);
     string src = feReadRequiredSource(path);
-    string composed = feResolveFrontendSource(src, path, includeStdlib);
-    if (output.write(composed)) { return 0; }
+    GrammarInfo grammar = parseGrammar(
+        feReadRequiredSource(feGrammarPath()));
+    FeFrontendResolver resolver = FeFrontendResolver(
+        grammar, includeStdlib, strictImports);
+    FeResolvedSource resolved = resolver.resolve(src, path);
+    if (output.write(resolved.source)) { return 0; }
     fprintf(stderr, "frontend: error: cannot write standard output\n");
     return 1;
 }

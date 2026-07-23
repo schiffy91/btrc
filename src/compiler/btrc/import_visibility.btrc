@@ -360,10 +360,13 @@ class FeVisibilityDiagnostic {
 class FeImportVisibilityChecker {
     public Node program;
     public FeResolvedSource resolved;
+    private GrammarInfo grammar;
 
-    public FeImportVisibilityChecker(Node program, FeResolvedSource resolved) {
+    public FeImportVisibilityChecker(
+            Node program, FeResolvedSource resolved, GrammarInfo grammar) {
         self.program = program;
         self.resolved = resolved;
+        self.grammar = grammar;
     }
 
     public bool isNamedDeclaration(Node declaration) {
@@ -431,7 +434,6 @@ class FeImportVisibilityChecker {
     public void addUncomposedStdlibSymbols(
             Map<string, Vector<string>> symbols) {
         Vector<string> files = feDiscoverStdlibFiles();
-        GrammarInfo grammar = feGrammar();
         int fileIndex = 0;
         while (fileIndex < files.len) {
             string path = feJoinPath(feStdlibDir(), files.get(fileIndex));
@@ -441,7 +443,7 @@ class FeImportVisibilityChecker {
                 continue;
             }
             string source = feReadRequiredSource(path);
-            Lexer lexer = Lexer(source, grammar);
+            Lexer lexer = Lexer(source, self.grammar);
             Vector<Token> tokens = lexer.tokenize();
             if (lexer.failed) {
                 fprintf(stderr,
@@ -449,7 +451,7 @@ class FeImportVisibilityChecker {
                     path, lexer.diagnostic);
                 exit(1);
             }
-            Parser parser = Parser(tokens, grammar);
+            Parser parser = Parser(tokens, self.grammar);
             Node stdlibProgram = parser.parseProgram();
             if (parser.failed) {
                 fprintf(stderr,

@@ -73,20 +73,6 @@ bool feEndsWith(string s, string suffix) {
     return s.endsWith(suffix);
 }
 
-/* ----- cached grammar (parsed once from the configured grammar path) ------ */
-
-GrammarInfo? feGrammarCache = null;
-
-/* Lazily parse and cache the EBNF grammar used to drive the lexer for
- * comment-aware directive scanning. */
-GrammarInfo feGrammar() {
-    if (feGrammarCache == null) {
-        string text = feReadRequiredSource(feGrammarPath());
-        feGrammarCache = parseGrammar(text);
-    }
-    return feGrammarCache;
-}
-
 /* ----- a resolved source line: text + native provenance ------------------- */
 
 class FeLine {
@@ -510,157 +496,179 @@ bool feVecContains(Vector<string> v, string x) {
 
 /* ----- directive scanning (comment/string-aware, via the lexer) ------------ */
 
-/* Extract the include path from a `#include "X.btrc"` preprocessor token, or
- * return "" if it is a real C include (`<...>` or non-.btrc). Mirrors
- * CINCLUDE_BTRC_RE: ^\s*#include\s+[<"]([^>"]+\.btrc)[>"]\s*$ */
-string feCIncludeBtrcPath(string tokenValue) {
-    string s = feTrim(tokenValue);
-    if (!feRawStartsWith(s, 0, "#include")) { return ""; }
-    int i = 8;  /* past "#include" */
-    int n = s.length();
-    if (i >= n || (s[i] != ' ' && s[i] != '\t')) { return ""; }
-    while (i < n && (s[i] == ' ' || s[i] == '\t')) { i = i + 1; }
-    if (i >= n) { return ""; }
-    char open = s[i];
-    if (open != '"' && open != '<') { return ""; }
-    char close = '"';
-    if (open == '<') { close = '>'; }
-    i = i + 1;
-    int pathStart = i;
-    while (i < n && s[i] != close && s[i] != '"') { i = i + 1; }
-    if (i >= n || s[i] != close) { return ""; }
-    string path = s.substring(pathStart, i - pathStart);
-    i = i + 1;
-    /* trailing whitespace only */
-    while (i < n && (s[i] == ' ' || s[i] == '\t')) { i = i + 1; }
-    if (i != n) { return ""; }
-    if (!feEndsWith(path, ".btrc")) { return ""; }
-    return path;
-}
+class FeDirectiveScanner {
+    private GrammarInfo grammar;
 
-int feImportTokenEnd(Vector<Token> tokens, int start) {
-    if (start >= tokens.len || tokens.get(start).type.equals("EOF")) { return -1; }
-    Token first = tokens.get(start);
-    if (first.type.equals("STRING_LIT") || first.type.equals("PATH_SPEC")) {
-        return start + 1;
+    public FeDirectiveScanner(GrammarInfo grammar) {
+        self.grammar = grammar;
     }
-    if (!first.type.equals("IDENT")) { return -1; }
-    int index = start + 1;
-    if (!first.value.equals("std")) {
-        while (index < tokens.len && tokens.get(index).type.equals("DOT")) {
-            if (index + 1 >= tokens.len
-                    || !tokens.get(index + 1).type.equals("IDENT")) { return -1; }
-            index = index + 2;
+
+    /* Extract the include path from a `#include "X.btrc"` preprocessor token,
+     * or return "" for a C include (`<...>` or non-.btrc). */
+    private string cIncludeBtrcPath(string tokenValue) {
+        string s = feTrim(tokenValue);
+        if (!feRawStartsWith(s, 0, "#include")) { return ""; }
+        int i = 8;
+        int n = s.length();
+        if (i >= n || (s[i] != ' ' && s[i] != '\t')) { return ""; }
+        while (i < n && (s[i] == ' ' || s[i] == '\t')) { i++; }
+        if (i >= n) { return ""; }
+        char open = s[i];
+        if (open != '"' && open != '<') { return ""; }
+        char close = open == '<' ? '>' : '"';
+        i++;
+        int pathStart = i;
+        while (i < n && s[i] != close && s[i] != '"') { i++; }
+        if (i >= n || s[i] != close) { return ""; }
+        string path = s.substring(pathStart, i - pathStart);
+        i++;
+        while (i < n && (s[i] == ' ' || s[i] == '\t')) { i++; }
+        if (i != n || !feEndsWith(path, ".btrc")) { return ""; }
+        return path;
+    }
+
+    private int importTokenEnd(Vector<Token> tokens, int start) {
+        if (start >= tokens.len || tokens.get(start).type.equals("EOF")) {
+            return -1;
         }
-        return index;
-    }
-    if (index >= tokens.len || !tokens.get(index).type.equals("DOT")) {
-        return index;
-    }
-    index = index + 1;
-    if (index >= tokens.len) { return -1; }
-    Token spec = tokens.get(index);
-    if (spec.type.equals("IDENT")) { return index + 1; }
-    if (spec.type.equals("STAR")) {
-        index = index + 1;
-        if (index < tokens.len && tokens.get(index).type.equals("STAR")) {
-            index = index + 1;
+        Token first = tokens.get(start);
+        if (first.type.equals("STRING_LIT") || first.type.equals("PATH_SPEC")) {
+            return start + 1;
         }
-        return index;
-    }
-    if (!spec.type.equals("LBRACE")) { return -1; }
-    index = index + 1;
-    if (index >= tokens.len || !tokens.get(index).type.equals("IDENT")) { return -1; }
-    index = index + 1;
-    while (index < tokens.len && tokens.get(index).type.equals("COMMA")) {
-        index = index + 1;
-        if (index < tokens.len && tokens.get(index).type.equals("RBRACE")) { break; }
-        if (index >= tokens.len || !tokens.get(index).type.equals("IDENT")) { return -1; }
-        index = index + 1;
-    }
-    if (index >= tokens.len || !tokens.get(index).type.equals("RBRACE")) { return -1; }
-    return index + 1;
-}
-
-string feCanonicalImportSpec(Vector<Token> tokens, int start, int end) {
-    if (end > start && tokens.get(end - 1).type.equals("SEMICOLON")) {
-        end = end - 1;
-    }
-    Token first = tokens.get(start);
-    if (first.type.equals("STRING_LIT") || first.type.equals("PATH_SPEC")) {
-        return first.value;
-    }
-    string canonical = "";
-    int index = start;
-    while (index < end) {
-        canonical = canonical + tokens.get(index).value;
-        index = index + 1;
-    }
-    return canonical;
-}
-
-/* Locate import / btrc-include directives via the lexer (comment-aware).
- *
- * The lexer skips comments and quotes strings, so a directive inside a block
- * comment, a line comment, or a string literal produces no first-on-line
- * directive token and is never picked. Only whole-line directives are kept, to
- * mirror import_scan.scan_directives. `grammar` drives the lexer.
- */
-Vector<FeDirective> feScanDirectives(string source, GrammarInfo grammar) {
-    Vector<FeDirective> directives = [];
-    Lexer lx = Lexer(source, grammar);
-    Vector<Token> tokens = lx.tokenize();
-
-    /* first/last non-EOF token per line */
-    Map<int, int> firstCol = {};   /* line -> col of first token */
-    Map<int, int> lastCol = {};    /* line -> col of last token */
-    int t = 0;
-    while (t < tokens.len) {
-        Token tok = tokens.get(t);
-        if (!tok.type.equals("EOF")) {
-            if (!firstCol.has(tok.line)) { firstCol.put(tok.line, tok.col); }
-            lastCol.put(tok.line, tok.col);
-        }
-        t = t + 1;
-    }
-
-    int i = 0;
-    while (i < tokens.len) {
-        Token tok = tokens.get(i);
-        bool isFirst = firstCol.has(tok.line) && firstCol.get(tok.line) == tok.col;
-        bool isImport = tok.type.equals("IMPORT")
-            || (tok.type.equals("IDENT") && tok.value.equals("import"));
-        if (isFirst && isImport) {
-            int specEnd = feImportTokenEnd(tokens, i + 1);
-            if (specEnd < 0) {
-                fprintf(stderr, "error: invalid import specification at line %d\n",
-                    tok.line);
-                exit(1);
+        if (!first.type.equals("IDENT")) { return -1; }
+        int index = start + 1;
+        if (!first.value.equals("std")) {
+            while (index < tokens.len && tokens.get(index).type.equals("DOT")) {
+                if (index + 1 >= tokens.len
+                        || !tokens.get(index + 1).type.equals("IDENT")) {
+                    return -1;
+                }
+                index = index + 2;
             }
-            int j = specEnd;
-            if (j < tokens.len && tokens.get(j).type.equals("SEMICOLON")) {
-                j = j + 1;
-            }
-            Token endTok = tokens.get(j - 1);
-            int endLine = endTok.line;
-            bool ownsLine = lastCol.has(endTok.line) && lastCol.get(endTok.line) == endTok.col;
-            if (ownsLine) {
-                string canonical = feCanonicalImportSpec(tokens, i + 1, specEnd);
-                directives.push(FeDirective("import", canonical, tok.line, endLine));
-            }
-            i = j;
-            continue;
+            return index;
         }
-        if (isFirst && tok.type.equals("PREPROCESSOR")) {
-            string path = feCIncludeBtrcPath(tok.value);
-            bool isLast = lastCol.has(tok.line) && lastCol.get(tok.line) == tok.col;
-            if (path.length() > 0 && isLast) {
-                directives.push(FeDirective("btrc_include", path, tok.line, tok.line));
-            }
+        if (index >= tokens.len || !tokens.get(index).type.equals("DOT")) {
+            return index;
         }
-        i = i + 1;
+        index++;
+        if (index >= tokens.len) { return -1; }
+        Token spec = tokens.get(index);
+        if (spec.type.equals("IDENT")) { return index + 1; }
+        if (spec.type.equals("STAR")) {
+            index++;
+            if (index < tokens.len && tokens.get(index).type.equals("STAR")) {
+                index++;
+            }
+            return index;
+        }
+        if (!spec.type.equals("LBRACE")) { return -1; }
+        index++;
+        if (index >= tokens.len || !tokens.get(index).type.equals("IDENT")) {
+            return -1;
+        }
+        index++;
+        while (index < tokens.len && tokens.get(index).type.equals("COMMA")) {
+            index++;
+            if (index < tokens.len && tokens.get(index).type.equals("RBRACE")) {
+                break;
+            }
+            if (index >= tokens.len
+                    || !tokens.get(index).type.equals("IDENT")) {
+                return -1;
+            }
+            index++;
+        }
+        if (index >= tokens.len || !tokens.get(index).type.equals("RBRACE")) {
+            return -1;
+        }
+        return index + 1;
     }
-    return directives;
+
+    private string canonicalImportSpec(
+            Vector<Token> tokens, int start, int end) {
+        if (end > start && tokens.get(end - 1).type.equals("SEMICOLON")) {
+            end--;
+        }
+        Token first = tokens.get(start);
+        if (first.type.equals("STRING_LIT") || first.type.equals("PATH_SPEC")) {
+            return first.value;
+        }
+        string canonical = "";
+        int index = start;
+        while (index < end) {
+            canonical = canonical + tokens.get(index).value;
+            index++;
+        }
+        return canonical;
+    }
+
+    /* Locate whole-line import and btrc-include directives. The lexer makes
+     * the scan comment- and string-aware using the pipeline grammar. */
+    public Vector<FeDirective> scan(string source) {
+        Vector<FeDirective> directives = [];
+        Lexer lexer = Lexer(source, self.grammar);
+        Vector<Token> tokens = lexer.tokenize();
+
+        Map<int, int> firstCol = {};
+        Map<int, int> lastCol = {};
+        int tokenIndex = 0;
+        while (tokenIndex < tokens.len) {
+            Token token = tokens.get(tokenIndex);
+            if (!token.type.equals("EOF")) {
+                if (!firstCol.has(token.line)) {
+                    firstCol.put(token.line, token.col);
+                }
+                lastCol.put(token.line, token.col);
+            }
+            tokenIndex++;
+        }
+
+        int index = 0;
+        while (index < tokens.len) {
+            Token token = tokens.get(index);
+            bool isFirst = firstCol.has(token.line)
+                && firstCol.get(token.line) == token.col;
+            bool isImport = token.type.equals("IMPORT")
+                || (token.type.equals("IDENT")
+                    && token.value.equals("import"));
+            if (isFirst && isImport) {
+                int specEnd = self.importTokenEnd(tokens, index + 1);
+                if (specEnd < 0) {
+                    fprintf(stderr,
+                        "error: invalid import specification at line %d\n",
+                        token.line);
+                    exit(1);
+                }
+                int afterDirective = specEnd;
+                if (afterDirective < tokens.len
+                        && tokens.get(afterDirective).type.equals("SEMICOLON")) {
+                    afterDirective++;
+                }
+                Token endToken = tokens.get(afterDirective - 1);
+                bool ownsLine = lastCol.has(endToken.line)
+                    && lastCol.get(endToken.line) == endToken.col;
+                if (ownsLine) {
+                    string canonical = self.canonicalImportSpec(
+                        tokens, index + 1, specEnd);
+                    directives.push(FeDirective(
+                        "import", canonical, token.line, endToken.line));
+                }
+                index = afterDirective;
+                continue;
+            }
+            if (isFirst && token.type.equals("PREPROCESSOR")) {
+                string path = self.cIncludeBtrcPath(token.value);
+                bool isLast = lastCol.has(token.line)
+                    && lastCol.get(token.line) == token.col;
+                if (path.length() > 0 && isLast) {
+                    directives.push(FeDirective(
+                        "btrc_include", path, token.line, token.line));
+                }
+            }
+            index++;
+        }
+        return directives;
+    }
 }
 
 /* ----- include / import path resolution ------------------------------------ */
@@ -976,134 +984,14 @@ string feCIncludeDirective(string path) {
     return f"#include \"{path}\"";
 }
 
-/* Splice resolved import/include targets into `out` (recursing). Mirrors
- * _inline_paths: .c files become a literal `#include "<abs>"` line; .btrc files
- * are resolved recursively. */
-void feInlinePaths(Vector<string> paths, string absPath, Vector<FeLine> out,
-                   Map<string, bool> included, FeDependencyGraph dependencies,
-                   FeResolutionBudget budget, int depth) {
-    int i = 0;
-    while (i < paths.len) {
-        string fullPath = paths.get(i);
-        string absFull = feAbsPath(fullPath);
-        dependencies.addImport(absPath, absFull);
-        if (feEndsWith(fullPath, ".c")) {
-            string identity = feCanonicalPathIdentity(absFull);
-            if (!included.has(identity)) {
-                budget.enter("", absFull, depth);
-                included.put(identity, true);
-                string lineText = feCIncludeDirective(absFull);
-                out.push(FeLine(lineText, absPath, 0));
-            }
-        } else {
-            string content = feReadRequiredSource(fullPath);
-            feResolveTracedIntoBudget(
-                content, fullPath, included, out, dependencies, budget, depth);
-        }
-        i = i + 1;
-    }
-}
-
-/* Recursively resolve includes/imports, appending resolved lines to `out`,
- * preserving line provenance. Mirrors _resolve_traced.
- *
- * Directives are located by the lexer (feScanDirectives), so imports inside
- * comments or strings are never resolved. Each directive's line range is
- * replaced by the imported declarations; every other line is emitted verbatim. */
-void feResolveTracedIntoBudget(string source, string sourcePath,
-                               Map<string, bool> included, Vector<FeLine> out,
-                               FeDependencyGraph dependencies,
-                               FeResolutionBudget budget, int depth) {
-    string absPath = feAbsPath(sourcePath);
-    string identity = feCanonicalPathIdentity(absPath);
-    string sourceDir = feDirName(absPath);
-    dependencies.ensureSource(absPath);
-    if (included.has(identity)) {
-        return;  /* circular/repeat include guard */
-    }
-    budget.enter(source, absPath, depth);
-    included.put(identity, true);
-
-    Vector<string> lines = feSplitLines(source);
-    GrammarInfo grammar = feGrammar();
-    Vector<FeDirective> directives = feScanDirectives(source, grammar);
-
-    /* index directives by start line; mark covered lines */
-    Map<int, int> byStart = {};   /* startLine -> directive index */
-    Map<int, bool> covered = {};  /* line -> true */
-    int d = 0;
-    while (d < directives.len) {
-        FeDirective dir = directives.get(d);
-        byStart.put(dir.start, d);
-        int ln = dir.start;
-        while (ln <= dir.end) { covered.put(ln, true); ln = ln + 1; }
-        d = d + 1;
-    }
-
-    int idx = 0;
-    while (idx < lines.len) {
-        int lineNumber = idx + 1;
-        if (byStart.has(lineNumber)) {
-            FeDirective dir = directives.get(byStart.get(lineNumber));
-            if (dir.kind.equals("btrc_include")) {
-                string resolved = feResolveIncludePath(dir.payload, sourceDir);
-                if (resolved.length() > 0) {
-                    dependencies.addInclude(absPath, resolved);
-                    string content = feReadRequiredSource(resolved);
-                    feResolveTracedIntoBudget(
-                        content, resolved, included, out, dependencies,
-                        budget, depth + 1);
-                } else {
-                    fprintf(stderr,
-                        "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
-                        dir.payload, sourceDir, feStdlibDir());
-                    exit(1);
-                }
-            } else {
-                Vector<string> paths = feImportSpecPaths(dir.payload, sourceDir);
-                feInlinePaths(paths, absPath, out, included, dependencies,
-                              budget, depth + 1);
-            }
-        } else if (covered.has(lineNumber)) {
-            /* continuation line of a multi-line directive: skip */
-        } else {
-            out.push(FeLine(lines.get(idx), absPath, lineNumber));
-        }
-        idx = idx + 1;
-    }
-}
-
-void feResolveTracedInto(string source, string sourcePath,
-                         Map<string, bool> included, Vector<FeLine> out,
-                         FeDependencyGraph dependencies) {
-    FeResolutionBudget budget = FeResolutionBudget();
-    feResolveTracedIntoBudget(
-        source, sourcePath, included, out, dependencies, budget, 0);
-}
-
-/* Resolve includes/imports for `source` and return the resolved source text
- * ("\n".join of the resolved lines). Mirrors _resolve_includes_mapped's text. */
-string feResolveIncludes(string source, string sourcePath) {
-    Map<string, bool> included = {};
-    Vector<FeLine> out = [];
-    FeDependencyGraph dependencies = FeDependencyGraph();
-    feResolveTracedInto(source, sourcePath, included, out, dependencies);
-    Vector<string> texts = [];
-    int i = 0;
-    while (i < out.len) {
-        texts.push(out.get(i).text);
-        i = i + 1;
-    }
-    return feJoinLines(texts);
-}
-
 /* ----- stdlib composition (mirror get_stdlib_source_mapped) ---------------- */
 
 /* Drop a stdlib file's own import directives; the stdlib is composed wholesale.
  * Returns the kept lines (mirrors _stdlib_file_source). */
-Vector<string> feStdlibFileSource(string content, GrammarInfo grammar) {
+Vector<string> feStdlibFileSource(
+        string content, FeDirectiveScanner directiveScanner) {
     Vector<string> lines = feSplitLines(content);
-    Vector<FeDirective> directives = feScanDirectives(content, grammar);
+    Vector<FeDirective> directives = directiveScanner.scan(content);
     Map<int, bool> covered = {};
     int d = 0;
     while (d < directives.len) {
@@ -1129,10 +1017,10 @@ Vector<string> feStdlibFileSource(string content, GrammarInfo grammar) {
 /* Read stdlib sources in discovery order, skipping any file that defines a
  * class/interface already defined by the user source. Mirrors
  * get_stdlib_source_mapped (.source). */
-string feGetStdlibSource(string userSource) {
+string feGetStdlibSource(
+        string userSource, FeDirectiveScanner directiveScanner) {
     string dir = feStdlibDir();
     Map<string, bool> userNames = feDefinedNames(userSource);
-    GrammarInfo grammar = feGrammar();
     Vector<string> allLines = [];
     Vector<string> files = feDiscoverStdlibFiles();
     FeResolutionBudget budget = FeResolutionBudget();
@@ -1144,7 +1032,8 @@ string feGetStdlibSource(string userSource) {
             budget.enter(content, fpath, 0);
             Map<string, bool> fileNames = feDefinedNames(content);
             if (!feNamesIntersect(fileNames, userNames)) {
-                Vector<string> fileLines = feStdlibFileSource(content, grammar);
+                Vector<string> fileLines = feStdlibFileSource(
+                    content, directiveScanner);
                 int j = 0;
                 while (j < fileLines.len) {
                     allLines.push(fileLines.get(j));
@@ -1160,13 +1049,16 @@ string feGetStdlibSource(string userSource) {
 /* ----- top-level entry: compose the full source ---------------------------- */
 
 class FeFrontendResolver {
-    public bool includeStdlib;
-    public bool strictImports;
-    public Map<string, bool> included;
-    public FeDependencyGraph dependencies;
-    public FeResolutionBudget budget;
+    private FeDirectiveScanner directiveScanner;
+    private bool includeStdlib;
+    private bool strictImports;
+    private Map<string, bool> included;
+    private FeDependencyGraph dependencies;
+    private FeResolutionBudget budget;
 
-    public FeFrontendResolver(bool includeStdlib, bool strictImports) {
+    public FeFrontendResolver(
+            GrammarInfo grammar, bool includeStdlib, bool strictImports) {
+        self.directiveScanner = FeDirectiveScanner(grammar);
         self.includeStdlib = includeStdlib;
         self.strictImports = strictImports;
         self.included = {};
@@ -1174,11 +1066,97 @@ class FeFrontendResolver {
         self.budget = FeResolutionBudget();
     }
 
+    /* Splice resolved targets into the current traversal. C sources become
+     * native include lines; btrc sources re-enter dependency resolution. */
+    private void inlinePaths(Vector<string> paths, string absPath,
+                             Vector<FeLine> out, int depth) {
+        int index = 0;
+        while (index < paths.len) {
+            string fullPath = paths.get(index);
+            string absolute = feAbsPath(fullPath);
+            self.dependencies.addImport(absPath, absolute);
+            if (feEndsWith(fullPath, ".c")) {
+                string identity = feCanonicalPathIdentity(absolute);
+                if (!self.included.has(identity)) {
+                    self.budget.enter("", absolute, depth);
+                    self.included.put(identity, true);
+                    out.push(FeLine(
+                        feCIncludeDirective(absolute), absPath, 0));
+                }
+            } else {
+                string content = feReadRequiredSource(fullPath);
+                self.resolveInto(content, fullPath, out, depth);
+            }
+            index++;
+        }
+    }
+
+    /* Resolve one source and recursively inline its explicit dependencies while
+     * preserving line provenance and typed graph edges. */
+    private void resolveInto(string source, string sourcePath,
+                             Vector<FeLine> out, int depth) {
+        string absPath = feAbsPath(sourcePath);
+        string identity = feCanonicalPathIdentity(absPath);
+        string sourceDir = feDirName(absPath);
+        self.dependencies.ensureSource(absPath);
+        if (self.included.has(identity)) { return; }
+        self.budget.enter(source, absPath, depth);
+        self.included.put(identity, true);
+
+        Vector<string> lines = feSplitLines(source);
+        Vector<FeDirective> directives = self.directiveScanner.scan(source);
+        Map<int, int> byStart = {};
+        Map<int, bool> covered = {};
+        int directiveIndex = 0;
+        while (directiveIndex < directives.len) {
+            FeDirective directive = directives.get(directiveIndex);
+            byStart.put(directive.start, directiveIndex);
+            int line = directive.start;
+            while (line <= directive.end) {
+                covered.put(line, true);
+                line++;
+            }
+            directiveIndex++;
+        }
+
+        int lineIndex = 0;
+        while (lineIndex < lines.len) {
+            int lineNumber = lineIndex + 1;
+            if (byStart.has(lineNumber)) {
+                FeDirective directive = directives.get(byStart.get(lineNumber));
+                if (directive.kind.equals("btrc_include")) {
+                    string resolved = feResolveIncludePath(
+                        directive.payload, sourceDir);
+                    if (resolved.length() == 0) {
+                        fprintf(stderr,
+                            "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
+                            directive.payload, sourceDir, feStdlibDir());
+                        exit(1);
+                    }
+                    self.dependencies.addInclude(absPath, resolved);
+                    string content = feReadRequiredSource(resolved);
+                    self.resolveInto(content, resolved, out, depth + 1);
+                } else {
+                    Vector<string> paths = feImportSpecPaths(
+                        directive.payload, sourceDir);
+                    self.inlinePaths(paths, absPath, out, depth + 1);
+                }
+            } else if (!covered.has(lineNumber)) {
+                out.push(FeLine(lines.get(lineIndex), absPath, lineNumber));
+            }
+            lineIndex++;
+        }
+    }
+
     public FeResolvedSource resolve(string source, string sourcePath) {
+        /* Each result owns a stable dependency graph. Resolver reuse must not
+         * retain include guards or consume a prior call's resource budget. */
+        self.included = {};
+        self.dependencies = FeDependencyGraph();
+        self.budget = FeResolutionBudget();
+
         Vector<FeLine> userLines = [];
-        feResolveTracedIntoBudget(
-            source, sourcePath, self.included, userLines,
-            self.dependencies, self.budget, 0);
+        self.resolveInto(source, sourcePath, userLines, 0);
 
         Vector<string> userTexts = [];
         int lineIndex = 0;
@@ -1189,7 +1167,8 @@ class FeFrontendResolver {
         string userSource = feJoinLines(userTexts);
         string stdlibSource = "";
         if (self.includeStdlib && !self.strictImports) {
-            stdlibSource = feGetStdlibSource(userSource);
+            stdlibSource = feGetStdlibSource(
+                userSource, self.directiveScanner);
         }
         string separator = stdlibSource.length() > 0 ? "\n" : "";
         feCheckCombinedSourceSize(stdlibSource, separator, userSource);
@@ -1201,13 +1180,4 @@ class FeFrontendResolver {
             userSource, combined, stdlibSource, userLines, self.dependencies,
             self.strictImports, stdlibLineCount, feAbsPath(sourcePath));
     }
-}
-
-/* Compatibility entry for the standalone frontend composition tool. Its
- * normal path follows the strict compiler default. */
-string feResolveFrontendSource(string source, string sourcePath,
-                               bool includeStdlib) {
-    FeFrontendResolver resolver = FeFrontendResolver(includeStdlib, true);
-    FeResolvedSource resolved = resolver.resolve(source, sourcePath);
-    return resolved.source;
 }
