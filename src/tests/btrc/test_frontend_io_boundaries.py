@@ -284,14 +284,18 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
 ) -> None:
     stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
     grammar_path = REPO / "src/language/grammar.ebnf"
-    stdlib_path = REPO / "src/stdlib"
+    stdlib_path = tmp_path / "stdlib"
+    stdlib_path.mkdir()
+    mutable_module = stdlib_path / "mutable.btrc"
+    mutable_module.write_text("class BeforeRefresh { }\n", encoding="utf-8")
     virtual_source = tmp_path / "virtual.btrc"
     isolated_source = tmp_path / "isolated.btrc"
     program = tmp_path / "resolver_reuse.btrc"
     generated = tmp_path / "resolver_reuse.c"
     executable = tmp_path / "resolver_reuse"
-    first_source = "int firstValue;\n"
-    second_source = "int secondValue;\n"
+    first_source = "import std.mutable;\nint firstValue;\n"
+    second_source = "import std.mutable;\nint secondValue;\n"
+    refreshed_module = "class AfterRefresh { }\n"
     program.write_text(
         f"import {json.dumps(str(stage))};\n"
         "\n"
@@ -303,12 +307,102 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         f"    string secondSource = {json.dumps(second_source)};\n"
         f"    string sourcePath = {json.dumps(str(virtual_source))};\n"
         "    FeResolvedSource first = resolver.resolve(firstSource, sourcePath);\n"
+        f"    if (!FileSystem.writeText({json.dumps(str(mutable_module))}, "
+        f"{json.dumps(refreshed_module)})) {{ return 1; }}\n"
         "    FeResolvedSource second = resolver.resolve(secondSource, sourcePath);\n"
-        "    if (!first.userSource.equals(firstSource)) { return 1; }\n"
-        "    if (!second.userSource.equals(secondSource)) { return 2; }\n"
+        '    if (!first.userSource.contains("class BeforeRefresh")\n'
+        '            || first.userSource.contains("class AfterRefresh")\n'
+        '            || !first.userSource.contains("int firstValue")) { return 2; }\n'
+        '    if (!second.userSource.contains("class AfterRefresh")\n'
+        '            || second.userSource.contains("class BeforeRefresh")\n'
+        '            || !second.userSource.contains("int secondValue")) { return 3; }\n'
+        "    if (first.stdlibSnapshot.sameContents(second.stdlibSnapshot)) { return 4; }\n"
         f"    string isolatedPath = {json.dumps(str(isolated_source))};\n"
         "    second.dependencies.ensureSource(isolatedPath);\n"
-        "    if (first.dependencies.hasSource(isolatedPath)) { return 3; }\n"
+        "    if (first.dependencies.hasSource(isolatedPath)) { return 5; }\n"
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    transpile = _reference(program, generated, timeout=300)
+    assert transpile.returncode == 0, transpile.stderr
+    native = subprocess.run(
+        [
+            *CC,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(generated),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert native.returncode == 0, native.stderr
+    executed = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert executed.returncode == 0, executed.stderr
+
+
+@pytest.mark.skipif(
+    os.name == "nt" or not CC or shutil.which(CC[0]) is None,
+    reason="needs symlinks and a C compiler",
+)
+def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
+    tmp_path: Path,
+) -> None:
+    stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
+    grammar_path = REPO / "src/language/grammar.ebnf"
+    stdlib_path = tmp_path / "stdlib"
+    imports = tmp_path / "imports"
+    nested = imports / "nested"
+    external = tmp_path / "external"
+    stdlib_path.mkdir()
+    nested.mkdir(parents=True)
+    external.mkdir()
+    (imports / "a.btrc").write_text("int a;\n", encoding="utf-8")
+    (imports / "z.c").write_text("int z;\n", encoding="utf-8")
+    (imports / "ignored.txt").write_text("ignored\n", encoding="utf-8")
+    (nested / "b.btrc").write_text("int b;\n", encoding="utf-8")
+    (external / "leak.btrc").write_text("int leak;\n", encoding="utf-8")
+    (imports / "linked").symlink_to(external, target_is_directory=True)
+
+    program = tmp_path / "import_resolver_contract.btrc"
+    generated = tmp_path / "import_resolver_contract.c"
+    executable = tmp_path / "import_resolver_contract"
+    program.write_text(
+        f"import {json.dumps(str(stage))};\n"
+        "\n"
+        "int main() {\n"
+        f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
+        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar);\n"
+        "    FeStdlibRootSnapshot snapshot = stdlib.rootSnapshot();\n"
+        "    FeImportResolver resolver = FeImportResolver(stdlib, snapshot);\n"
+        f"    string sourceDirectory = {json.dumps(str(tmp_path))};\n"
+        '    Vector<string> direct = resolver.resolveSpec("./imports/*", sourceDirectory);\n'
+        "    if (direct.len != 2\n"
+        '            || !PathTools.basename(direct.get(0)).equals("a.btrc")\n'
+        '            || !PathTools.basename(direct.get(1)).equals("z.c")) { return 1; }\n'
+        '    Vector<string> recursive = resolver.resolveSpec("./imports/**", sourceDirectory);\n'
+        "    if (recursive.len != 3\n"
+        '            || !PathTools.basename(recursive.get(0)).equals("a.btrc")\n'
+        '            || !recursive.get(1).endsWith("/nested/b.btrc")\n'
+        '            || !PathTools.basename(recursive.get(2)).equals("z.c")) { return 2; }\n'
+        '    if (!resolver.renderCInclude("safe path.c").equals(\n'
+        '            "#include \\"safe path.c\\"")) { return 3; }\n'
         "    return 0;\n"
         "}\n",
         encoding="utf-8",

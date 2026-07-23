@@ -140,6 +140,54 @@ def test_frontend_scanning_and_recursive_resolution_are_instance_owned() -> None
     assert "resolver.resolve(src, path)" in frontend_main
 
 
+def test_import_resolution_has_one_compilation_local_owner() -> None:
+    frontend = _source("frontend.btrc")
+    owner = frontend.split("class FeImportResolver {", 1)[1].split("/* ----- top-level entry:", 1)[0]
+
+    assert "private FeStdlibRepository stdlib;" in owner
+    assert "private FeStdlibRootSnapshot stdlibSnapshot;" in owner
+    for public_operation in (
+        "public string resolveIncludePath(",
+        "public Vector<string> resolveSpec(",
+        "public string renderCInclude(",
+    ):
+        assert public_operation in owner
+    assert owner.count("    public ") == 4  # constructor plus three operations
+    for private_operation in (
+        "private void collectTree(",
+        "private void sortPaths(",
+        "private Vector<string> resolveRelative(",
+        "private bool validIdentifier(",
+        "private bool packageImportSpec(",
+        "private Vector<string> stdlibModuleNames(",
+        "private void rejectInvalidSpec(",
+        "private bool cTrigraphSuffix(",
+    ):
+        assert private_operation in owner
+
+    for obsolete_loose_behavior in (
+        "feResolveIncludePath(",
+        "feWalkCollect(",
+        "feSortPaths(",
+        "feRelativeImportPaths(",
+        "feImportIdentifier(",
+        "fePackageImportSpec(",
+        "feStdModuleNames(",
+        "feInvalidImportSpec(",
+        "feImportSpecPaths(",
+        "feCTrigraphSuffix(",
+        "feCIncludeDirective(",
+    ):
+        assert obsolete_loose_behavior not in frontend
+
+    assert "private FeImportResolver importResolver;" in frontend
+    assert "FeImportResolver(stdlib, emptySnapshot)" in frontend
+    assert "FeImportResolver(self.stdlib, currentSnapshot)" in frontend
+    assert "self.importResolver.resolveIncludePath(" in frontend
+    assert "self.importResolver.resolveSpec(" in frontend
+    assert "self.importResolver.renderCInclude(" in frontend
+
+
 def test_stdlib_behavior_has_one_explicit_instance_owner() -> None:
     frontend = _source("frontend.btrc")
     compiler = _source("compiler.btrc")

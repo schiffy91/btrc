@@ -59,19 +59,6 @@ string feJoinLines(Vector<string> lines) {
     return Strings.join(lines, "\n");
 }
 
-string feTrim(string s) {
-    int n = s.length();
-    int start = 0;
-    while (start < n && Strings.isSpace(s[start])) { start = start + 1; }
-    int end = n;
-    while (end > start && Strings.isSpace(s[end - 1])) { end = end - 1; }
-    return s.substring(start, end - start);
-}
-
-bool feEndsWith(string s, string suffix) {
-    return s.endsWith(suffix);
-}
-
 /* ----- a resolved source line: text + native provenance ------------------- */
 
 class FeLine {
@@ -318,18 +305,6 @@ class FeDirective {
     }
 }
 
-bool feExists(string path) {
-    return FileSystem.exists(path);
-}
-
-bool feIsDir(string path) {
-    return FileSystem.isDir(path);
-}
-
-bool feIsFile(string path) {
-    return FileSystem.isFile(path);
-}
-
 /* Sorted directory entries (FileSystem.listDir is raw readdir order; Python
  * uses sorted(os.listdir(...))). */
 Vector<string> feSortedListDir(string path) {
@@ -370,7 +345,7 @@ class FeDirectiveScanner {
     /* Extract the include path from a `#include "X.btrc"` preprocessor token,
      * or return "" for a C include (`<...>` or non-.btrc). */
     private string cIncludeBtrcPath(string tokenValue) {
-        string s = feTrim(tokenValue);
+        string s = tokenValue.trim();
         if (!feRawStartsWith(s, 0, "#include")) { return ""; }
         int i = 8;
         int n = s.length();
@@ -387,7 +362,7 @@ class FeDirectiveScanner {
         string path = s.substring(pathStart, i - pathStart);
         i++;
         while (i < n && (s[i] == ' ' || s[i] == '\t')) { i++; }
-        if (i != n || !feEndsWith(path, ".btrc")) { return ""; }
+        if (i != n || !path.endsWith(".btrc")) { return ""; }
         return path;
     }
 
@@ -839,280 +814,266 @@ class FeStdlibRepository {
 
 }
 
-/* ----- include / import path resolution ------------------------------------ */
+/* ----- include / import path resolution ---------------------------------- */
 
-/* Resolve a #include path against the including file's directory, then the
- * stdlib. Mirrors _resolve_include_path. Returns "" if unresolved. */
-string feResolveIncludePath(string includePath, string sourceDir,
-                            FeStdlibRepository stdlib,
-                            FeStdlibRootSnapshot stdlibSnapshot) {
-    string full = feJoinPath(sourceDir, includePath);
-    if (feExists(full)) { return full; }
-    string std = stdlib.findFileForCompilation(includePath, stdlibSnapshot);
-    if (std.length() > 0) { return std; }
-    return "";
-}
+/* Resolves every import form against one immutable standard-library snapshot.
+ * A resolver is compilation-local: filesystem traversal policy, import-spec
+ * parsing, and safe native-include rendering cannot observe another run. */
+class FeImportResolver {
+    private FeStdlibRepository stdlib;
+    private FeStdlibRootSnapshot stdlibSnapshot;
 
-/* Recursive directory walk collecting *.btrc and *.c files (for `dir/**`),
- * sorted by full path. Mirrors os.walk + sorted(). */
-void feWalkCollect(string root, Vector<string> out, FeDirectoryScanBudget budget) {
-    Vector<string> pending = [];
-    pending.push(root);
-    while (pending.len > 0) {
-        string current = pending.pop();
-        Vector<string> entries = feSortedListDirBudget(current, budget);
-        Vector<string> children = [];
-        int i = 0;
-        while (i < entries.len) {
-            string name = entries.get(i);
-            string path = feJoinPath(current, name);
-            /* Never descend through a symlinked child directory. */
-            if (feIsDir(path) && !FileSystem.isSymlink(path)) {
-                children.push(path);
-            } else if (feIsFile(path)
-                    && (feEndsWith(name, ".btrc") || feEndsWith(name, ".c"))) {
-                budget.addFile();
-                out.push(path);
-            }
-            i = i + 1;
-        }
-        int child = children.len - 1;
-        while (child >= 0) {
-            pending.push(children.get(child));
-            child = child - 1;
-        }
+    public FeImportResolver(
+            FeStdlibRepository stdlib, FeStdlibRootSnapshot stdlibSnapshot) {
+        self.stdlib = stdlib;
+        self.stdlibSnapshot = stdlibSnapshot;
     }
-}
 
-void feSortPaths(Vector<string> v) {
-    v.sortBy((string a, string b) => Strings.lessThan(a, b));
-}
+    /* Resolve a #include path against the including file's directory, then the
+     * captured stdlib snapshot. Returns "" if unresolved. */
+    public string resolveIncludePath(string includePath, string sourceDir) {
+        string local = feJoinPath(sourceDir, includePath);
+        if (FileSystem.exists(local)) { return local; }
+        return self.stdlib.findFileForCompilation(
+            includePath, self.stdlibSnapshot);
+    }
 
-/* Resolve a relative import spec (possibly a glob) to file path(s). Mirrors
- * _relative_import_paths. */
-Vector<string> feRelativeImportPaths(
-        string spec, string sourceDir, FeStdlibRepository stdlib,
-        FeStdlibRootSnapshot stdlibSnapshot) {
-    Vector<string> out = [];
-    bool recursive = feEndsWith(spec, "/**");
-    bool directGlob = feEndsWith(spec, "/*");
-    if (recursive || directGlob) {
-        int cut = 3;
-        if (directGlob) { cut = 2; }
-        string base = spec.substring(0, spec.length() - cut);
-        string root = base;
-        if (!PathTools.isAbsolute(base)) { root = feJoinPath(sourceDir, base); }
-        if (!feIsDir(root)) {
-            fprintf(stderr, "error: import directory '%s' not found\n  searched: %s\n",
-                spec, root);
-            exit(1);
-        }
-        FeDirectoryScanBudget budget = FeDirectoryScanBudget(root);
-        if (recursive) {
-            feWalkCollect(root, out, budget);
-            feSortPaths(out);
-        } else {
-            Vector<string> entries = feSortedListDirBudget(root, budget);
-            int i = 0;
-            while (i < entries.len) {
-                string name = entries.get(i);
-                string path = feJoinPath(root, name);
-                if (feIsFile(path) && (feEndsWith(name, ".btrc") || feEndsWith(name, ".c"))) {
+    private bool compilableSourcePath(string name) {
+        return name.endsWith(".btrc") || name.endsWith(".c");
+    }
+
+    /* Recursive imports never descend through symlinked child directories.
+     * Directory entries and the final result retain Python's sorted order. */
+    private void collectTree(
+            string root, Vector<string> out, FeDirectoryScanBudget budget) {
+        Vector<string> pending = [];
+        pending.push(root);
+        while (pending.len > 0) {
+            string current = pending.pop();
+            Vector<string> entries = feSortedListDirBudget(current, budget);
+            Vector<string> children = [];
+            int index = 0;
+            while (index < entries.len) {
+                string name = entries.get(index);
+                string path = feJoinPath(current, name);
+                if (FileSystem.isDir(path) && !FileSystem.isSymlink(path)) {
+                    children.push(path);
+                } else if (FileSystem.isFile(path)
+                        && self.compilableSourcePath(name)) {
                     budget.addFile();
                     out.push(path);
                 }
-                i = i + 1;
+                index++;
             }
-            feSortPaths(out);
+            int child = children.len - 1;
+            while (child >= 0) {
+                pending.push(children.get(child));
+                child--;
+            }
         }
-        return out;
     }
 
-    /* plain directory import */
-    string asDir = spec;
-    if (!PathTools.isAbsolute(spec)) { asDir = feJoinPath(sourceDir, spec); }
-    if (feIsDir(asDir)) {
-        FeDirectoryScanBudget budget = FeDirectoryScanBudget(asDir);
-        Vector<string> entries = feSortedListDirBudget(asDir, budget);
-        int i = 0;
-        while (i < entries.len) {
-            string name = entries.get(i);
-            string path = feJoinPath(asDir, name);
-            if (feIsFile(path) && (feEndsWith(name, ".btrc") || feEndsWith(name, ".c"))) {
+    private void sortPaths(Vector<string> paths) {
+        paths.sortBy((string left, string right) =>
+            Strings.lessThan(left, right));
+    }
+
+    private void collectDirectory(
+            string root, Vector<string> out, FeDirectoryScanBudget budget) {
+        Vector<string> entries = feSortedListDirBudget(root, budget);
+        int index = 0;
+        while (index < entries.len) {
+            string name = entries.get(index);
+            string path = feJoinPath(root, name);
+            if (FileSystem.isFile(path) && self.compilableSourcePath(name)) {
                 budget.addFile();
                 out.push(path);
             }
-            i = i + 1;
+            index++;
         }
-        feSortPaths(out);
-        return out;
+        self.sortPaths(out);
     }
 
-    /* single file (relative or absolute), else fall back to include resolution */
-    string path = spec;
-    if (!PathTools.isAbsolute(spec)) { path = feJoinPath(sourceDir, spec); }
-    if (feExists(path)) { out.push(path); return out; }
-    string resolved = feResolveIncludePath(
-        spec, sourceDir, stdlib, stdlibSnapshot);
-    if (resolved.length() > 0) { out.push(resolved); }
-    if (out.len == 0) {
-        fprintf(stderr, "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
-            spec, sourceDir, stdlib.directory());
-        exit(1);
-    }
-    return out;
-}
-
-bool feImportIdentifier(string value) {
-    if (value.length() == 0
-            || (!Strings.isAlpha(value[0]) && value[0] != '_')) {
-        return false;
-    }
-    int index = 1;
-    while (index < value.length()) {
-        if (!Strings.isAlnum(value[index]) && value[index] != '_') {
-            return false;
-        }
-        index = index + 1;
-    }
-    return true;
-}
-
-bool fePackageImportSpec(string spec) {
-    Vector<string> segments = Strings.split(spec, ".");
-    if (segments.len == 0) { return false; }
-    int index = 0;
-    while (index < segments.len) {
-        if (!feImportIdentifier(segments.get(index))) { return false; }
-        index = index + 1;
-    }
-    return true;
-}
-
-Vector<string> feStdModuleNames(string rest) {
-    Vector<string> names = [];
-    if (feImportIdentifier(rest)) {
-        names.push(rest);
-        return names;
-    }
-    int length = rest.length();
-    if (length < 3 || rest[0] != '{' || rest[length - 1] != '}') {
-        return names;
-    }
-    string inner = rest.substring(1, length - 2);
-    Vector<string> rawNames = Strings.split(inner, ",");
-    int index = 0;
-    while (index < rawNames.len) {
-        string name = feTrim(rawNames.get(index));
-        bool trailing = index == rawNames.len - 1 && name.length() == 0;
-        if (!trailing && !feImportIdentifier(name)) {
-            names.clear();
-            return names;
-        }
-        if (!trailing) { names.push(name); }
-        index = index + 1;
-    }
-    return names;
-}
-
-void feInvalidImportSpec(string spec) {
-    fprintf(stderr, "error: invalid import specification: %s\n", spec);
-    exit(1);
-}
-
-/* Resolve a raw import spec string to file path(s). Mirrors import_spec_paths
- * over the parsed forms, but works from the raw spec text (since `import` does
- * not currently lex as a keyword token here). Supported:
- *   std.*            -> all stdlib files (discovery order)
- *   std.{a, b, c}    -> each named stdlib module
- *   std.name         -> one stdlib module
- *   "rel/path.btrc"  -> quoted relative path (surrounding quotes stripped)
- *   ./path           -> explicit relative file / dir / glob
- * Package paths fail closed because btrc.toml resolution is not self-hosted. */
-Vector<string> feImportSpecPaths(
-        string spec, string sourceDir, FeStdlibRepository stdlib,
-        FeStdlibRootSnapshot stdlibSnapshot) {
-    /* Quoted path: import "rel/path.btrc"  (the raw spec keeps its surrounding
-     * quotes). Mirror the Python parser's QuotedPath handling: strip the
-     * matching surrounding quote and resolve the inner path like a relative
-     * import. The btrc lexer only enters PATH_SPEC mode for paths beginning
-     * with '.', '/' or '~', so a quoted path arrives here as a STRING with the
-     * quote characters intact. */
-    int sn = spec.length();
-    if (sn >= 2) {
-        char q = spec[0];
-        if (q == '"' && spec[sn - 1] == q) {
-            string inner = spec.substring(1, sn - 2);
-            return feRelativeImportPaths(
-                inner, sourceDir, stdlib, stdlibSnapshot);
-        }
-    }
-    if (feRawStartsWith(spec, 0, "std.")) {
-        string rest = spec.substring(4, spec.length() - 4);
-        if (rest.equals("*") || rest.equals("**")) {
-            return stdlib.rootPaths(stdlibSnapshot);
-        }
-        Vector<string> names = feStdModuleNames(rest);
-        if (names.len == 0) { feInvalidImportSpec(spec); }
-        Vector<string> out = [];
-        int index = 0;
-        while (index < names.len) {
-            FeStdlibLookup lookup = stdlib.requiredModuleForCompilation(
-                names.get(index), stdlibSnapshot);
-            if (!lookup.found) {
-                fprintf(stderr, "error: %s\n", lookup.diagnostic);
+    private Vector<string> resolveRelative(string spec, string sourceDir) {
+        Vector<string> paths = [];
+        bool recursive = spec.endsWith("/**");
+        bool directGlob = spec.endsWith("/*");
+        if (recursive || directGlob) {
+            int suffixLength = recursive ? 3 : 2;
+            string base = spec.substring(0, spec.length() - suffixLength);
+            string root = PathTools.isAbsolute(base)
+                ? base : feJoinPath(sourceDir, base);
+            if (!FileSystem.isDir(root)) {
+                fprintf(stderr,
+                    "error: import directory '%s' not found\n  searched: %s\n",
+                    spec, root);
                 exit(1);
             }
-            out.push(lookup.path);
-            index = index + 1;
+            FeDirectoryScanBudget budget = FeDirectoryScanBudget(root);
+            if (recursive) {
+                self.collectTree(root, paths, budget);
+                self.sortPaths(paths);
+            } else {
+                self.collectDirectory(root, paths, budget);
+            }
+            return paths;
         }
-        return out;
-    }
-    if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("~")) {
-        return feRelativeImportPaths(
-            spec, sourceDir, stdlib, stdlibSnapshot);
-    }
-    if (fePackageImportSpec(spec)) {
+
+        string directory = PathTools.isAbsolute(spec)
+            ? spec : feJoinPath(sourceDir, spec);
+        if (FileSystem.isDir(directory)) {
+            FeDirectoryScanBudget budget = FeDirectoryScanBudget(directory);
+            self.collectDirectory(directory, paths, budget);
+            return paths;
+        }
+
+        if (FileSystem.exists(directory)) {
+            paths.push(directory);
+            return paths;
+        }
+        string resolved = self.resolveIncludePath(spec, sourceDir);
+        if (!resolved.isEmpty()) {
+            paths.push(resolved);
+            return paths;
+        }
         fprintf(stderr,
-            "error: package import '%s' is unsupported by btrcc; use btrcpy, or use an explicit local path beginning with './'\n",
-            spec);
+            "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
+            spec, sourceDir, self.stdlib.directory());
+        exit(1);
+        return paths;
+    }
+
+    private bool validIdentifier(string value) {
+        if (value.isEmpty()
+                || (!Strings.isAlpha(value[0]) && value[0] != '_')) {
+            return false;
+        }
+        int index = 1;
+        while (index < value.length()) {
+            if (!Strings.isAlnum(value[index]) && value[index] != '_') {
+                return false;
+            }
+            index++;
+        }
+        return true;
+    }
+
+    private bool packageImportSpec(string spec) {
+        Vector<string> segments = Strings.split(spec, ".");
+        if (segments.len == 0) { return false; }
+        int index = 0;
+        while (index < segments.len) {
+            if (!self.validIdentifier(segments.get(index))) { return false; }
+            index++;
+        }
+        return true;
+    }
+
+    private Vector<string> stdlibModuleNames(string rest) {
+        Vector<string> names = [];
+        if (self.validIdentifier(rest)) {
+            names.push(rest);
+            return names;
+        }
+        int length = rest.length();
+        if (length < 3 || rest[0] != '{' || rest[length - 1] != '}') {
+            return names;
+        }
+        Vector<string> rawNames = Strings.split(
+            rest.substring(1, length - 2), ",");
+        int index = 0;
+        while (index < rawNames.len) {
+            string name = rawNames.get(index).trim();
+            bool trailing = index == rawNames.len - 1 && name.isEmpty();
+            if (!trailing && !self.validIdentifier(name)) {
+                names.clear();
+                return names;
+            }
+            if (!trailing) { names.push(name); }
+            index++;
+        }
+        return names;
+    }
+
+    private void rejectInvalidSpec(string spec) {
+        fprintf(stderr, "error: invalid import specification: %s\n", spec);
         exit(1);
     }
-    feInvalidImportSpec(spec);
-    Vector<string> invalid = [];
-    return invalid;
-}
 
-/* ----- recursive include / import resolution (mirror _resolve_traced) ------- */
-
-bool feCTrigraphSuffix(char c) {
-    return c == '=' || c == '/' || c == '\'' || c == '(' || c == ')'
-        || c == '!' || c == '<' || c == '>' || c == '-';
-}
-
-/* C11 header names cannot portably quote `"` or control bytes, and trigraph
- * replacement runs before preprocessing. Reject such rare filesystem names
- * instead of emitting a malformed or redirected include directive. */
-string feCIncludeDirective(string path) {
-    int i = 0;
-    while (i < path.length()) {
-        int code = (int)(byte)path[i];
-        if (path[i] == '"' || code < 32 || code == 127) {
+    /* Resolve the exact raw import form captured by FeDirectiveScanner.
+     * Package paths fail closed because btrc.toml resolution is not self-hosted. */
+    public Vector<string> resolveSpec(string spec, string sourceDir) {
+        int length = spec.length();
+        if (length >= 2 && spec[0] == '"' && spec[length - 1] == '"') {
+            return self.resolveRelative(
+                spec.substring(1, length - 2), sourceDir);
+        }
+        if (feRawStartsWith(spec, 0, "std.")) {
+            string rest = spec.substring(4, spec.length() - 4);
+            if (rest.equals("*") || rest.equals("**")) {
+                return self.stdlib.rootPaths(self.stdlibSnapshot);
+            }
+            Vector<string> names = self.stdlibModuleNames(rest);
+            if (names.len == 0) { self.rejectInvalidSpec(spec); }
+            Vector<string> paths = [];
+            int index = 0;
+            while (index < names.len) {
+                FeStdlibLookup lookup = self.stdlib.requiredModuleForCompilation(
+                    names.get(index), self.stdlibSnapshot);
+                if (!lookup.found) {
+                    fprintf(stderr, "error: %s\n", lookup.diagnostic);
+                    exit(1);
+                }
+                paths.push(lookup.path);
+                index++;
+            }
+            return paths;
+        }
+        if (spec.startsWith(".") || spec.startsWith("/")
+                || spec.startsWith("~")) {
+            return self.resolveRelative(spec, sourceDir);
+        }
+        if (self.packageImportSpec(spec)) {
             fprintf(stderr,
-                "error: cannot import C file with a quote or control character in its path: %s\n",
-                path);
+                "error: package import '%s' is unsupported by btrcc; use btrcpy, or use an explicit local path beginning with './'\n",
+                spec);
             exit(1);
         }
-        if (i + 2 < path.length() && path[i] == '?' && path[i + 1] == '?'
-                && feCTrigraphSuffix(path[i + 2])) {
-            fprintf(stderr,
-                "error: cannot import C file whose path contains a C trigraph: %s\n",
-                path);
-            exit(1);
-        }
-        i = i + 1;
+        self.rejectInvalidSpec(spec);
+        Vector<string> invalid = [];
+        return invalid;
     }
-    return f"#include \"{path}\"";
+
+    private bool cTrigraphSuffix(char value) {
+        return value == '=' || value == '/' || value == '\'' || value == '('
+            || value == ')' || value == '!' || value == '<' || value == '>'
+            || value == '-';
+    }
+
+    /* C11 header names cannot portably quote `"` or control bytes, and
+     * trigraph replacement runs before preprocessing. */
+    public string renderCInclude(string path) {
+        int index = 0;
+        while (index < path.length()) {
+            int code = (int)(byte)path[index];
+            if (path[index] == '"' || code < 32 || code == 127) {
+                fprintf(stderr,
+                    "error: cannot import C file with a quote or control character in its path: %s\n",
+                    path);
+                exit(1);
+            }
+            if (index + 2 < path.length() && path[index] == '?'
+                    && path[index + 1] == '?'
+                    && self.cTrigraphSuffix(path[index + 2])) {
+                fprintf(stderr,
+                    "error: cannot import C file whose path contains a C trigraph: %s\n",
+                    path);
+                exit(1);
+            }
+            index++;
+        }
+        return f"#include \"{path}\"";
+    }
 }
 
 /* ----- top-level entry: compose the full source ---------------------------- */
@@ -1121,6 +1082,7 @@ class FeFrontendResolver {
     private FeDirectiveScanner directiveScanner;
     private FeStdlibRepository stdlib;
     private FeStdlibRootSnapshot stdlibSnapshot;
+    private FeImportResolver importResolver;
     private bool includeStdlib;
     private bool strictImports;
     private Map<string, bool> included;
@@ -1137,6 +1099,7 @@ class FeFrontendResolver {
         FeStdlibRootSnapshot emptySnapshot = FeStdlibRootSnapshot(
             emptyPaths, emptySources);
         self.stdlibSnapshot = emptySnapshot;
+        self.importResolver = FeImportResolver(stdlib, emptySnapshot);
         self.includeStdlib = includeStdlib;
         self.strictImports = strictImports;
         self.included = {};
@@ -1153,13 +1116,13 @@ class FeFrontendResolver {
             string fullPath = paths.get(index);
             string absolute = feAbsPath(fullPath);
             self.dependencies.addImport(absPath, absolute);
-            if (feEndsWith(fullPath, ".c")) {
+            if (fullPath.endsWith(".c")) {
                 string identity = feCanonicalPathIdentity(absolute);
                 if (!self.included.has(identity)) {
                     self.budget.enter("", absolute, depth);
                     self.included.put(identity, true);
                     out.push(FeLine(
-                        feCIncludeDirective(absolute), absPath, 0));
+                        self.importResolver.renderCInclude(absolute), absPath, 0));
                 }
             } else {
                 string content = self.stdlib.readSourceForCompilation(
@@ -1204,9 +1167,8 @@ class FeFrontendResolver {
             if (byStart.has(lineNumber)) {
                 FeDirective directive = directives.get(byStart.get(lineNumber));
                 if (directive.kind.equals("btrc_include")) {
-                    string resolved = feResolveIncludePath(
-                        directive.payload, sourceDir, self.stdlib,
-                        self.stdlibSnapshot);
+                    string resolved = self.importResolver.resolveIncludePath(
+                        directive.payload, sourceDir);
                     if (resolved.length() == 0) {
                         fprintf(stderr,
                             "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
@@ -1218,9 +1180,8 @@ class FeFrontendResolver {
                         resolved, self.stdlibSnapshot);
                     self.resolveInto(content, resolved, out, depth + 1);
                 } else {
-                    Vector<string> paths = feImportSpecPaths(
-                        directive.payload, sourceDir, self.stdlib,
-                        self.stdlibSnapshot);
+                    Vector<string> paths = self.importResolver.resolveSpec(
+                        directive.payload, sourceDir);
                     self.inlinePaths(paths, absPath, out, depth + 1);
                 }
             } else if (!covered.has(lineNumber)) {
@@ -1238,6 +1199,7 @@ class FeFrontendResolver {
         self.budget = FeResolutionBudget();
         FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
         self.stdlibSnapshot = currentSnapshot;
+        self.importResolver = FeImportResolver(self.stdlib, currentSnapshot);
 
         Vector<FeLine> userLines = [];
         self.resolveInto(source, sourcePath, userLines, 0);
