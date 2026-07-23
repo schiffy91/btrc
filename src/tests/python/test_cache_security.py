@@ -275,11 +275,14 @@ def test_cache_and_archive_validation_reject_fifos_without_blocking(tmp_path):
     script = """
 import sys
 from src.compiler.python.cache_io import load_json
-from src.compiler.python.stdlib_archive_validation import _artifact_hash
+from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
+from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
+from src.compiler.python.stdlib_archive_validation import StdlibArchiveManifest
 
 path = sys.argv[1]
 assert load_json(path) is None
-assert _artifact_hash(path) is None
+manifest = StdlibArchiveManifest(StdlibArchivePublisher(ArtifactPublisher()))
+assert manifest._artifact_hash(path) is None
 """
 
     subprocess.run(

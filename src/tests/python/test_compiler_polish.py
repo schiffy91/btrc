@@ -71,6 +71,8 @@ def _compile(tmp_path, source, run=False):
 
 class TestPointerDepthMangling:
     SRC = """
+        import std.vector;
+
         int main() {
             Vector<int> a = new Vector<int>();
             a.push(10);

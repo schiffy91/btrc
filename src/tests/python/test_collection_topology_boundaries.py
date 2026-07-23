@@ -3,6 +3,7 @@
 from src.compiler.python.ir.cycle_boundaries import (
     install_function_cycle_boundary,
 )
+from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -31,15 +32,12 @@ from src.compiler.python.ir.topology_queries import (
 class _Generator:
     def __init__(self, *, cleanup: bool = False):
         self.cross_function_cleanup_enabled = cleanup
-        self.used: set[str] = set()
+        self.helpers = RuntimeHelperRegistry()
         self.counter = 0
 
     def fresh_temp(self, prefix: str) -> str:
         self.counter += 1
         return f"{prefix}_{self.counter}"
-
-    def use_helper(self, name: str) -> None:
-        self.used.add(name)
 
 
 def _self_slot():
@@ -158,4 +156,4 @@ def test_topology_boundary_keeps_return_evaluation_and_flush_inside_order() -> N
         "__btrc_cleanup_mark",
         "__btrc_discard_cleanups_to",
         "__btrc_register_direct_cleanup",
-    } <= generator.used
+    } <= generator.helpers.roots

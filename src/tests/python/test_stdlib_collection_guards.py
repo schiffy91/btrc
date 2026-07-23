@@ -9,40 +9,53 @@ import pytest
 
 
 @pytest.mark.parametrize(
-    ("setup", "operation", "diagnostic"),
+    ("stdlib_module", "setup", "operation", "diagnostic"),
     [
         (
+            "vector",
             "Vector<int> value = []; value.cap = 1073741824; value.len = value.cap;",
             "value.push(1);",
             "Vector capacity overflow",
         ),
         (
+            "list",
             "List<int> value = new List<int>(); value.len = 2147483647;",
             "value.push(1);",
             "List length overflow",
         ),
         (
+            "array",
             "",
             "Array<int> value = new Array<int>(-1);",
             "Array size must be non-negative",
         ),
         (
+            "map",
             "Map<int, int> value = {}; value.cap = 1073741824; value.len = 805306368;",
             "value.put(1, 1);",
             "Map capacity overflow",
         ),
         (
+            "set",
             "Set<int> value = {}; value.cap = 1073741824; value.len = 805306368;",
             "value.add(1);",
             "Set capacity overflow",
         ),
     ],
 )
-def test_collection_growth_fails_before_integer_overflow(tmp_path, setup, operation, diagnostic):
+def test_collection_growth_fails_before_integer_overflow(
+    tmp_path,
+    stdlib_module,
+    setup,
+    operation,
+    diagnostic,
+):
     source = tmp_path / "guard.btrc"
     c_source = tmp_path / "guard.c"
     executable = tmp_path / "guard"
-    source.write_text(f"int main() {{\n    {setup}\n    {operation}\n    return 0;\n}}\n")
+    source.write_text(
+        f"import std.{stdlib_module};\n\nint main() {{\n    {setup}\n    {operation}\n    return 0;\n}}\n"
+    )
 
     transpile = subprocess.run(
         [
