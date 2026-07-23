@@ -254,6 +254,8 @@ class ScopeSnapshot {
 class IRGen {
     public Analyzed analyzed;
     public CallableBoundaryPolicy callableBoundaries;
+    public CallableFlowState callableFlow;
+    public AssignmentLowerer assignments;
     public GpuRegistry gpu;
     public GpuCpuContext gpuCpu;
     public GpuHostContext gpuHost;
@@ -410,9 +412,6 @@ class IRGen {
     public int lastLambdaId;
     public Map<string, string> fnPtrEnvFn;
     public Map<string, string> fnPtrEnvVar;
-    /* Compilation-local callback ABI provenance and control-flow joins. */
-    public CallableFlowState callableFlow;
-
     /* Every local IRVarDecl produced in the function/method body currently being
      * lowered. A try/catch marks ALL of them `volatile`, since any local modified
      * between setjmp() and read after a longjmp() has an indeterminate value
@@ -440,6 +439,9 @@ class IRGen {
             int stdlibLineCount, Vector<FeLine> userLines) {
         self.analyzed = analyzed;
         self.callableBoundaries = CallableBoundaryPolicy(analyzed);
+        self.callableFlow = CallableFlowState();
+        self.assignments = AssignmentLowerer(
+            analyzed, self.callableBoundaries, self.callableFlow);
         self.gpu = GpuRegistry();
         self.gpuCpu = GpuCpuContext();
         self.gpuHost = GpuHostContext();
@@ -501,7 +503,6 @@ class IRGen {
         self.lastLambdaId = 0;
         self.fnPtrEnvFn = {};
         self.fnPtrEnvVar = {};
-        self.callableFlow = CallableFlowState();
         self.funcVarDecls = [];
         self.cleanupTakeAdapters = {};
         self.arcSlotAdapters = {};
@@ -540,6 +541,13 @@ class IRGen {
 
     public bool hasClosureEnv(string name) {
         return self.fnPtrEnvFn.has(name) && self.fnPtrEnvFn.get(name) != "";
+    }
+
+    public CallableBoundaryContext assignmentCallableContext(
+            Map<string, Node> variableTypes) {
+        return self.callableFlow.boundaryContext(
+            variableTypes, self.activeTypeMap,
+            self.inGenericMethod || self.callDefaultTypeDepth > 0);
     }
 
     public void snapshotClosureEnvs(
@@ -5314,7 +5322,7 @@ class IRGen {
             return lowerOwnedIndex(self, node, varTypes);
         }
         if (node.kind == NK_ASSIGN_EXPR) {
-            return lowerAssignmentExpression(self, node, varTypes);
+            return self.assignments.lower(self, node, varTypes);
         }
         if (node.kind == NK_SIZEOF_EXPR) {
             return self.lowerSizeof(node, varTypes);

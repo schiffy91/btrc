@@ -166,7 +166,7 @@ IRNode? lowerOwnedAssignment(IRGen generator, Node expression,
             owned.get(operandIndex), kept.get(operandIndex), varTypes);
         operandIndex = operandIndex + 1;
     }
-    IRNode lowered = lowerPlainAssignment(
+    IRNode lowered = generator.assignments.lowerPlain(
         generator, expression, varTypes);
     boundary.restore(generator);
     Node? resultType = generator.resolvedExpressionType(

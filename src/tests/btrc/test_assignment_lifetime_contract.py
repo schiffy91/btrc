@@ -24,7 +24,8 @@ def test_assignment_boundary_dispatches_directly_to_plain_core() -> None:
     start = source.index("IRNode? lowerOwnedAssignment(")
     end = source.index("IRNode? lowerOwnedUnaryUpdate(", start)
     boundary = source[start:end]
-    assert "lowerPlainAssignment(" in boundary
+    assert "generator.assignments.lowerPlain(" in boundary
+    assert "lowerPlainAssignment(" not in boundary
     assert "generator.lowerExpr(expression" not in boundary
 
 

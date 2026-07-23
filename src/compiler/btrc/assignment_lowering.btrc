@@ -1,174 +1,218 @@
-/* Assignment dispatch after target ownership has been sequenced exactly once. */
+/* Assignment lowering owner. The operation-local generator parameter supplies
+ * recursive expression lowering without being retained by this owner. */
 
-IRNode lowerAssignmentExpression(IRGen generator, Node node,
-        Map<string, Node> varTypes) {
-    CallableBoundaryContext callableContext =
-        generator.callableFlow.boundaryContext(
-            varTypes, generator.activeTypeMap,
-            generator.inGenericMethod
-                || generator.callDefaultTypeDepth > 0);
-    Node? callableStorageType = generator.resolvedExpressionType(
-        node.target, varTypes);
-    generator.callableBoundaries.rejectAssignment(
-        node, callableStorageType, callableContext);
-    IRNode? ownedTarget = lowerOwnedAssignment(
-        generator, node, varTypes);
-    if (ownedTarget != null) { return ownedTarget; }
-    return lowerPlainAssignment(generator, node, varTypes);
-}
+class AssignmentLowerer {
+    private Analyzed analysis;
+    private CallableBoundaryPolicy callableBoundaries;
+    private CallableFlowState callableFlow;
 
-/* Lower an assignment with any enclosing ownership overrides already active.
- * This is deliberately not routed through IRGen.lowerExpr: doing so would
- * rediscover the same target and nest a second result-retaining boundary. */
-IRNode lowerPlainAssignment(IRGen generator, Node node,
-        Map<string, Node> varTypes) {
-    CallableBoundaryContext callableContext =
-        generator.callableFlow.boundaryContext(
-            varTypes, generator.activeTypeMap,
-            generator.inGenericMethod
-                || generator.callDefaultTypeDepth > 0);
-    int callableAssignmentAbi = 0;
-    bool callableAssignment = node.op == "="
-        && node.target != null
-        && node.target.kind == NK_IDENTIFIER;
-    if (callableAssignment) {
-        callableAssignmentAbi = generator.callableBoundaries.expressionAbi(
-            node.value_node, callableContext);
+    public AssignmentLowerer(
+            Analyzed analysis,
+            CallableBoundaryPolicy callableBoundaries,
+            CallableFlowState callableFlow) {
+        self.analysis = analysis;
+        self.callableBoundaries = callableBoundaries;
+        self.callableFlow = callableFlow;
     }
-    bool lexicalCallableTarget = node.target != null
-        && node.target.kind == NK_IDENTIFIER
-        && generator.callableBoundaries.lexicalIdentifier(
-            node.target.name, callableContext);
-    Node? closureTargetType = generator.resolvedExpressionType(
-        node.target, varTypes);
-    if (generator.callableValueEscapes(
-            closureTargetType, node.value_node, varTypes)) {
-        generator.rejectClosureEscape(node);
-    }
-    IRNode? managedLocal = lowerManagedLocalStore(
-        generator, node, varTypes);
-    if (managedLocal != null) { return managedLocal; }
-    IRNode? managedField = generator.lowerManagedFieldAssignment(
-        node, varTypes);
-    if (managedField != null) { return managedField; }
-    IRNode? indirect = generator.lowerIndirectAssignment(node, varTypes);
-    if (indirect != null) { return indirect; }
 
-    /* Property setter: obj.prop = v -> ClassName_set_prop(obj, v).
-     * self.prop uses backing storage only while lowering that property's own
-     * compiler-backed accessor; every other self store calls the setter. */
-    if (node.op == "=" && node.target != null
-            && node.target.kind == NK_FIELD_ACCESS_EXPR) {
-        Node target = node.target;
-        Node? ownerType = generator.resolvedExpressionType(
-            target.obj, varTypes);
-        Node? property = instanceMemberForType(
-            generator.analyzed, ownerType, target.field);
-        if (ownerType != null && property != null
-                && property.kind == NK_PROPERTY_DECL) {
-            Node? propertyType = resolvedInstanceMemberType(
-                generator.analyzed, ownerType, property);
-            if (propertyType == null) { propertyType = property.type; }
-            return lowerPropertyStoreWithOwnership(generator,
-                node, ownerType, property, propertyType, varTypes);
+    public IRNode lower(
+            IRGen generator, Node assignment,
+            Map<string, Node> variableTypes) {
+        CallableBoundaryContext callableContext =
+            generator.assignmentCallableContext(variableTypes);
+        Node? callableStorageType = generator.resolvedExpressionType(
+            assignment.target, variableTypes);
+        self.callableBoundaries.rejectAssignment(
+            assignment, callableStorageType, callableContext);
+        IRNode? ownedTarget = lowerOwnedAssignment(
+            generator,
+            assignment, variableTypes);
+        if (ownedTarget != null) { return ownedTarget; }
+        return self.lowerPlain(generator, assignment, variableTypes);
+    }
+
+    /* Lower with any enclosing ownership overrides already active. The
+     * ownership boundary calls this operation directly so the target is not
+     * rediscovered and a second result-retaining boundary is never nested. */
+    public IRNode lowerPlain(
+            IRGen generator, Node assignment,
+            Map<string, Node> variableTypes) {
+        CallableBoundaryContext callableContext =
+            generator.assignmentCallableContext(variableTypes);
+        int callableAssignmentAbi = 0;
+        bool callableAssignment = assignment.op == "="
+            && assignment.target != null
+            && assignment.target.kind == NK_IDENTIFIER;
+        if (callableAssignment) {
+            callableAssignmentAbi =
+                self.callableBoundaries.expressionAbi(
+                    assignment.value_node, callableContext);
         }
-    }
-
-    /* Collection index assignment: coll[i] = v -> {mangled}_set(coll, i, v).
-     * Raw backing arrays inside generic methods remain ordinary C indexing. */
-    if (node.op == "=" && node.target != null
-            && node.target.kind == NK_INDEX_EXPR
-            && !generator.inGenericMethod) {
-        Node indexed = node.target;
-        Node? receiverType = generator.resolvedExpressionType(
-            indexed.obj, varTypes);
-        if (receiverType != null && receiverType.generic_args.len > 0
-                && receiverType.pointer_depth == 0
-                && generator.analyzed.isGenericClass(receiverType.base)) {
-            string mangled = TypeIdentity.mangleGenericType(
-                receiverType.base, receiverType.generic_args);
-            Vector<IRNode> arguments = [];
-            arguments.push(generator.lowerExpr(indexed.obj, varTypes));
-            arguments.push(generator.lowerExpr(indexed.index, varTypes));
-            arguments.push(generator.lowerExpr(node.value_node, varTypes));
-            return irCall(mangled + "_set", arguments);
+        bool lexicalCallableTarget = assignment.target != null
+            && assignment.target.kind == NK_IDENTIFIER
+            && self.callableBoundaries.lexicalIdentifier(
+                assignment.target.name, callableContext);
+        Node? closureTargetType = generator.resolvedExpressionType(
+            assignment.target, variableTypes);
+        if (generator.callableValueEscapes(
+                closureTargetType, assignment.value_node,
+                variableTypes)) {
+            generator.rejectClosureEscape(assignment);
         }
-    }
 
-    /* Empty collection literals use the target's inferred generic shape. */
-    if (node.op == "=" && node.value_node != null
-            && (node.value_node.kind == NK_BRACE_INITIALIZER
-                || node.value_node.kind == NK_MAP_LITERAL
-                || node.value_node.kind == NK_LIST_LITERAL)) {
-        Node? targetType = generator.resolvedExpressionType(
-            node.target, varTypes);
-        if (targetType != null && targetType.generic_args.len > 0
-                && generator.analyzed.isGenericClass(targetType.base)) {
-            IRNode target = generator.lowerExpr(node.target, varTypes);
-            IRNode value = irLiteral("NULL");
-            if (node.value_node.kind == NK_BRACE_INITIALIZER) {
-                value = generator.lowerBraceInit(
-                    node.value_node, varTypes, targetType);
-            } else if (node.value_node.kind == NK_MAP_LITERAL) {
-                value = generator.lowerMapLiteral(
-                    node.value_node, varTypes, targetType);
-            } else {
-                value = generator.lowerListLiteral(
-                    node.value_node, varTypes, targetType);
+        IRNode? managedLocal =
+            lowerManagedLocalStore(
+                generator, assignment, variableTypes);
+        if (managedLocal != null) { return managedLocal; }
+        IRNode? managedField =
+            generator.lowerManagedFieldAssignment(
+                assignment, variableTypes);
+        if (managedField != null) { return managedField; }
+        IRNode? indirect = generator.lowerIndirectAssignment(
+            assignment, variableTypes);
+        if (indirect != null) { return indirect; }
+
+        /* Property setter: obj.prop = v -> ClassName_set_prop(obj, v).
+         * self.prop uses backing storage only while lowering that property's
+         * compiler-backed accessor; every other self store calls the setter. */
+        if (assignment.op == "=" && assignment.target != null
+                && assignment.target.kind == NK_FIELD_ACCESS_EXPR) {
+            Node target = assignment.target;
+            Node? receiverType = generator.resolvedExpressionType(
+                target.obj, variableTypes);
+            Node? property = instanceMemberForType(
+                self.analysis, receiverType, target.field);
+            if (receiverType != null && property != null
+                    && property.kind == NK_PROPERTY_DECL) {
+                Node? propertyType = resolvedInstanceMemberType(
+                    self.analysis, receiverType, property);
+                if (propertyType == null) {
+                    propertyType = property.type;
+                }
+                return lowerPropertyStoreWithOwnership(
+                    generator, assignment, receiverType, property,
+                    propertyType, variableTypes);
             }
-            return irBinOp(target, "=", value);
         }
-    }
 
-    IRNode target = generator.lowerExpr(node.target, varTypes);
-    if (node.op != "=" && node.op.length() > 1) {
-        IRNode value = generator.lowerExpr(node.value_node, varTypes);
-        Node? targetType = generator.resolvedExpressionType(
-            node.target, varTypes);
-        Node? valueType = generator.resolvedExpressionType(
-            node.value_node, varTypes);
-        string targetC = "int";
-        if (targetType != null) {
-            targetC = generator.directGenericTargetC(
-                node.target, targetType, varTypes);
+        /* Collection index assignment: coll[i] = v ->
+         * {mangled}_set(coll, i, v). Raw generic backing arrays remain
+         * ordinary C indexing. */
+        if (assignment.op == "=" && assignment.target != null
+                && assignment.target.kind == NK_INDEX_EXPR
+                && !generator.inGenericMethod) {
+            Node indexed = assignment.target;
+            Node? receiverType = generator.resolvedExpressionType(
+                indexed.obj, variableTypes);
+            if (receiverType != null
+                    && receiverType.generic_args.len > 0
+                    && receiverType.pointer_depth == 0
+                    && self.analysis.isGenericClass(
+                        receiverType.base)) {
+                string mangled = TypeIdentity.mangleGenericType(
+                    receiverType.base, receiverType.generic_args);
+                Vector<IRNode> arguments = [];
+                arguments.push(generator.lowerExpr(
+                    indexed.obj, variableTypes));
+                arguments.push(generator.lowerExpr(
+                    indexed.index, variableTypes));
+                arguments.push(generator.lowerExpr(
+                    assignment.value_node, variableTypes));
+                return irCall(mangled + "_set", arguments);
+            }
         }
-        return generator.lowerDirectCompound(
-            node.op, target, value, targetType, valueType, targetC);
-    }
 
-    /* Class upcasts need an explicit C pointer conversion. */
-    if (node.op == "=") {
-        Node? targetType = generator.resolvedExpressionType(
-            node.target, varTypes);
-        Node? valueType = generator.resolvedExpressionType(
-            node.value_node, varTypes);
-        IRNode value = irLiteral("0");
-        if (targetType != null) {
-            value = generator.lowerAssignedValue(
-                node.value_node, targetType, varTypes);
-        } else {
-            value = generator.lowerExpr(node.value_node, varTypes);
+        /* Empty collection literals use the target's inferred generic shape. */
+        if (assignment.op == "=" && assignment.value_node != null
+                && (assignment.value_node.kind == NK_BRACE_INITIALIZER
+                    || assignment.value_node.kind == NK_MAP_LITERAL
+                    || assignment.value_node.kind == NK_LIST_LITERAL)) {
+            Node? targetType = generator.resolvedExpressionType(
+                assignment.target, variableTypes);
+            if (targetType != null && targetType.generic_args.len > 0
+                    && self.analysis.isGenericClass(targetType.base)) {
+                IRNode target = generator.lowerExpr(
+                    assignment.target, variableTypes);
+                IRNode value = irLiteral("NULL");
+                if (assignment.value_node.kind
+                        == NK_BRACE_INITIALIZER) {
+                    value = generator.lowerBraceInit(
+                        assignment.value_node,
+                        variableTypes, targetType);
+                } else if (assignment.value_node.kind
+                        == NK_MAP_LITERAL) {
+                    value = generator.lowerMapLiteral(
+                        assignment.value_node,
+                        variableTypes, targetType);
+                } else {
+                    value = generator.lowerListLiteral(
+                        assignment.value_node,
+                        variableTypes, targetType);
+                }
+                return irBinOp(target, "=", value);
+            }
         }
-        value = generator.upcastClassPointer(targetType, valueType, value);
-        Node? callableTargetType = resolveTypedefType(
-            targetType, generator.analyzed.typedefTable);
-        if (node.target.kind == NK_IDENTIFIER
-                && callableTargetType != null
-                && callableTargetType.base == "__fn_ptr"
-                && lexicalCallableTarget) {
-            generator.callableFlow.setBindingAbi(
-                node.target.name, callableAssignmentAbi);
-            generator.callableFlow.recordExceptional();
+
+        IRNode target = generator.lowerExpr(
+            assignment.target, variableTypes);
+        if (assignment.op != "=" && assignment.op.length() > 1) {
+            IRNode value = generator.lowerExpr(
+                assignment.value_node, variableTypes);
+            Node? targetType = generator.resolvedExpressionType(
+                assignment.target, variableTypes);
+            Node? valueType = generator.resolvedExpressionType(
+                assignment.value_node, variableTypes);
+            string targetC = "int";
+            if (targetType != null) {
+                targetC = generator.directGenericTargetC(
+                    assignment.target, targetType, variableTypes);
+            }
+            return generator.lowerDirectCompound(
+                assignment.op, target, value,
+                targetType, valueType, targetC);
         }
-        if (targetType != null
-                && node.target.kind != NK_IDENTIFIER) {
-            return generator.lowerDirectStore(
-                target, value, targetType,
-                generator.directGenericTargetC(
-                    node.target, targetType, varTypes));
+
+        /* Class upcasts need an explicit C pointer conversion. */
+        if (assignment.op == "=") {
+            Node? targetType = generator.resolvedExpressionType(
+                assignment.target, variableTypes);
+            Node? valueType = generator.resolvedExpressionType(
+                assignment.value_node, variableTypes);
+            IRNode value = irLiteral("0");
+            if (targetType != null) {
+                value = generator.lowerAssignedValue(
+                    assignment.value_node,
+                    targetType, variableTypes);
+            } else {
+                value = generator.lowerExpr(
+                    assignment.value_node, variableTypes);
+            }
+            value = generator.upcastClassPointer(
+                targetType, valueType, value);
+            Node? callableTargetType = resolveTypedefType(
+                targetType, self.analysis.typedefTable);
+            if (assignment.target.kind == NK_IDENTIFIER
+                    && callableTargetType != null
+                    && callableTargetType.base == "__fn_ptr"
+                    && lexicalCallableTarget) {
+                self.callableFlow.setBindingAbi(
+                    assignment.target.name,
+                    callableAssignmentAbi);
+                self.callableFlow.recordExceptional();
+            }
+            if (targetType != null
+                    && assignment.target.kind != NK_IDENTIFIER) {
+                return generator.lowerDirectStore(
+                    target, value, targetType,
+                    generator.directGenericTargetC(
+                        assignment.target, targetType,
+                        variableTypes));
+            }
+            return irBinOp(target, assignment.op, value);
         }
-        return irBinOp(target, node.op, value);
+        return irBinOp(
+            target, assignment.op,
+            generator.lowerExpr(
+                assignment.value_node, variableTypes));
     }
-    return irBinOp(
-        target, node.op, generator.lowerExpr(node.value_node, varTypes));
 }
