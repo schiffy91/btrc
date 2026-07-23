@@ -18,6 +18,7 @@ import ./frontend/stage.btrc;
 
 int main(int argc, char** argv) {
     BtrccOutput output = BtrccOutput(stdout);
+    FeSourceFileReader sourceFiles = FeSourceFileReader();
     if (argc < 2) {
         Console.error(
             "usage: frontend [--strict-imports | --relaxed-imports] "
@@ -49,14 +50,16 @@ int main(int argc, char** argv) {
     }
 
     string path = Strings.copy(argv[argIdx]);
-    string src = feReadRequiredSource(path);
+    string src = sourceFiles.readRequired(path);
     BtrccDataPaths dataPaths = BtrccRuntimePaths.resolve(Strings.copy(argv[0]));
     if (!dataPaths.valid) {
         Console.error(dataPaths.diagnostic);
         return 1;
     }
-    GrammarInfo grammar = parseGrammar(feReadRequiredSource(dataPaths.grammar));
-    FeStdlibRepository stdlib = FeStdlibRepository(dataPaths.stdlib, grammar);
+    GrammarInfo grammar = parseGrammar(
+        sourceFiles.readRequired(dataPaths.grammar));
+    FeStdlibRepository stdlib = FeStdlibRepository(
+        dataPaths.stdlib, grammar, sourceFiles);
     FeFrontendResolver resolver = FeFrontendResolver(
         grammar, stdlib, includeStdlib, strictImports);
     FeResolvedSource resolved = resolver.resolve(src, path);

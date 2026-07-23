@@ -3,10 +3,11 @@ import ./parser/stage.btrc;
 #include "driver_output.btrc"
 int main(int argc, char** argv) {
   BtrccOutput output = BtrccOutput(stdout);
+  FeSourceFileReader sourceFiles = FeSourceFileReader();
   if (argc < 2) { print("usage: parse <file.btrc>"); return 1; }
-  string gt = feReadRequiredSource("src/language/grammar.ebnf");
+  string gt = sourceFiles.readRequired("src/language/grammar.ebnf");
   GrammarInfo g = parseGrammar(gt);
-  string src = feReadRequiredSource(Strings.copy(argv[1]));
+  string src = sourceFiles.readRequired(Strings.copy(argv[1]));
   Lexer lx = Lexer(src, g);
   Vector<Token> toks = lx.tokenize();
   if (lx.failed) {

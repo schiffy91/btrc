@@ -268,7 +268,8 @@ def test_frontend_scan_limits_are_wired_before_materialization() -> None:
     filesystem = (REPO / "src/stdlib/fs.btrc").read_text()
 
     assert "path, budget.remainingEntries())" in frontend
-    assert "directory.entriesBounded(maxEntries)" in source_io
+    assert "source.readBytesBounded(self.maximumBytes)" in source_io
+    assert "directory.entriesBounded(maximumEntries)" in frontend
     assert "budget.addEntries(entries.len)" in frontend
     assert "budget.addFile()" in frontend
     assert "Vector<string> pending = []" in frontend
@@ -300,8 +301,9 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         f"import {json.dumps(str(stage))};\n"
         "\n"
         "int main() {\n"
-        f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
-        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar);\n"
+        "    FeSourceFileReader sourceFiles = FeSourceFileReader();\n"
+        f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
+        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar, sourceFiles);\n"
         "    FeFrontendResolver resolver = FeFrontendResolver(grammar, stdlib, false, true);\n"
         f"    string firstSource = {json.dumps(first_source)};\n"
         f"    string secondSource = {json.dumps(second_source)};\n"
@@ -387,8 +389,9 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
         f"import {json.dumps(str(stage))};\n"
         "\n"
         "int main() {\n"
-        f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
-        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar);\n"
+        "    FeSourceFileReader sourceFiles = FeSourceFileReader();\n"
+        f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
+        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar, sourceFiles);\n"
         "    FeStdlibRootSnapshot snapshot = stdlib.rootSnapshot();\n"
         "    FeSourceDirectoryScanner directories = FeSourceDirectoryScanner();\n"
         "    FeImportResolver resolver = FeImportResolver(stdlib, snapshot, directories);\n"
@@ -481,6 +484,10 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
     (stdlib_a / "vector.btrc").write_text("import std.strings\nclass Alpha { }\n", encoding="utf-8")
     (stdlib_a / "zeta.btrc").write_text("class Zeta { }\n", encoding="utf-8")
     (stdlib_b / "strings.btrc").write_text("class Beta { }\n", encoding="utf-8")
+    first_input = tmp_path / "first_input.btrc"
+    second_input = tmp_path / "second_input.btrc"
+    first_input.write_bytes(b"\xef\xbb\xbfalpha\r\n")
+    second_input.write_bytes(b"beta\r")
 
     program = tmp_path / "stdlib_repository_isolation.btrc"
     generated = tmp_path / "stdlib_repository_isolation.c"
@@ -489,26 +496,33 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         f"import {json.dumps(str(stage))};\n"
         "\n"
         "int main() {\n"
-        f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
-        f"    FeStdlibRepository first = FeStdlibRepository({json.dumps(str(stdlib_a))}, grammar);\n"
-        f"    FeStdlibRepository second = FeStdlibRepository({json.dumps(str(stdlib_b))}, grammar);\n"
+        "    FeSourceFileReader sourceFiles = FeSourceFileReader();\n"
+        "    FeSourceFileReader isolatedSourceFiles = FeSourceFileReader();\n"
+        f"    string firstRead = sourceFiles.readRequired({json.dumps(str(first_input))});\n"
+        f"    string secondRead = isolatedSourceFiles.readRequired({json.dumps(str(second_input))});\n"
+        f"    string firstReadAgain = sourceFiles.readRequired({json.dumps(str(first_input))});\n"
+        '    if (!firstRead.equals("alpha\\n") || !secondRead.equals("beta\\n")\n'
+        "            || !firstReadAgain.equals(firstRead)) { return 1; }\n"
+        f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
+        f"    FeStdlibRepository first = FeStdlibRepository({json.dumps(str(stdlib_a))}, grammar, sourceFiles);\n"
+        f"    FeStdlibRepository second = FeStdlibRepository({json.dumps(str(stdlib_b))}, grammar, sourceFiles);\n"
         "    FeStdlibRootSnapshot firstSnapshot = first.rootSnapshot();\n"
         "    FeStdlibRootSnapshot secondSnapshot = second.rootSnapshot();\n"
         "    if (firstSnapshot.count() != 2\n"
         '            || !PathTools.basename(firstSnapshot.pathAt(0)).equals("vector.btrc")\n'
-        '            || !PathTools.basename(firstSnapshot.pathAt(1)).equals("zeta.btrc")) { return 1; }\n'
+        '            || !PathTools.basename(firstSnapshot.pathAt(1)).equals("zeta.btrc")) { return 2; }\n'
         "    if (secondSnapshot.count() != 1\n"
-        '            || !PathTools.basename(secondSnapshot.pathAt(0)).equals("strings.btrc")) { return 2; }\n'
+        '            || !PathTools.basename(secondSnapshot.pathAt(0)).equals("strings.btrc")) { return 3; }\n'
         '    if (!first.requiredModuleForCompilation("vector", firstSnapshot).found\n'
-        '            || first.requiredModuleForCompilation("strings", firstSnapshot).found) { return 3; }\n'
+        '            || first.requiredModuleForCompilation("strings", firstSnapshot).found) { return 4; }\n'
         '    if (!second.requiredModuleForCompilation("strings", secondSnapshot).found\n'
-        '            || second.requiredModuleForCompilation("vector", secondSnapshot).found) { return 4; }\n'
+        '            || second.requiredModuleForCompilation("vector", secondSnapshot).found) { return 5; }\n'
         '    string firstSource = first.sourceAtSnapshot("int userValue;\\n", firstSnapshot);\n'
         '    if (!firstSource.contains("class Alpha")\n'
         '            || !firstSource.contains("class Zeta")\n'
-        '            || firstSource.contains("import std.strings")) { return 5; }\n'
-        '    if (!second.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 6; }\n'
-        '    if (second.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
+        '            || firstSource.contains("import std.strings")) { return 6; }\n'
+        '    if (!second.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
+        '    if (second.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 8; }\n'
         "    return 0;\n"
         "}\n",
         encoding="utf-8",
@@ -571,8 +585,9 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
         f"import {json.dumps(str(parser_stage))};\n"
         "\n"
         "int main() {\n"
-        f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
-        f"    FeStdlibRepository repository = FeStdlibRepository({json.dumps(str(stdlib))}, grammar);\n"
+        "    FeSourceFileReader sourceFiles = FeSourceFileReader();\n"
+        f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
+        f"    FeStdlibRepository repository = FeStdlibRepository({json.dumps(str(stdlib))}, grammar, sourceFiles);\n"
         "    FeStdlibSymbolIndex index = FeStdlibSymbolIndex(grammar);\n"
         "    Map<string, Vector<string>> firstSymbols = {};\n"
         "    FeStdlibRootSnapshot firstSnapshot = repository.rootSnapshot();\n"

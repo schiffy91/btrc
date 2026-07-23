@@ -9,8 +9,10 @@ import ./pipeline/stage.btrc;
 class Compiler {
     private CompilerPipeline pipeline;
 
-    public Compiler(GrammarInfo grammar, string stdlibDirectory) {
-        self.pipeline = CompilerPipeline(grammar, stdlibDirectory);
+    public Compiler(GrammarInfo grammar, string stdlibDirectory,
+                    FeSourceFileReader sourceFiles) {
+        self.pipeline = CompilerPipeline(
+            grammar, stdlibDirectory, sourceFiles);
     }
 
     public BtrccCompilationResult compile(string source, string sourcePath,
@@ -22,10 +24,12 @@ class Compiler {
 class BtrccDriver {
     private BtrccCommandLine commandLine;
     private BtrccOutput output;
+    private FeSourceFileReader sourceFiles;
 
     public BtrccDriver(int argc, char** argv) {
         self.commandLine = BtrccCommandLine(argc, argv);
         self.output = BtrccOutput(stdout);
+        self.sourceFiles = FeSourceFileReader();
     }
 
     private int fail(string diagnostic) {
@@ -60,7 +64,7 @@ class BtrccDriver {
             return self.writeLine(dataPaths.stdlib);
         }
 
-        string grammarSource = feReadRequiredSource(dataPaths.grammar);
+        string grammarSource = self.sourceFiles.readRequired(dataPaths.grammar);
         if (grammarSource.isEmpty()) {
             return self.fail("cannot read grammar: " + dataPaths.grammar);
         }
@@ -70,8 +74,9 @@ class BtrccDriver {
         if (!FileSystem.isFile(sourcePath)) {
             return self.fail("input file does not exist: " + sourcePath);
         }
-        string source = feReadRequiredSource(sourcePath);
-        Compiler compiler = Compiler(grammar, dataPaths.stdlib);
+        string source = self.sourceFiles.readRequired(sourcePath);
+        Compiler compiler = Compiler(
+            grammar, dataPaths.stdlib, self.sourceFiles);
         BtrccCompilationResult result =
             compiler.compile(source, sourcePath, options);
         if (!result.success) {

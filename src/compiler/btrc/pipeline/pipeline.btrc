@@ -5,9 +5,11 @@ class CompilerPipeline {
     private FeStdlibRepository stdlib;
     private FeStdlibSymbolIndex stdlibSymbols;
 
-    public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory) {
+    public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory,
+                            FeSourceFileReader sourceFiles) {
         self.grammar = grammar;
-        self.stdlib = FeStdlibRepository(stdlibDirectory, grammar);
+        self.stdlib = FeStdlibRepository(
+            stdlibDirectory, grammar, sourceFiles);
         self.stdlibSymbols = FeStdlibSymbolIndex(grammar);
     }
 

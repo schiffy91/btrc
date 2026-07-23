@@ -4,10 +4,11 @@ import ./lexer/stage.btrc;
 #include "driver_output.btrc"
 int main(int argc, char** argv) {
   BtrccOutput output = BtrccOutput(stdout);
+  FeSourceFileReader sourceFiles = FeSourceFileReader();
   if (argc < 2) { print("usage: lex <file.btrc>"); return 1; }
-  string grammarText = feReadRequiredSource("src/language/grammar.ebnf");
+  string grammarText = sourceFiles.readRequired("src/language/grammar.ebnf");
   GrammarInfo g = parseGrammar(grammarText);
-  string src = feReadRequiredSource(Strings.copy(argv[1]));
+  string src = sourceFiles.readRequired(Strings.copy(argv[1]));
   Lexer lx = Lexer(src, g);
   Vector<Token> toks = lx.tokenize();
   if (lx.failed) {

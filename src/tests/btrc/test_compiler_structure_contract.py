@@ -89,8 +89,12 @@ def test_application_and_pipeline_have_real_instance_owners() -> None:
 
     assert "class Compiler {" in compiler
     assert "private CompilerPipeline pipeline;" in compiler
-    assert "self.pipeline = CompilerPipeline(grammar, stdlibDirectory);" in compiler
+    assert "self.pipeline = CompilerPipeline(\n            grammar, stdlibDirectory, sourceFiles);" in compiler
     assert "class BtrccDriver {" in compiler
+    assert "private FeSourceFileReader sourceFiles;" in compiler
+    assert "self.sourceFiles = FeSourceFileReader();" in compiler
+    assert "self.sourceFiles.readRequired(dataPaths.grammar)" in compiler
+    assert "self.sourceFiles.readRequired(sourcePath)" in compiler
     assert "class CompilerPipeline {" in pipeline
     assert "public BtrccCompilationResult compile(" in pipeline
 
@@ -142,6 +146,7 @@ def test_frontend_scanning_and_recursive_resolution_are_instance_owned() -> None
 
 def test_frontend_source_text_and_directory_policy_have_real_owners() -> None:
     frontend = _source("frontend.btrc")
+    source_io = _source("frontend_source_io.btrc")
 
     assert "class FeSourceText {" in frontend
     assert "private string content;" in frontend
@@ -171,6 +176,28 @@ def test_frontend_source_text_and_directory_policy_have_real_owners() -> None:
         "feRawStartsWith(",
     ):
         assert obsolete_loose_behavior not in frontend
+
+    assert "class FeUtf8SourceDecoder {" in source_io
+    assert "private bool continuation(" in source_io
+    assert "private bool validAt(" in source_io
+    assert "private int widthAt(" in source_io
+    assert "public string decode(Bytes data, string path)" in source_io
+    assert "class FeSourceFileReader {" in source_io
+    assert "private int maximumBytes;" in source_io
+    assert "self.maximumBytes = 67108864;" in source_io
+    assert "private FeUtf8SourceDecoder decoder;" in source_io
+    assert "public string readRequired(string path)" in source_io
+    assert "FE_MAX_SOURCE_BYTES" not in source_io
+    for obsolete_loose_behavior in (
+        "feSourceReadError(",
+        "feUtf8Continuation(",
+        "feValidUtf8At(",
+        "feUtf8Width(",
+        "feDecodeSource(",
+        "feReadRequiredSource(",
+        "feReadRequiredDirectory(",
+    ):
+        assert obsolete_loose_behavior not in source_io
 
 
 def test_import_resolution_has_one_compilation_local_owner() -> None:
@@ -234,6 +261,8 @@ def test_stdlib_behavior_has_one_explicit_instance_owner() -> None:
     assert "private Vector<string> sources;" in frontend
     assert "private string directoryPath;" in frontend
     assert "private FeDirectiveScanner directiveScanner;" in frontend
+    assert "private FeSourceFileReader sourceFiles;" in frontend
+    assert "self.sourceFiles = sourceFiles;" in frontend
     for owned_behavior in (
         "public FeStdlibRootSnapshot rootSnapshot()",
         "public string findFileForCompilation(",
@@ -276,7 +305,7 @@ def test_stdlib_behavior_has_one_explicit_instance_owner() -> None:
     assert not (SELFHOST / "frontend_data_paths.btrc").exists()
     assert "feConfigureDataPaths" not in compiler
     assert "private FeStdlibRepository stdlib;" in pipeline
-    assert "FeStdlibRepository(stdlibDirectory, grammar)" in pipeline
+    assert "FeStdlibRepository(\n            stdlibDirectory, grammar, sourceFiles)" in pipeline
     assert "private FeStdlibSymbolIndex stdlibSymbols;" in pipeline
     assert "FeStdlibSymbolIndex(grammar)" in pipeline
     assert pipeline.count("FeStdlibSymbolIndex(") == 1

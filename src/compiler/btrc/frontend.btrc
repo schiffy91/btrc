@@ -32,6 +32,7 @@
  * grammar in.
  */
 
+#include "frontend_limits.btrc"
 #include "frontend_source_io.btrc"
 
 /* Immutable source-text semantics shared by directive scanning, provenance,
@@ -352,16 +353,31 @@ class FeSourceDirectoryScanner {
             Strings.lessThan(left, right));
     }
 
+    private Vector<string> readRequired(string path, int maximumEntries) {
+        Directory directory = Directory(path);
+        Vector<string> entries = directory.entriesBounded(maximumEntries);
+        if (directory.failed()) {
+            fprintf(stderr, "error: cannot scan source directory '%s'\n", path);
+            exit(1);
+        }
+        if (entries.len > maximumEntries) {
+            fprintf(stderr,
+                "error: source directory exceeds its entry scan limit: '%s'\n",
+                path);
+            exit(1);
+        }
+        return entries;
+    }
+
     public Vector<string> sortedEntries(string path) {
-        Vector<string> entries = feReadRequiredDirectory(
-            path, self.maximumEntries);
+        Vector<string> entries = self.readRequired(path, self.maximumEntries);
         self.sort(entries);
         return entries;
     }
 
     public Vector<string> sortedEntriesWithinBudget(
             string path, FeDirectoryScanBudget budget) {
-        Vector<string> entries = feReadRequiredDirectory(
+        Vector<string> entries = self.readRequired(
             path, budget.remainingEntries());
         budget.addEntries(entries.len);
         self.sort(entries);
@@ -565,11 +581,15 @@ class FeStdlibRepository {
     private string directoryPath;
     private FeDirectiveScanner directiveScanner;
     private FeSourceDirectoryScanner sourceDirectories;
+    private FeSourceFileReader sourceFiles;
 
-    public FeStdlibRepository(string directory, GrammarInfo grammar) {
+    public FeStdlibRepository(
+            string directory, GrammarInfo grammar,
+            FeSourceFileReader sourceFiles) {
         self.directoryPath = feAbsPath(directory);
         self.directiveScanner = FeDirectiveScanner(grammar);
         self.sourceDirectories = FeSourceDirectoryScanner();
+        self.sourceFiles = sourceFiles;
     }
 
     public string directory() {
@@ -630,7 +650,7 @@ class FeStdlibRepository {
         while (index < files.len) {
             string path = feJoinPath(self.directoryPath, files.get(index));
             if (FileSystem.isFile(path)) {
-                string source = feReadRequiredSource(path);
+                string source = self.sourceFiles.readRequired(path);
                 paths.push(path);
                 sources.push(source);
             }
@@ -687,7 +707,7 @@ class FeStdlibRepository {
             string path, FeStdlibRootSnapshot snapshot) {
         int index = snapshot.indexOf(path);
         if (index >= 0) { return snapshot.sourceAt(index); }
-        return feReadRequiredSource(path);
+        return self.sourceFiles.readRequired(path);
     }
 
     private bool wordCharacter(char value) {
