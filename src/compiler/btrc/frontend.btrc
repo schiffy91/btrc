@@ -32,7 +32,6 @@
  * grammar in.
  */
 
-#include "frontend_limits.btrc"
 #include "frontend_source_io.btrc"
 
 /* Immutable source-text semantics shared by directive scanning, provenance,
@@ -342,10 +341,10 @@ class FeDirective {
 /* Deterministic directory-reading policy. FileSystem/Directory preserve native
  * readdir order, while both compiler frontends promise lexical import order. */
 class FeSourceDirectoryScanner {
-    private int maximumEntries;
+    private FeSourceResolutionPolicy policy;
 
-    public FeSourceDirectoryScanner() {
-        self.maximumEntries = FE_MAX_IMPORT_SCAN_ENTRIES;
+    public FeSourceDirectoryScanner(FeSourceResolutionPolicy policy) {
+        self.policy = policy;
     }
 
     private void sort(Vector<string> entries) {
@@ -370,7 +369,8 @@ class FeSourceDirectoryScanner {
     }
 
     public Vector<string> sortedEntries(string path) {
-        Vector<string> entries = self.readRequired(path, self.maximumEntries);
+        Vector<string> entries = self.readRequired(
+            path, self.policy.directoryEntryLimit());
         self.sort(entries);
         return entries;
     }
@@ -582,14 +582,17 @@ class FeStdlibRepository {
     private FeDirectiveScanner directiveScanner;
     private FeSourceDirectoryScanner sourceDirectories;
     private FeSourceFileReader sourceFiles;
+    private FeSourceResolutionPolicy resolutionPolicy;
 
     public FeStdlibRepository(
             string directory, GrammarInfo grammar,
-            FeSourceFileReader sourceFiles) {
+            FeSourceFileReader sourceFiles,
+            FeSourceResolutionPolicy resolutionPolicy) {
         self.directoryPath = feAbsPath(directory);
         self.directiveScanner = FeDirectiveScanner(grammar);
-        self.sourceDirectories = FeSourceDirectoryScanner();
+        self.sourceDirectories = FeSourceDirectoryScanner(resolutionPolicy);
         self.sourceFiles = sourceFiles;
+        self.resolutionPolicy = resolutionPolicy;
     }
 
     public string directory() {
@@ -853,7 +856,7 @@ class FeStdlibRepository {
             string userSource, FeStdlibRootSnapshot snapshot) {
         Map<string, bool> userNames = self.definedTypeNames(userSource);
         Vector<string> lines = [];
-        FeResolutionBudget budget = FeResolutionBudget();
+        FeResolutionBudget budget = self.resolutionPolicy.newResolutionBudget();
         int fileIndex = 0;
         while (fileIndex < snapshot.count()) {
             string path = snapshot.pathAt(fileIndex);
@@ -884,13 +887,16 @@ class FeImportResolver {
     private FeStdlibRepository stdlib;
     private FeStdlibRootSnapshot stdlibSnapshot;
     private FeSourceDirectoryScanner sourceDirectories;
+    private FeSourceResolutionPolicy resolutionPolicy;
 
     public FeImportResolver(
             FeStdlibRepository stdlib, FeStdlibRootSnapshot stdlibSnapshot,
-            FeSourceDirectoryScanner sourceDirectories) {
+            FeSourceDirectoryScanner sourceDirectories,
+            FeSourceResolutionPolicy resolutionPolicy) {
         self.stdlib = stdlib;
         self.stdlibSnapshot = stdlibSnapshot;
         self.sourceDirectories = sourceDirectories;
+        self.resolutionPolicy = resolutionPolicy;
     }
 
     /* Resolve a #include path against the including file's directory, then the
@@ -975,7 +981,8 @@ class FeImportResolver {
                     spec, root);
                 exit(1);
             }
-            FeDirectoryScanBudget budget = FeDirectoryScanBudget(root);
+            FeDirectoryScanBudget budget =
+                self.resolutionPolicy.newDirectoryBudget(root);
             if (recursive) {
                 self.collectTree(root, paths, budget);
                 self.sortPaths(paths);
@@ -988,7 +995,8 @@ class FeImportResolver {
         string directory = PathTools.isAbsolute(spec)
             ? spec : feJoinPath(sourceDir, spec);
         if (FileSystem.isDir(directory)) {
-            FeDirectoryScanBudget budget = FeDirectoryScanBudget(directory);
+            FeDirectoryScanBudget budget =
+                self.resolutionPolicy.newDirectoryBudget(directory);
             self.collectDirectory(directory, paths, budget);
             return paths;
         }
@@ -1155,12 +1163,15 @@ class FeFrontendResolver {
     private Map<string, bool> included;
     private FeDependencyGraph dependencies;
     private FeResolutionBudget budget;
+    private FeSourceResolutionPolicy resolutionPolicy;
 
     public FeFrontendResolver(
             GrammarInfo grammar, FeStdlibRepository stdlib,
-            bool includeStdlib, bool strictImports) {
+            bool includeStdlib, bool strictImports,
+            FeSourceResolutionPolicy resolutionPolicy) {
         self.directiveScanner = FeDirectiveScanner(grammar);
-        self.sourceDirectories = FeSourceDirectoryScanner();
+        self.sourceDirectories = FeSourceDirectoryScanner(resolutionPolicy);
+        self.resolutionPolicy = resolutionPolicy;
         self.stdlib = stdlib;
         Vector<string> emptyPaths = [];
         Vector<string> emptySources = [];
@@ -1168,12 +1179,13 @@ class FeFrontendResolver {
             emptyPaths, emptySources);
         self.stdlibSnapshot = emptySnapshot;
         self.importResolver = FeImportResolver(
-            stdlib, emptySnapshot, self.sourceDirectories);
+            stdlib, emptySnapshot, self.sourceDirectories,
+            self.resolutionPolicy);
         self.includeStdlib = includeStdlib;
         self.strictImports = strictImports;
         self.included = {};
         self.dependencies = FeDependencyGraph();
-        self.budget = FeResolutionBudget();
+        self.budget = self.resolutionPolicy.newResolutionBudget();
     }
 
     /* Splice resolved targets into the current traversal. C sources become
@@ -1265,11 +1277,12 @@ class FeFrontendResolver {
          * retain include guards or consume a prior call's resource budget. */
         self.included = {};
         self.dependencies = FeDependencyGraph();
-        self.budget = FeResolutionBudget();
+        self.budget = self.resolutionPolicy.newResolutionBudget();
         FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
         self.stdlibSnapshot = currentSnapshot;
         self.importResolver = FeImportResolver(
-            self.stdlib, currentSnapshot, self.sourceDirectories);
+            self.stdlib, currentSnapshot, self.sourceDirectories,
+            self.resolutionPolicy);
 
         Vector<FeLine> userLines = [];
         self.resolveInto(source, sourcePath, userLines, 0);
@@ -1287,7 +1300,8 @@ class FeFrontendResolver {
                 userSource, self.stdlibSnapshot);
         }
         string separator = stdlibSource.length() > 0 ? "\n" : "";
-        feCheckCombinedSourceSize(stdlibSource, separator, userSource);
+        self.resolutionPolicy.validateCombinedSource(
+            stdlibSource, separator, userSource);
         string combined = stdlibSource.length() > 0
             ? stdlibSource + "\n" + userSource : userSource;
         int stdlibLineCount = stdlibSource.length() > 0

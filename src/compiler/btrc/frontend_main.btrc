@@ -18,7 +18,8 @@ import ./frontend/stage.btrc;
 
 int main(int argc, char** argv) {
     BtrccOutput output = BtrccOutput(stdout);
-    FeSourceFileReader sourceFiles = FeSourceFileReader();
+    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();
+    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);
     if (argc < 2) {
         Console.error(
             "usage: frontend [--strict-imports | --relaxed-imports] "
@@ -59,9 +60,9 @@ int main(int argc, char** argv) {
     GrammarInfo grammar = parseGrammar(
         sourceFiles.readRequired(dataPaths.grammar));
     FeStdlibRepository stdlib = FeStdlibRepository(
-        dataPaths.stdlib, grammar, sourceFiles);
+        dataPaths.stdlib, grammar, sourceFiles, resolutionPolicy);
     FeFrontendResolver resolver = FeFrontendResolver(
-        grammar, stdlib, includeStdlib, strictImports);
+        grammar, stdlib, includeStdlib, strictImports, resolutionPolicy);
     FeResolvedSource resolved = resolver.resolve(src, path);
     if (output.write(resolved.source)) { return 0; }
     fprintf(stderr, "frontend: error: cannot write standard output\n");

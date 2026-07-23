@@ -10,9 +10,10 @@ class Compiler {
     private CompilerPipeline pipeline;
 
     public Compiler(GrammarInfo grammar, string stdlibDirectory,
-                    FeSourceFileReader sourceFiles) {
+                    FeSourceFileReader sourceFiles,
+                    FeSourceResolutionPolicy resolutionPolicy) {
         self.pipeline = CompilerPipeline(
-            grammar, stdlibDirectory, sourceFiles);
+            grammar, stdlibDirectory, sourceFiles, resolutionPolicy);
     }
 
     public BtrccCompilationResult compile(string source, string sourcePath,
@@ -24,12 +25,14 @@ class Compiler {
 class BtrccDriver {
     private BtrccCommandLine commandLine;
     private BtrccOutput output;
+    private FeSourceResolutionPolicy resolutionPolicy;
     private FeSourceFileReader sourceFiles;
 
     public BtrccDriver(int argc, char** argv) {
         self.commandLine = BtrccCommandLine(argc, argv);
         self.output = BtrccOutput(stdout);
-        self.sourceFiles = FeSourceFileReader();
+        self.resolutionPolicy = FeSourceResolutionPolicy();
+        self.sourceFiles = FeSourceFileReader(self.resolutionPolicy);
     }
 
     private int fail(string diagnostic) {
@@ -76,7 +79,8 @@ class BtrccDriver {
         }
         string source = self.sourceFiles.readRequired(sourcePath);
         Compiler compiler = Compiler(
-            grammar, dataPaths.stdlib, self.sourceFiles);
+            grammar, dataPaths.stdlib, self.sourceFiles,
+            self.resolutionPolicy);
         BtrccCompilationResult result =
             compiler.compile(source, sourcePath, options);
         if (!result.success) {

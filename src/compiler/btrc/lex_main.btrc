@@ -4,7 +4,8 @@ import ./lexer/stage.btrc;
 #include "driver_output.btrc"
 int main(int argc, char** argv) {
   BtrccOutput output = BtrccOutput(stdout);
-  FeSourceFileReader sourceFiles = FeSourceFileReader();
+  FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();
+  FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);
   if (argc < 2) { print("usage: lex <file.btrc>"); return 1; }
   string grammarText = sourceFiles.readRequired("src/language/grammar.ebnf");
   GrammarInfo g = parseGrammar(grammarText);

@@ -89,10 +89,15 @@ def test_application_and_pipeline_have_real_instance_owners() -> None:
 
     assert "class Compiler {" in compiler
     assert "private CompilerPipeline pipeline;" in compiler
-    assert "self.pipeline = CompilerPipeline(\n            grammar, stdlibDirectory, sourceFiles);" in compiler
+    assert (
+        "self.pipeline = CompilerPipeline(\n            grammar, stdlibDirectory, sourceFiles, resolutionPolicy);"
+        in compiler
+    )
     assert "class BtrccDriver {" in compiler
+    assert "private FeSourceResolutionPolicy resolutionPolicy;" in compiler
     assert "private FeSourceFileReader sourceFiles;" in compiler
-    assert "self.sourceFiles = FeSourceFileReader();" in compiler
+    assert "self.resolutionPolicy = FeSourceResolutionPolicy();" in compiler
+    assert "self.sourceFiles = FeSourceFileReader(self.resolutionPolicy);" in compiler
     assert "self.sourceFiles.readRequired(dataPaths.grammar)" in compiler
     assert "self.sourceFiles.readRequired(sourcePath)" in compiler
     assert "class CompilerPipeline {" in pipeline
@@ -146,6 +151,7 @@ def test_frontend_scanning_and_recursive_resolution_are_instance_owned() -> None
 
 def test_frontend_source_text_and_directory_policy_have_real_owners() -> None:
     frontend = _source("frontend.btrc")
+    limits = _source("frontend_limits.btrc")
     source_io = _source("frontend_source_io.btrc")
 
     assert "class FeSourceText {" in frontend
@@ -159,12 +165,12 @@ def test_frontend_source_text_and_directory_policy_have_real_owners() -> None:
         assert text_operation in frontend
 
     assert "class FeSourceDirectoryScanner {" in frontend
-    assert "private int maximumEntries;" in frontend
+    assert "private FeSourceResolutionPolicy policy;" in frontend
     assert "private void sort(Vector<string> entries)" in frontend
     assert "public Vector<string> sortedEntries(string path)" in frontend
     assert "public Vector<string> sortedEntriesWithinBudget(" in frontend
     assert "private FeSourceDirectoryScanner sourceDirectories;" in frontend
-    assert frontend.count("self.sourceDirectories = FeSourceDirectoryScanner();") == 2
+    assert frontend.count("FeSourceDirectoryScanner(resolutionPolicy)") == 2
     assert "stdlib, emptySnapshot, self.sourceDirectories" in frontend
     assert "self.stdlib, currentSnapshot, self.sourceDirectories" in frontend
 
@@ -183,8 +189,7 @@ def test_frontend_source_text_and_directory_policy_have_real_owners() -> None:
     assert "private int widthAt(" in source_io
     assert "public string decode(Bytes data, string path)" in source_io
     assert "class FeSourceFileReader {" in source_io
-    assert "private int maximumBytes;" in source_io
-    assert "self.maximumBytes = 67108864;" in source_io
+    assert "private FeSourceResolutionPolicy policy;" in source_io
     assert "private FeUtf8SourceDecoder decoder;" in source_io
     assert "public string readRequired(string path)" in source_io
     assert "FE_MAX_SOURCE_BYTES" not in source_io
@@ -199,6 +204,32 @@ def test_frontend_source_text_and_directory_policy_have_real_owners() -> None:
     ):
         assert obsolete_loose_behavior not in source_io
 
+    assert "class FeSourceResolutionPolicy {" in limits
+    for private_limit in (
+        "private int maximumSourceBytes;",
+        "private int maximumFiles;",
+        "private int maximumDirectoryEntries;",
+        "private int maximumImportDepth;",
+    ):
+        assert private_limit in limits
+    for owned_operation in (
+        "public FeResolutionBudget newResolutionBudget()",
+        "public FeDirectoryScanBudget newDirectoryBudget(string root)",
+        "public void validateCombinedSource(",
+    ):
+        assert owned_operation in limits
+    assert "private FeSourceResolutionPolicy policy;" in limits
+    assert "class FeResolutionBudget {" in limits
+    assert "class FeDirectoryScanBudget {" in limits
+    for obsolete_global in (
+        "FE_MAX_RESOLVED_SOURCE_BYTES",
+        "FE_MAX_RESOLVED_FILES",
+        "FE_MAX_IMPORT_SCAN_ENTRIES",
+        "FE_MAX_IMPORT_DEPTH",
+        "feCheckCombinedSourceSize(",
+    ):
+        assert obsolete_global not in limits
+
 
 def test_import_resolution_has_one_compilation_local_owner() -> None:
     frontend = _source("frontend.btrc")
@@ -207,6 +238,7 @@ def test_import_resolution_has_one_compilation_local_owner() -> None:
     assert "private FeStdlibRepository stdlib;" in owner
     assert "private FeStdlibRootSnapshot stdlibSnapshot;" in owner
     assert "private FeSourceDirectoryScanner sourceDirectories;" in owner
+    assert "private FeSourceResolutionPolicy resolutionPolicy;" in owner
     for public_operation in (
         "public string resolveIncludePath(",
         "public Vector<string> resolveSpec(",
@@ -242,8 +274,8 @@ def test_import_resolution_has_one_compilation_local_owner() -> None:
         assert obsolete_loose_behavior not in frontend
 
     assert "private FeImportResolver importResolver;" in frontend
-    assert "FeImportResolver(\n            stdlib, emptySnapshot, self.sourceDirectories)" in frontend
-    assert "FeImportResolver(\n            self.stdlib, currentSnapshot, self.sourceDirectories)" in frontend
+    assert "stdlib, emptySnapshot, self.sourceDirectories,\n            self.resolutionPolicy" in frontend
+    assert "self.stdlib, currentSnapshot, self.sourceDirectories,\n            self.resolutionPolicy" in frontend
     assert "self.importResolver.resolveIncludePath(" in frontend
     assert "self.importResolver.resolveSpec(" in frontend
     assert "self.importResolver.renderCInclude(" in frontend
@@ -262,7 +294,9 @@ def test_stdlib_behavior_has_one_explicit_instance_owner() -> None:
     assert "private string directoryPath;" in frontend
     assert "private FeDirectiveScanner directiveScanner;" in frontend
     assert "private FeSourceFileReader sourceFiles;" in frontend
+    assert "private FeSourceResolutionPolicy resolutionPolicy;" in frontend
     assert "self.sourceFiles = sourceFiles;" in frontend
+    assert "self.resolutionPolicy = resolutionPolicy;" in frontend
     for owned_behavior in (
         "public FeStdlibRootSnapshot rootSnapshot()",
         "public string findFileForCompilation(",
@@ -305,7 +339,7 @@ def test_stdlib_behavior_has_one_explicit_instance_owner() -> None:
     assert not (SELFHOST / "frontend_data_paths.btrc").exists()
     assert "feConfigureDataPaths" not in compiler
     assert "private FeStdlibRepository stdlib;" in pipeline
-    assert "FeStdlibRepository(\n            stdlibDirectory, grammar, sourceFiles)" in pipeline
+    assert "FeStdlibRepository(\n            stdlibDirectory, grammar, sourceFiles, resolutionPolicy)" in pipeline
     assert "private FeStdlibSymbolIndex stdlibSymbols;" in pipeline
     assert "FeStdlibSymbolIndex(grammar)" in pipeline
     assert pipeline.count("FeStdlibSymbolIndex(") == 1

@@ -3,6 +3,8 @@
 import std.bytes;
 import std.io;
 
+#include "frontend_limits.btrc"
+
 /* Strict UTF-8 validation plus the source language's BOM and newline policy. */
 class FeUtf8SourceDecoder {
     private bool continuation(int value) {
@@ -77,11 +79,11 @@ class FeUtf8SourceDecoder {
 
 /* Fail-closed, bounded source-file input for one compiler application. */
 class FeSourceFileReader {
-    private int maximumBytes;
+    private FeSourceResolutionPolicy policy;
     private FeUtf8SourceDecoder decoder;
 
-    public FeSourceFileReader() {
-        self.maximumBytes = 67108864;
+    public FeSourceFileReader(FeSourceResolutionPolicy policy) {
+        self.policy = policy;
         self.decoder = FeUtf8SourceDecoder();
     }
 
@@ -94,13 +96,14 @@ class FeSourceFileReader {
     public string readRequired(string path) {
         File source = File(path, "rb");
         if (!source.ok()) { self.fail(path, "open failed"); }
-        Bytes encoded = source.readBytesBounded(self.maximumBytes);
+        Bytes encoded = source.readBytesBounded(self.policy.sourceByteLimit());
         bool readFailed = source.failed();
         bool closed = source.close();
         if (readFailed) { self.fail(path, "read failed"); }
         if (!closed || source.failed()) { self.fail(path, "close failed"); }
-        if (encoded.len > self.maximumBytes) {
-            self.fail(path, "file exceeds the 67108864-byte limit");
+        if (encoded.len > self.policy.sourceByteLimit()) {
+            string reason = f"file exceeds the {self.policy.sourceByteLimit()}-byte limit";
+            self.fail(path, reason);
         }
         return self.decoder.decode(encoded, path);
     }

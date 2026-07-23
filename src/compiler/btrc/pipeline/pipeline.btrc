@@ -4,12 +4,15 @@ class CompilerPipeline {
     private GrammarInfo grammar;
     private FeStdlibRepository stdlib;
     private FeStdlibSymbolIndex stdlibSymbols;
+    private FeSourceResolutionPolicy resolutionPolicy;
 
     public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory,
-                            FeSourceFileReader sourceFiles) {
+                            FeSourceFileReader sourceFiles,
+                            FeSourceResolutionPolicy resolutionPolicy) {
         self.grammar = grammar;
+        self.resolutionPolicy = resolutionPolicy;
         self.stdlib = FeStdlibRepository(
-            stdlibDirectory, grammar, sourceFiles);
+            stdlibDirectory, grammar, sourceFiles, resolutionPolicy);
         self.stdlibSymbols = FeStdlibSymbolIndex(grammar);
     }
 
@@ -32,7 +35,8 @@ class CompilerPipeline {
                                           BtrccOptions options) {
         FeFrontendResolver resolver = FeFrontendResolver(
             self.grammar, self.stdlib,
-            options.includeStdlib, options.strictImports);
+            options.includeStdlib, options.strictImports,
+            self.resolutionPolicy);
         FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 
         Lexer lexer = Lexer(resolved.source, self.grammar);

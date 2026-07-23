@@ -3,7 +3,8 @@ import ./parser/stage.btrc;
 #include "driver_output.btrc"
 int main(int argc, char** argv) {
   BtrccOutput output = BtrccOutput(stdout);
-  FeSourceFileReader sourceFiles = FeSourceFileReader();
+  FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();
+  FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);
   if (argc < 2) { print("usage: parse <file.btrc>"); return 1; }
   string gt = sourceFiles.readRequired("src/language/grammar.ebnf");
   GrammarInfo g = parseGrammar(gt);

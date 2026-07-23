@@ -1,36 +1,98 @@
-/* Resource budgets for untrusted frontend dependency graphs. */
+/* Owned resource policy and isolated accounting for frontend source graphs. */
 
-int FE_MAX_RESOLVED_SOURCE_BYTES = 67108864;
-int FE_MAX_RESOLVED_FILES = 10000;
-int FE_MAX_IMPORT_SCAN_ENTRIES = 100000;
-int FE_MAX_IMPORT_DEPTH = 256;
+import std.io;
+
+class FeSourceResolutionPolicy {
+    private int maximumSourceBytes;
+    private int maximumFiles;
+    private int maximumDirectoryEntries;
+    private int maximumImportDepth;
+
+    public FeSourceResolutionPolicy() {
+        self.maximumSourceBytes = 67108864;
+        self.maximumFiles = 10000;
+        self.maximumDirectoryEntries = 100000;
+        self.maximumImportDepth = 256;
+    }
+
+    public int sourceByteLimit() {
+        return self.maximumSourceBytes;
+    }
+
+    public int sourceFileLimit() {
+        return self.maximumFiles;
+    }
+
+    public int directoryEntryLimit() {
+        return self.maximumDirectoryEntries;
+    }
+
+    public int importDepthLimit() {
+        return self.maximumImportDepth;
+    }
+
+    public FeResolutionBudget newResolutionBudget() {
+        return FeResolutionBudget(self);
+    }
+
+    public FeDirectoryScanBudget newDirectoryBudget(string root) {
+        return FeDirectoryScanBudget(self, root);
+    }
+
+    private int addSourceBytes(int total, string source) {
+        int length = source.length();
+        if (length > self.maximumSourceBytes - total) {
+            fprintf(stderr, "error: resolved source exceeds the %d-byte limit\n",
+                self.maximumSourceBytes);
+            exit(1);
+        }
+        return total + length;
+    }
+
+    public void validateCombinedSource(
+            string first, string separator, string second) {
+        int total = self.addSourceBytes(0, first);
+        total = self.addSourceBytes(total, separator);
+        self.addSourceBytes(total, second);
+    }
+}
 
 class FeResolutionBudget {
-    public int totalBytes;
-    public int files;
+    private FeSourceResolutionPolicy policy;
+    private int totalBytes;
+    private int files;
 
-    public FeResolutionBudget() {
+    public FeResolutionBudget(FeSourceResolutionPolicy policy) {
+        self.policy = policy;
         self.totalBytes = 0;
         self.files = 0;
     }
 
+    public int sourceBytes() {
+        return self.totalBytes;
+    }
+
+    public int fileCount() {
+        return self.files;
+    }
+
     public void enter(string source, string path, int depth) {
-        if (depth > FE_MAX_IMPORT_DEPTH) {
+        if (depth > self.policy.importDepthLimit()) {
             fprintf(stderr,
                 "error: include/import graph exceeds the maximum depth of %d at '%s'\n",
-                FE_MAX_IMPORT_DEPTH, path);
+                self.policy.importDepthLimit(), path);
             exit(1);
         }
-        self.files = self.files + 1;
-        if (self.files > FE_MAX_RESOLVED_FILES) {
+        self.files++;
+        if (self.files > self.policy.sourceFileLimit()) {
             fprintf(stderr, "error: include/import graph exceeds the %d-file limit\n",
-                FE_MAX_RESOLVED_FILES);
+                self.policy.sourceFileLimit());
             exit(1);
         }
         int sourceBytes = source.length();
-        if (sourceBytes > FE_MAX_RESOLVED_SOURCE_BYTES - self.totalBytes) {
+        if (sourceBytes > self.policy.sourceByteLimit() - self.totalBytes) {
             fprintf(stderr, "error: resolved source exceeds the %d-byte limit\n",
-                FE_MAX_RESOLVED_SOURCE_BYTES);
+                self.policy.sourceByteLimit());
             exit(1);
         }
         self.totalBytes = self.totalBytes + sourceBytes;
@@ -38,55 +100,48 @@ class FeResolutionBudget {
 }
 
 class FeDirectoryScanBudget {
-    public int entries;
-    public int files;
-    public string root;
+    private FeSourceResolutionPolicy policy;
+    private int entries;
+    private int files;
+    private string root;
 
-    public FeDirectoryScanBudget(string root) {
+    public FeDirectoryScanBudget(
+            FeSourceResolutionPolicy policy, string root) {
+        self.policy = policy;
         self.entries = 0;
         self.files = 0;
         self.root = root;
     }
 
+    public int entryCount() {
+        return self.entries;
+    }
+
+    public int fileCount() {
+        return self.files;
+    }
+
     public int remainingEntries() {
-        return FE_MAX_IMPORT_SCAN_ENTRIES - self.entries;
+        return self.policy.directoryEntryLimit() - self.entries;
     }
 
     public void addEntries(int count) {
         if (count > self.remainingEntries()) {
             fprintf(stderr,
                 "error: import directory exceeds the %d-entry scan limit: '%s'\n",
-                FE_MAX_IMPORT_SCAN_ENTRIES, self.root);
+                self.policy.directoryEntryLimit(), self.root);
             exit(1);
         }
         self.entries = self.entries + count;
     }
 
     public void addFile() {
-        self.files = self.files + 1;
-        if (self.files > FE_MAX_RESOLVED_FILES) {
-            fprintf(stderr, "error: import directory exceeds the %d-file limit: '%s'\n",
-                FE_MAX_RESOLVED_FILES, self.root);
+        self.files++;
+        if (self.files > self.policy.sourceFileLimit()) {
+            fprintf(stderr,
+                "error: import directory exceeds the %d-file limit: '%s'\n",
+                self.policy.sourceFileLimit(), self.root);
             exit(1);
         }
-    }
-}
-
-void feCheckCombinedSourceSize(string first, string separator, string second) {
-    int total = 0;
-    Vector<string> parts = [];
-    parts.push(first);
-    parts.push(separator);
-    parts.push(second);
-    int index = 0;
-    while (index < parts.len) {
-        int length = parts.get(index).length();
-        if (length > FE_MAX_RESOLVED_SOURCE_BYTES - total) {
-            fprintf(stderr, "error: resolved source exceeds the %d-byte limit\n",
-                FE_MAX_RESOLVED_SOURCE_BYTES);
-            exit(1);
-        }
-        total = total + length;
-        index = index + 1;
     }
 }

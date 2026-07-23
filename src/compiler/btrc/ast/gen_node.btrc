@@ -223,7 +223,8 @@ string valueDump(string cat, string decl, string backing, bool optstr) {
 
 int main() {
     BtrccOutput output = BtrccOutput(stdout);
-    FeSourceFileReader sourceFiles = FeSourceFileReader();
+    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();
+    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);
     string src = sourceFiles.readRequired("src/language/ast.asdl");
     AsdlParser p = AsdlParser(src);
     Vector<AType> types = p.parse();
