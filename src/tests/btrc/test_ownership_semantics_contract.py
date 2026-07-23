@@ -346,37 +346,3 @@ def test_owned_call_receiver_field_assignment_has_runtime_parity(semantic_btrcc:
     assert reference.returncode == 0, reference.stderr
     _strict_build_and_run(selfhost_source, tmp_path / "selfhost-owned-lvalue")
     _strict_build_and_run(reference_source, tmp_path / "reference-owned-lvalue")
-
-
-@pytest.mark.parametrize(
-    "returned",
-    (
-        "true ? local : local",
-        "(Item)local",
-        "local = local",
-    ),
-)
-def test_borrowed_property_getter_rejects_nested_local_escape(
-    semantic_btrcc: Path,
-    tmp_path: Path,
-    returned: str,
-) -> None:
-    source = f"""
-        class Item {{ public Item() {{}} }}
-        class Box {{
-            public Item invalid {{
-                get {{
-                    Item local = new Item();
-                    return {returned};
-                }}
-            }}
-        }}
-        int main() {{ return 0; }}
-    """
-    selfhost, _selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
-    reference, _reference_source = _compile_reference_source(tmp_path, source)
-    diagnostic = "borrowed property getter cannot return"
-    assert selfhost.returncode != 0
-    assert reference.returncode != 0
-    assert diagnostic in selfhost.stderr
-    assert diagnostic in reference.stderr

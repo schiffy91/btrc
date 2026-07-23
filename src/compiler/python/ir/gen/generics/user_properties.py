@@ -115,7 +115,7 @@ def _getter_body(emitter, name, prop, backing):
                 )
             ]
         )
-    emitter.reset_var_types(return_type=prop.type, return_owned=False)
+    emitter.reset_var_types(return_type=prop.type, return_owned=True)
     return _custom_accessor_body(
         emitter,
         name,
