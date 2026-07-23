@@ -9,7 +9,7 @@ from .analyzer.semantic_analyzer import SemanticAnalyzer
 from .artifacts.publication.publisher import ArtifactPublisher
 from .artifacts.publication.storage import ArtifactStorage
 from .artifacts.stdlib.publisher import StdlibArchivePublisher
-from .cli_diagnostics import format_error
+from .cli_diagnostics import CompilerDiagnostics
 from .frontend.stdlib import StdlibRepository
 from .ir.gen.errors import CodegenError
 from .ir.gen.lowerer import IRLowerer
@@ -34,6 +34,7 @@ class StdlibArchiveBuilder:
         *,
         analyzer_factory: Callable[[], SemanticAnalyzer] = SemanticAnalyzer,
         lowerer_factory: Callable[..., IRLowerer] = IRLowerer,
+        diagnostics: CompilerDiagnostics | None = None,
     ) -> None:
         if archive is not None and publisher is not None and archive.publisher is not publisher:
             raise ValueError("archive builder and archive service must share one publisher")
@@ -44,6 +45,7 @@ class StdlibArchiveBuilder:
         self._archive = archive
         self._analyzer_factory = analyzer_factory
         self._lowerer_factory = lowerer_factory
+        self._diagnostics = diagnostics or CompilerDiagnostics()
 
     def build(self, out_dir: str) -> None:
         """Compile the entire stdlib into a linkable archive in ``out_dir``."""
@@ -68,9 +70,7 @@ class StdlibArchiveBuilder:
             ).lower()
             self._archive.build(out_dir, ir_module, stdlib_source)
         except CodegenError as error:
-            from .cli_diagnostics import codegen_error_exit
-
-            codegen_error_exit(error)
+            self._diagnostics.exit_codegen(error)
         print(f"Built stdlib archive → {out_dir}")
 
     def _parse(self, stdlib_source: str):
@@ -82,7 +82,7 @@ class StdlibArchiveBuilder:
         except (LexerError, ParseError) as error:
             message = str(error).removesuffix(f" at {error.line}:{error.col}")
             print(
-                format_error(
+                self._diagnostics.format_error(
                     stdlib_source,
                     "<stdlib>",
                     message,

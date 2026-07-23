@@ -2,13 +2,29 @@
 native line/col and quote that file's source line, identically in both cache
 modes (default stdlib-AST cache and --no-cache combined-source parse)."""
 
+import ast
+from pathlib import Path
+
 import pytest
 
+from src.compiler.python import cli_diagnostics
 from src.compiler.python.analyzer.core_models import Diag
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.cli.compiler_cli import CompilerCLI
+from src.compiler.python.cli_diagnostics import CompilerDiagnostics
 
 MODES = pytest.mark.parametrize("mode", [[], ["--no-cache"]], ids=["default", "no-cache"])
+
+
+def test_cli_diagnostic_behavior_has_one_explicit_owner() -> None:
+    module = ast.parse(Path(cli_diagnostics.__file__).read_text())
+    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    diagnostics = CompilerDiagnostics()
+    compiler_cli = CompilerCLI(diagnostics=diagnostics)
+
+    assert loose_behavior == []
+    assert compiler_cli._diagnostics is diagnostics
+    assert compiler_cli._archive_builder.__self__._diagnostics is diagnostics
 
 
 @pytest.fixture(scope="module")

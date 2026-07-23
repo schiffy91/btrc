@@ -12,8 +12,9 @@ import pytest
 from src.compiler.python import Compiler
 from src.compiler.python import stdlib_ast_cache as ast_cache
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
+from src.compiler.python.cache_io import AtomicFileStore
 from src.compiler.python.cli.compiler_cli import CompilerCLI
-from src.compiler.python.cli_diagnostics import format_error
+from src.compiler.python.cli_diagnostics import CompilerDiagnostics
 from src.compiler.python.frontend import stdlib as frontend_stdlib_owner
 from src.compiler.python.frontend.resolver import SourceResolver
 from src.compiler.python.frontend.stdlib import StdlibRepository
@@ -308,14 +309,26 @@ def test_analyzer_warning(tmp_path, monkeypatch, capsys):
 
 
 def test_format_error_normal():
-    out = format_error("line one\nline two\n", "f.btrc", "boom", 2, 3)
+    out = CompilerDiagnostics().format_error(
+        "line one\nline two\n",
+        "f.btrc",
+        "boom",
+        2,
+        3,
+    )
     assert "boom" in out and "f.btrc:2:3" in out and "line two" in out and "^" in out
 
 
 def test_format_error_out_of_range():
-    out = format_error("only line\n", "f.btrc", "boom", 99, 1)
+    out = CompilerDiagnostics().format_error(
+        "only line\n",
+        "f.btrc",
+        "boom",
+        99,
+        1,
+    )
     assert out == "error: boom\n --> f.btrc:99:1"
-    out2 = format_error("x", "f.btrc", "boom", 0, 1)
+    out2 = CompilerDiagnostics().format_error("x", "f.btrc", "boom", 0, 1)
     assert "--> f.btrc:0:1" in out2
 
 
@@ -601,8 +614,10 @@ def test_cached_stdlib_decls_write_failure(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise OSError("disk full")
 
-    monkeypatch.setattr(ast_cache, "atomic_write_json", boom)
-    decls = STDLIB.cached_declarations("class TinyW { public int x; public TinyW(int x) { self.x = x; } }\n")
+    file_store = AtomicFileStore()
+    monkeypatch.setattr(file_store, "write_json", boom)
+    repository = StdlibRepository(ast_cache=ast_cache.StdlibAstCache(file_store=file_store))
+    decls = repository.cached_declarations("class TinyW { public int x; public TinyW(int x) { self.x = x; } }\n")
     assert decls
 
 

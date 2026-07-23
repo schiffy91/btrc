@@ -9,8 +9,8 @@ import pprint
 import sys
 from collections.abc import Callable, Sequence
 
-from .. import cli_diagnostics
 from ..cli_archive import StdlibArchiveBuilder
+from ..cli_diagnostics import CompilerDiagnostics, DiagnosticPrinter
 from ..compiler import Compiler
 from ..freestanding import RUNTIME_HEADER
 from ..frontend.stdlib import StdlibRepository
@@ -50,9 +50,11 @@ class CompilerCLI:
         *,
         archive_builder: Callable[[str], None] | None = None,
         file_io: CompilerFileIO | None = None,
+        diagnostics: CompilerDiagnostics | None = None,
     ) -> None:
         self.compiler = compiler or Compiler()
-        self._archive_builder = archive_builder or StdlibArchiveBuilder().build
+        self._diagnostics = diagnostics or CompilerDiagnostics()
+        self._archive_builder = archive_builder or StdlibArchiveBuilder(diagnostics=self._diagnostics).build
         self._file_io = file_io or CompilerFileIO()
 
     def argument_parser(self) -> argparse.ArgumentParser:
@@ -144,7 +146,10 @@ class CompilerCLI:
         return CompilerOutput.C
 
     @staticmethod
-    def _emit_analyzer_diagnostics(result: CompilerResult, printer: cli_diagnostics.DiagnosticPrinter) -> bool:
+    def _emit_analyzer_diagnostics(
+        result: CompilerResult,
+        printer: DiagnosticPrinter,
+    ) -> bool:
         analyzed = result.analyzed
         if analyzed is None:
             return False
@@ -174,11 +179,14 @@ class CompilerCLI:
             print(f"warning: {warning}", file=sys.stderr)
         return False
 
-    @staticmethod
-    def _emit_failure(result: CompilerResult, printer: cli_diagnostics.DiagnosticPrinter) -> None:
+    def _emit_failure(
+        self,
+        result: CompilerResult,
+        printer: DiagnosticPrinter,
+    ) -> None:
         error = result.failure
         if isinstance(error, (LexerError, ParseError)):
-            cli_diagnostics.syntax_error_exit(printer, error)
+            self._diagnostics.exit_syntax(printer, error)
         if isinstance(error, FrontendVisibilityError):
             for message, line, col in error.errors:
                 printer.emit(message, line, col)
@@ -187,7 +195,7 @@ class CompilerCLI:
             print("error: expression or declaration nested too deeply to compile", file=sys.stderr)
             raise SystemExit(1)
         if isinstance(error, (CodegenError, ArchiveVersionError)):
-            cli_diagnostics.codegen_error_exit(error)
+            self._diagnostics.exit_codegen(error)
         if error is not None:
             raise error
 
@@ -227,7 +235,7 @@ class CompilerCLI:
             print(f"error: {error}", file=sys.stderr)
             raise SystemExit(1) from error
 
-        printer = cli_diagnostics.DiagnosticPrinter(
+        printer = self._diagnostics.printer(
             result.source_bundle,
             args.input,
             input_source,
@@ -245,13 +253,16 @@ class CompilerCLI:
         if self._emit_analyzer_diagnostics(result, printer):
             raise SystemExit(1)
         if output in (CompilerOutput.IR, CompilerOutput.OPTIMIZED_IR):
-            cli_diagnostics.dump_ir(result.ir_module)
+            self._diagnostics.dump_ir(result.ir_module)
             return 0
 
         if result.c_source is None or out_path is None:
             raise AssertionError("successful C compilation omitted its output")
         if args.profile:
-            cli_diagnostics.print_profile(dict(result.profile), len(result.source_bundle.source))
+            self._diagnostics.print_profile(
+                dict(result.profile),
+                len(result.source_bundle.source),
+            )
         self._file_io.write_output(out_path, result.c_source)
 
         if args.freestanding:
