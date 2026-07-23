@@ -11,8 +11,8 @@ import subprocess
 import pytest
 
 import src.compiler.python.pkg_git as pkg_git_module
-from src.compiler.python import cache_io, manifest_io, pkg
-from src.compiler.python.pkg import IncludeResolutionError
+from src.compiler.python import cache_io, pkg
+from src.compiler.python.pkg import IncludeResolutionError, PackageManifestReader
 from src.compiler.python.pkg_git import GitDependencyCache
 
 GIT = GitDependencyCache()
@@ -27,6 +27,14 @@ def test_git_dependency_behavior_is_owned_by_the_package_resolver(tmp_path):
 
     assert loose_behavior == []
     assert resolver.git_dependencies is git_dependencies
+
+
+def test_package_resolver_owns_manifest_reads(tmp_path):
+    reader = PackageManifestReader(max_bytes=128)
+    resolver = pkg.PackageResolver(manifest_reader=reader)
+
+    assert resolver.manifest_reader is reader
+    assert not (pathlib.Path(pkg.__file__).with_name("manifest_io.py")).exists()
 
 
 def test_find_manifest_walks_up(tmp_path):
@@ -76,7 +84,7 @@ def test_package_timeout_becomes_resolution_error(tmp_path, monkeypatch):
 
 def test_package_manifest_read_is_bounded_and_utf8(tmp_path):
     manifest = tmp_path / "btrc.toml"
-    manifest.write_bytes(b"#" * (manifest_io.MAX_MANIFEST_BYTES + 1))
+    manifest.write_bytes(b"#" * (RESOLVER.manifest_reader.max_bytes + 1))
     with pytest.raises(ValueError, match="exceeds"):
         RESOLVER.resolve_manifest(str(manifest))
 

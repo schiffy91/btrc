@@ -13,12 +13,12 @@ import hashlib
 import json
 import os
 import subprocess
+import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from .cache_io import atomic_write_json, load_json
-from .manifest_io import load_manifest
+from .cache_io import atomic_write_json, load_json, open_regular_binary
 from .pkg_git import GitDependencyCache
 
 
@@ -75,11 +75,51 @@ class ResolvedPackages:
         )
 
 
+class PackageManifestReader:
+    """Own bounded UTF-8 TOML reads for package resolution."""
+
+    DEFAULT_MAX_BYTES = 1024 * 1024
+
+    def __init__(self, max_bytes: int = DEFAULT_MAX_BYTES) -> None:
+        if max_bytes <= 0:
+            raise ValueError("package manifest byte limit must be positive")
+        self.max_bytes = max_bytes
+
+    def read(self, path: str) -> dict:
+        """Load one regular manifest without unbounded input allocation."""
+        manifest_file = open_regular_binary(path, follow_symlinks=True)
+        if manifest_file is None:
+            raise ValueError(f"package manifest '{path}' is not a regular file")
+        with manifest_file:
+            if os.fstat(manifest_file.fileno()).st_size > self.max_bytes:
+                raise ValueError(f"package manifest '{path}' exceeds the {self.max_bytes}-byte limit")
+            encoded = manifest_file.read(self.max_bytes + 1)
+        if len(encoded) > self.max_bytes:
+            raise ValueError(f"package manifest '{path}' exceeds the {self.max_bytes}-byte limit")
+        try:
+            text = encoded.decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise ValueError(f"package manifest '{path}' is not valid UTF-8 at byte {error.start}") from error
+        try:
+            manifest = tomllib.loads(text)
+        except (tomllib.TOMLDecodeError, RecursionError) as error:
+            raise ValueError(f"cannot parse package manifest '{path}': {error}") from error
+        if not isinstance(manifest, dict):
+            raise ValueError(f"package manifest '{path}' must contain a TOML table")
+        return manifest
+
+
 class PackageResolver:
     """Own manifest discovery, lockfile policy, and dependency materialization."""
 
-    def __init__(self, git_dependencies: GitDependencyCache | None = None) -> None:
+    def __init__(
+        self,
+        git_dependencies: GitDependencyCache | None = None,
+        *,
+        manifest_reader: PackageManifestReader | None = None,
+    ) -> None:
         self.git_dependencies = git_dependencies or GitDependencyCache()
+        self.manifest_reader = manifest_reader or PackageManifestReader()
 
     @staticmethod
     def find_manifest(start_directory: str) -> str | None:
@@ -126,7 +166,7 @@ class PackageResolver:
         manifest_path = os.path.abspath(manifest_path)
         manifest_directory = os.path.dirname(manifest_path)
         lock_path = os.path.join(manifest_directory, "btrc.lock")
-        manifest = load_manifest(manifest_path)
+        manifest = self.manifest_reader.read(manifest_path)
         dependencies = manifest.get("dependencies", {})
         if not isinstance(dependencies, dict):
             raise ValueError("manifest 'dependencies' must be a table")
@@ -318,6 +358,7 @@ __all__ = (
     "IncludeResolutionError",
     "LockfileError",
     "LockfileVersionError",
+    "PackageManifestReader",
     "PackageResolver",
     "ResolvedPackages",
 )
