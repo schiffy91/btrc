@@ -1,0 +1,52 @@
+#include <assert.h>
+
+class Base {
+    public int value;
+    public Base(int value) { self.value = value; }
+}
+
+class Child extends Base {
+    public Child(int value) { self.value = value; }
+}
+
+class Number {
+    public int value;
+    public Number(int value) { self.value = value; }
+    public Number __add__(Number other) {
+        return Number(self.value + other.value);
+    }
+    public bool __eq__(Number other) {
+        return self.value == other.value;
+    }
+}
+
+class GenericHash<T> {
+    public GenericHash() {}
+    public uint hash(T value) { return __btrc_hash(value); }
+}
+
+int main() {
+    Child child = new Child(7);
+    Base alias = child;
+    assert(alias == child);
+    assert((void*)child == child);
+
+    Base? missing = null;
+    Base selected = missing ?? alias;
+    assert(selected == child);
+
+    Number sum = Number(2) + Number(3);
+    assert(sum == Number(5));
+
+    GenericHash<string?> hashes = new GenericHash<string?>();
+    assert(hashes.hash(null) == 0u);
+    assert(hashes.hash("same") == hashes.hash("same"));
+
+    int values[3];
+    int* start = &values[0];
+    int* end = start + 2;
+    *end = 9;
+    assert(values[2] == 9);
+    assert(end - start == 2);
+    return 0;
+}

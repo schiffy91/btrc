@@ -26,7 +26,7 @@ bool semanticValidateGpuBuiltinCall(Node call,
     while (index < call.args.len) {
         Node argument = call.args.get(index);
         Node? actual = gpuContextualExprType(
-            argument, state.analyzed, vars);
+            argument, state.analyzed, state.operators, vars);
         if (actual != null) {
             string base = actual.base;
             if (gpuFloatBuiltin(name) && base != "float") {

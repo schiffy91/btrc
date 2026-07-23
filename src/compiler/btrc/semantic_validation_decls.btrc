@@ -245,8 +245,10 @@ void semanticValidateRichEnumDefaults(Node declaration,
     state.localBindings = previousLocalBindings;
 }
 
-void semanticValidateProgram(Node program, Analyzed analyzed) {
-    SemanticValidationState state = SemanticValidationState(analyzed);
+void semanticValidateProgram(Node program, Analyzed analyzed,
+        OperatorSemantics operators) {
+    SemanticValidationState state =
+        SemanticValidationState(analyzed, operators);
     semanticCollectSourceMacros(program, state);
     semanticValidateTypedefs(program, state);
     semanticValidateInterfaceDeclarations(program, state);

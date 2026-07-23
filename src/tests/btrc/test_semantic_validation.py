@@ -450,8 +450,15 @@ def test_declaration_and_context_contracts(
 def test_semantic_stage_precedes_structured_ir_lowering() -> None:
     pipeline = (SELFHOST / "pipeline/pipeline.btrc").read_text()
     analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
+    semantic_analyzer = (SELFHOST / "semantic_analyzer.btrc").read_text()
     ir_stage = (SELFHOST / "ir/stage.btrc").read_text()
 
-    assert pipeline.index("semanticValidateProgram(program, analyzed)") < pipeline.index("IRGen lowerer = IRGen(")
+    assert pipeline.index(
+        "Analyzed analyzed = analyzer.analyze(program);"
+    ) < pipeline.index("IRGen lowerer = IRGen(")
+    assert semantic_analyzer.index(
+        "semanticValidateProgram("
+    ) < semantic_analyzer.index("return self.analysis;")
     assert '#include "../semantic_validation_decls.btrc"' in analyzer_stage
+    assert '#include "../semantic_analyzer.btrc"' in analyzer_stage
     assert "import ../analyzer/stage.btrc;" in ir_stage

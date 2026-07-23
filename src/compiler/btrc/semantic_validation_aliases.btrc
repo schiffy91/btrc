@@ -31,10 +31,12 @@ Node? semanticInferType(Node? expression, SemanticValidationState state,
     }
     if (state.gpuCallable) {
         return semanticResolveAliases(
-            gpuContextualExprType(expression, state.analyzed, vars), state);
+            gpuContextualExprType(
+                expression, state.analyzed, state.operators, vars), state);
     }
     return semanticResolveAliases(
-        inferType(expression, state.analyzed, vars), state);
+        inferType(
+            expression, state.analyzed, state.operators, vars), state);
 }
 
 bool semanticAliasTypesSame(Node? left, Node? right,

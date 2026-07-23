@@ -253,6 +253,7 @@ class ScopeSnapshot {
 
 class IRGen {
     public Analyzed analyzed;
+    public OperatorSemantics operators;
     public CallableBoundaryPolicy callableBoundaries;
     public CallableFlowState callableFlow;
     public AssignmentLowerer assignments;
@@ -435,9 +436,11 @@ class IRGen {
     public string enumLoweringOwner;
     public Map<string, bool> enumLoweringMembers;
 
-    public IRGen(Analyzed analyzed, string sourceFile,
+    public IRGen(Analyzed analyzed, OperatorSemantics operators,
+            string sourceFile,
             int stdlibLineCount, Vector<FeLine> userLines) {
         self.analyzed = analyzed;
+        self.operators = operators;
         self.callableBoundaries = CallableBoundaryPolicy(analyzed);
         self.callableFlow = CallableFlowState();
         self.assignments = AssignmentLowerer(
@@ -4348,7 +4351,7 @@ class IRGen {
      * string (mirrors stringable.has_to_string). */
     public bool sourceHasToString(Node? sourceType) {
         if (sourceType == null || sourceType.is_array
-                || OperatorSemantics.valueDepth(sourceType, self.analyzed) != 1) {
+                || self.operators.valueDepth(sourceType) != 1) {
             return false;
         }
         Node? ts = null;
@@ -5522,7 +5525,8 @@ class IRGen {
 
         /* Return type: explicit annotation, else infer from __fn_ptr type,
          * else from the body expression, else void. */
-        Node fpt = lambdaFnPtrType(node, self.analyzed, varTypes);
+        Node fpt = lambdaFnPtrType(
+            node, self.analyzed, self.operators, varTypes);
         string retC = "void";
         Node? retType = node.return_type;
         if (node.return_type != null) {
@@ -5648,7 +5652,7 @@ class IRGen {
             return false;
         }
         if (resolved.base == "__fn_ptr") { return true; }
-        return !OperatorSemantics.isReferenceType(resolved, self.analyzed);
+        return !self.operators.isReferenceType(resolved);
     }
 
     public bool isFreshThreadResult(Node? expression, Node? resultType) {
@@ -5860,7 +5864,8 @@ class IRGen {
         string envName = "__btrc_spawn_env_" + Strings.fromInt(spawnId);
 
         /* Resolve the lambda's return type (for boxing). */
-        Node fpt = lambdaFnPtrType(fn, self.analyzed, varTypes);
+        Node fpt = lambdaFnPtrType(
+            fn, self.analyzed, self.operators, varTypes);
         Node? retType = null;
         if (fn.return_type != null) { retType = fn.return_type; }
         else if (fpt.generic_args.len > 0) { retType = fpt.generic_args.get(0); }
@@ -6737,7 +6742,7 @@ class IRGen {
             Node? expression, Map<string, Node> varTypes) {
         if (self.gpuCpu.active) {
             return gpuContextualExprType(
-                expression, self.analyzed, varTypes);
+                expression, self.analyzed, self.operators, varTypes);
         }
         /* Defaults temporarily swap generic/type environments at individual
          * call sites. They deliberately bypass the body cache; ordinary and
@@ -6745,10 +6750,10 @@ class IRGen {
         Node? result = null;
         if (self.callDefaultTypeDepth > 0) {
             result = inferSpecializationTypeWithoutMemo(
-                expression, self.analyzed, varTypes);
+                expression, self.analyzed, self.operators, varTypes);
         } else {
             result = inferSpecializationType(
-                expression, self.analyzed, varTypes);
+                expression, self.analyzed, self.operators, varTypes);
         }
         if (result != null && (self.inGenericMethod
                 || self.callDefaultTypeDepth > 0)) {
@@ -6860,14 +6865,15 @@ class IRGen {
 
     public IRNode lowerReferenceEqualityValues(string op,
             IRNode left, IRNode right, Node leftType, Node rightType) {
-        if (OperatorSemantics.isNullType(leftType) || OperatorSemantics.isNullType(rightType)) {
+        if (self.operators.isNullType(leftType)
+                || self.operators.isNullType(rightType)) {
             Node? functionType = null;
             if (leftType.base == "__fn_ptr") { functionType = leftType; }
             if (rightType.base == "__fn_ptr") { functionType = rightType; }
             if (functionType != null) {
                 IRNode typedNull = irCast(
                     typeToC(functionType, self.analyzed), irLiteral("0"));
-                if (OperatorSemantics.isNullType(leftType)) {
+                if (self.operators.isNullType(leftType)) {
                     return irBinOp(typedNull, op, right);
                 }
                 return irBinOp(left, op, typedNull);
@@ -6897,7 +6903,7 @@ class IRGen {
     public IRNode? lowerOverloadedValues(string op, IRNode left, IRNode right,
             Node? leftType, Node? rightType) {
         if (leftType == null) { return null; }
-        string magic = OperatorSemantics.binaryMethodName(op);
+        string magic = self.operators.binaryMethodName(op);
         if (magic == "") { return null; }
         if (self.analyzed.isClass(leftType.base)) {
             Node? method = self.analyzed.classMethod(leftType.base, magic);
@@ -6938,9 +6944,9 @@ class IRGen {
         }
         if (op == "+"
                 && (TypeComposition.isSemanticScalarString(leftType)
-                    || OperatorSemantics.isCStringPointer(leftType))
+                    || self.operators.isCStringPointer(leftType))
                 && (TypeComposition.isSemanticScalarString(rightType)
-                    || OperatorSemantics.isCStringPointer(rightType))
+                    || self.operators.isCStringPointer(rightType))
                 && (TypeComposition.isSemanticScalarString(leftType)
                     || TypeComposition.isSemanticScalarString(rightType))) {
             self.useHelper("__btrc_strcat");
@@ -6952,9 +6958,9 @@ class IRGen {
             trackArgs.push(irCall("__btrc_strcat", catArgs));
             return irCall("__btrc_str_track", trackArgs);
         }
-        if (OperatorSemantics.isComparisonOperator(op)) {
-            int domain = OperatorSemantics.comparisonDomain(
-                op, leftType, rightType, self.analyzed);
+        if (self.operators.isComparisonOperator(op)) {
+            int domain = self.operators.comparisonDomain(
+                op, leftType, rightType);
             if (domain == OP_DOMAIN_UNRESOLVED) {
                 return irBinOp(left, op, right);
             }
@@ -7073,8 +7079,8 @@ class IRGen {
         /* Null coalescing evaluates `a` once at the expression site. Only its
          * declaration may be hoisted out of an enclosing control expression. */
         if (op == "??") {
-            if (OperatorSemantics.isOptionalValueCoalesce(
-                    node.left, leftType, rightType, self.analyzed)) {
+            if (self.operators.isOptionalValueCoalesce(
+                    node.left, leftType, rightType)) {
                 if (!irReplaceOptionalPresenceFallback(left, right)) {
                     self.typedOperatorFail(
                         "optional-chain coalescing requires a presence ternary");
@@ -7083,7 +7089,7 @@ class IRGen {
             }
             string tmp = self.freshTemp("__nc");
             Node? resultType = leftType;
-            if (OperatorSemantics.isNullType(leftType)) { resultType = rightType; }
+            if (self.operators.isNullType(leftType)) { resultType = rightType; }
             string cType = "void*";
             if (resultType != null) {
                 cType = typeToC(resultType, self.analyzed);
@@ -7472,7 +7478,7 @@ class IRGen {
 
         Node? operandType = self.intrinsicOperandType(
             node.args.get(0), varTypes);
-        int domain = OperatorSemantics.hashDomain(operandType, self.analyzed);
+        int domain = self.operators.hashDomain(operandType);
         if (domain == HASH_DOMAIN_STRING) {
             self.useHelper("__btrc_hash_str");
             Vector<IRNode> hashArgs = [];
@@ -7747,7 +7753,7 @@ class IRGen {
             return irCast("void", irLiteral("0"));
         }
         if (returnType.is_nullable
-                || OperatorSemantics.isReferenceType(returnType, self.analyzed)) {
+                || self.operators.isReferenceType(returnType)) {
             return irLiteral("NULL");
         }
         if (NumericSemantics.isType(returnType, self.analyzed)) {

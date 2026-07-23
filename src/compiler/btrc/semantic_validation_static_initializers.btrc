@@ -149,7 +149,7 @@ int semanticStaticInitializerCategory(
         int operand = semanticStaticInitializerCategory(
             expression.expr, state);
         if (target == null || operand == SC_INVALID) { return SC_INVALID; }
-        if (OperatorSemantics.isReferenceType(target, state.analyzed)) {
+        if (state.operators.isReferenceType(target)) {
             if (operand == SC_INTEGER || operand == SC_ADDRESS) {
                 return SC_ADDRESS;
             }

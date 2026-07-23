@@ -68,12 +68,12 @@ class CompilerPipeline {
         HostedAbiProvenance.stampProgramSources(
             program, resolved.stdlibLineCount, resolved.userLines, sourcePath,
             self.stdlib.directory());
-        Analyzed analyzed = analyzeProgram(program);
-        semanticValidateProgram(program, analyzed);
-        closeProgramGenericExpressionGraph(program, analyzed);
+        SemanticAnalyzer analyzer = SemanticAnalyzer();
+        Analyzed analyzed = analyzer.analyze(program);
 
         IRGen lowerer = IRGen(
-            analyzed, sourcePath, resolved.stdlibLineCount, resolved.userLines);
+            analyzed, analyzer.operatorSemantics(),
+            sourcePath, resolved.stdlibLineCount, resolved.userLines);
         lowerer.dceEnabled = options.runDce;
         IRModule module = lowerer.generate(program);
         CEmitter emitter = CEmitter();

@@ -231,7 +231,7 @@ bool irExpressionOwnsResult(IRGen generator, Node? expression,
         Node? leftType = generator.resolvedExpressionType(
             expression.left, varTypes);
         if (leftType == null) { return false; }
-        string magic = OperatorSemantics.binaryMethodName(expression.op);
+        string magic = generator.operators.binaryMethodName(expression.op);
         if (magic == "") { return false; }
         if (generator.analyzed.isClass(leftType.base)) {
             return generator.analyzed.classMethod(

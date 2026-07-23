@@ -42,7 +42,8 @@ void registerGpuKernels(IRGen gen, Node program, IRModule module) {
                     + declaration.name + "'");
             }
             IRGpuKernel kernel = IRGpuKernel(declaration.name, declaration);
-            kernel.wgsl_source = generateGpuWgsl(gen.analyzed, kernel);
+            kernel.wgsl_source = generateGpuWgsl(
+                gen.analyzed, gen.operators, kernel);
             gen.gpu.kernels.put(declaration.name, kernel);
             module.gpu_kernels.push(kernel);
         }
@@ -102,7 +103,7 @@ bool tryLowerGpuCpuReturn(IRGen gen, Node statement,
             "array-returning GPU invocation must return an element value");
     }
     Node? valueType = gpuContextualExprType(
-        statement.value_node, gen.analyzed, varTypes);
+        statement.value_node, gen.analyzed, gen.operators, varTypes);
     if (valueType != null && valueType.is_array) {
         if (statement.value_node.kind != NK_IDENTIFIER
                 || !gen.gpuCpu.array_lengths.has(statement.value_node.name)) {
@@ -173,7 +174,7 @@ IRNode? lowerGpuCpuBuiltin(IRGen gen, string name, Node call,
 string gpuExprBaseForCpu(IRGen gen, Node expression,
         Map<string, Node> varTypes) {
     Node? type = gpuContextualExprType(
-        expression, gen.analyzed, varTypes);
+        expression, gen.analyzed, gen.operators, varTypes);
     if (type != null) { return type.base; }
     return "";
 }

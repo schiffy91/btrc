@@ -203,10 +203,10 @@ def test_selfhost_portability_lowering_is_structured() -> None:
     assert "class Node? resultType(" in numeric
     assert "class bool operandsNeedCast(" in numeric
     assert "class OperatorSemantics {" in operators
-    assert "class bool referenceTypesCompatible(" in operators
-    assert "class bool specializationIsSubtype(" in operators
+    assert "public bool referenceTypesCompatible(" in operators
+    assert "public bool specializationIsSubtype(" in operators
     assert "NumericSemantics.resultType(" in generator
-    assert "OperatorSemantics.comparisonDomain(" in generator
+    assert "self.operators.comparisonDomain(" in generator
     assert "lowerStringComparisonValues" in generator
     assert 'freshTemp("__btrc_cmp_left")' in generator
     assert 'freshTemp("__btrc_cmp_right")' in generator
@@ -236,6 +236,13 @@ def test_selfhost_portability_lowering_is_structured() -> None:
 def test_numeric_and_operator_behavior_has_domain_owners() -> None:
     numeric = _source("numeric_semantics.btrc")
     operators = _source("operator_semantics.btrc")
+    analyzer = _source("semantic_analyzer.btrc")
+    validation_state = _source("semantic_validation_types.btrc")
+    generator = _source("irgen.btrc")
+    pipeline = _source("pipeline/pipeline.btrc")
+    all_selfhost = "\n".join(
+        path.read_text() for path in SELFHOST.rglob("*.btrc")
+    )
     loose_behavior = re.compile(
         r"^(?:bool|int|string|Node\??) [A-Za-z_][A-Za-z0-9_]*\(",
         re.MULTILINE,
@@ -245,6 +252,18 @@ def test_numeric_and_operator_behavior_has_domain_owners() -> None:
     assert loose_behavior.search(operators) is None
     assert numeric.count("class NumericSemantics {") == 1
     assert operators.count("class OperatorSemantics {") == 1
+    assert "private Analyzed analyzed;" in operators
+    assert "public OperatorSemantics(Analyzed analyzed)" in operators
+    assert "OperatorSemantics." not in all_selfhost
+    assert all_selfhost.count("OperatorSemantics(self.analysis)") == 1
+    assert "self.operators = OperatorSemantics(self.analysis);" in analyzer
+    assert analyzer.count("self.operators") == 5
+    assert "SemanticValidationState(analyzed, operators)" in _source(
+        "semantic_validation_decls.btrc"
+    )
+    assert "self.operators = operators;" in validation_state
+    assert "self.operators = operators;" in generator
+    assert "analyzer.operatorSemantics()," in pipeline
 
 
 def test_destroyed_query_has_its_own_helper_node() -> None:

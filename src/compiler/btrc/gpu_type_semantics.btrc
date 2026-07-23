@@ -14,7 +14,7 @@ bool gpuCallResolvesToBuiltin(Node? expression, Analyzed analyzed,
 }
 
 string gpuContextualExprBase(Node? expression, Analyzed analyzed,
-        Map<string, Node> varTypes) {
+        OperatorSemantics operators, Map<string, Node> varTypes) {
     if (expression == null) { return ""; }
     if (expression.kind == NK_FLOAT_LITERAL) { return "float"; }
     if (expression.kind == NK_INT_LITERAL) { return "int"; }
@@ -27,22 +27,22 @@ string gpuContextualExprBase(Node? expression, Analyzed analyzed,
             return "bool";
         }
         string left = gpuContextualExprBase(
-            expression.left, analyzed, varTypes);
+            expression.left, analyzed, operators, varTypes);
         string right = gpuContextualExprBase(
-            expression.right, analyzed, varTypes);
+            expression.right, analyzed, operators, varTypes);
         if (left == "float" || right == "float") { return "float"; }
         if (left == right && left != "") { return left; }
     }
     if (expression.kind == NK_UNARY_EXPR) {
         if (expression.op == "!") { return "bool"; }
         return gpuContextualExprBase(
-            expression.operand, analyzed, varTypes);
+            expression.operand, analyzed, operators, varTypes);
     }
     if (expression.kind == NK_TERNARY_EXPR) {
         string whenTrue = gpuContextualExprBase(
-            expression.true_expr, analyzed, varTypes);
+            expression.true_expr, analyzed, operators, varTypes);
         string whenFalse = gpuContextualExprBase(
-            expression.false_expr, analyzed, varTypes);
+            expression.false_expr, analyzed, operators, varTypes);
         if (whenTrue == whenFalse) { return whenTrue; }
         if ((whenTrue == "int" && whenFalse == "float")
                 || (whenTrue == "float" && whenFalse == "int")) {
@@ -63,16 +63,18 @@ string gpuContextualExprBase(Node? expression, Analyzed analyzed,
         if (intrinsic && gpuSameTypeBuiltin(name)
                 && expression.args.len > 0) {
             return gpuContextualExprBase(
-                expression.args.get(0), analyzed, varTypes);
+                expression.args.get(0), analyzed, operators, varTypes);
         }
     }
-    Node? inferred = inferType(expression, analyzed, varTypes);
+    Node? inferred = inferType(
+        expression, analyzed, operators, varTypes);
     if (inferred != null) { return inferred.base; }
     return "";
 }
 
-Node? gpuContextualExprTypeUnmemoized(Node? expression, Analyzed analyzed,
-        Map<string, Node> varTypes) {
+Node? gpuContextualExprTypeUnmemoized(
+        Node? expression, Analyzed analyzed,
+        OperatorSemantics operators, Map<string, Node> varTypes) {
     if (expression == null) { return null; }
     bool contextual = expression.kind == NK_FLOAT_LITERAL
         || expression.kind == NK_INT_LITERAL
@@ -89,18 +91,18 @@ Node? gpuContextualExprTypeUnmemoized(Node? expression, Analyzed analyzed,
     }
     if (contextual) {
         string base = gpuContextualExprBase(
-            expression, analyzed, varTypes);
+            expression, analyzed, operators, varTypes);
         if (base != "") { return makePrimType(base); }
     }
-    return inferType(expression, analyzed, varTypes);
+    return inferType(expression, analyzed, operators, varTypes);
 }
 
 Node? gpuContextualExprType(Node? expression, Analyzed analyzed,
-        Map<string, Node> varTypes) {
+        OperatorSemantics operators, Map<string, Node> varTypes) {
     bool memoEnabled = analyzed.expressionInferenceMemoEnabled;
     analyzed.expressionInferenceMemoEnabled = false;
     Node? result = gpuContextualExprTypeUnmemoized(
-        expression, analyzed, varTypes);
+        expression, analyzed, operators, varTypes);
     analyzed.expressionInferenceMemoEnabled = memoEnabled;
     return result;
 }

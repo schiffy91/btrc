@@ -599,7 +599,7 @@ IRNode lowerOwnedBinary(IRGen generator, Node expression,
 Node? ownershipBinaryMethod(
         IRGen generator, Node? leftType, string op) {
     if (leftType == null) { return null; }
-    string magic = OperatorSemantics.binaryMethodName(op);
+    string magic = generator.operators.binaryMethodName(op);
     if (magic == "") { return null; }
     if (generator.analyzed.isClass(leftType.base)) {
         return generator.analyzed.classMethod(leftType.base, magic);

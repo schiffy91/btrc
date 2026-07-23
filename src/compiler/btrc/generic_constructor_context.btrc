@@ -181,7 +181,7 @@ void contextualizeCallGenericConstructors(Node call,
             declaration = state.analyzed.classConstructor(callee.name);
         } else if (state.analyzed.isGenericClass(callee.name)) {
             Node? instance = inferSpecializationType(
-                call, state.analyzed, variables);
+                call, state.analyzed, state.operators, variables);
             if (instance != null && instance.generic_args.len > 0) {
                 state.analyzed.genericConstructorTypes.put(
                     astNodeKey(call), instance);
@@ -204,7 +204,8 @@ void contextualizeCallGenericConstructors(Node call,
     }
     if (callee.kind != NK_FIELD_ACCESS_EXPR) {
         Node? callable = directFunctionPointerType(
-            inferSpecializationType(callee, state.analyzed, variables),
+            inferSpecializationType(
+                callee, state.analyzed, state.operators, variables),
             state.analyzed);
         if (callable != null) {
             contextualizeCallableArguments(
@@ -219,7 +220,7 @@ void contextualizeCallGenericConstructors(Node call,
         method = state.analyzed.classMethod(callee.obj.name, callee.field);
     } else {
         Node? receiver = inferSpecializationType(
-            callee.obj, state.analyzed, variables);
+            callee.obj, state.analyzed, state.operators, variables);
         if (receiver != null && state.analyzed.isClass(receiver.base)) {
             method = state.analyzed.classMethod(receiver.base, callee.field);
         } else if (receiver != null

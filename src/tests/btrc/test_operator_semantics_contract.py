@@ -51,6 +51,65 @@ INVALID_OPERATORS = (
 )
 
 
+@pytest.mark.parametrize("frontend", ("python", "selfhost"))
+def test_operator_owner_runtime_matches_both_frontends(
+    operator_compiler: Path,
+    tmp_path: Path,
+    frontend: str,
+) -> None:
+    program = FIXTURES / "operator_owner_runtime.btrc"
+    c_path = tmp_path / f"operator_owner_runtime.{frontend}.c"
+    if frontend == "python":
+        compiled_source = _run(
+            [
+                str(REPO / "bin/btrcpy"),
+                "--no-stdlib",
+                "--strict-imports",
+                "--no-cache",
+                str(program),
+                "-o",
+                str(c_path),
+            ],
+            env=COMPILER_ENV,
+            timeout=60,
+        )
+        assert compiled_source.returncode == 0, compiled_source.stderr
+    else:
+        compiled_source = _run(
+            [
+                str(operator_compiler),
+                "--no-stdlib",
+                "--strict-imports",
+                str(program),
+            ],
+            env=COMPILER_ENV,
+            timeout=60,
+        )
+        assert compiled_source.returncode == 0, compiled_source.stderr
+        c_path.write_text(compiled_source.stdout)
+
+    binary = tmp_path / f"operator_owner_runtime.{frontend}"
+    compiled = _run(
+        [
+            *CC,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(c_path),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(binary),
+        ],
+        timeout=60,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    run = _run([str(binary)], timeout=10)
+    assert run.returncode == 0, run.stderr
+
+
 @pytest.mark.parametrize("fixture_name, expected", INVALID_OPERATORS)
 def test_invalid_typed_operators_fail_closed(
     operator_compiler: Path,

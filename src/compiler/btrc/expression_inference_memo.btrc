@@ -22,10 +22,11 @@ void disableExpressionInferenceMemo(Analyzed analyzed) {
 }
 
 Node? inferSpecializationType(
-        Node? node, Analyzed analyzed, Map<string, Node> varTypes) {
+        Node? node, Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> varTypes) {
     if (node == null || !analyzed.expressionInferenceMemoEnabled) {
         return inferSpecializationTypeUnmemoized(
-            node, analyzed, varTypes);
+            node, analyzed, operators, varTypes);
     }
     string key = astNodeKey(node);
     if (analyzed.expressionInferenceMemoKnown.has(key)) {
@@ -35,7 +36,7 @@ Node? inferSpecializationType(
         return null;
     }
     Node? result = inferSpecializationTypeUnmemoized(
-        node, analyzed, varTypes);
+        node, analyzed, operators, varTypes);
     analyzed.expressionInferenceMemoKnown.put(key, true);
     if (result != null) {
         analyzed.expressionInferenceMemoValues.put(key, result);
@@ -47,11 +48,12 @@ Node? inferSpecializationType(
  * Disable the persistent body memo for the complete recursive inference, then
  * restore the enclosing context without discarding its already-proven types. */
 Node? inferSpecializationTypeWithoutMemo(
-        Node? node, Analyzed analyzed, Map<string, Node> varTypes) {
+        Node? node, Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> varTypes) {
     bool enabled = analyzed.expressionInferenceMemoEnabled;
     analyzed.expressionInferenceMemoEnabled = false;
     Node? result = inferSpecializationTypeUnmemoized(
-        node, analyzed, varTypes);
+        node, analyzed, operators, varTypes);
     analyzed.expressionInferenceMemoEnabled = enabled;
     return result;
 }

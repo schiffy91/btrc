@@ -4,7 +4,7 @@ bool semanticScalarConditionType(
         Node? typeExpr, SemanticValidationState state) {
     if (typeExpr == null) { return false; }
     return NumericSemantics.isType(typeExpr, state.analyzed)
-        || OperatorSemantics.isReferenceType(typeExpr, state.analyzed);
+        || state.operators.isReferenceType(typeExpr);
 }
 
 bool semanticThreadCopySource(Node value) {

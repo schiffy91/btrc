@@ -6,6 +6,7 @@
 
 class SemanticValidationState {
     public Analyzed analyzed;
+    public OperatorSemantics operators;
     public Node? returnType;
     public string owner;
     public Map<string, bool> typeParams;
@@ -39,8 +40,10 @@ class SemanticValidationState {
     public bool allowOwnedOpaqueVariable;
     public bool inParameterDefault;
 
-    public SemanticValidationState(Analyzed analyzed) {
+    public SemanticValidationState(
+            Analyzed analyzed, OperatorSemantics operators) {
         self.analyzed = analyzed;
+        self.operators = operators;
         self.returnType = null;
         self.owner = "";
         self.typeParams = {};

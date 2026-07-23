@@ -20,6 +20,7 @@ class GpuScopeBinding {
 
 class GpuWgsl {
     public Analyzed analyzed;
+    public OperatorSemantics operators;
     public IRGpuKernel kernel;
     public Vector<string> lines;
     public int indent;
@@ -34,8 +35,10 @@ class GpuWgsl {
     public Vector<int> scopeStarts;
     public bool hasOutput;
 
-    public GpuWgsl(Analyzed analyzed, IRGpuKernel kernel) {
+    public GpuWgsl(Analyzed analyzed,
+            OperatorSemantics operators, IRGpuKernel kernel) {
         self.analyzed = analyzed;
+        self.operators = operators;
         self.kernel = kernel;
         self.lines = [];
         self.indent = 1;
@@ -111,7 +114,7 @@ class GpuWgsl {
 
     public Node? typeOf(Node expression) {
         return gpuContextualExprType(
-            expression, self.analyzed, self.varTypes);
+            expression, self.analyzed, self.operators, self.varTypes);
     }
 
     public string expr(Node expression) {
@@ -173,8 +176,9 @@ string gpuWgslElementType(Node? type) {
     return "i32";
 }
 
-string generateGpuWgsl(Analyzed analyzed, IRGpuKernel kernel) {
-    GpuWgsl out = GpuWgsl(analyzed, kernel);
+string generateGpuWgsl(Analyzed analyzed,
+        OperatorSemantics operators, IRGpuKernel kernel) {
+    GpuWgsl out = GpuWgsl(analyzed, operators, kernel);
     Node declaration = kernel.declaration;
     int sourceOrdinal = 0;
     int arrayOrdinal = 0;

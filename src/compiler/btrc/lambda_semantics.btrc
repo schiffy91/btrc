@@ -3,10 +3,12 @@
 Node lambdaVoidType() { return makePrimType("void"); }
 
 Node? inferredLambdaReturnInStatement(
-        Node statement, Analyzed analyzed, Map<string, Node> vars);
+        Node statement, Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> vars);
 
 Node? inferredLambdaReturnInBlock(
-        Node? block, Analyzed analyzed, Map<string, Node> outerVars) {
+        Node? block, Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> outerVars) {
     if (block == null) { return null; }
     Map<string, Node> vars = semanticCloneTypes(outerVars);
     int index = 0;
@@ -16,14 +18,14 @@ Node? inferredLambdaReturnInBlock(
             Node? localType = statement.type;
             if (localType == null) {
                 localType = inferType(
-                    statement.initializer, analyzed, vars);
+                    statement.initializer, analyzed, operators, vars);
             }
             if (localType != null) {
                 vars.put(statement.name, localType);
             }
         }
         Node? found = inferredLambdaReturnInStatement(
-            statement, analyzed, vars);
+            statement, analyzed, operators, vars);
         if (found != null) { return found; }
         index = index + 1;
     }
@@ -31,46 +33,51 @@ Node? inferredLambdaReturnInBlock(
 }
 
 Node? inferredLambdaReturnInElse(
-        Node? elseNode, Analyzed analyzed, Map<string, Node> vars) {
+        Node? elseNode, Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> vars) {
     if (elseNode == null) { return null; }
     if (elseNode.kind == NK_ELSE_BLOCK) {
         return inferredLambdaReturnInBlock(
-            elseNode.body_node, analyzed, vars);
+            elseNode.body_node, analyzed, operators, vars);
     }
     if (elseNode.kind == NK_ELSE_IF) {
         return inferredLambdaReturnInStatement(
-            elseNode.if_stmt, analyzed, vars);
+            elseNode.if_stmt, analyzed, operators, vars);
     }
     return null;
 }
 
 Node? inferredLambdaReturnInStatement(
-        Node statement, Analyzed analyzed, Map<string, Node> vars) {
+        Node statement, Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> vars) {
     if (statement.kind == NK_RETURN_STMT) {
         if (statement.value_node == null) { return lambdaVoidType(); }
-        return inferType(statement.value_node, analyzed, vars);
+        return inferType(
+            statement.value_node, analyzed, operators, vars);
     }
     if (statement.kind == NK_BLOCK) {
-        return inferredLambdaReturnInBlock(statement, analyzed, vars);
+        return inferredLambdaReturnInBlock(
+            statement, analyzed, operators, vars);
     }
     if (statement.kind == NK_IF_STMT) {
         Node? found = inferredLambdaReturnInBlock(
-            statement.then_block, analyzed, vars);
+            statement.then_block, analyzed, operators, vars);
         if (found != null) { return found; }
         return inferredLambdaReturnInElse(
-            statement.else_block, analyzed, vars);
+            statement.else_block, analyzed, operators, vars);
     }
     if (statement.kind == NK_WHILE_STMT
             || statement.kind == NK_DO_WHILE_STMT
             || statement.kind == NK_PARALLEL_FOR_STMT) {
         return inferredLambdaReturnInBlock(
-            statement.body_node, analyzed, vars);
+            statement.body_node, analyzed, operators, vars);
     }
     if (statement.kind == NK_FOR_IN_STMT) {
         Map<string, Node> loopVars = semanticCloneTypes(vars);
         Node loopType = makePrimType("int");
         if (!semanticIsRangeForm(statement.iterable)) {
-            Node? iterable = inferType(statement.iterable, analyzed, vars);
+            Node? iterable = inferType(
+                statement.iterable, analyzed, operators, vars);
             if (isStringType(iterable)) {
                 loopType = makePrimType("char");
             } else if (iterable != null) {
@@ -84,7 +91,7 @@ Node? inferredLambdaReturnInStatement(
         }
         loopVars.put(statement.var_name, loopType);
         return inferredLambdaReturnInBlock(
-            statement.body_node, analyzed, loopVars);
+            statement.body_node, analyzed, operators, loopVars);
     }
     if (statement.kind == NK_C_FOR_STMT) {
         Map<string, Node> loopVars = semanticCloneTypes(vars);
@@ -94,14 +101,15 @@ Node? inferredLambdaReturnInStatement(
             Node? declared = declaration.type;
             if (declared == null) {
                 declared = inferType(
-                    declaration.initializer, analyzed, loopVars);
+                    declaration.initializer,
+                    analyzed, operators, loopVars);
             }
             if (declared != null) {
                 loopVars.put(declaration.name, declared);
             }
         }
         return inferredLambdaReturnInBlock(
-            statement.body_node, analyzed, loopVars);
+            statement.body_node, analyzed, operators, loopVars);
     }
     if (statement.kind == NK_SWITCH_STMT) {
         int caseIndex = 0;
@@ -110,7 +118,8 @@ Node? inferredLambdaReturnInStatement(
             int bodyIndex = 0;
             while (bodyIndex < caseClause.body_nlist.len) {
                 Node? found = inferredLambdaReturnInStatement(
-                    caseClause.body_nlist.get(bodyIndex), analyzed, vars);
+                    caseClause.body_nlist.get(bodyIndex),
+                    analyzed, operators, vars);
                 if (found != null) { return found; }
                 bodyIndex = bodyIndex + 1;
             }
@@ -119,19 +128,20 @@ Node? inferredLambdaReturnInStatement(
     }
     if (statement.kind == NK_TRY_CATCH_STMT) {
         Node? found = inferredLambdaReturnInBlock(
-            statement.try_block, analyzed, vars);
+            statement.try_block, analyzed, operators, vars);
         if (found != null) { return found; }
         found = inferredLambdaReturnInBlock(
-            statement.catch_block, analyzed, vars);
+            statement.catch_block, analyzed, operators, vars);
         if (found != null) { return found; }
         return inferredLambdaReturnInBlock(
-            statement.finally_block, analyzed, vars);
+            statement.finally_block, analyzed, operators, vars);
     }
     return null;
 }
 
 Node inferredLambdaReturnType(
-        Node lambda, Analyzed analyzed, Map<string, Node> outerVars) {
+        Node lambda, Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> outerVars) {
     if (lambda.return_type != null) { return lambda.return_type; }
     Map<string, Node> vars = semanticCloneTypes(outerVars);
     int index = 0;
@@ -145,13 +155,13 @@ Node inferredLambdaReturnType(
     Node body = lambda.body_node;
     if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
         Node? expressionType = inferType(
-            body.expression, analyzed, vars);
+            body.expression, analyzed, operators, vars);
         if (expressionType != null) { return expressionType; }
         return lambdaVoidType();
     }
     if (body != null && body.kind == NK_LAMBDA_BLOCK) {
         Node? found = inferredLambdaReturnInBlock(
-            body.body_node, analyzed, vars);
+            body.body_node, analyzed, operators, vars);
         if (found != null) { return found; }
     }
     return lambdaVoidType();

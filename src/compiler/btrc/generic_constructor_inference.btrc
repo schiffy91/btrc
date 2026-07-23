@@ -5,7 +5,8 @@
  * specialization, so Pair(value, 1) inside Maker<T> resolves to Pair<T, int>
  * in the template and Pair<string, int> in Maker<string>. */
 Node? inferGenericConstructorCallType(
-        Node call, string name, Analyzed a, Map<string, Node> varTypes) {
+        Node call, string name, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> varTypes) {
     if (!a.isGenericClass(name)) { return null; }
     Node declaration = a.genericClassTable.get(name);
     Node? constructor = a.genericClassConstructor(name);
@@ -36,7 +37,8 @@ Node? inferGenericConstructorCallType(
             if (parameterIndex >= 0
                     && parameterIndex < constructor.params.len) {
                 Node? actual = argTypeForInference(
-                    call.args.get(argumentIndex), a, varTypes);
+                    call.args.get(argumentIndex),
+                    a, operators, varTypes);
                 unifyTypeParam(
                     constructor.params.get(parameterIndex).type,
                     actual, parameters, substitutions);

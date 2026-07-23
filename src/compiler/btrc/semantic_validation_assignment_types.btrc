@@ -1,28 +1,31 @@
 /* Assignment compatibility and target-directed conversion contracts. */
 
-int semanticAssignmentDepth(Node typeExpr, Analyzed analyzed) {
-    return OperatorSemantics.valueDepth(typeExpr, analyzed);
+int semanticAssignmentDepth(
+        Node typeExpr, OperatorSemantics operators) {
+    return operators.valueDepth(typeExpr);
 }
 
-bool semanticSameTypeShape(Node left, Node right, Analyzed analyzed) {
+bool semanticSameTypeShape(
+        Node left, Node right, OperatorSemantics operators) {
     return left.base == right.base
-        && semanticAssignmentDepth(left, analyzed)
-            == semanticAssignmentDepth(right, analyzed)
+        && semanticAssignmentDepth(left, operators)
+            == semanticAssignmentDepth(right, operators)
         && left.is_array == right.is_array
-        && OperatorSemantics.genericArgsEqual(left.generic_args, right.generic_args);
+        && operators.genericArgsEqual(
+            left.generic_args, right.generic_args);
 }
 
 bool semanticCallableComponentSameTypeShape(
-        Node left, Node right, Analyzed analyzed) {
+        Node left, Node right, OperatorSemantics operators) {
     return left.base == right.base
-        && OperatorSemantics.valueDepth(left, analyzed)
-            == OperatorSemantics.valueDepth(right, analyzed)
+        && operators.valueDepth(left) == operators.valueDepth(right)
         && left.is_array == right.is_array
         && left.is_nullable == right.is_nullable
         && left.nullable_outer_depth == right.nullable_outer_depth
         && left.is_const == right.is_const
         && left.is_volatile == right.is_volatile
-        && OperatorSemantics.genericArgsEqual(left.generic_args, right.generic_args);
+        && operators.genericArgsEqual(
+            left.generic_args, right.generic_args);
 }
 
 /* Callable components can acquire an implicit class-reference spelling during
@@ -30,7 +33,7 @@ bool semanticCallableComponentSameTypeShape(
  * depth while keeping arrays, nullability, qualifiers, and nested generic
  * identities exact. */
 bool semanticCallableAssignmentCompatible(
-        Node target, Node source, Analyzed analyzed) {
+        Node target, Node source, OperatorSemantics operators) {
     if (target.base != "__fn_ptr" || source.base != "__fn_ptr"
             || target.generic_args.len == 0
             || target.generic_args.len != source.generic_args.len) {
@@ -39,14 +42,14 @@ bool semanticCallableAssignmentCompatible(
     Node targetReturn = target.generic_args.get(0);
     Node sourceReturn = source.generic_args.get(0);
     if (!semanticCallableComponentSameTypeShape(
-            targetReturn, sourceReturn, analyzed)) {
+            targetReturn, sourceReturn, operators)) {
         return false;
     }
     int index = 1;
     while (index < target.generic_args.len) {
         if (!semanticCallableComponentSameTypeShape(
                 target.generic_args.get(index),
-                source.generic_args.get(index), analyzed)) {
+                source.generic_args.get(index), operators)) {
             return false;
         }
         index = index + 1;
@@ -65,20 +68,20 @@ bool semanticAssignmentCompatible(Node? target, Node? source,
             || semanticTypeContainsParams(resolvedSource, state.typeParams)) {
         return true;
     }
-    if (OperatorSemantics.isNullType(resolvedSource)) {
-        return OperatorSemantics.isReferenceType(resolvedTarget, state.analyzed)
+    if (state.operators.isNullType(resolvedSource)) {
+        return state.operators.isReferenceType(resolvedTarget)
             || state.interfaces.has(resolvedTarget.base);
     }
     if (semanticSameTypeShape(
-            resolvedTarget, resolvedSource, state.analyzed)) { return true; }
+            resolvedTarget, resolvedSource, state.operators)) { return true; }
     if (semanticCallableAssignmentCompatible(
-            resolvedTarget, resolvedSource, state.analyzed)) { return true; }
+            resolvedTarget, resolvedSource, state.operators)) { return true; }
     /* C array-to-pointer decay is directional.  Do not collapse both shapes to
      * one effective depth: a pointer cannot initialize an array declaration. */
     if (resolvedSource.is_array && !resolvedTarget.is_array
             && resolvedTarget.base == resolvedSource.base
             && resolvedTarget.pointer_depth == resolvedSource.pointer_depth + 1
-            && OperatorSemantics.genericArgsEqual(
+            && state.operators.genericArgsEqual(
                 resolvedTarget.generic_args, resolvedSource.generic_args)) {
         return true;
     }
@@ -88,19 +91,19 @@ bool semanticAssignmentCompatible(Node? target, Node? source,
         return true;
     }
     if (TypeComposition.isSemanticScalarString(resolvedTarget)
-            && OperatorSemantics.isCStringPointer(resolvedSource)) {
+            && state.operators.isCStringPointer(resolvedSource)) {
         return true;
     }
-    if (OperatorSemantics.isCStringPointer(resolvedTarget)
+    if (state.operators.isCStringPointer(resolvedTarget)
             && TypeComposition.isSemanticScalarString(resolvedSource)) {
         return true;
     }
-    if (OperatorSemantics.isVoidPointer(resolvedTarget)
-            && OperatorSemantics.isReferenceType(resolvedSource, state.analyzed)) {
+    if (state.operators.isVoidPointer(resolvedTarget)
+            && state.operators.isReferenceType(resolvedSource)) {
         return true;
     }
-    if (OperatorSemantics.isVoidPointer(resolvedSource)
-            && OperatorSemantics.isReferenceType(resolvedTarget, state.analyzed)) {
+    if (state.operators.isVoidPointer(resolvedSource)
+            && state.operators.isReferenceType(resolvedTarget)) {
         return true;
     }
     bool targetNominal = state.analyzed.isClass(resolvedTarget.base)
@@ -117,8 +120,8 @@ bool semanticAssignmentCompatible(Node? target, Node? source,
             state, resolvedSource.base, resolvedTarget.base);
     }
     if (targetNominal && sourceNominal) {
-        return OperatorSemantics.specializationIsSubtype(
-            resolvedSource, resolvedTarget, state.analyzed);
+        return state.operators.specializationIsSubtype(
+            resolvedSource, resolvedTarget);
     }
     if (TypeComposition.isSemanticScalarString(resolvedTarget)
             && semanticSourceHasToString(resolvedSource, state)) {
@@ -131,8 +134,7 @@ bool semanticSourceHasToString(Node? source,
         SemanticValidationState state) {
     Node? resolvedSource = semanticResolveAliases(source, state);
     if (resolvedSource == null || resolvedSource.is_array
-            || OperatorSemantics.valueDepth(
-                resolvedSource, state.analyzed) != 1
+            || state.operators.valueDepth(resolvedSource) != 1
             || (!state.analyzed.isClass(resolvedSource.base)
                 && !state.analyzed.isGenericClass(
                     resolvedSource.base))) {

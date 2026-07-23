@@ -10,7 +10,7 @@ bool semanticRawPointer(Node? typeExpr, Analyzed analyzed) {
 
 bool semanticHasBinaryOverload(
         Node leftType, string op, SemanticValidationState state) {
-    string magic = OperatorSemantics.binaryMethodName(op);
+    string magic = state.operators.binaryMethodName(op);
     if (magic == "") { return false; }
     Node? method = null;
     if (state.analyzed.isClass(leftType.base)) {
@@ -71,10 +71,10 @@ void semanticValidateBinary(Node expression, SemanticValidationState state,
     string op = expression.op;
     bool valid = false;
     if (op == "??") {
-        bool optionalScalar = OperatorSemantics.isOptionalValueCoalesce(
-            expression.left, left, right, state.analyzed);
+        bool optionalScalar = state.operators.isOptionalValueCoalesce(
+            expression.left, left, right);
         valid = optionalScalar
-            || (OperatorSemantics.isReferenceType(left, state.analyzed)
+            || (state.operators.isReferenceType(left)
                 && (semanticAssignmentCompatible(left, right, state)
                     || semanticAssignmentCompatible(right, left, state)));
     } else if (op == "&&" || op == "||") {
@@ -95,15 +95,14 @@ void semanticValidateBinary(Node expression, SemanticValidationState state,
                 && semanticRawPointer(right, state.analyzed))
             || (op == "-" && semanticRawPointer(left, state.analyzed)
                 && semanticRawPointer(right, state.analyzed)
-                && OperatorSemantics.referenceTypesCompatible(
-                    left, right, state.analyzed));
+                && state.operators.referenceTypesCompatible(left, right));
     } else if (op == "*" || op == "/" || op == "%") {
         valid = NumericSemantics.isType(left, state.analyzed)
             && NumericSemantics.isType(right, state.analyzed)
             && left.base != "bool" && right.base != "bool";
-    } else if (OperatorSemantics.isComparisonOperator(op)) {
-        valid = OperatorSemantics.comparisonDomain(
-            op, left, right, state.analyzed) != OP_DOMAIN_INVALID;
+    } else if (state.operators.isComparisonOperator(op)) {
+        valid = state.operators.comparisonDomain(
+            op, left, right) != OP_DOMAIN_INVALID;
     } else {
         return;
     }

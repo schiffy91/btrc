@@ -102,3 +102,4 @@ import ../parser/stage.btrc;
 #include "../semantic_validation_stmts.btrc"
 #include "../semantic_validation_class_bodies.btrc"
 #include "../semantic_validation_decls.btrc"
+#include "../semantic_analyzer.btrc"

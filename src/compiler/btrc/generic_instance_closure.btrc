@@ -28,7 +28,8 @@ Node genericClosureSelfType(string base, Vector<Node> arguments) {
 
 void genericClosureSeedParameters(Node method,
         Map<string, Node> substitutions, Map<string, bool> unresolved,
-        Analyzed analyzed, Map<string, Node> variables) {
+        Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> variables) {
     genericClosureRegisterType(
         method.return_type, substitutions, unresolved, analyzed);
     int index = 0;
@@ -40,13 +41,14 @@ void genericClosureSeedParameters(Node method,
             resolved, substitutions, unresolved, analyzed);
         variables.put(parameter.name, resolved);
         genericClosureWalkNode(parameter.default_, substitutions,
-            unresolved, analyzed, variables);
+            unresolved, analyzed, operators, variables);
         index = index + 1;
     }
 }
 
 void genericClosureScanProperty(Node property,
         Map<string, Node> substitutions, Analyzed analyzed,
+        OperatorSemantics operators,
         Map<string, Node> baseVariables) {
     Map<string, bool> unresolved = {};
     genericClosureRegisterType(
@@ -54,18 +56,19 @@ void genericClosureScanProperty(Node property,
     Map<string, Node> getterVariables =
         genericClosureCopyTypes(baseVariables);
     genericClosureWalkNode(property.getter_body, substitutions,
-        unresolved, analyzed, getterVariables);
+        unresolved, analyzed, operators, getterVariables);
     Map<string, Node> setterVariables =
         genericClosureCopyTypes(baseVariables);
     setterVariables.put(
         "value", resolveGenericType(
             property.type, substitutions, analyzed));
     genericClosureWalkNode(property.setter_body, substitutions,
-        unresolved, analyzed, setterVariables);
+        unresolved, analyzed, operators, setterVariables);
 }
 
 void genericClosureScanMembers(Node declaration,
         Map<string, Node> substitutions, Analyzed analyzed,
+        OperatorSemantics operators,
         Map<string, Node> baseVariables, bool includeConstructor) {
     int index = 0;
     while (index < declaration.members.len) {
@@ -75,10 +78,11 @@ void genericClosureScanMembers(Node declaration,
             genericClosureRegisterType(
                 member.type, substitutions, unresolved, analyzed);
             genericClosureWalkNode(member.initializer, substitutions,
-                unresolved, analyzed, baseVariables);
+                unresolved, analyzed, operators, baseVariables);
         } else if (member.kind == NK_PROPERTY_DECL) {
             genericClosureScanProperty(
-                member, substitutions, analyzed, baseVariables);
+                member, substitutions,
+                analyzed, operators, baseVariables);
         } else if (member.kind == NK_METHOD_DECL) {
             if (includeConstructor || !member.is_constructor) {
                 Map<string, bool> unresolved =
@@ -86,9 +90,9 @@ void genericClosureScanMembers(Node declaration,
                 Map<string, Node> variables =
                     genericClosureCopyTypes(baseVariables);
                 genericClosureSeedParameters(member, substitutions,
-                    unresolved, analyzed, variables);
+                    unresolved, analyzed, operators, variables);
                 genericClosureWalkNode(member.body_node, substitutions,
-                    unresolved, analyzed, variables);
+                    unresolved, analyzed, operators, variables);
             }
         }
         index = index + 1;
@@ -97,7 +101,8 @@ void genericClosureScanMembers(Node declaration,
 
 void genericClosureScanHierarchy(Node declaration,
         Vector<Node> arguments, Map<string, Node> substitutions,
-        Analyzed analyzed, Map<string, Node> baseVariables,
+        Analyzed analyzed, OperatorSemantics operators,
+        Map<string, Node> baseVariables,
         Map<string, bool> visited, bool includeConstructor) {
     if (visited.has(declaration.name)) { return; }
     visited.put(declaration.name, true);
@@ -112,14 +117,16 @@ void genericClosureScanHierarchy(Node declaration,
         Map<string, Node> parentSubstitutions =
             genericClosureClassMap(parentDeclaration, arguments);
         genericClosureScanHierarchy(parentDeclaration, arguments,
-            parentSubstitutions, analyzed, baseVariables, visited, false);
+            parentSubstitutions, analyzed, operators,
+            baseVariables, visited, false);
     }
     genericClosureScanMembers(declaration, substitutions,
-        analyzed, baseVariables, includeConstructor);
+        analyzed, operators, baseVariables, includeConstructor);
 }
 
 void genericClosureScanClassInstance(
-        GenInstance instance, Analyzed analyzed) {
+        GenInstance instance, Analyzed analyzed,
+        OperatorSemantics operators) {
     if (!analyzed.genericClassTable.has(instance.base)) { return; }
     Node declaration = analyzed.genericClassTable.get(instance.base);
     Map<string, Node> substitutions = genericClosureClassMap(
@@ -129,7 +136,8 @@ void genericClosureScanClassInstance(
         genericClosureSelfType(instance.base, instance.args));
     Map<string, bool> visited = {};
     genericClosureScanHierarchy(declaration, instance.args,
-        substitutions, analyzed, baseVariables, visited, true);
+        substitutions, analyzed, operators,
+        baseVariables, visited, true);
 }
 
 Node? genericClosureMethodDeclaration(
@@ -157,7 +165,8 @@ Node? genericClosureOwnerDeclaration(
 }
 
 void genericClosureScanMethodInstance(
-        MethodGenInstance instance, Analyzed analyzed) {
+        MethodGenInstance instance, Analyzed analyzed,
+        OperatorSemantics operators) {
     Node? declaration = genericClosureOwnerDeclaration(instance, analyzed);
     Node? method = genericClosureMethodDeclaration(instance, analyzed);
     if (declaration == null || method == null) { return; }
@@ -175,12 +184,13 @@ void genericClosureScanMethodInstance(
     variables.put("self", genericClosureSelfType(
         instance.classBase, instance.classArgs));
     genericClosureSeedParameters(method, substitutions,
-        unresolved, analyzed, variables);
+        unresolved, analyzed, operators, variables);
     genericClosureWalkNode(method.body_node, substitutions,
-        unresolved, analyzed, variables);
+        unresolved, analyzed, operators, variables);
 }
 
-void closeGenericInstanceGraph(Analyzed analyzed) {
+void closeGenericInstanceGraph(
+        Analyzed analyzed, OperatorSemantics operators) {
     Map<string, bool> processedClasses = {};
     Map<string, bool> processedMethods = {};
     int classIndex = 0;
@@ -193,7 +203,8 @@ void closeGenericInstanceGraph(Analyzed analyzed) {
             classIndex = classIndex + 1;
             if (!processedClasses.has(instance.mangled)) {
                 processedClasses.put(instance.mangled, true);
-                genericClosureScanClassInstance(instance, analyzed);
+                genericClosureScanClassInstance(
+                    instance, analyzed, operators);
             }
         }
         while (methodIndex < analyzed.methodGenInstances.len) {
@@ -205,14 +216,15 @@ void closeGenericInstanceGraph(Analyzed analyzed) {
                 instance.methodArgs);
             if (!processedMethods.has(key)) {
                 processedMethods.put(key, true);
-                genericClosureScanMethodInstance(instance, analyzed);
+                genericClosureScanMethodInstance(
+                    instance, analyzed, operators);
             }
         }
     }
 }
 
 void genericClosureScanOrdinaryCallable(Node callable,
-        Node? owner, Analyzed analyzed) {
+        Node? owner, Analyzed analyzed, OperatorSemantics operators) {
     Map<string, Node> substitutions = {};
     Map<string, bool> unresolved =
         typeParameterSet(callable.generic_params);
@@ -223,16 +235,18 @@ void genericClosureScanOrdinaryCallable(Node callable,
             owner.name, noArguments));
     }
     genericClosureSeedParameters(
-        callable, substitutions, unresolved, analyzed, variables);
+        callable, substitutions, unresolved,
+        analyzed, operators, variables);
     genericClosureWalkNode(
         callable.body_node, substitutions,
-        unresolved, analyzed, variables);
+        unresolved, analyzed, operators, variables);
 }
 
 /* Semantic validation records target-directed no-arg constructor types after
  * the analyzer's initial declaration walk. Scan ordinary bodies once more at
  * that point, then close any newly discovered specialization graph. */
-void closeProgramGenericExpressionGraph(Node program, Analyzed analyzed) {
+void closeProgramGenericExpressionGraph(Node program,
+        Analyzed analyzed, OperatorSemantics operators) {
     Map<string, Node> substitutions = {};
     Map<string, bool> unresolved = {};
     int declarationIndex = 0;
@@ -240,7 +254,7 @@ void closeProgramGenericExpressionGraph(Node program, Analyzed analyzed) {
         Node declaration = program.declarations.get(declarationIndex);
         if (declaration.kind == NK_FUNCTION_DECL) {
             genericClosureScanOrdinaryCallable(
-                declaration, null, analyzed);
+                declaration, null, analyzed, operators);
         } else if (declaration.kind == NK_CLASS_DECL
                 && declaration.generic_params.len == 0) {
             Map<string, Node> fieldVariables =
@@ -254,24 +268,25 @@ void closeProgramGenericExpressionGraph(Node program, Analyzed analyzed) {
                 if (member.kind == NK_FIELD_DECL) {
                     genericClosureWalkNode(
                         member.initializer, substitutions,
-                        unresolved, analyzed, fieldVariables);
+                        unresolved, analyzed, operators, fieldVariables);
                 } else if (member.kind == NK_PROPERTY_DECL) {
                     genericClosureScanProperty(
-                        member, substitutions, analyzed, fieldVariables);
+                        member, substitutions,
+                        analyzed, operators, fieldVariables);
                 } else if (member.kind == NK_METHOD_DECL
                         && member.generic_params.len == 0) {
                     genericClosureScanOrdinaryCallable(
-                        member, declaration, analyzed);
+                        member, declaration, analyzed, operators);
                 }
                 memberIndex = memberIndex + 1;
             }
         } else {
             genericClosureWalkNode(
                 declaration.initializer, substitutions,
-                unresolved, analyzed,
+                unresolved, analyzed, operators,
                 genericClosureGlobalTypes(analyzed));
         }
         declarationIndex = declarationIndex + 1;
     }
-    closeGenericInstanceGraph(analyzed);
+    closeGenericInstanceGraph(analyzed, operators);
 }

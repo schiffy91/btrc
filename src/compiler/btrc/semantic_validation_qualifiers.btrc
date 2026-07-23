@@ -15,7 +15,8 @@ Node? semanticQualifierDeclaredType(Node? expression,
     if (expression.kind == NK_CAST_EXPR) {
         return expression.target_type;
     }
-    return inferTypeRaw(expression, state.analyzed, vars);
+    return inferTypeRaw(
+        expression, state.analyzed, state.operators, vars);
 }
 
 bool semanticQualifierRawIndex(Node expression,
@@ -46,18 +47,16 @@ Node? semanticQualifierOperatorResult(Node expression,
             semanticQualifierDeclaredType(
                 expression.operand, state, vars),
             state.analyzed.typedefTable);
-        return OperatorSemantics.overloadReturnType(
-            receiver,
-            expression.op, true, state.analyzed);
+        return state.operators.overloadReturnType(
+            receiver, expression.op, true);
     }
     if (expression.kind == NK_BINARY_EXPR) {
         Node? receiver = resolveOuterTypedefType(
             semanticQualifierDeclaredType(
                 expression.left, state, vars),
             state.analyzed.typedefTable);
-        return OperatorSemantics.overloadReturnType(
-            receiver,
-            expression.op, false, state.analyzed);
+        return state.operators.overloadReturnType(
+            receiver, expression.op, false);
     }
     return null;
 }

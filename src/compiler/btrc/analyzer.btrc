@@ -368,8 +368,8 @@ string parentName(Node decl) {
 }
 
 /* Build the function + class tables from the parsed program. */
-Analyzed analyzeProgram(Node prog) {
-    Analyzed a = Analyzed();
+void analyzeProgram(
+        Node prog, Analyzed a, OperatorSemantics operators) {
     int i = 0;
     while (i < prog.declarations.len) {
         Node d = prog.declarations.get(i);
@@ -432,7 +432,7 @@ Analyzed analyzeProgram(Node prog) {
         if (d.kind == NK_VAR_DECL_STMT && d.type == null && d.initializer != null) {
             Map<string, Node> empty = {};
             Node? gt = inferSpecializationType(
-                d.initializer, a, empty);
+                d.initializer, a, operators, empty);
             if (gt != null) { a.globalVarTypes.put(d.name, gt); }
         }
         gv = gv + 1;
@@ -460,7 +460,7 @@ Analyzed analyzeProgram(Node prog) {
      * Mirrors _register_transitive_generic_deps inside the reference's
      * while-changed emission loop: keep registering resolved member types until
      * no new instance appears. */
-    registerTransitiveGenericInstances(a);
+    registerTransitiveGenericInstances(a, operators);
 
     /* Fifth pass: collect generic-METHOD monomorphization targets. A generic
      * method (its own type params, e.g. Vector<T>.mapTo<U>) needs one emitted
@@ -469,13 +469,13 @@ Analyzed analyzeProgram(Node prog) {
      * types can be inferred. Mirrors analyzer.generic_methods. */
     int mg = 0;
     while (mg < prog.declarations.len) {
-        collectMethodGenericsDecl(prog.declarations.get(mg), a);
+        collectMethodGenericsDecl(
+            prog.declarations.get(mg), a, operators);
         mg = mg + 1;
     }
     /* Method-generic signatures can reference further concrete generic types
      * (e.g. Vector<string> from mapTo's return type) — close those over too. */
-    registerTransitiveGenericInstances(a);
-    return a;
+    registerTransitiveGenericInstances(a, operators);
 }
 
 /* --- Generic-method instance collection (varTypes-tracking body walk). ---
@@ -483,7 +483,8 @@ Analyzed analyzeProgram(Node prog) {
  * map IR-gen later uses), and at every method call whose resolved method has
  * its own type parameters, infers the concrete method type args and records a
  * monomorphization target. */
-void collectMethodGenericsDecl(Node d, Analyzed a) {
+void collectMethodGenericsDecl(
+        Node d, Analyzed a, OperatorSemantics operators) {
     if (d.kind == NK_FUNCTION_DECL) {
         Map<string, Node> vt = {};
         int i = 0;
@@ -491,7 +492,10 @@ void collectMethodGenericsDecl(Node d, Analyzed a) {
             vt.put(d.params.get(i).name, d.params.get(i).type);
             i = i + 1;
         }
-        if (d.body_node != null) { collectMethodGenericsBlock(d.body_node, a, vt); }
+        if (d.body_node != null) {
+            collectMethodGenericsBlock(
+                d.body_node, a, operators, vt);
+        }
     } else if (d.kind == NK_CLASS_DECL && d.generic_params.len == 0) {
         int i = 0;
         while (i < d.members.len) {
@@ -506,7 +510,8 @@ void collectMethodGenericsDecl(Node d, Analyzed a) {
                     vt.put(mem.params.get(p).name, mem.params.get(p).type);
                     p = p + 1;
                 }
-                collectMethodGenericsBlock(mem.body_node, a, vt);
+                collectMethodGenericsBlock(
+                    mem.body_node, a, operators, vt);
             }
             i = i + 1;
         }
@@ -515,101 +520,128 @@ void collectMethodGenericsDecl(Node d, Analyzed a) {
      * receivers are reached through the per-instance lowering, not here. */
 }
 
-void collectMethodGenericsBlock(Node block, Analyzed a, Map<string, Node> vt) {
+void collectMethodGenericsBlock(Node block, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> vt) {
     if (block == null) { return; }
     int i = 0;
     while (i < block.statements.len) {
-        collectMethodGenericsStmt(block.statements.get(i), a, vt);
+        collectMethodGenericsStmt(
+            block.statements.get(i), a, operators, vt);
         i = i + 1;
     }
 }
 
-void collectMethodGenericsStmt(Node s, Analyzed a, Map<string, Node> vt) {
+void collectMethodGenericsStmt(Node s, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> vt) {
     if (s == null) { return; }
     if (s.kind == NK_VAR_DECL_STMT) {
-        collectMethodGenericsExpr(s.initializer, a, vt);
+        collectMethodGenericsExpr(s.initializer, a, operators, vt);
         if (s.type != null) {
             vt.put(s.name, s.type);
         } else if (s.initializer != null) {
             Node? it = inferSpecializationType(
-                s.initializer, a, vt);
+                s.initializer, a, operators, vt);
             if (it != null) { vt.put(s.name, it); }
         }
     } else if (s.kind == NK_RETURN_STMT) {
-        collectMethodGenericsExpr(s.value_node, a, vt);
+        collectMethodGenericsExpr(s.value_node, a, operators, vt);
     } else if (s.kind == NK_EXPR_STMT) {
-        collectMethodGenericsExpr(s.expr, a, vt);
+        collectMethodGenericsExpr(s.expr, a, operators, vt);
     } else if (s.kind == NK_IF_STMT) {
-        collectMethodGenericsExpr(s.condition, a, vt);
-        collectMethodGenericsBlock(s.then_block, a, vt);
-        if (s.else_block != null) { collectMethodGenericsStmt(s.else_block, a, vt); }
+        collectMethodGenericsExpr(s.condition, a, operators, vt);
+        collectMethodGenericsBlock(s.then_block, a, operators, vt);
+        if (s.else_block != null) {
+            collectMethodGenericsStmt(
+                s.else_block, a, operators, vt);
+        }
     } else if (s.kind == NK_ELSE_BLOCK) {
-        collectMethodGenericsBlock(s.body_node, a, vt);
+        collectMethodGenericsBlock(s.body_node, a, operators, vt);
     } else if (s.kind == NK_ELSE_IF) {
-        collectMethodGenericsStmt(s.if_stmt, a, vt);
+        collectMethodGenericsStmt(s.if_stmt, a, operators, vt);
     } else if (s.kind == NK_WHILE_STMT || s.kind == NK_DO_WHILE_STMT) {
-        collectMethodGenericsExpr(s.condition, a, vt);
-        collectMethodGenericsBlock(s.body_node, a, vt);
+        collectMethodGenericsExpr(s.condition, a, operators, vt);
+        collectMethodGenericsBlock(s.body_node, a, operators, vt);
     } else if (s.kind == NK_C_FOR_STMT) {
         if (s.init != null) {
-            if (s.init.kind == NK_FOR_INIT_VAR) { collectMethodGenericsStmt(s.init.var_decl, a, vt); }
-            else if (s.init.kind == NK_FOR_INIT_EXPR) { collectMethodGenericsExpr(s.init.expression, a, vt); }
+            if (s.init.kind == NK_FOR_INIT_VAR) {
+                collectMethodGenericsStmt(
+                    s.init.var_decl, a, operators, vt);
+            } else if (s.init.kind == NK_FOR_INIT_EXPR) {
+                collectMethodGenericsExpr(
+                    s.init.expression, a, operators, vt);
+            }
         }
-        collectMethodGenericsExpr(s.condition, a, vt);
-        collectMethodGenericsExpr(s.update, a, vt);
-        collectMethodGenericsBlock(s.body_node, a, vt);
+        collectMethodGenericsExpr(s.condition, a, operators, vt);
+        collectMethodGenericsExpr(s.update, a, operators, vt);
+        collectMethodGenericsBlock(s.body_node, a, operators, vt);
     } else if (s.kind == NK_FOR_IN_STMT || s.kind == NK_PARALLEL_FOR_STMT) {
-        collectMethodGenericsExpr(s.iterable, a, vt);
-        collectMethodGenericsBlock(s.body_node, a, vt);
+        collectMethodGenericsExpr(s.iterable, a, operators, vt);
+        collectMethodGenericsBlock(s.body_node, a, operators, vt);
     } else if (s.kind == NK_DELETE_STMT) {
-        collectMethodGenericsExpr(s.expr, a, vt);
+        collectMethodGenericsExpr(s.expr, a, operators, vt);
     } else if (s.kind == NK_TRY_CATCH_STMT) {
-        if (s.try_block != null) { collectMethodGenericsBlock(s.try_block, a, vt); }
-        if (s.catch_block != null) { collectMethodGenericsBlock(s.catch_block, a, vt); }
-        if (s.finally_block != null) { collectMethodGenericsBlock(s.finally_block, a, vt); }
+        if (s.try_block != null) {
+            collectMethodGenericsBlock(
+                s.try_block, a, operators, vt);
+        }
+        if (s.catch_block != null) {
+            collectMethodGenericsBlock(
+                s.catch_block, a, operators, vt);
+        }
+        if (s.finally_block != null) {
+            collectMethodGenericsBlock(
+                s.finally_block, a, operators, vt);
+        }
     } else if (s.kind == NK_SWITCH_STMT) {
-        collectMethodGenericsExpr(s.value_node, a, vt);
+        collectMethodGenericsExpr(s.value_node, a, operators, vt);
         int ci = 0;
         while (ci < s.cases.len) {
             Node c = s.cases.get(ci);
-            collectMethodGenericsExpr(c.value_node, a, vt);
+            collectMethodGenericsExpr(c.value_node, a, operators, vt);
             int cj = 0;
             while (cj < c.body_nlist.len) {
-                collectMethodGenericsStmt(c.body_nlist.get(cj), a, vt);
+                collectMethodGenericsStmt(
+                    c.body_nlist.get(cj), a, operators, vt);
                 cj = cj + 1;
             }
             ci = ci + 1;
         }
     } else if (s.kind == NK_BLOCK) {
-        collectMethodGenericsBlock(s, a, vt);
+        collectMethodGenericsBlock(s, a, operators, vt);
     }
 }
 
-void collectMethodGenericsExpr(Node e, Analyzed a, Map<string, Node> vt) {
+void collectMethodGenericsExpr(Node e, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> vt) {
     if (e == null) { return; }
     if (e.kind == NK_CALL_EXPR) {
-        collectMethodGenericCall(e, a, vt);
+        collectMethodGenericCall(e, a, operators, vt);
     }
-    collectMethodGenericsExpr(e.callee, a, vt);
-    collectMethodGenericsExpr(e.left, a, vt);
-    collectMethodGenericsExpr(e.right, a, vt);
-    collectMethodGenericsExpr(e.operand, a, vt);
-    collectMethodGenericsExpr(e.expr, a, vt);
-    collectMethodGenericsExpr(e.obj, a, vt);
-    collectMethodGenericsExpr(e.index, a, vt);
-    collectMethodGenericsExpr(e.condition, a, vt);
-    collectMethodGenericsExpr(e.true_expr, a, vt);
-    collectMethodGenericsExpr(e.false_expr, a, vt);
-    collectMethodGenericsExpr(e.target, a, vt);
-    collectMethodGenericsExpr(e.value_node, a, vt);
+    collectMethodGenericsExpr(e.callee, a, operators, vt);
+    collectMethodGenericsExpr(e.left, a, operators, vt);
+    collectMethodGenericsExpr(e.right, a, operators, vt);
+    collectMethodGenericsExpr(e.operand, a, operators, vt);
+    collectMethodGenericsExpr(e.expr, a, operators, vt);
+    collectMethodGenericsExpr(e.obj, a, operators, vt);
+    collectMethodGenericsExpr(e.index, a, operators, vt);
+    collectMethodGenericsExpr(e.condition, a, operators, vt);
+    collectMethodGenericsExpr(e.true_expr, a, operators, vt);
+    collectMethodGenericsExpr(e.false_expr, a, operators, vt);
+    collectMethodGenericsExpr(e.target, a, operators, vt);
+    collectMethodGenericsExpr(e.value_node, a, operators, vt);
     int i = 0;
-    while (i < e.args.len) { collectMethodGenericsExpr(e.args.get(i), a, vt); i = i + 1; }
+    while (i < e.args.len) {
+        collectMethodGenericsExpr(
+            e.args.get(i), a, operators, vt);
+        i = i + 1;
+    }
 }
 
 /* If `call` is an instance method call to a generic method, infer its method
  * type args and record a monomorphization target. Mirrors
  * generic_methods._collect_generic_method_instance. */
-void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
+void collectMethodGenericCall(Node call, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> vt) {
     Node callee = call.callee;
     if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR) { return; }
     Node objNode = callee.obj;
@@ -618,7 +650,8 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
     if (objNode != null && objNode.kind == NK_IDENTIFIER && a.isClass(objNode.name)) {
         return;
     }
-    Node? ot = inferSpecializationType(objNode, a, vt);
+    Node? ot = inferSpecializationType(
+        objNode, a, operators, vt);
     if (ot == null) { return; }
     /* Resolve the owning method declaration (generic instance OR plain class).
      * `classArgs` is a FRESH copy of the receiver's generic args (never an alias
@@ -655,7 +688,8 @@ void collectMethodGenericCall(Node call, Analyzed a, Map<string, Node> vt) {
 
     /* Infer each method type parameter from the arguments. */
     Map<string, Node> methodSubs = {};
-    inferMethodTypeArgs(call, method_decl, classSubs, a, vt, methodSubs);
+    inferMethodTypeArgs(
+        call, method_decl, classSubs, a, operators, vt, methodSubs);
     Vector<Node> methodArgs = [];
     Map<string, bool> tparams = typeParameterSet(method_decl.generic_params);
     int mp = 0;
@@ -731,7 +765,8 @@ void registerSubstitutedGenerics(Node? t, Map<string, Node> subs, Analyzed a) {
  * method parameter's declared type (after class-level substitution) against
  * the corresponding argument's inferred type. Writes results into `subs`. */
 void inferMethodTypeArgs(Node call, Node method, Map<string, Node> classSubs,
-                         Analyzed a, Map<string, Node> vt, Map<string, Node> subs) {
+        Analyzed a, OperatorSemantics operators,
+        Map<string, Node> vt, Map<string, Node> subs) {
     /* Set of method type-param names. */
     Map<string, bool> tparams = {};
     int t = 0;
@@ -743,7 +778,8 @@ void inferMethodTypeArgs(Node call, Node method, Map<string, Node> classSubs,
     while (i < method.params.len && i < call.args.len) {
         Node declared = resolveGenericType(
             method.params.get(i).type, classSubs, a);
-        Node? actual = argTypeForInference(call.args.get(i), a, vt);
+        Node? actual = argTypeForInference(
+            call.args.get(i), a, operators, vt);
         if (actual != null) {
             unifyTypeParam(declared, actual, tparams, subs);
         }
@@ -754,12 +790,13 @@ void inferMethodTypeArgs(Node call, Node method, Map<string, Node> classSubs,
 /* Inferred TypeExpr of a call argument, normalized for unification. A bare
  * function reference (Identifier naming a top-level function) is reconstructed
  * into __fn_ptr<ret, params...> so it unifies the same way a lambda does. */
-Node? argTypeForInference(Node arg, Analyzed a, Map<string, Node> vt) {
+Node? argTypeForInference(Node arg, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> vt) {
     if (arg.kind == NK_IDENTIFIER && a.funcTable.has(arg.name)
             && !vt.has(arg.name)) {
         return sourceFunctionPointerType(a.funcTable.get(arg.name));
     }
-    return inferSpecializationType(arg, a, vt);
+    return inferSpecializationType(arg, a, operators, vt);
 }
 
 /* Structurally unify `declared` (may mention type params) with `actual`,
@@ -902,7 +939,8 @@ void validateGenericClassSpecialization(Node typeExpr, Analyzed a) {
  * instance, resolve its member field/method/param types through that instance's
  * type map and register any resolved generic-class type. Repeats until the
  * instance set stops growing (new instances can imply further ones). */
-void registerTransitiveGenericInstances(Analyzed a) {
+void registerTransitiveGenericInstances(
+        Analyzed a, OperatorSemantics operators) {
     bool changed = true;
     while (changed) {
         changed = false;
@@ -945,7 +983,7 @@ void registerTransitiveGenericInstances(Analyzed a) {
             idx = idx + 1;
         }
     }
-    closeGenericInstanceGraph(a);
+    closeGenericInstanceGraph(a, operators);
 }
 
 /* Resolve a member TypeExpr through `tm` and, if the result is a concrete
@@ -1357,7 +1395,8 @@ void collectGenericsExpr(Node e, Analyzed a,
 /* On-demand type inference for an expression node, given a map of in-scope
  * variable name -> declared TypeExpr node. Returns a TypeExpr Node, or null if
  * the type is unknown (mirrors Python's node_types.get returning None). */
-Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
+Node? inferTypeRaw(Node? node, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> varTypes) {
     if (node == null) { return null; }
     if (node.kind == NK_INT_LITERAL) { return NumericSemantics.integerLiteralType(node.raw); }
     if (node.kind == NK_FLOAT_LITERAL) { return NumericSemantics.floatLiteralType(node.raw); }
@@ -1366,12 +1405,13 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     if (node.kind == NK_STRING_LITERAL) { return makePrimType("string"); }
     if (node.kind == NK_F_STRING_LITERAL) { return makePrimType("string"); }
     if (node.kind == NK_SIZEOF_EXPR) { return makePrimType("size_t"); }
-    if (node.kind == NK_NULL_LITERAL) { return OperatorSemantics.nullType(); }
+    if (node.kind == NK_NULL_LITERAL) { return operators.nullType(); }
     if (node.kind == NK_IDENTIFIER) {
-        if (node.name == "NULL") { return OperatorSemantics.nullType(); }
+        if (node.name == "NULL") { return operators.nullType(); }
         if (varTypes.has(node.name)) { return varTypes.get(node.name); }
         if (a.funcTable.has(node.name)) {
-            return argTypeForInference(node, a, varTypes);
+            return argTypeForInference(
+                node, a, operators, varTypes);
         }
         if (a.isEnumValue(node.name)) {
             string owner = a.enumOwnerOf(node.name);
@@ -1403,16 +1443,18 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return null;
     }
     if (node.kind == NK_BINARY_EXPR) {
-        Node? leftType = inferSpecializationType(node.left, a, varTypes);
-        Node? rightType = inferSpecializationType(node.right, a, varTypes);
-        Node? overloaded = OperatorSemantics.overloadReturnType(
-            leftType, node.op, false, a);
+        Node? leftType = inferSpecializationType(
+            node.left, a, operators, varTypes);
+        Node? rightType = inferSpecializationType(
+            node.right, a, operators, varTypes);
+        Node? overloaded = operators.overloadReturnType(
+            leftType, node.op, false);
         if (overloaded != null) { return overloaded; }
         /* Comparison/logical ops yield bool. Arithmetic follows the shared,
          * operand-order-independent numeric contract. */
         if (isComparisonOp(node.op)) { return makePrimType("bool"); }
-        Node? pointerType = OperatorSemantics.pointerArithmeticType(
-            leftType, rightType, node.op, a);
+        Node? pointerType = operators.pointerArithmeticType(
+            leftType, rightType, node.op);
         if (pointerType != null) { return pointerType; }
         Node? numericType = NumericSemantics.resultType(leftType, rightType, a);
         if (numericType != null) { return numericType; }
@@ -1420,13 +1462,14 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return rightType;
     }
     if (node.kind == NK_ASSIGN_EXPR) {
-        return inferSpecializationType(node.target, a, varTypes);
+        return inferSpecializationType(
+            node.target, a, operators, varTypes);
     }
     if (node.kind == NK_UNARY_EXPR) {
         Node? declaredOperandType = inferTypeRaw(
-            node.operand, a, varTypes);
+            node.operand, a, operators, varTypes);
         Node? operandType = inferSpecializationType(
-            node.operand, a, varTypes);
+            node.operand, a, operators, varTypes);
         if (operandType == null) { return null; }
         if (node.op == "!") { return makePrimType("bool"); }
         if (node.op == "&") {
@@ -1450,8 +1493,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 return typeWithoutOuterPointers(operandType, 1);
             }
         }
-        Node? overloaded = OperatorSemantics.overloadReturnType(
-            operandType, node.op, true, a);
+        Node? overloaded = operators.overloadReturnType(
+            operandType, node.op, true);
         if (overloaded != null) { return overloaded; }
         return operandType;
     }
@@ -1495,7 +1538,8 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 && a.enumContains(node.obj.name, node.field)) {
             return makePrimType(node.obj.name);
         }
-        Node? ot = inferSpecializationType(node.obj, a, varTypes);
+        Node? ot = inferSpecializationType(
+            node.obj, a, operators, varTypes);
         if (ot != null && ot.base == "Tuple") {
             int tupleIndex = tupleFieldIndex(node.field);
             if (tupleIndex >= 0 && tupleIndex < ot.generic_args.len) {
@@ -1519,7 +1563,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
                 && node.obj.obj.kind == NK_FIELD_ACCESS_EXPR) {
             Node dataExpr = node.obj.obj;
             Node? sType = inferSpecializationType(
-                dataExpr.obj, a, varTypes);
+                dataExpr.obj, a, operators, varTypes);
             if (sType != null && a.isRichEnum(sType.base)) {
                 Node reDecl = a.richEnumTable.get(sType.base);
                 string variantName = node.obj.field;
@@ -1558,13 +1602,15 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     if (node.kind == NK_CALL_EXPR) {
         Node callee = node.callee;
         if (callee != null && callee.kind == NK_LAMBDA_EXPR) {
-            Node callableType = lambdaFnPtrType(callee, a, varTypes);
+            Node callableType = lambdaFnPtrType(
+                callee, a, operators, varTypes);
             if (callableType.generic_args.len > 0) {
                 return callableType.generic_args.get(0);
             }
         }
         Node? callableCallee = directFunctionPointerSpecializationType(
-            inferSpecializationType(callee, a, varTypes), a);
+            inferSpecializationType(
+                callee, a, operators, varTypes), a);
         if (callableCallee != null) {
             return callableCallee.generic_args.get(0);
         }
@@ -1600,7 +1646,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             if (callee.name == "Mutex" && node.args.len > 0) {
                 Node mutexType = makePrimType("Mutex");
                 Node? argumentType = inferSpecializationType(
-                    node.args.get(0), a, varTypes);
+                    node.args.get(0), a, operators, varTypes);
                 if (argumentType == null) {
                     argumentType = makePrimType("int");
                 } else if ((a.isClass(argumentType.base)
@@ -1619,7 +1665,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             }
             if (a.isGenericClass(callee.name)) {
                 return inferGenericConstructorCallType(
-                    node, callee.name, a, varTypes);
+                    node, callee.name, a, operators, varTypes);
             }
             /* Constructor call ClassName(...) yields a class-instance pointer. */
             if (a.isClass(callee.name)) {
@@ -1648,7 +1694,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
             }
             /* Instance method call obj.method(...) */
             Node? ot = inferSpecializationType(
-                callee.obj, a, varTypes);
+                callee.obj, a, operators, varTypes);
             if (ot != null && method == "toString"
                     && ot.pointer_depth == 0 && !ot.is_array
                     && ot.generic_args.len == 0
@@ -1704,7 +1750,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     }
     if (node.kind == NK_INDEX_EXPR) {
         Node? declaredObjectType = inferTypeRaw(
-            node.obj, a, varTypes);
+            node.obj, a, operators, varTypes);
         Node? ot = resolveOuterTypedefType(
             declaredObjectType, a.typedefTable);
         if (ot != null && (ot.is_array
@@ -1718,15 +1764,15 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     if (node.kind == NK_CAST_EXPR) { return node.target_type; }
     if (node.kind == NK_TERNARY_EXPR) {
         Node? trueType = inferSpecializationType(
-            node.true_expr, a, varTypes);
+            node.true_expr, a, operators, varTypes);
         Node? falseType = inferSpecializationType(
-            node.false_expr, a, varTypes);
+            node.false_expr, a, operators, varTypes);
         Node? numericType = NumericSemantics.resultType(trueType, falseType, a);
         if (numericType != null) { return numericType; }
-        if (OperatorSemantics.isNullType(trueType) && falseType != null) {
+        if (operators.isNullType(trueType) && falseType != null) {
             return falseType;
         }
-        if (OperatorSemantics.isNullType(falseType) && trueType != null) {
+        if (operators.isNullType(falseType) && trueType != null) {
             return trueType;
         }
         if (trueType != null) { return trueType; }
@@ -1735,7 +1781,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     if (node.kind == NK_LIST_LITERAL) {
         if (node.elements.len > 0) {
             Node? et = inferSpecializationType(
-                node.elements.get(0), a, varTypes);
+                node.elements.get(0), a, operators, varTypes);
             if (et != null) {
                 Node elementType = et;
                 if ((a.isClass(et.base) || a.isGenericClass(et.base))
@@ -1754,7 +1800,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         return null;
     }
     if (node.kind == NK_LAMBDA_EXPR) {
-        return lambdaFnPtrType(node, a, varTypes);
+        return lambdaFnPtrType(node, a, operators, varTypes);
     }
     if (node.kind == NK_SPAWN_EXPR) {
         /* spawn(callable) yields Thread<T> where T is the callable's return type
@@ -1765,10 +1811,12 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         Node ret = makePrimType("void");
         Node fn = node.fn;
         if (fn != null && fn.kind == NK_LAMBDA_EXPR) {
-            Node fpt = lambdaFnPtrType(fn, a, varTypes);
+            Node fpt = lambdaFnPtrType(
+                fn, a, operators, varTypes);
             if (fpt.generic_args.len > 0) { ret = fpt.generic_args.get(0); }
         } else if (fn != null) {
-            Node? fnt = inferSpecializationType(fn, a, varTypes);
+            Node? fnt = inferSpecializationType(
+                fn, a, operators, varTypes);
             if (fnt != null && fnt.base == "__fn_ptr" && fnt.generic_args.len > 0) {
                 ret = fnt.generic_args.get(0);
             }
@@ -1794,7 +1842,7 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
         int ti = 0;
         while (ti < node.elements.len) {
             Node? et = inferSpecializationType(
-                node.elements.get(ti), a, varTypes);
+                node.elements.get(ti), a, operators, varTypes);
             if (et == null) { et = makePrimType("int"); }
             ga.push(copyTypeExprTree(et));
             ti = ti + 1;
@@ -1811,18 +1859,20 @@ Node? inferTypeRaw(Node? node, Analyzed a, Map<string, Node> varTypes) {
     return null;
 }
 
-Node? inferType(Node? node, Analyzed a, Map<string, Node> varTypes) {
+Node? inferType(Node? node, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> varTypes) {
     return resolveTypedefType(
-        inferTypeRaw(node, a, varTypes), a.typedefTable);
+        inferTypeRaw(node, a, operators, varTypes), a.typedefTable);
 }
 
 /* Match the reference analyzer's stored expression-type domain: expand the
  * alias naming the value itself, but retain aliases nested in generic
  * arguments so IR symbol selection agrees with generic-instance collection. */
 Node? inferSpecializationTypeUnmemoized(
-        Node? node, Analyzed a, Map<string, Node> varTypes) {
+        Node? node, Analyzed a, OperatorSemantics operators,
+        Map<string, Node> varTypes) {
     return resolveOuterTypedefType(
-        inferTypeRaw(node, a, varTypes), a.typedefTable);
+        inferTypeRaw(node, a, operators, varTypes), a.typedefTable);
 }
 
 Node? directFunctionPointerType(Node? typeExpr, Analyzed a) {
@@ -1855,13 +1905,15 @@ Node? directFunctionPointerSpecializationType(
  * type is the lambda's explicit annotation, or inferred from its expression
  * body, or "void" for a block body without annotation (mirrors lambdas.py's
  * return-type resolution + the analyzer storing the lambda type as __fn_ptr). */
-Node lambdaFnPtrType(Node node, Analyzed a, Map<string, Node> varTypes) {
+Node lambdaFnPtrType(Node node, Analyzed a,
+        OperatorSemantics operators, Map<string, Node> varTypes) {
     Node u = Node();
     u.kind = NK_TYPE_EXPR;
     u.base = "__fn_ptr";
     Vector<Node> ga = [];
     /* arg[0] is the explicit or structurally inferred return type. */
-    Node ret = inferredLambdaReturnType(node, a, varTypes);
+    Node ret = inferredLambdaReturnType(
+        node, a, operators, varTypes);
     if ((a.isClass(ret.base) || a.isGenericClass(ret.base))
             && ret.pointer_depth == 0 && !ret.is_array) {
         ret = classPtrType(ret);

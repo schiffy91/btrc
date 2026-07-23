@@ -49,7 +49,7 @@ void semanticValidateManagedStringSource(Node? expected, Node? value,
         semanticInferType(value, state, vars), state);
     if (target == null || actual == null
             || !TypeComposition.isSemanticScalarString(target)
-            || !OperatorSemantics.isCStringPointer(actual)) {
+            || !state.operators.isCStringPointer(actual)) {
         return;
     }
     string effect = semanticDirectHostedReturnEffect(value, state);
