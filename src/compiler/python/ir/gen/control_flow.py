@@ -32,6 +32,7 @@ def _lower_if(
     gen: IRLowerer,
     node: IfStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRIf:
     from .callable_provenance import (
         join_callable_flows,
@@ -40,7 +41,12 @@ def _lower_if(
     )
     from .statements import lower_block
 
-    cond = _lower_expr(gen, node.condition, type_renderer)
+    cond = _lower_expr(
+        gen,
+        node.condition,
+        type_renderer,
+        default_arguments,
+    )
     incoming = snapshot_callable_flow(gen)
     then, then_flow = lower_isolated_callable_flow(
         gen,
@@ -48,6 +54,7 @@ def _lower_if(
             gen,
             node.then_block,
             type_renderer=type_renderer,
+            default_arguments=default_arguments,
         ),
     )
     else_block = None
@@ -60,6 +67,7 @@ def _lower_if(
                     gen,
                     node.else_block.body,
                     type_renderer=type_renderer,
+                    default_arguments=default_arguments,
                 ),
             )
         elif isinstance(node.else_block, ElseIf):
@@ -70,6 +78,7 @@ def _lower_if(
                     gen,
                     node.else_block.if_stmt,
                     type_renderer,
+                    default_arguments,
                 ),
             )
             else_block = IRBlock(stmts=[inner])
@@ -81,6 +90,7 @@ def _lower_switch(
     gen: IRLowerer,
     node: SwitchStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRSwitch:
     from .arc import _emit_scope_release
     from .callable_provenance import (
@@ -94,7 +104,12 @@ def _lower_switch(
     from .cleanup_scopes import cleanup_scope_entry, cleanup_scope_exit
     from .statements import lower_stmt
 
-    val = _lower_expr(gen, node.value, type_renderer)
+    val = _lower_expr(
+        gen,
+        node.value,
+        type_renderer,
+        default_arguments,
+    )
     incoming = snapshot_callable_flow(gen)
     cases = []
     case_flows = []
@@ -102,7 +117,16 @@ def _lower_switch(
     gen.push_control_context("switch")
     try:
         for c in node.cases:
-            case_val = _lower_expr(gen, c.value, type_renderer) if c.value else None
+            case_val = (
+                _lower_expr(
+                    gen,
+                    c.value,
+                    type_renderer,
+                    default_arguments,
+                )
+                if c.value
+                else None
+            )
 
             restore_callable_flow(gen, incoming)
             if fallthrough_flow is not None:
@@ -118,7 +142,14 @@ def _lower_switch(
                 managed_scope_active = True
                 try:
                     for statement in case.body:
-                        case_stmts.extend(lower_stmt(gen, statement, type_renderer))
+                        case_stmts.extend(
+                            lower_stmt(
+                                gen,
+                                statement,
+                                type_renderer,
+                                default_arguments,
+                            )
+                        )
                     from ..completion import (
                         sequence_may_fall_through,
                         sequence_references_variable,
@@ -171,6 +202,7 @@ def _lower_delete(
     gen: IRLowerer,
     node: DeleteStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Lower delete through the shared take-clear destruction boundary."""
     from .managed_local import mark_borrowed_cycle_seeds
@@ -178,7 +210,12 @@ def _lower_delete(
     from .persistent_slots import stabilize_persistent_slot
 
     mark_borrowed_cycle_seeds(gen._managed_vars_stack)
-    target = _lower_expr(gen, node.expr, type_renderer)
+    target = _lower_expr(
+        gen,
+        node.expr,
+        type_renderer,
+        default_arguments,
+    )
     obj_type = gen.analyzed.node_types.get(id(node.expr))
     target, edge_owner, owner_decls = stabilize_persistent_slot(
         gen,
@@ -199,8 +236,18 @@ def _lower_delete(
     ]
 
 
-def _lower_expr(gen, node, type_renderer):
+def _lower_expr(
+    gen,
+    node,
+    type_renderer,
+    default_arguments=None,
+):
     """Convenience wrapper to avoid circular import at module level."""
     from .expressions import lower_expr
 
-    return lower_expr(gen, node, type_renderer)
+    return lower_expr(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )

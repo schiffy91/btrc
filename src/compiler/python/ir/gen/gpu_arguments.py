@@ -41,6 +41,7 @@ def prepare_gpu_arguments(
     arg_names: list[str],
     ir_args: list[IRExpr] | None,
     host: GpuHostLowering,
+    default_arguments,
     call=None,
 ) -> GpuArgumentPlan:
     """Evaluate in source order, then expose values in parameter order."""
@@ -87,6 +88,7 @@ def prepare_gpu_arguments(
                     stable_overrides,
                     values,
                     host.type_renderer,
+                    default_arguments,
                 )
         else:
             if ir_args is None:

@@ -21,6 +21,7 @@ CALL_OWNER_CONSTRUCTORS = {
         "arguments",
         "hosted_results",
         "type_renderer",
+        "default_arguments",
     },
     "call_resolver.py": {"self", "context", "expressions", "type_renderer"},
     "calls.py": {
@@ -31,6 +32,7 @@ CALL_OWNER_CONSTRUCTORS = {
         "arguments",
         "dispatch",
         "type_renderer",
+        "default_arguments",
     },
 }
 

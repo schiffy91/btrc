@@ -51,6 +51,7 @@ def lower_gpu_call(
     arg_names: list[str],
     ir_args: list[IRExpr] | None,
     type_renderer: CTypeRenderer,
+    default_arguments,
     *,
     call=None,
     host: GpuHostLowering | None = None,
@@ -70,6 +71,7 @@ def lower_gpu_call(
         arg_names,
         ir_args,
         type_renderer,
+        default_arguments,
         call=call,
         host=host,
     )
@@ -96,6 +98,7 @@ def lower_gpu_output_declaration(
     call: CallExpr,
     target: IRExpr,
     type_renderer: CTypeRenderer,
+    default_arguments,
     *,
     host: GpuHostLowering | None = None,
 ) -> GpuOutputDeclaration:
@@ -111,6 +114,7 @@ def lower_gpu_output_declaration(
         _arg_names(call),
         None,
         type_renderer,
+        default_arguments,
         call=call,
         host=host,
     )
@@ -135,6 +139,7 @@ def lower_gpu_output_assignment(
     ast_target,
     target: IRExpr,
     type_renderer: CTypeRenderer,
+    default_arguments,
     *,
     host: GpuHostLowering | None = None,
 ) -> IRExpr:
@@ -154,6 +159,7 @@ def lower_gpu_output_assignment(
         _arg_names(call),
         None,
         type_renderer,
+        default_arguments,
         call=call,
         host=host,
     )
@@ -174,6 +180,7 @@ def _prepare_site(
     arg_names: list[str],
     ir_args: list[IRExpr] | None,
     type_renderer: CTypeRenderer,
+    default_arguments,
     *,
     call=None,
     host: GpuHostLowering | None = None,
@@ -198,6 +205,7 @@ def _prepare_site(
         arg_names,
         ir_args,
         _host(gen, host, type_renderer),
+        default_arguments,
         call=call,
     )
     _register_dispatch_helper(gen, spec)

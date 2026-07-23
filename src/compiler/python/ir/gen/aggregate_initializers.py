@@ -8,6 +8,7 @@ def lower_brace_initializer(
     gen,
     node,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
     *,
     node_type=None,
     lower=None,
@@ -16,7 +17,14 @@ def lower_brace_initializer(
 
     from .expressions import lower_expr
 
-    lower = lower or (lambda element: lower_expr(gen, element, type_renderer))
+    lower = lower or (
+        lambda element: lower_expr(
+            gen,
+            element,
+            type_renderer,
+            default_arguments,
+        )
+    )
     analyzed = gen.analyzed
     node_type = node_type or analyzed.node_types.get(id(node))
     from .aggregate_ownership import reject_shallow_initializer
@@ -58,7 +66,12 @@ def _canonical_type(type_expr, typedefs):
     return canonical_type(type_expr, typedefs)
 
 
-def lower_static_initializer(gen, node, type_renderer: CTypeRenderer):
+def lower_static_initializer(
+    gen,
+    node,
+    type_renderer: CTypeRenderer,
+    default_arguments=None,
+):
     """Preserve nested initializer lists in strict-C static storage."""
 
     from ...ast_nodes import BraceInitializer, ListLiteral
@@ -70,12 +83,25 @@ def lower_static_initializer(gen, node, type_renderer: CTypeRenderer):
 
         reject_shallow_initializer(gen, node, node_type)
         canonical = _canonical_type(node_type, gen.analyzed.typedef_table)
-        elements = [lower_static_initializer(gen, element, type_renderer) for element in node.elements]
+        elements = [
+            lower_static_initializer(
+                gen,
+                element,
+                type_renderer,
+                default_arguments,
+            )
+            for element in node.elements
+        ]
         field_types = _aggregate_field_types(gen, canonical)
         if field_types is not None and elements:
             elements.extend(_zero_static_initializer(gen, field_type) for field_type in field_types[len(elements) :])
         return IRInitializerList(elements=elements)
-    return lower_expr(gen, node, type_renderer)
+    return lower_expr(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )
 
 
 def _aggregate_field_types(gen, type_expr):

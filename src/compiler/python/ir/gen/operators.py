@@ -25,15 +25,26 @@ def _lower_binary(
     gen: IRLowerer,
     node: BinaryExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower a binary expression, handling special operators."""
     if node.op == "+":
         from .string_concat import lower_long_string_concat
 
-        flattened = lower_long_string_concat(gen, node, type_renderer)
+        flattened = lower_long_string_concat(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
         if flattened is not None:
             return flattened
-    prepared_overload = _lower_prepared_overload(gen, node, type_renderer)
+    prepared_overload = _lower_prepared_overload(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )
     if prepared_overload is not None:
         return prepared_overload
     if node.op not in {"??", "&&", "||"}:
@@ -51,7 +62,12 @@ def _lower_binary(
 
         sequenced = gen.ownership.sequence_operands(
             [node.left, node.right],
-            build=lambda: _lower_binary_plain(gen, node, type_renderer),
+            build=lambda: _lower_binary_plain(
+                gen,
+                node,
+                type_renderer,
+                default_arguments,
+            ),
             result_type=gen.analyzed.node_types.get(id(node)),
             keep_nodes=keep_nodes,
             pin_nodes=pin_nodes,
@@ -61,19 +77,35 @@ def _lower_binary(
         )
         if sequenced is not None:
             return sequenced
-    return _lower_binary_plain(gen, node, type_renderer)
+    return _lower_binary_plain(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )
 
 
 def _lower_binary_plain(
     gen: IRLowerer,
     node: BinaryExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower one binary operation after owned operands are stabilized."""
     from .expressions import lower_expr
 
-    left = lower_expr(gen, node.left, type_renderer)
-    right = lower_expr(gen, node.right, type_renderer)
+    left = lower_expr(
+        gen,
+        node.left,
+        type_renderer,
+        default_arguments,
+    )
+    right = lower_expr(
+        gen,
+        node.right,
+        type_renderer,
+        default_arguments,
+    )
 
     if node.op == "??":
         if gen.ownership.owns_result(node):
@@ -200,7 +232,12 @@ def resolved_operator_param_type(gen, left_type, method):
     return expected
 
 
-def _lower_prepared_overload(gen, node, type_renderer: CTypeRenderer):
+def _lower_prepared_overload(
+    gen,
+    node,
+    type_renderer: CTypeRenderer,
+    default_arguments=None,
+):
     """Lower an overload whose RHS needs target-directed conversion."""
     left_type = gen.analyzed.node_types.get(id(node.left))
     right_type = gen.analyzed.node_types.get(id(node.right))
@@ -212,8 +249,20 @@ def _lower_prepared_overload(gen, node, type_renderer: CTypeRenderer):
 
     if not requires_string_conversion(gen, expected, right_type):
         return None
-    left = prepare_normal_value(gen, node.left, left_type, type_renderer)
-    right = prepare_normal_value(gen, node.right, expected, type_renderer)
+    left = prepare_normal_value(
+        gen,
+        node.left,
+        left_type,
+        type_renderer,
+        default_arguments=default_arguments,
+    )
+    right = prepare_normal_value(
+        gen,
+        node.right,
+        expected,
+        type_renderer,
+        default_arguments=default_arguments,
+    )
     from .call_boundary import CallOperand
     from .evaluation_order import borrowed_value_can_be_pinned
 
@@ -276,6 +325,7 @@ def _lower_unary(
     gen: IRLowerer,
     node: UnaryExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     if node.op in {"++", "--"} and isinstance(
         node.operand,
@@ -287,7 +337,12 @@ def _lower_unary(
         result_type = gen.analyzed.node_types.get(id(node))
         sequenced = gen.ownership.sequence_operands(
             target_nodes,
-            build=lambda: _lower_unary_plain(gen, node, type_renderer),
+            build=lambda: _lower_unary_plain(
+                gen,
+                node,
+                type_renderer,
+                default_arguments,
+            ),
             result_type=result_type,
             promote_result=bool(is_managed_type(gen, result_type)),
         )
@@ -296,18 +351,29 @@ def _lower_unary(
     if node.op not in {"++", "--", "&", "*"}:
         sequenced = gen.ownership.sequence_operands(
             [node.operand],
-            build=lambda: _lower_unary_plain(gen, node, type_renderer),
+            build=lambda: _lower_unary_plain(
+                gen,
+                node,
+                type_renderer,
+                default_arguments,
+            ),
             result_type=gen.analyzed.node_types.get(id(node)),
         )
         if sequenced is not None:
             return sequenced
-    return _lower_unary_plain(gen, node, type_renderer)
+    return _lower_unary_plain(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )
 
 
 def _lower_unary_plain(
     gen: IRLowerer,
     node: UnaryExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     from .expressions import lower_expr
 
@@ -316,11 +382,20 @@ def _lower_unary_plain(
         from .updates import generator_update_context, lower_incdec
 
         return lower_incdec(
-            generator_update_context(gen, type_renderer),
+            generator_update_context(
+                gen,
+                type_renderer,
+                default_arguments,
+            ),
             node,
         )
 
-    operand = lower_expr(gen, node.operand, type_renderer)
+    operand = lower_expr(
+        gen,
+        node.operand,
+        type_renderer,
+        default_arguments,
+    )
     if op == "&":
         return IRAddressOf(expr=operand, source_expression=True)
     if op == "*":

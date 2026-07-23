@@ -12,6 +12,7 @@ from .call_arguments import CallArgumentLowerer
 from .call_boundary import CallBoundaryLowerer
 from .call_emission import CallDispatchLowerer
 from .calls import CallLowerer
+from .default_arguments import DefaultArgumentLoweringContext
 from .feature_scan import _block_uses_trycatch, _stmt_uses_trycatch  # noqa: F401
 from .helpers import RuntimeHelperRegistry
 from .hosted_result_conversion import HostedResultLowerer
@@ -46,7 +47,11 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         self.freestanding = freestanding
         self.module = IRModule()
         self.helpers = RuntimeHelperRegistry()
-        self.type_renderer = CTypeRenderer(self.analyzed.typedef_table)
+        self._default_arguments = DefaultArgumentLoweringContext()
+        self.type_renderer = CTypeRenderer(
+            self.analyzed.typedef_table,
+            self._default_arguments,
+        )
         self.context = LoweringContext(
             analyzed=self.analyzed,
             module=self.module,
@@ -97,7 +102,11 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         )
         self.lifetime = ManagedLifetimeLowerer(self, self.managed_types)
         boundaries = CallBoundaryLowerer(self.context, self.lifetime)
-        call_dispatch = CallDispatchLowerer(self, self.type_renderer)
+        call_dispatch = CallDispatchLowerer(
+            self,
+            self.type_renderer,
+            self._default_arguments,
+        )
         self.ownership = OwnershipLowerer(
             self.context,
             self.managed_types,
@@ -115,6 +124,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
             hosted_results,
             call_dispatch,
             self.type_renderer,
+            self._default_arguments,
         )
         self.calls = CallLowerer(
             self.context,
@@ -123,6 +133,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
             call_arguments,
             call_dispatch,
             self.type_renderer,
+            self._default_arguments,
         )
 
     def lower(self) -> IRModule:
@@ -133,7 +144,11 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         self._emit_structs()
         from .gpu_registration import emit_gpu_functions
 
-        emit_gpu_functions(self, self.type_renderer)
+        emit_gpu_functions(
+            self,
+            self.type_renderer,
+            self._default_arguments,
+        )
         self._emit_generic_collections()
         self._emit_enums()
         self._emit_declarations()

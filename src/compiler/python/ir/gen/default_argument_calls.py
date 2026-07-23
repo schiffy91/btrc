@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from ..nodes import CType, IRCall, IRCast
-from .default_argument_context import call_argument_type
 from .default_argument_helpers import ensure_default_helper
 from .types import CTypeRenderer
 from .upcast import upcast_class_pointer
@@ -26,6 +25,7 @@ def default_call_builder(
     param_index,
     bound_nodes,
     type_renderer: CTypeRenderer,
+    default_arguments,
     *,
     receiver_node=None,
     receiver_value=None,
@@ -34,10 +34,10 @@ def default_call_builder(
     """Build a helper call from already-stabilized earlier operands."""
 
     def ordinary_argument_type(node):
-        return call_argument_type(
-            gen,
+        return default_arguments.argument_type(
             None,
             node,
+            gen.context.type_of,
         )
 
     argument_type_resolver = resolve_argument_type or ordinary_argument_type
@@ -49,6 +49,7 @@ def default_call_builder(
             params,
             param_index,
             type_renderer,
+            default_arguments,
         )
         args = []
         if target.self_type is not None:

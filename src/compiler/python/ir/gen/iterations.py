@@ -34,6 +34,7 @@ def _lower_for_in(
     gen: IRLowerer,
     node,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Lower for-in to C-style for loop."""
     from .statements import _lower_loop_body
@@ -51,6 +52,7 @@ def _lower_for_in(
                 iterable.args,
                 node.body,
                 type_renderer,
+                default_arguments,
             )
 
     # Get the iterable type from the analyzer
@@ -63,8 +65,14 @@ def _lower_for_in(
             node,
             iter_type,
             type_renderer,
+            default_arguments,
         )
-    ir_iter = _lower_expr(gen, iterable, type_renderer)
+    ir_iter = _lower_expr(
+        gen,
+        iterable,
+        type_renderer,
+        default_arguments,
+    )
 
     # Iterable protocol: any class with iterLen + iterGet methods
     if iter_type:
@@ -79,6 +87,7 @@ def _lower_for_in(
                 var_name,
                 var_name2,
                 type_renderer,
+                default_arguments,
             )
 
     # String iteration: for c in str
@@ -89,6 +98,7 @@ def _lower_for_in(
             ir_iter,
             var_name,
             type_renderer,
+            default_arguments,
         )
 
     # Fallback: assume list-like with ->len and ->data[i]
@@ -130,6 +140,7 @@ def _lower_for_in(
         gen,
         node.body,
         type_renderer,
+        default_arguments,
         iteration_bindings=[
             IterationBinding(
                 name=var_name,
@@ -164,6 +175,7 @@ def _lower_iterable_for_in(
     var_name,
     var_name2,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Lower for-in via Iterable protocol (iterLen/iterGet/iterValueAt)."""
     from .statements import _lower_loop_body
@@ -241,6 +253,7 @@ def _lower_iterable_for_in(
         gen,
         node.body,
         type_renderer,
+        default_arguments,
         iteration_bindings=bindings,
     )
 
@@ -287,8 +300,18 @@ def _iter_method_return_type(gen, cls_info, iter_type, method_name):
     )
 
 
-def _lower_expr(gen, node, type_renderer):
+def _lower_expr(
+    gen,
+    node,
+    type_renderer,
+    default_arguments=None,
+):
     """Convenience wrapper to avoid circular import at module level."""
     from .expressions import lower_expr
 
-    return lower_expr(gen, node, type_renderer)
+    return lower_expr(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )

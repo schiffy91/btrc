@@ -21,6 +21,7 @@ def build_generic_destructor_hook(
     mangled,
     gen,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Lower one source ``__del__`` into an isolated hidden function."""
     destructor = cls_info.methods.get("__del__")
@@ -34,6 +35,7 @@ def build_generic_destructor_hook(
         type_renderer,
         gen=gen,
         cls_info=cls_info,
+        default_arguments=default_arguments,
     )
     emitter.reset_var_types()
     return build_destructor_hook(

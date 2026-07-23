@@ -29,11 +29,17 @@ def _lower_try_catch(
     gen: IRLowerer,
     node: TryCatchStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Lower try/catch to setjmp/longjmp boilerplate."""
     gen.in_trycatch_depth += 1
     try:
-        return _lower_try_catch_inner(gen, node, type_renderer)
+        return _lower_try_catch_inner(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
     finally:
         gen.in_trycatch_depth -= 1
 
@@ -42,6 +48,7 @@ def _lower_try_catch_inner(
     gen: IRLowerer,
     node: TryCatchStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     from .callable_provenance import (
         begin_exceptional_callable_capture,
@@ -81,6 +88,7 @@ def _lower_try_catch_inner(
                 gen,
                 node.try_block,
                 type_renderer=type_renderer,
+                default_arguments=default_arguments,
             ),
         )
     finally:
@@ -122,6 +130,7 @@ def _lower_try_catch_inner(
                 node.catch_block,
                 iteration_bindings=catch_bindings,
                 type_renderer=type_renderer,
+                default_arguments=default_arguments,
             ),
         )
 
@@ -139,6 +148,7 @@ def _lower_try_catch_inner(
                 gen,
                 node.finally_block,
                 type_renderer=type_renderer,
+                default_arguments=default_arguments,
             ).stmts
         )
         if finally_only:
@@ -179,12 +189,18 @@ def _lower_throw(
     gen: IRLowerer,
     node: ThrowStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     _require_setjmp(gen)
     gen.helpers.use("__btrc_throw")
     from .expressions import lower_expr
 
-    expr = lower_expr(gen, node.expr, type_renderer)
+    expr = lower_expr(
+        gen,
+        node.expr,
+        type_renderer,
+        default_arguments,
+    )
     return [
         IRExprStmt(
             expr=IRCall(

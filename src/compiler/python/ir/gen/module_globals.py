@@ -10,6 +10,7 @@ def emit_global_var(
     gen,
     declaration,
     type_renderer: CTypeRenderer,
+    default_arguments,
     *,
     force_external=False,
 ) -> None:
@@ -27,6 +28,7 @@ def emit_global_var(
             gen,
             declaration,
             type_renderer,
+            default_arguments,
             force_external,
         )
         return
@@ -43,6 +45,7 @@ def emit_global_var(
                     gen,
                     declaration.initializer,
                     type_renderer,
+                    default_arguments,
                 )
                 if declaration.initializer and not is_extern
                 else None
@@ -75,6 +78,7 @@ def _emit_array_global(
     gen,
     declaration,
     type_renderer: CTypeRenderer,
+    default_arguments,
     force_external,
 ) -> None:
     from ...type_composition import strip_outer_storage
@@ -89,9 +93,23 @@ def _emit_array_global(
         IRGlobalDecl(
             c_type=CType(text=type_renderer.render(element_type)),
             name=declaration.name,
-            init=(lower_static_initializer(gen, initializer, type_renderer) if initializer else None),
+            init=(
+                lower_static_initializer(
+                    gen,
+                    initializer,
+                    type_renderer,
+                    default_arguments,
+                )
+                if initializer
+                else None
+            ),
             array_size=(
-                lower_expr(gen, type_expr.array_size, type_renderer)
+                lower_expr(
+                    gen,
+                    type_expr.array_size,
+                    type_renderer,
+                    default_arguments,
+                )
                 if type_expr.array_size is not None
                 else IRLiteral(text=str(len(initializer.elements)))
                 if initializer is not None

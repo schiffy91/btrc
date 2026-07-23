@@ -19,6 +19,7 @@ def lower_expression_statement(
     gen,
     node: ExprStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Lower one expression and release any discarded caller-owned result."""
     from .macro_boundaries import lower_assert_statement
@@ -29,6 +30,7 @@ def lower_expression_statement(
             gen,
             condition,
             type_renderer,
+            default_arguments,
         ),
         fresh_temp=gen.fresh_temp,
         record_decl=gen.context.function_declarations.append,
@@ -46,7 +48,12 @@ def lower_expression_statement(
             destroy_receiver,
             type_renderer,
         )
-    lowered = lower_expr(gen, node.expr, type_renderer)
+    lowered = lower_expr(
+        gen,
+        node.expr,
+        type_renderer,
+        default_arguments,
+    )
 
     from .assignments import _is_gpu_output_assignment
 

@@ -54,6 +54,7 @@ from .literal_text import format_c_integer_literal
 from .types import CTypeRenderer
 
 if TYPE_CHECKING:
+    from .default_arguments import DefaultArgumentLoweringContext
     from .lowerer import IRLowerer
 
 
@@ -61,6 +62,7 @@ def lower_expr(
     gen: IRLowerer,
     node,
     type_renderer: CTypeRenderer,
+    default_arguments: DefaultArgumentLoweringContext | None = None,
 ) -> IRExpr:
     """Lower an AST expression node to an IRExpr."""
     if node is None:
@@ -98,7 +100,11 @@ def lower_expr(
         return IRLiteral(text="NULL")
 
     if isinstance(node, Identifier):
-        return _lower_identifier(gen, node)
+        return _lower_identifier(
+            gen,
+            node,
+            default_arguments,
+        )
 
     if isinstance(node, SelfExpr):
         return IRVar(name="self")
@@ -117,12 +123,22 @@ def lower_expr(
     if isinstance(node, BinaryExpr):
         from .operators import _lower_binary
 
-        return _lower_binary(gen, node, type_renderer)
+        return _lower_binary(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, UnaryExpr):
         from .operators import _lower_unary
 
-        return _lower_unary(gen, node, type_renderer)
+        return _lower_unary(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, CallExpr):
         return gen.calls.lower(node)
@@ -130,17 +146,32 @@ def lower_expr(
     if isinstance(node, FieldAccessExpr):
         from .fields import _lower_field_access
 
-        return _lower_field_access(gen, node, type_renderer)
+        return _lower_field_access(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, IndexExpr):
         from .fields import _lower_index
 
-        return _lower_index(gen, node, type_renderer)
+        return _lower_index(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, AssignExpr):
         from .assignments import lower_assignment_expr
 
-        return lower_assignment_expr(gen, node, type_renderer)
+        return lower_assignment_expr(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, CastExpr):
         target_type = type_renderer.render(node.target_type)
@@ -150,17 +181,37 @@ def lower_expr(
             target_type += "*"
         return IRCast(
             target_type=CType(text=target_type),
-            expr=lower_expr(gen, node.expr, type_renderer),
+            expr=lower_expr(
+                gen,
+                node.expr,
+                type_renderer,
+                default_arguments,
+            ),
         )
 
     if isinstance(node, SizeofExpr):
-        return _lower_sizeof(gen, node, type_renderer)
+        return _lower_sizeof(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, TernaryExpr):
         from .typed_operators import lower_typed_ternary, operator_context
 
-        true_expr = lower_expr(gen, node.true_expr, type_renderer)
-        false_expr = lower_expr(gen, node.false_expr, type_renderer)
+        true_expr = lower_expr(
+            gen,
+            node.true_expr,
+            type_renderer,
+            default_arguments,
+        )
+        false_expr = lower_expr(
+            gen,
+            node.false_expr,
+            type_renderer,
+            default_arguments,
+        )
         if gen.ownership.owns_result(node):
             true_expr = gen.ownership.normalize_branch(
                 node.true_expr,
@@ -171,7 +222,12 @@ def lower_expr(
                 false_expr,
             )
         return lower_typed_ternary(
-            lower_expr(gen, node.condition, type_renderer),
+            lower_expr(
+                gen,
+                node.condition,
+                type_renderer,
+                default_arguments,
+            ),
             true_expr,
             false_expr,
             gen.analyzed.node_types.get(id(node.true_expr)),
@@ -182,52 +238,92 @@ def lower_expr(
     if isinstance(node, NewExpr):
         from .constructor_calls import lower_new_expr
 
-        return lower_new_expr(gen, node, type_renderer)
+        return lower_new_expr(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, ListLiteral):
         from .collections import lower_list_literal
 
-        return lower_list_literal(gen, node, type_renderer)
+        return lower_list_literal(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, MapLiteral):
         from .collections import lower_map_literal
 
-        return lower_map_literal(gen, node, type_renderer)
+        return lower_map_literal(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, FStringLiteral):
         from .fstrings import lower_fstring
 
-        return lower_fstring(gen, node, type_renderer)
+        return lower_fstring(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, LambdaExpr):
         from .lambdas import lower_lambda
 
-        return lower_lambda(gen, node, type_renderer)
+        return lower_lambda(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, TupleLiteral):
-        return _lower_tuple(gen, node, type_renderer)
+        return _lower_tuple(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, SpawnExpr):
         from .threads import lower_spawn
 
-        return lower_spawn(gen, node, type_renderer)
+        return lower_spawn(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     if isinstance(node, BraceInitializer):
         from .aggregate_initializers import lower_brace_initializer
 
-        return lower_brace_initializer(gen, node, type_renderer)
+        return lower_brace_initializer(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
 
     raise unsupported_node("expression", node)
 
 
-def _lower_identifier(gen: IRLowerer, node: Identifier) -> IRExpr:
+def _lower_identifier(
+    gen: IRLowerer,
+    node: Identifier,
+    default_arguments: DefaultArgumentLoweringContext | None,
+) -> IRExpr:
     """Lower an identifier, handling enum values."""
     name = node.name
-    from .default_argument_context import (
-        resolve_default_predefined_identifier,
-    )
-
-    predefined = resolve_default_predefined_identifier(node)
+    predefined = default_arguments.predefined_identifier(node) if default_arguments is not None else None
     if predefined is not None:
         return IRLiteral(text=predefined)
     if gen.local_ownership_declared(name):
@@ -265,6 +361,7 @@ def _lower_sizeof(
     gen: IRLowerer,
     node: SizeofExpr,
     type_renderer: CTypeRenderer,
+    default_arguments: DefaultArgumentLoweringContext,
 ) -> IRExpr:
     if isinstance(node.operand, SizeofType):
         return IRSizeof(operand=CType(text=type_renderer.render(node.operand.type)))
@@ -278,7 +375,14 @@ def _lower_sizeof(
             return IRSizeof(operand=CType(text=type_renderer.render(expression_type)))
         gen.context.unevaluated_depth += 1
         try:
-            return IRSizeof(operand=lower_expr(gen, expression, type_renderer))
+            return IRSizeof(
+                operand=lower_expr(
+                    gen,
+                    expression,
+                    type_renderer,
+                    default_arguments,
+                )
+            )
         finally:
             gen.context.unevaluated_depth -= 1
     return IRSizeof(operand=CType(text="void"))
@@ -288,13 +392,22 @@ def _lower_tuple(
     gen: IRLowerer,
     node: TupleLiteral,
     type_renderer: CTypeRenderer,
+    default_arguments: DefaultArgumentLoweringContext,
 ) -> IRExpr:
     """Lower tuple literal to C struct initializer."""
     from .aggregate_ownership import reject_owned_elements
     from .types import mangle_tuple_type
 
     reject_owned_elements(gen, node.elements, "a shallow aggregate")
-    elems = [lower_expr(gen, e, type_renderer) for e in node.elements]
+    elems = [
+        lower_expr(
+            gen,
+            element,
+            type_renderer,
+            default_arguments,
+        )
+        for element in node.elements
+    ]
     node_type = gen.analyzed.node_types.get(id(node))
     if node_type and node_type.generic_args:
         mangled = mangle_tuple_type(node_type)

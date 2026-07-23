@@ -42,6 +42,7 @@ def emit_destructor(
     decl: ClassDecl,
     cls_info: ClassInfo,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> str | None:
     """Emit ClassName_destroy(self) which frees internal resources."""
     name = decl.name
@@ -65,6 +66,7 @@ def emit_destructor(
                     dtor.body,
                     local_bindings=["self"],
                     type_renderer=type_renderer,
+                    default_arguments=default_arguments,
                 ),
             )
         finally:
@@ -129,6 +131,7 @@ def emit_method(
     decl: ClassDecl,
     method: MethodDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Emit ClassName_methodname(self, ...) as a free function."""
     name = decl.name
@@ -164,6 +167,7 @@ def emit_method(
             local_bindings=["self", *(parameter.name for parameter in method.params)],
             callable_bindings=method.params,
             type_renderer=type_renderer,
+            default_arguments=default_arguments,
         )
         gen.current_return_type = previous_return_type
         gen.current_return_c_type = previous_return_c_type
@@ -185,6 +189,7 @@ def emit_inherited_methods(
     cls_info: ClassInfo,
     own_methods: set[str],
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Emit wrapper functions for inherited methods not overridden."""
     parent_name = cls_info.parent

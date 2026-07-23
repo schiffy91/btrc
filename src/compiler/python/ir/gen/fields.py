@@ -39,6 +39,7 @@ def _lower_field_access(
     gen: IRLowerer,
     node: FieldAccessExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower field access, handling optional chaining and special types."""
     from .managed_values import is_managed_type
@@ -64,6 +65,7 @@ def _lower_field_access(
             gen,
             node,
             type_renderer,
+            default_arguments,
         ),
         result_type=result_type,
         pin_nodes=[node.obj] if custom_getter else [],
@@ -71,18 +73,29 @@ def _lower_field_access(
     )
     if sequenced is not None:
         return sequenced
-    return _lower_field_access_plain(gen, node, type_renderer)
+    return _lower_field_access_plain(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )
 
 
 def _lower_field_access_plain(
     gen: IRLowerer,
     node: FieldAccessExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower one field access after any owning receiver is stabilized."""
     from .expressions import lower_expr
 
-    obj = lower_expr(gen, node.obj, type_renderer)
+    obj = lower_expr(
+        gen,
+        node.obj,
+        type_renderer,
+        default_arguments,
+    )
     obj_type = gen.analyzed.node_types.get(id(node.obj))
     from .parameters import source_field_c_name
 
@@ -249,6 +262,7 @@ def _lower_index(
     gen: IRLowerer,
     node: IndexExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower index expression: list[i] → List_get(list, i), map[k] → Map_get(map, k)."""
     from .managed_values import is_managed_type
@@ -270,7 +284,12 @@ def _lower_index(
     )
     sequenced = gen.ownership.sequence_operands(
         [*dependencies, node.obj, node.index],
-        build=lambda: _lower_index_plain(gen, node, type_renderer),
+        build=lambda: _lower_index_plain(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        ),
         result_type=result_type,
         pin_nodes=[node.obj] if protocol_getter is not None else [],
         promote_result=bool(is_managed_type(gen, result_type) and not projection_call),
@@ -278,19 +297,35 @@ def _lower_index(
     )
     if sequenced is not None:
         return sequenced
-    return _lower_index_plain(gen, node, type_renderer)
+    return _lower_index_plain(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )
 
 
 def _lower_index_plain(
     gen: IRLowerer,
     node: IndexExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower one index projection after its receiver is stabilized."""
     from .expressions import lower_expr
 
-    obj = lower_expr(gen, node.obj, type_renderer)
-    index = lower_expr(gen, node.index, type_renderer)
+    obj = lower_expr(
+        gen,
+        node.obj,
+        type_renderer,
+        default_arguments,
+    )
+    index = lower_expr(
+        gen,
+        node.index,
+        type_renderer,
+        default_arguments,
+    )
     obj_type = gen.analyzed.node_types.get(id(node.obj))
     gpu_lengths = getattr(gen, "_gpu_cpu_array_lengths", None)
     if gpu_lengths and isinstance(node.obj, Identifier) and node.obj.name in gpu_lengths:

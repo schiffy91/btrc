@@ -49,6 +49,7 @@ def emit_struct_decl(
     gen: IRLowerer,
     decl: StructDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Emit a plain struct (not class) definition."""
     if decl.is_forward:
@@ -70,6 +71,7 @@ def emit_struct_decl(
                         gen,
                         f.type.array_size,
                         type_renderer,
+                        default_arguments,
                     ),
                     is_volatile=bool(f.type.is_volatile),
                     effective_is_volatile=effective_outer_volatile(
@@ -103,6 +105,7 @@ def emit_class_decl(
     gen: IRLowerer,
     decl: ClassDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Emit a class: struct + constructor + destructor + methods."""
     cls_info = gen.analyzed.class_table.get(decl.name)
@@ -114,7 +117,12 @@ def emit_class_decl(
 
     # Struct definition
     _emit_class_struct(gen, decl, cls_info, type_renderer)
-    _emit_static_fields(gen, decl, type_renderer)
+    _emit_static_fields(
+        gen,
+        decl,
+        type_renderer,
+        default_arguments,
+    )
 
     # Forward-declare all methods (avoids ordering issues like
     # destructor calling close() before close is defined)
@@ -126,7 +134,13 @@ def emit_class_decl(
     )
 
     # Constructor: ClassName_init and ClassName_new
-    _emit_constructor(gen, decl, cls_info, type_renderer)
+    _emit_constructor(
+        gen,
+        decl,
+        cls_info,
+        type_renderer,
+        default_arguments,
+    )
 
     # Destructor
     destructor_hook = _emit_destructor(
@@ -134,6 +148,7 @@ def emit_class_decl(
         decl,
         cls_info,
         type_renderer,
+        default_arguments,
     )
 
     # ARC: every representation with managed outgoing slots gets a visitor.
@@ -159,9 +174,21 @@ def emit_class_decl(
         if isinstance(member, MethodDecl) and not member.is_constructor and member.name != "__del__":
             own_methods.add(member.name)
             if not member.generic_params and not member.is_abstract and member.body is not None:
-                _emit_method(gen, decl, member, type_renderer)
+                _emit_method(
+                    gen,
+                    decl,
+                    member,
+                    type_renderer,
+                    default_arguments,
+                )
         elif isinstance(member, PropertyDecl):
-            _emit_property(gen, decl, member, type_renderer)
+            _emit_property(
+                gen,
+                decl,
+                member,
+                type_renderer,
+                default_arguments,
+            )
             own_properties.add(member.name)
 
     _emit_inherited_properties(
@@ -170,6 +197,7 @@ def emit_class_decl(
         cls_info,
         own_properties,
         type_renderer,
+        default_arguments,
     )
 
     # Inherit parent methods that aren't overridden
@@ -180,6 +208,7 @@ def emit_class_decl(
             cls_info,
             own_methods,
             type_renderer,
+            default_arguments,
         )
 
     gen.current_class = None

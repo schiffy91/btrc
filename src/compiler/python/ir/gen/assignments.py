@@ -16,6 +16,7 @@ def lower_assignment_expr(
     gen: IRLowerer,
     node: AssignExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower one assignment after enforcing aggregate/operand ownership."""
     from .aggregate_ownership import reject_shallow_store
@@ -55,7 +56,12 @@ def lower_assignment_expr(
     lowered = None
     if target_nodes:
         result_type = None if _is_gpu_output_assignment(gen, node) else gen.analyzed.node_types.get(id(node))
-        prepared_targets = _prepared_index_targets(gen, node, type_renderer)
+        prepared_targets = _prepared_index_targets(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
         rhs_supplies_result = bool(
             node.op == "="
             and gen.ownership.effects.virtual_assignment_owns(
@@ -65,7 +71,12 @@ def lower_assignment_expr(
         )
         sequenced = gen.ownership.sequence_operands(
             target_nodes,
-            build=lambda: _lower_plain_assignment(gen, node, type_renderer),
+            build=lambda: _lower_plain_assignment(
+                gen,
+                node,
+                type_renderer,
+                default_arguments,
+            ),
             result_type=result_type,
             keep_nodes=kept_target_operands(
                 node.target,
@@ -80,14 +91,24 @@ def lower_assignment_expr(
         if sequenced is not None:
             lowered = sequenced
     if lowered is None:
-        lowered = _lower_plain_assignment(gen, node, type_renderer)
+        lowered = _lower_plain_assignment(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
     from .callable_provenance import rebind_local_callable
 
     rebind_local_callable(gen, node)
     return lowered
 
 
-def _prepared_index_targets(gen, node, type_renderer: CTypeRenderer):
+def _prepared_index_targets(
+    gen,
+    node,
+    type_renderer: CTypeRenderer,
+    default_arguments=None,
+):
     """Prepare an indexed setter key against its declared target type."""
     from ...ast_nodes import IndexExpr
 
@@ -120,6 +141,7 @@ def _prepared_index_targets(gen, node, type_renderer: CTypeRenderer):
             node.target.index,
             expected,
             type_renderer,
+            default_arguments=default_arguments,
         )
     }
 
@@ -128,13 +150,19 @@ def _lower_plain_assignment(
     gen: IRLowerer,
     node: AssignExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower one assignment after any owning target is stabilized."""
     # Array-returning GPU dispatch writes through an existing array/collection
     # target; it does not rebind a managed collection owner.  Recognize that
     # storage operation before the ordinary ARC assignment handlers lower its
     # RHS as an unsupported value-producing GPU call.
-    gpu_assignment = _lower_gpu_assignment(gen, node, type_renderer)
+    gpu_assignment = _lower_gpu_assignment(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )
     if gpu_assignment is not None:
         return gpu_assignment
 
@@ -153,7 +181,11 @@ def _lower_plain_assignment(
     from .updates import generator_update_context, lower_assignment
 
     return lower_assignment(
-        generator_update_context(gen, type_renderer),
+        generator_update_context(
+            gen,
+            type_renderer,
+            default_arguments,
+        ),
         node,
     )
 
@@ -162,19 +194,26 @@ def _lower_gpu_assignment(
     gen: IRLowerer,
     node: AssignExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ):
     if not _is_gpu_output_assignment(gen, node):
         return None
     from .expressions import lower_expr
     from .gpu_dispatch import lower_gpu_output_assignment
 
-    target = lower_expr(gen, node.target, type_renderer)
+    target = lower_expr(
+        gen,
+        node.target,
+        type_renderer,
+        default_arguments,
+    )
     return lower_gpu_output_assignment(
         gen,
         node.value,
         node.target,
         target,
         type_renderer,
+        default_arguments,
     )
 
 

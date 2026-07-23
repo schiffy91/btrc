@@ -25,6 +25,7 @@ def lower_fixed_array_for_in(
     node,
     array_type,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Hoist array backing once and iterate over its preserved C extent."""
     from ...hosted_alias_carriers import hosted_alias_argument
@@ -69,6 +70,7 @@ def lower_fixed_array_for_in(
                 gen,
                 expression,
                 type_renderer,
+                default_arguments,
             ),
         )
         name = gen.fresh_temp("__array_storage")
@@ -96,7 +98,12 @@ def lower_fixed_array_for_in(
         values=gen.context.owning_overrides,
         types=storage_types,
         type_values=gen.context.type_overrides,
-        operation=lambda: lower_expr(gen, node.iterable, type_renderer),
+        operation=lambda: lower_expr(
+            gen,
+            node.iterable,
+            type_renderer,
+            default_arguments,
+        ),
     )
     iterable = gen.fresh_temp("__iter")
     length = gen.fresh_temp("__n")
@@ -124,6 +131,7 @@ def lower_fixed_array_for_in(
         gen,
         node.body,
         type_renderer,
+        default_arguments,
         iteration_bindings=[
             IterationBinding(
                 name=node.var_name,

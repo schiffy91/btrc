@@ -161,11 +161,19 @@ def prepare_normal_value(
     *,
     lowered=None,
     lower_value=None,
+    default_arguments=None,
 ) -> PreparedValue:
     """Prepare one value with the normal generator's concrete dependencies."""
     from .expressions import lower_expr
 
-    lower_value = lower_value or (lambda value: lower_expr(gen, value, type_renderer))
+    lower_value = lower_value or (
+        lambda value: lower_expr(
+            gen,
+            value,
+            type_renderer,
+            default_arguments,
+        )
+    )
     return prepare_value(
         gen,
         node,

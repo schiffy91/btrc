@@ -28,6 +28,7 @@ def lower_return(
     gen: IRLowerer,
     node: ReturnStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Lower one return while enforcing the managed-value return ABI.
 
@@ -61,6 +62,7 @@ def lower_return(
         node.value,
         gen.current_return_type,
         type_renderer,
+        default_arguments=default_arguments,
     )
     value = prepared.value
     value_type = prepared.effective_type

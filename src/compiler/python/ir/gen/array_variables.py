@@ -26,6 +26,7 @@ def lower_array_var_decl(
     node: VarDeclStmt,
     storage: dict[str, bool],
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Lower an array declaration, including direct GPU-result readback."""
     from ...type_composition import strip_outer_storage
@@ -36,7 +37,16 @@ def lower_array_var_decl(
     # but do not activate it: an array initializer resolves in the enclosing
     # source scope just like an ordinary local initializer.
     binding_c_name = gen.next_source_binding_c_name(node.name)
-    explicit_size = lower_expr(gen, node.type.array_size, type_renderer) if node.type.array_size else None
+    explicit_size = (
+        lower_expr(
+            gen,
+            node.type.array_size,
+            type_renderer,
+            default_arguments,
+        )
+        if node.type.array_size
+        else None
+    )
 
     if isinstance(node.initializer, (BraceInitializer, ListLiteral)):
         from .aggregate_ownership import reject_owned_elements
@@ -46,7 +56,15 @@ def lower_array_var_decl(
             node.initializer.elements,
             "a shallow C array",
         )
-        elements = [lower_expr(gen, item, type_renderer) for item in node.initializer.elements]
+        elements = [
+            lower_expr(
+                gen,
+                item,
+                type_renderer,
+                default_arguments,
+            )
+            for item in node.initializer.elements
+        ]
         gen.declare_local_ownership(node.name, c_name=binding_c_name)
         declaration = _declaration(
             base_c,
@@ -97,6 +115,7 @@ def lower_array_var_decl(
             node.initializer,
             IRVar(name=binding_c_name),
             type_renderer,
+            default_arguments,
         )
         gen.declare_local_ownership(node.name, c_name=binding_c_name)
         inferred_size = plan.array_length
@@ -137,7 +156,16 @@ def lower_array_var_decl(
             IRExprStmt(expr=plan.call),
         ]
 
-    initializer = lower_expr(gen, node.initializer, type_renderer) if node.initializer else None
+    initializer = (
+        lower_expr(
+            gen,
+            node.initializer,
+            type_renderer,
+            default_arguments,
+        )
+        if node.initializer
+        else None
+    )
     gen.declare_local_ownership(node.name, c_name=binding_c_name)
 
     return [

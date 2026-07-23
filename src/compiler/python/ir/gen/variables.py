@@ -37,6 +37,7 @@ def _lower_var_decl(
     gen: IRLowerer,
     node: VarDeclStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     from ...ast_nodes import BraceInitializer
     from .types import is_generic_class_type, mangle_generic_type
@@ -60,6 +61,7 @@ def _lower_var_decl(
             node,
             _storage_metadata(gen, node),
             type_renderer,
+            default_arguments,
         )
         if external_declaration:
             result.append(_mark_external_declaration_used(gen.source_binding_c_name(node.name)))
@@ -104,6 +106,7 @@ def _lower_var_decl(
                     gen,
                     node.initializer,
                     type_renderer,
+                    default_arguments,
                 )
             else:
                 from .prepared_values import prepare_normal_value
@@ -113,6 +116,7 @@ def _lower_var_decl(
                     node.initializer,
                     node.type,
                     type_renderer,
+                    default_arguments=default_arguments,
                 )
                 init = prepared.value
 
@@ -132,6 +136,7 @@ def _lower_var_decl(
                 node.type,
                 type_renderer,
                 lowered=init,
+                default_arguments=default_arguments,
             )
             init = prepared.value
 

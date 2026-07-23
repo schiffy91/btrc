@@ -29,7 +29,11 @@ def reject_shallow_initializer(gen, node, node_type=None) -> None:
         reject_owned_elements(gen, node.elements, "a shallow aggregate")
 
 
-def reject_rich_enum_owned_args(gen, call) -> None:
+def reject_rich_enum_owned_args(
+    gen,
+    call,
+    default_arguments,
+) -> None:
     """Reject owned payloads passed into a shallow tagged union variant."""
     from .rich_enum_calls import rich_enum_variant_target
 
@@ -63,6 +67,7 @@ def reject_rich_enum_owned_args(gen, call) -> None:
                 gen,
                 parameter,
                 value,
+                default_arguments,
             )
         )
         if not unsafe:
@@ -81,20 +86,21 @@ def reject_rich_enum_owned_args(gen, call) -> None:
         )
 
 
-def _payload_value_requires_owner(gen, parameter, value):
-    from .default_argument_context import (
-        call_argument_type,
-        in_call_argument_context,
-    )
+def _payload_value_requires_owner(
+    gen,
+    parameter,
+    value,
+    default_arguments,
+):
     from .hosted_result_conversion import requires_target_value_conversion
 
-    source_type = call_argument_type(
-        gen,
+    source_type = default_arguments.argument_type(
         parameter,
         value,
+        gen.context.type_of,
         is_default=False,
     )
-    return in_call_argument_context(
+    return default_arguments.evaluate(
         parameter,
         False,
         lambda: gen.ownership.owns_result(value),

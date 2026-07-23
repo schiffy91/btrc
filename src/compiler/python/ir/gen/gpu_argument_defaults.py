@@ -13,6 +13,7 @@ def lower_default_argument(
     stable_overrides,
     parameter_values,
     type_renderer,
+    default_arguments,
 ):
     """Evaluate a default with earlier parameters in their kernel ABI form."""
 
@@ -33,6 +34,7 @@ def lower_default_argument(
         param_index,
         bound_nodes,
         type_renderer,
+        default_arguments,
         resolve_argument_type=host.resolve_type,
     )(overrides)
 

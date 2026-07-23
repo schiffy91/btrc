@@ -167,19 +167,36 @@ class _ModuleGenerationMixin:
 
         for decl in self.analyzed.program.declarations:
             if isinstance(decl, StructDecl):
-                emit_struct_decl(self, decl, self.type_renderer)
+                emit_struct_decl(
+                    self,
+                    decl,
+                    self.type_renderer,
+                    self._default_arguments,
+                )
 
     def _emit_generic_collections(self):
         from .generics.core import emit_generic_instances
         from .generics.methods_mono import emit_generic_method_instances
 
-        emit_generic_instances(self, self.type_renderer)
-        emit_generic_method_instances(self, self.type_renderer)
+        emit_generic_instances(
+            self,
+            self.type_renderer,
+            self._default_arguments,
+        )
+        emit_generic_method_instances(
+            self,
+            self.type_renderer,
+            self._default_arguments,
+        )
 
     def _emit_enums(self):
         from .enums import emit_enum_decls
 
-        emit_enum_decls(self, self.type_renderer)
+        emit_enum_decls(
+            self,
+            self.type_renderer,
+            self._default_arguments,
+        )
 
     def _emit_declarations(self):
         """Emit executable and non-executable top-level declarations."""
@@ -194,9 +211,19 @@ class _ModuleGenerationMixin:
                 continue
             if isinstance(decl, ClassDecl):
                 if not decl.generic_params:
-                    emit_class_decl(self, decl, self.type_renderer)
+                    emit_class_decl(
+                        self,
+                        decl,
+                        self.type_renderer,
+                        self._default_arguments,
+                    )
             elif isinstance(decl, FunctionDecl):
-                emit_function_decl(self, decl, self.type_renderer)
+                emit_function_decl(
+                    self,
+                    decl,
+                    self.type_renderer,
+                    self._default_arguments,
+                )
             elif isinstance(decl, TypedefDecl):
                 self.module.typedef_defs.append(
                     IRTypedefDef(
@@ -226,19 +253,28 @@ class _ModuleGenerationMixin:
                 paired_extern = definition is not None and any(
                     candidate.type and candidate.type.is_extern for candidate in group
                 )
-                self._emit_global_var(chosen, force_external=paired_extern)
+                self._emit_global_var(
+                    chosen,
+                    force_external=paired_extern,
+                )
             elif isinstance(decl, PreprocessorDirective):
                 from .preprocessor import lower_preprocessor
 
                 lower_preprocessor(self, decl)
 
-    def _emit_global_var(self, decl: VarDeclStmt, *, force_external=False):
+    def _emit_global_var(
+        self,
+        decl: VarDeclStmt,
+        *,
+        force_external=False,
+    ):
         from .module_globals import emit_global_var
 
         emit_global_var(
             self,
             decl,
             self.type_renderer,
+            self._default_arguments,
             force_external=force_external,
         )
 

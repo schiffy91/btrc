@@ -45,6 +45,7 @@ def emit_property(
     declaration: ClassDecl,
     prop: PropertyDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> None:
     """Emit getter/setter functions for one declared property."""
     name = declaration.name
@@ -58,6 +59,7 @@ def emit_property(
             backing,
             prop_type,
             type_renderer,
+            default_arguments,
         )
         gen.module.function_defs.append(
             IRFunctionDef(
@@ -75,6 +77,7 @@ def emit_property(
             backing,
             value_name,
             type_renderer,
+            default_arguments,
         )
         gen.module.function_defs.append(
             IRFunctionDef(
@@ -100,6 +103,7 @@ def emit_inherited_properties(
     class_info: ClassInfo,
     own_properties: set[str],
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> None:
     """Expose direct-parent property accessors with child-typed wrappers."""
     parent_name = class_info.parent
@@ -175,6 +179,7 @@ def _getter_body(
     backing,
     prop_type,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     if prop.getter_body is None:
         return IRBlock(
@@ -208,6 +213,7 @@ def _getter_body(
             prop.getter_body,
             local_bindings=["self"],
             type_renderer=type_renderer,
+            default_arguments=default_arguments,
         )
     finally:
         gen.context.current_property_backing = previous_backing
@@ -223,6 +229,7 @@ def _setter_body(
     backing,
     value_name,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     if prop.setter_body is None:
         if is_managed_type(gen, prop.type):
@@ -311,6 +318,7 @@ def _setter_body(
             local_bindings=["self", "value"],
             callable_bindings=[("value", prop.type)],
             type_renderer=type_renderer,
+            default_arguments=default_arguments,
         )
     finally:
         gen.context.current_property_backing = previous_backing

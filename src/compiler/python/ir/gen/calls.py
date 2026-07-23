@@ -35,6 +35,7 @@ class CallLowerer:
         arguments,
         dispatch,
         type_renderer: CTypeRenderer,
+        default_arguments,
     ) -> None:
         self.context = context
         self.ownership = ownership
@@ -50,6 +51,7 @@ class CallLowerer:
             arguments,
             hosted_results,
             type_renderer,
+            default_arguments,
         )
 
     def lower(self, node: CallExpr) -> IRExpr:

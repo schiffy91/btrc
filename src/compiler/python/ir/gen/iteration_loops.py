@@ -24,6 +24,7 @@ def _lower_range_for(
     args: list,
     body,
     type_renderer,
+    default_arguments=None,
 ) -> list[IRStmt]:
     """Lower ``for x in range(...)`` to one structured C loop."""
     from .expressions import lower_expr
@@ -34,12 +35,32 @@ def _lower_range_for(
     step = IRLiteral(text="1")
     if args:
         if len(args) == 1:
-            end = lower_expr(gen, args[0], type_renderer)
+            end = lower_expr(
+                gen,
+                args[0],
+                type_renderer,
+                default_arguments,
+            )
         else:
-            start = lower_expr(gen, args[0], type_renderer)
-            end = lower_expr(gen, args[1], type_renderer)
+            start = lower_expr(
+                gen,
+                args[0],
+                type_renderer,
+                default_arguments,
+            )
+            end = lower_expr(
+                gen,
+                args[1],
+                type_renderer,
+                default_arguments,
+            )
         if len(args) >= 3:
-            step = lower_expr(gen, args[2], type_renderer)
+            step = lower_expr(
+                gen,
+                args[2],
+                type_renderer,
+                default_arguments,
+            )
     gen.push_local_ownership_scope()
     from .callable_provenance import (
         begin_callable_scope,
@@ -51,7 +72,12 @@ def _lower_range_for(
     try:
         c_name = gen.declare_local_ownership(var_name)
         declare_callable_shadow(gen, var_name)
-        body_block = _lower_loop_body(gen, body, type_renderer)
+        body_block = _lower_loop_body(
+            gen,
+            body,
+            type_renderer,
+            default_arguments,
+        )
 
         condition = IRBinOp(left=IRVar(name=c_name), op="<", right=end)
         update = IRUnaryOp(op="++", operand=IRVar(name=c_name), prefix=False)
@@ -75,7 +101,12 @@ def _lower_range_for(
         gen.pop_local_ownership_scope()
 
 
-def _lower_c_for(gen, node: CForStmt, type_renderer) -> IRStmt:
+def _lower_c_for(
+    gen,
+    node: CForStmt,
+    type_renderer,
+    default_arguments=None,
+) -> IRStmt:
     """Lower a C-style loop with one exact lexical initializer lifetime."""
     from .callable_provenance import (
         begin_callable_scope,
@@ -110,22 +141,51 @@ def _lower_c_for(gen, node: CForStmt, type_renderer) -> IRStmt:
             # or Thread ownership statements that cannot live in a C for-clause.
             # Hoist the complete structured declaration into the loop's own
             # block rather than duplicating those ownership rules here.
-            prefix.extend(_lower_var_decl(gen, declaration, type_renderer))
+            prefix.extend(
+                _lower_var_decl(
+                    gen,
+                    declaration,
+                    type_renderer,
+                    default_arguments,
+                )
+            )
         elif isinstance(node.init, ForInitExpr):
-            init_node = IRExprStmt(expr=lower_expr(gen, node.init.expression, type_renderer))
+            init_node = IRExprStmt(
+                expr=lower_expr(
+                    gen,
+                    node.init.expression,
+                    type_renderer,
+                    default_arguments,
+                )
+            )
 
-        condition = lower_expr(gen, node.condition, type_renderer) if node.condition else IRLiteral(text="1")
+        condition = (
+            lower_expr(
+                gen,
+                node.condition,
+                type_renderer,
+                default_arguments,
+            )
+            if node.condition
+            else IRLiteral(text="1")
+        )
         body = _lower_loop_body(
             gen,
             node.body,
             type_renderer,
+            default_arguments,
         )
         update = None
         if node.update:
             before_update = snapshot_callable_flow(gen)
             update, update_flow = lower_isolated_callable_flow(
                 gen,
-                lambda: lower_expr(gen, node.update, type_renderer),
+                lambda: lower_expr(
+                    gen,
+                    node.update,
+                    type_renderer,
+                    default_arguments,
+                ),
             )
             join_callable_flows(gen, before_update, update_flow)
         loop = IRFor(

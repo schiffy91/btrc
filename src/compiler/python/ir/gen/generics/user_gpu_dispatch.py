@@ -73,6 +73,7 @@ def lower_generic_gpu_call(emitter, call, lowered_args: list[IRExpr] | None) -> 
         arg_names_for(call, len(call.args)),
         lowered_args,
         emitter._type_renderer,
+        emitter._default_arguments,
         call=call,
         host=generic_gpu_host(emitter),
     )
@@ -110,6 +111,7 @@ def lower_generic_gpu_output_assignment(emitter, assignment) -> IRExpr | None:
         assignment.target,
         emitter._expr(assignment.target),
         emitter._type_renderer,
+        emitter._default_arguments,
         host=generic_gpu_host(emitter),
     )
 

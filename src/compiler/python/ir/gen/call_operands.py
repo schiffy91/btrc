@@ -2,11 +2,6 @@
 
 from .call_boundary import CallOperand
 from .call_operand_diagnostics import missing_default_target, missing_operand_type
-from .default_argument_context import (
-    default_argument_scope,
-    in_call_argument_context,
-    resolve_default_type,
-)
 from .evaluation_order import borrowed_value_can_be_pinned
 from .projection_storage import evaluate_with_operand_overrides
 from .types import CTypeRenderer
@@ -23,6 +18,7 @@ class CallOperandPlanner:
         arguments,
         hosted_results,
         type_renderer: CTypeRenderer,
+        default_arguments,
     ) -> None:
         self.context = context
         self.ownership = ownership
@@ -30,6 +26,7 @@ class CallOperandPlanner:
         self.arguments = arguments
         self.hosted_results = hosted_results
         self.type_renderer = type_renderer
+        self.default_arguments = default_arguments
 
     def plan(
         self,
@@ -164,7 +161,7 @@ class CallOperandPlanner:
                 managed
                 and (
                     converted
-                    or in_call_argument_context(
+                    or self.default_arguments.evaluate(
                         param,
                         is_default,
                         lambda argument=argument: self.ownership.owns_result(argument),
@@ -372,7 +369,7 @@ class CallOperandPlanner:
             is_default=is_default,
             owns_result=lambda value: bool(
                 id(value) not in self.context.owning_overrides
-                and in_call_argument_context(
+                and self.default_arguments.evaluate(
                     param,
                     is_default,
                     lambda: self.ownership.owns_result(value),
@@ -381,8 +378,12 @@ class CallOperandPlanner:
         )
 
     def _call_argument_type(self, param, argument, *, is_default):
-        with default_argument_scope(param, is_default):
-            return resolve_default_type(self.context.type_of(argument))
+        return self.default_arguments.argument_type(
+            param,
+            argument,
+            self.context.type_of,
+            is_default=is_default,
+        )
 
     def _lower_call_argument(self, param, argument, *, is_default):
         return self.arguments.lower_argument(

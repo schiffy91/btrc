@@ -61,6 +61,7 @@ def lower_planned_generic_call_operands(
                 param_index,
                 bound_nodes,
                 emitter._type_renderer,
+                emitter._default_arguments,
                 receiver_node=receiver,
                 resolve_argument_type=emitter._resolve_expr_type,
             )

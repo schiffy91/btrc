@@ -24,6 +24,7 @@ def lower_long_string_concat(
     gen,
     node,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ):
     """Lower a long left-associated chain as one flat comma sequence."""
     leaves = _left_chain_leaves(gen, node)
@@ -75,6 +76,7 @@ def lower_long_string_concat(
         declarations,
         sequence,
         type_renderer,
+        default_arguments,
     )
     _evaluate_leaf(
         gen,
@@ -87,6 +89,7 @@ def lower_long_string_concat(
         declarations,
         sequence,
         type_renderer,
+        default_arguments,
     )
     sequence.append(
         IRBinOp(
@@ -126,6 +129,7 @@ def lower_long_string_concat(
             declarations,
             sequence,
             type_renderer,
+            default_arguments,
         )
         sequence.append(
             IRBinOp(
@@ -230,6 +234,7 @@ def _evaluate_leaf(
     declarations,
     sequence,
     type_renderer,
+    default_arguments,
 ) -> None:
     from .expressions import lower_expr
 
@@ -237,7 +242,12 @@ def _evaluate_leaf(
         IRBinOp(
             left=value,
             op="=",
-            right=lower_expr(gen, node, type_renderer),
+            right=lower_expr(
+                gen,
+                node,
+                type_renderer,
+                default_arguments,
+            ),
         )
     )
     if pinned:

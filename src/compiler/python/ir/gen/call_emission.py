@@ -27,20 +27,31 @@ class CallDispatchLowerer:
         self,
         lowerer: IRLowerer,
         type_renderer: CTypeRenderer,
+        default_arguments,
     ) -> None:
         self.lowerer = lowerer
         self.type_renderer = type_renderer
+        self.default_arguments = default_arguments
 
     def lower_expression(self, node):
         from .expressions import lower_expr
 
-        return lower_expr(self.lowerer, node, self.type_renderer)
+        return lower_expr(
+            self.lowerer,
+            node,
+            self.type_renderer,
+            self.default_arguments,
+        )
 
     def validate_arguments(self, node: CallExpr, params) -> None:
         from .aggregate_ownership import reject_rich_enum_owned_args
         from .callable_boundaries import reject_unsafe_managed_callback_arguments
 
-        reject_rich_enum_owned_args(self.lowerer, node)
+        reject_rich_enum_owned_args(
+            self.lowerer,
+            node,
+            self.default_arguments,
+        )
         reject_unsafe_managed_callback_arguments(
             self.lowerer,
             node,
@@ -54,6 +65,7 @@ class CallDispatchLowerer:
             self.lowerer,
             node,
             self.type_renderer,
+            self.default_arguments,
         )
 
     def lower_immediate_lambda_call(self, node: CallExpr):
@@ -66,6 +78,7 @@ class CallDispatchLowerer:
             node.args,
             arg_names_for(node, len(node.args)),
             self.type_renderer,
+            self.default_arguments,
         )
 
     def lower_method_call(self, node: CallExpr):
@@ -75,6 +88,7 @@ class CallDispatchLowerer:
             self.lowerer,
             node,
             self.type_renderer,
+            self.default_arguments,
         )
 
     def lower_special_identifier_call(
@@ -126,6 +140,7 @@ class CallDispatchLowerer:
                 arg_names_for(node, len(node.args)),
                 args,
                 self.type_renderer,
+                self.default_arguments,
                 call=node,
             )
         if name == "Mutex" and not source_call:

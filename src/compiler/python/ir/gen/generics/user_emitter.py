@@ -43,6 +43,7 @@ class _UserGenericEmitter(
         *,
         gen=None,
         cls_info=None,
+        default_arguments=None,
     ):
         self.type_map = type_map
         self.mangled = mangled
@@ -50,6 +51,7 @@ class _UserGenericEmitter(
         self._ttc = type_renderer.render
         self._gen = gen
         self._cls_info = cls_info  # the generic class being monomorphized
+        self._default_arguments = default_arguments
         # Track variable types for method-call mangling on local variables
         self._var_types = {}
         # Unique temp counter (avoids name collisions without GCC scoping)
@@ -189,11 +191,9 @@ class _UserGenericEmitter(
 
             return lower_generic_index(self, e)
         if isinstance(e, Identifier):
-            from ..default_argument_context import (
-                resolve_default_predefined_identifier,
+            predefined = (
+                self._default_arguments.predefined_identifier(e) if self._default_arguments is not None else None
             )
-
-            predefined = resolve_default_predefined_identifier(e)
             if predefined is not None:
                 return IRLiteral(text=predefined)
             if e.name in self._var_types:

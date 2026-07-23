@@ -18,6 +18,7 @@ def emit_static_fields(
     gen: IRLowerer,
     declaration: ClassDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> None:
     from .aggregate_initializers import lower_static_initializer
     from .expressions import lower_expr
@@ -29,6 +30,7 @@ def emit_static_fields(
             gen,
             field,
             type_renderer,
+            default_arguments,
         )
         initializer = field.initializer
         if initializer is not None:
@@ -45,9 +47,19 @@ def emit_static_fields(
                 gen,
                 initializer,
                 type_renderer,
+                default_arguments,
             )
         else:
-            init = lower_expr(gen, initializer, type_renderer) if initializer is not None else None
+            init = (
+                lower_expr(
+                    gen,
+                    initializer,
+                    type_renderer,
+                    default_arguments,
+                )
+                if initializer is not None
+                else None
+            )
         gen.module.global_decls.append(
             IRGlobalDecl(
                 c_type=CType(text=type_renderer.render(field_type)),
@@ -64,7 +76,12 @@ def emit_static_fields(
         )
 
 
-def _static_field_type(gen, field, type_renderer: CTypeRenderer):
+def _static_field_type(
+    gen,
+    field,
+    type_renderer: CTypeRenderer,
+    default_arguments,
+):
     if not field.type.is_array:
         return field.type, None
     from ...type_composition import strip_outer_storage
@@ -77,6 +94,7 @@ def _static_field_type(gen, field, type_renderer: CTypeRenderer):
             gen,
             field.type.array_size,
             type_renderer,
+            default_arguments,
         )
     if isinstance(field.initializer, (BraceInitializer, ListLiteral)):
         return field_type, IRLiteral(text=str(len(field.initializer.elements)))

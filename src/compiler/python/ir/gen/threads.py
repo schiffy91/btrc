@@ -47,7 +47,12 @@ if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def lower_spawn(gen: IRLowerer, node, type_renderer: CTypeRenderer):
+def lower_spawn(
+    gen: IRLowerer,
+    node,
+    type_renderer: CTypeRenderer,
+    default_arguments=None,
+):
     """Lower a SpawnExpr to IR that spawns a thread.
 
     Returns __btrc_thread_t* — the opaque thread handle.
@@ -65,7 +70,12 @@ def lower_spawn(gen: IRLowerer, node, type_renderer: CTypeRenderer):
         result_type = spawn_type.generic_args[0] if spawn_type and spawn_type.generic_args else None
         return _spawn_call(
             gen,
-            lower_expr(gen, fn, type_renderer),
+            lower_expr(
+                gen,
+                fn,
+                type_renderer,
+                default_arguments,
+            ),
             result_type,
         )
 
@@ -116,6 +126,7 @@ def lower_spawn(gen: IRLowerer, node, type_renderer: CTypeRenderer):
         ret_c_type,
         return_type,
         type_renderer,
+        default_arguments,
     )
 
     gen.module.function_defs.append(
@@ -235,6 +246,7 @@ def _build_wrapper_body(
     ret_c_type,
     return_type,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ):
     """Build the body of the pthread wrapper function."""
     body_stmts = []
@@ -309,6 +321,7 @@ def _build_wrapper_body(
                 callable_bindings=fn.params,
                 callable_abis=capture_abis,
                 type_renderer=type_renderer,
+                default_arguments=default_arguments,
             )
             rewritten = rewrite_thread_returns(
                 gen,

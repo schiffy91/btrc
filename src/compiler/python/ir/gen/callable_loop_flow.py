@@ -49,6 +49,7 @@ def lower_loop_body(
     local_bindings=(),
     may_skip: bool = True,
     type_renderer,
+    default_arguments=None,
 ):
     """Lower one ordinary loop body and install its reachable exit flow."""
     from ..completion import sequence_may_fall_through
@@ -72,6 +73,7 @@ def lower_loop_body(
                 iteration_bindings=iteration_bindings,
                 local_bindings=local_bindings,
                 type_renderer=type_renderer,
+                default_arguments=default_arguments,
             ),
         )
     finally:

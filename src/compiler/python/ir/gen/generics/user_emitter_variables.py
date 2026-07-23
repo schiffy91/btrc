@@ -129,6 +129,8 @@ def lower_generic_array_var_decl(emitter, declaration):
             emitter._gen,
             initializer,
             IRVar(name=binding_c_name),
+            emitter._type_renderer,
+            emitter._default_arguments,
             host=generic_gpu_host(emitter),
         )
         if size is None and plan.array_length is None:

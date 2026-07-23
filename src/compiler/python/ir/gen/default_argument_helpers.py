@@ -36,6 +36,7 @@ def ensure_default_helper(
     params,
     param_index: int,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> tuple[DefaultTarget, str]:
     """Emit one typed evaluator and return its target metadata and symbol."""
 
@@ -74,6 +75,7 @@ def ensure_default_helper(
             param_index,
             helper_params,
             type_renderer,
+            default_arguments,
         )
         if target.substitutions
         else _emit_ordinary_helper(
@@ -84,6 +86,7 @@ def ensure_default_helper(
             param_index,
             helper_params,
             type_renderer,
+            default_arguments,
         )
     )
     gen.module.function_defs.append(definition)
@@ -218,8 +221,8 @@ def _emit_ordinary_helper(
     param_index,
     helper_params,
     type_renderer,
+    default_arguments,
 ):
-    from .default_argument_context import default_argument_scope
     from .isolated_context import isolated_function_context
     from .statements import lower_block
 
@@ -236,7 +239,7 @@ def _emit_ordinary_helper(
         gen.current_class = owner
         gen.current_class_name = target.owner_name
         try:
-            with default_argument_scope(
+            with default_arguments.scope(
                 param,
                 True,
                 function_name=target.c_name,
@@ -252,6 +255,7 @@ def _emit_ordinary_helper(
                     ],
                     callable_bindings=params[:param_index],
                     type_renderer=type_renderer,
+                    default_arguments=default_arguments,
                 )
         finally:
             gen.current_class = previous_class
@@ -273,8 +277,8 @@ def _emit_generic_helper(
     param_index,
     helper_params,
     type_renderer,
+    default_arguments,
 ):
-    from .default_argument_context import default_argument_scope
     from .generics.user_emitter import _UserGenericEmitter
 
     param = params[param_index]
@@ -286,11 +290,12 @@ def _emit_generic_helper(
         type_renderer,
         gen=gen,
         cls_info=owner,
+        default_arguments=default_arguments,
     )
     emitter.reset_var_types(params[:param_index], param.type)
     if target.self_type is not None:
         emitter._var_types["self"] = target.self_type
-    with default_argument_scope(
+    with default_arguments.scope(
         param,
         True,
         function_name=target.c_name,

@@ -49,6 +49,7 @@ def emit_gpu_cpu_fallback(
     gen: IRLowerer,
     decl: FunctionDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> None:
     """Emit one worker invocation plus the host loop for every GPU kernel."""
 
@@ -75,6 +76,7 @@ def emit_gpu_cpu_fallback(
         output_type,
         item_return_c,
         type_renderer,
+        default_arguments,
     )
 
     wrapper_params = list(signature.params)
@@ -135,6 +137,7 @@ def lower_gpu_cpu_item_return(
     gen: IRLowerer,
     node: ReturnStmt,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ):
     """Lower an output-kernel return to its scalar worker result."""
 
@@ -155,7 +158,12 @@ def lower_gpu_cpu_item_return(
             raise CodegenError(f"whole-array @gpu return '{node.value.name}' has no source length")
         gen.helpers.use("__btrc_gpu_index_check")
         value = IRIndex(
-            obj=lower_expr(gen, node.value, type_renderer),
+            obj=lower_expr(
+                gen,
+                node.value,
+                type_renderer,
+                default_arguments,
+            ),
             index=IRCall(
                 callee="__btrc_gpu_index_check",
                 args=[IRVar(name="__gid"), IRVar(name=length_name)],
@@ -163,7 +171,12 @@ def lower_gpu_cpu_item_return(
             ),
         )
     else:
-        value = lower_expr(gen, node.value, type_renderer)
+        value = lower_expr(
+            gen,
+            node.value,
+            type_renderer,
+            default_arguments,
+        )
     return [IRReturn(value=value)]
 
 
@@ -208,6 +221,7 @@ def _lower_item_body(
     output_type,
     return_c_type: str,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> IRBlock:
     from .statements import lower_block
 
@@ -225,6 +239,7 @@ def _lower_item_body(
                 local_bindings=[parameter.name for parameter in decl.params],
                 callable_bindings=decl.params,
                 type_renderer=type_renderer,
+                default_arguments=default_arguments,
             )
         finally:
             gen.context.gpu_cpu_index = previous_index

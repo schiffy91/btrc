@@ -57,6 +57,7 @@ def _emit_user_generic_instance(
     base_name: str,
     args: list[TypeExpr],
     type_renderer,
+    default_arguments,
     seen: set | None = None,
 ):
     """Emit a user-defined generic class instance (struct + methods).
@@ -95,6 +96,7 @@ def _emit_user_generic_instance(
                             resolved.base,
                             list(resolved.generic_args),
                             type_renderer,
+                            default_arguments,
                             seen,
                         )
 
@@ -113,6 +115,7 @@ def _emit_user_generic_instance(
         type_renderer,
         gen=gen,
         cls_info=cls_info,
+        default_arguments=default_arguments,
     )
     for name, fd in cls_info.instance_storage:
         resolved = _resolve_type(
@@ -140,4 +143,5 @@ def _emit_user_generic_instance(
         type_map,
         cls_info,
         type_renderer,
+        default_arguments,
     )

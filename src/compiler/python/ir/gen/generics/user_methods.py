@@ -47,6 +47,7 @@ def _emit_user_generic_methods(
     type_map: dict[str, TypeExpr],
     cls_info,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Emit constructor + methods for a user-defined generic class instance."""
     if args:
@@ -62,9 +63,16 @@ def _emit_user_generic_methods(
         type_renderer,
         gen=gen,
         cls_info=cls_info,
+        default_arguments=default_arguments,
     )
     function_decls, lifecycle_functions = emit_generic_lifecycle(
-        gen, base_name, mangled, args, type_map, cls_info, emitter
+        gen,
+        base_name,
+        mangled,
+        args,
+        type_map,
+        cls_info,
+        emitter,
     )
 
     property_functions = emit_generic_properties(gen, mangled, type_map, cls_info, emitter)

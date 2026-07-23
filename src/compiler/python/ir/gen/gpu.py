@@ -114,12 +114,18 @@ def emit_gpu_cpu_fallback(
     gen: IRLowerer,
     decl: FunctionDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> None:
     """Emit per-invocation and loop-wrapper CPU fallbacks."""
 
     from .gpu_cpu_fallback import emit_gpu_cpu_fallback as emit_fallback
 
-    emit_fallback(gen, decl, type_renderer)
+    emit_fallback(
+        gen,
+        decl,
+        type_renderer,
+        default_arguments,
+    )
 
 
 def lower_gpu_call(
@@ -129,6 +135,7 @@ def lower_gpu_call(
     arg_names: list[str],
     ir_args: list | None,
     type_renderer: CTypeRenderer,
+    default_arguments,
     *,
     call=None,
 ):
@@ -143,6 +150,7 @@ def lower_gpu_call(
         arg_names,
         ir_args,
         type_renderer,
+        default_arguments,
         call=call,
     )
 
@@ -167,6 +175,7 @@ def lower_direct_gpu_call(
     gen: IRLowerer,
     node,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Lower one unshadowed kernel call without eager outer argument replay."""
 
@@ -181,6 +190,7 @@ def lower_direct_gpu_call(
         arg_names_for(node, len(node.args)),
         None,
         type_renderer,
+        default_arguments,
         call=node,
     )
 

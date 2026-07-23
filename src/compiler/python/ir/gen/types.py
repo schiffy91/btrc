@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 from ...ast_nodes import TypeExpr
 from ...reference_semantics import is_c_string_pointer
@@ -19,6 +20,9 @@ from ...type_identity import (
     type_symbol_component,
 )
 from ..nodes import CType, IRFunctionPointerTypedef
+
+if TYPE_CHECKING:
+    from .default_arguments import DefaultArgumentLoweringContext
 
 # Primitive btrc types → C type strings
 _PRIMITIVE_MAP = {
@@ -75,15 +79,19 @@ class FunctionPointerTypedefRegistry:
 class CTypeRenderer:
     """Render source types and own callback typedefs for one lowering run."""
 
-    def __init__(self, typedefs: Mapping[str, TypeExpr] | None = None) -> None:
+    def __init__(
+        self,
+        typedefs: Mapping[str, TypeExpr] | None = None,
+        default_arguments: DefaultArgumentLoweringContext | None = None,
+    ) -> None:
         self._typedefs = MappingProxyType(dict(typedefs or {}))
         self._function_pointers = FunctionPointerTypedefRegistry()
+        self._default_arguments = default_arguments
 
     def render(self, type_expr: TypeExpr | None) -> str:
         """Convert one btrc type to its source-preserving C spelling."""
-        from .default_argument_context import resolve_default_type
-
-        type_expr = resolve_default_type(type_expr)
+        if self._default_arguments is not None:
+            type_expr = self._default_arguments.resolve_type(type_expr)
         if type_expr is None:
             return "void"
         base = type_expr.base

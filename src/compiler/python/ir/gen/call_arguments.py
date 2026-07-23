@@ -3,10 +3,6 @@
 from __future__ import annotations
 
 from ..nodes import CType, IRCall, IRCast
-from .default_argument_context import (
-    call_argument_type,
-    default_argument_scope,
-)
 from .default_argument_helpers import ensure_default_helper
 from .prepared_values import prepare_value
 from .types import CTypeRenderer
@@ -28,6 +24,7 @@ class CallArgumentLowerer:
         hosted_results,
         expressions,
         type_renderer: CTypeRenderer,
+        default_arguments,
     ) -> None:
         self.lowerer = lowerer
         self.context = context
@@ -35,6 +32,7 @@ class CallArgumentLowerer:
         self.hosted_results = hosted_results
         self.expressions = expressions
         self.type_renderer = type_renderer
+        self.default_arguments = default_arguments
 
     def default_builder(
         self,
@@ -55,6 +53,7 @@ class CallArgumentLowerer:
                 params,
                 param_index,
                 self.type_renderer,
+                self.default_arguments,
             )
             args = []
             if target.self_type is not None:
@@ -76,7 +75,13 @@ class CallArgumentLowerer:
                     self._missing_dependency(params[prior_index].name)
                 prior_param = params[prior_index]
                 source_type = (
-                    prior_param.type if prior is prior_param.default else call_argument_type(self.lowerer, None, prior)
+                    prior_param.type
+                    if prior is prior_param.default
+                    else self.default_arguments.argument_type(
+                        None,
+                        prior,
+                        self.context.type_of,
+                    )
                 )
                 args.append(
                     upcast_class_pointer(
@@ -111,10 +116,10 @@ class CallArgumentLowerer:
                 value,
                 is_default=is_default,
             ),
-            type_of=lambda value: call_argument_type(
-                self.lowerer,
+            type_of=lambda value: self.default_arguments.argument_type(
                 param,
                 value,
+                self.context.type_of,
                 is_default=is_default,
             ),
             owns_result=owns_result,
@@ -123,8 +128,12 @@ class CallArgumentLowerer:
         )
 
     def lower_argument(self, param, argument, *, is_default):
-        with default_argument_scope(param, is_default):
-            return self.expressions.lower_expression(argument)
+        return self.default_arguments.lower_argument(
+            param,
+            argument,
+            self.expressions.lower_expression,
+            is_default=is_default,
+        )
 
     def order(self, params, ast_args, arg_names, ir_args):
         from .arguments import order_args_for_params
@@ -135,6 +144,7 @@ class CallArgumentLowerer:
             ast_args,
             arg_names,
             self.type_renderer,
+            self.default_arguments,
             ir_args,
         )
 

@@ -47,7 +47,11 @@ def generic_method_instance_name(class_base, class_args, method_name, method_arg
     return mangle_method_instance_symbol(class_base, class_args, method_name, method_args)
 
 
-def emit_generic_method_instances(gen: IRLowerer, type_renderer):
+def emit_generic_method_instances(
+    gen: IRLowerer,
+    type_renderer,
+    default_arguments,
+):
     """Emit every monomorphized generic-method function recorded by the analyzer.
 
     Each function is emitted with a combined type map binding both the class
@@ -76,6 +80,7 @@ def emit_generic_method_instances(gen: IRLowerer, type_renderer):
                 class_args,
                 method_args,
                 type_renderer,
+                default_arguments,
             )
 
 
@@ -99,6 +104,7 @@ def _emit_one_method_instance(
     class_args,
     method_args,
     type_renderer,
+    default_arguments,
 ):
     if class_args:
         self_mangled = mangle_generic_type(class_base, list(class_args))
@@ -113,6 +119,7 @@ def _emit_one_method_instance(
         type_renderer,
         gen=gen,
         cls_info=cls_info,
+        default_arguments=default_arguments,
     )
     public_collection_method = class_base in PUBLIC_COLLECTION_BASES and method.access == "public"
     emitter.reset_var_types(

@@ -26,6 +26,7 @@ def lower_optional_method_call(
     gen,
     node: CallExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ):
     """Lower ``receiver?.method(args)`` with lazy managed arguments."""
     assert isinstance(node.callee, FieldAccessExpr) and node.callee.optional
@@ -45,7 +46,12 @@ def lower_optional_method_call(
         IRBinOp(
             left=receiver,
             op="=",
-            right=lower_expr(gen, receiver_node, type_renderer),
+            right=lower_expr(
+                gen,
+                receiver_node,
+                type_renderer,
+                default_arguments,
+            ),
         )
     ]
     declaration = gen.calls.resolver.declaration(node)
@@ -98,6 +104,7 @@ def lower_optional_method_call(
                 gen,
                 plain_callee if value is node.callee else value,
                 type_renderer,
+                default_arguments,
             )
         finally:
             if previous is None:
@@ -114,7 +121,12 @@ def lower_optional_method_call(
         try:
             from .methods import lower_method_call
 
-            return lower_method_call(gen, plain_node, type_renderer)
+            return lower_method_call(
+                gen,
+                plain_node,
+                type_renderer,
+                default_arguments,
+            )
         finally:
             for key, value in previous.items():
                 if value is None:

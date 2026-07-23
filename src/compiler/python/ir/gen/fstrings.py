@@ -34,6 +34,7 @@ def lower_fstring(
     gen,
     node: FStringLiteral,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ):
     """Lower a normal f-string through the shared typed implementation."""
     from .expressions import lower_expr
@@ -42,7 +43,12 @@ def lower_fstring(
         gen,
         node,
         ownership=gen.ownership,
-        lower_value=lambda value: lower_expr(gen, value, type_renderer),
+        lower_value=lambda value: lower_expr(
+            gen,
+            value,
+            type_renderer,
+            default_arguments,
+        ),
         type_of=lambda value: gen.analyzed.node_types.get(id(value)),
         owns=lambda value: gen.ownership.owns_result(value),
         type_renderer=type_renderer,

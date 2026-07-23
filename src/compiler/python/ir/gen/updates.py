@@ -177,6 +177,7 @@ def lower_incdec(context: UpdateContext, node: UnaryExpr) -> IRExpr:
 def generator_update_context(
     gen,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> UpdateContext:
     """Build the normal IR generator's update dependency bundle."""
     from ...ast_nodes import FieldAccessExpr, SelfExpr
@@ -195,7 +196,12 @@ def generator_update_context(
         )
 
     lvalues = LValueContext(
-        lower_expr=lambda node: lower_expr(gen, node, type_renderer),
+        lower_expr=lambda node: lower_expr(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        ),
         type_of=type_of,
         c_type=type_renderer.render,
         fresh_temp=gen.fresh_temp,
@@ -231,6 +237,7 @@ def generator_update_context(
             target_type,
             value,
             type_renderer,
+            default_arguments,
         ),
         store_boundary=lambda node, plan: lower_virtual_store_boundary(
             gen,
@@ -242,6 +249,7 @@ def generator_update_context(
                 target_type,
                 value,
                 type_renderer,
+                default_arguments,
             ),
             coerce=lambda target_type, source_type, value: upcast_class_pointer(
                 gen,
@@ -262,6 +270,7 @@ def _lower_assignment_value(
     target_type,
     value,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Use assignment context to select the concrete collection literal."""
     from ...ast_nodes import BraceInitializer, ListLiteral, MapLiteral
@@ -271,10 +280,25 @@ def _lower_assignment_value(
 
     if is_direct_generic_instance_reference(target_type, gen.analyzed.class_table):
         if isinstance(value, (BraceInitializer, ListLiteral)):
-            return lower_list_literal(gen, value, type_renderer)
+            return lower_list_literal(
+                gen,
+                value,
+                type_renderer,
+                default_arguments,
+            )
         if isinstance(value, MapLiteral):
-            return lower_map_literal(gen, value, type_renderer)
-    return lower_expr(gen, value, type_renderer)
+            return lower_map_literal(
+                gen,
+                value,
+                type_renderer,
+                default_arguments,
+            )
+    return lower_expr(
+        gen,
+        value,
+        type_renderer,
+        default_arguments,
+    )
 
 
 __all__ = [

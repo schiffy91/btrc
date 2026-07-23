@@ -32,11 +32,20 @@ if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def emit_enum_decls(gen: IRLowerer, type_renderer: CTypeRenderer):
+def emit_enum_decls(
+    gen: IRLowerer,
+    type_renderer: CTypeRenderer,
+    default_arguments,
+):
     """Emit all enum declarations."""
     for decl in gen.analyzed.program.declarations:
         if isinstance(decl, EnumDecl):
-            _emit_enum(gen, decl, type_renderer)
+            _emit_enum(
+                gen,
+                decl,
+                type_renderer,
+                default_arguments,
+            )
         elif isinstance(decl, RichEnumDecl):
             _emit_rich_enum(gen, decl, type_renderer)
 
@@ -45,6 +54,7 @@ def _emit_enum(
     gen: IRLowerer,
     decl: EnumDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Emit a simple enum and, for named enums, its toString helper."""
     # Build enum definition
@@ -59,7 +69,12 @@ def _emit_enum(
             gen._enum_lowering_owner = decl.name or ""
             gen._enum_lowering_members = frozenset(prior_members)
             try:
-                lowered_value = lower_expr(gen, v.value, type_renderer)
+                lowered_value = lower_expr(
+                    gen,
+                    v.value,
+                    type_renderer,
+                    default_arguments,
+                )
             finally:
                 gen._enum_lowering_owner = previous_owner
                 gen._enum_lowering_members = previous_members

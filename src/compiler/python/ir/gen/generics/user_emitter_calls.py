@@ -22,7 +22,11 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
         from .user_callable_provenance import generic_callable_return_abi
 
         if self._gen is not None:
-            reject_rich_enum_owned_args(self._gen, expression)
+            reject_rich_enum_owned_args(
+                self._gen,
+                expression,
+                self._default_arguments,
+            )
         params = self._params_for_call(expression)
         reject_unsafe_managed_callback_arguments(
             self._gen,

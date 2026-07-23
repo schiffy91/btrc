@@ -43,6 +43,7 @@ def lower_lambda(
     gen: IRLowerer,
     node: LambdaExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRFunctionRef:
     """Lower a lambda expression to a static function + capture struct.
 
@@ -147,6 +148,7 @@ def lower_lambda(
                 callable_bindings=node.params,
                 callable_abis=capture_abis,
                 type_renderer=type_renderer,
+                default_arguments=default_arguments,
             )
             body_stmts.extend(block.stmts)
         elif isinstance(node.body, LambdaExprBody) and node.body.expression:
@@ -178,6 +180,7 @@ def lower_lambda(
                             col=node.body.expression.col,
                         ),
                         type_renderer,
+                        default_arguments,
                     )
                 )
             finally:
@@ -256,21 +259,33 @@ def lower_immediate_lambda_call(
     ast_args,
     arg_names,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lift and immediately invoke ``node``, preserving its capture env."""
-    lower_lambda(gen, node, type_renderer)
+    lower_lambda(
+        gen,
+        node,
+        type_renderer,
+        default_arguments,
+    )
     lambda_id = gen._last_lambda_id
     fn_name = f"__btrc_lambda_{lambda_id}"
 
     from .arguments import lower_arg_values, order_args_for_params
 
-    args = lower_arg_values(gen, ast_args, type_renderer)
+    args = lower_arg_values(
+        gen,
+        ast_args,
+        type_renderer,
+        default_arguments,
+    )
     args = order_args_for_params(
         gen,
         node.params,
         ast_args,
         arg_names,
         type_renderer,
+        default_arguments,
         args,
     )
     if not node.captures:

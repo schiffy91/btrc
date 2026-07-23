@@ -80,6 +80,7 @@ def emit_generic_lifecycle(
         mangled,
         gen,
         emitter._type_renderer,
+        emitter._default_arguments,
     )
     definitions = [
         _emit_init(gen, mangled, ctor, ctor_params, emitter),

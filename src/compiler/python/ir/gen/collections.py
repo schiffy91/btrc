@@ -22,6 +22,7 @@ def lower_list_literal(
     gen,
     node: ListLiteral,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ):
     """Build a typed list/vector and consume caller-owned elements."""
     list_type = gen.analyzed.node_types.get(id(node))
@@ -47,6 +48,7 @@ def lower_list_literal(
                 gen,
                 [(element, element_type)],
                 type_renderer,
+                default_arguments,
                 lambda values, element=element: IRCall(
                     callee=f"{mangled}_push",
                     args=[collection, values[id(element)]],
@@ -64,6 +66,7 @@ def lower_map_literal(
     gen,
     node: MapLiteral,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ):
     """Build a typed map and consume caller-owned keys and values."""
     map_type = gen.analyzed.node_types.get(id(node))
@@ -92,6 +95,7 @@ def lower_map_literal(
                 gen,
                 [(entry.key, key_type), (entry.value, value_type)],
                 type_renderer,
+                default_arguments,
                 lambda values, entry=entry: IRCall(
                     callee=f"{mangled}_put",
                     args=[
@@ -109,11 +113,23 @@ def lower_map_literal(
     )
 
 
-def _prepared_effect(gen, values, type_renderer: CTypeRenderer, build):
+def _prepared_effect(
+    gen,
+    values,
+    type_renderer: CTypeRenderer,
+    default_arguments,
+    build,
+):
     prepared = [
         (
             node,
-            prepare_normal_value(gen, node, target_type, type_renderer),
+            prepare_normal_value(
+                gen,
+                node,
+                target_type,
+                type_renderer,
+                default_arguments=default_arguments,
+            ),
         )
         for node, target_type in values
     ]

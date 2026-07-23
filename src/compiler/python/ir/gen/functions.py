@@ -18,6 +18,7 @@ def emit_function_decl(
     gen: IRLowerer,
     decl: FunctionDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     """Lower a top-level FunctionDecl to an IRFunctionDef or forward decl."""
     # @gpu functions are lowered to WGSL kernels, plus a CPU-loop fallback so
@@ -28,7 +29,12 @@ def emit_function_decl(
         from .gpu import emit_gpu_cpu_fallback, emit_gpu_kernel
 
         emit_gpu_kernel(gen, decl)
-        emit_gpu_cpu_fallback(gen, decl, type_renderer)
+        emit_gpu_cpu_fallback(
+            gen,
+            decl,
+            type_renderer,
+            default_arguments,
+        )
         gen._emitted_gpu_functions.add(decl.name)
         return
 
@@ -77,6 +83,7 @@ def emit_function_decl(
         local_bindings=[parameter.name for parameter in decl.params],
         callable_bindings=decl.params,
         type_renderer=type_renderer,
+        default_arguments=default_arguments,
     )
     gen._normalizing_void_main = previous_void_main
     gen.current_return_type = previous_return_type

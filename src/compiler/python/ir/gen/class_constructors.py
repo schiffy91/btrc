@@ -48,6 +48,7 @@ def emit_constructor(
     decl: ClassDecl,
     cls_info: ClassInfo,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ) -> None:
     """Emit ``Class_init`` and allocating ``Class_new`` functions."""
     name = decl.name
@@ -92,7 +93,9 @@ def emit_constructor(
                     gen,
                     member,
                     type_renderer,
+                    default_arguments,
                 ),
+                default_arguments=default_arguments,
             )
             value = prepared.value
             from .upcast import upcast_class_pointer
@@ -145,6 +148,7 @@ def emit_constructor(
                 local_bindings=["self", *(parameter.name for parameter in constructor.params)],
                 callable_bindings=constructor.params,
                 type_renderer=type_renderer,
+                default_arguments=default_arguments,
             ).stmts
         )
 
@@ -205,6 +209,7 @@ def _lower_field_init(
     gen: IRLowerer,
     field: FieldDecl,
     type_renderer: CTypeRenderer,
+    default_arguments,
 ):
     from .expressions import lower_expr
 
@@ -217,7 +222,12 @@ def _lower_field_init(
     if is_empty and field.type and is_generic_class_type(field.type, gen.analyzed.class_table):
         mangled = mangle_generic_type(field.type.base, field.type.generic_args)
         return IRCall(callee=f"{mangled}_new", args=[])
-    return lower_expr(gen, initializer, type_renderer)
+    return lower_expr(
+        gen,
+        initializer,
+        type_renderer,
+        default_arguments,
+    )
 
 
 def _is_managed_field(gen: IRLowerer, field: FieldDecl) -> bool:

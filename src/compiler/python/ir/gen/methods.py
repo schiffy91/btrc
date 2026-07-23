@@ -54,13 +54,19 @@ def lower_method_call(
     gen: IRLowerer,
     node: CallExpr,
     type_renderer: CTypeRenderer,
+    default_arguments=None,
 ) -> IRExpr:
     """Lower obj.method(args) to the appropriate C call."""
     assert isinstance(node.callee, FieldAccessExpr)
     if node.callee.optional:
         from .optional_calls import lower_optional_method_call
 
-        return lower_optional_method_call(gen, node, type_renderer)
+        return lower_optional_method_call(
+            gen,
+            node,
+            type_renderer,
+            default_arguments,
+        )
     obj_node = node.callee.obj
     method_name = node.callee.field
     params = gen.calls.resolver.resolved_params(node)
@@ -72,9 +78,19 @@ def lower_method_call(
     if signature is not None:
         return gen.calls.resolver.materialize_callee(
             node.callee,
-            lower_expr(gen, node.callee, type_renderer),
+            lower_expr(
+                gen,
+                node.callee,
+                type_renderer,
+                default_arguments,
+            ),
             signature,
-            lower_arg_values(gen, node.args, type_renderer),
+            lower_arg_values(
+                gen,
+                node.args,
+                type_renderer,
+                default_arguments,
+            ),
         )
 
     # Rich enum constructor: Color.RGB(255, 0, 0) → Color_RGB(255, 0, 0)
@@ -83,13 +99,19 @@ def lower_method_call(
         and obj_node.name in gen.analyzed.rich_enum_table
         and not gen.local_ownership_declared(obj_node.name)
     ):
-        args = lower_arg_values(gen, node.args, type_renderer)
+        args = lower_arg_values(
+            gen,
+            node.args,
+            type_renderer,
+            default_arguments,
+        )
         args = order_args_for_params(
             gen,
             params,
             node.args,
             arg_names_for(node, len(node.args)),
             type_renderer,
+            default_arguments,
             args,
         )
         return IRCall(callee=f"{obj_node.name}_{method_name}", args=args)
@@ -100,7 +122,12 @@ def lower_method_call(
         and obj_node.name in gen.analyzed.class_table
         and not gen.local_ownership_declared(obj_node.name)
     ):
-        args = lower_arg_values(gen, node.args, type_renderer)
+        args = lower_arg_values(
+            gen,
+            node.args,
+            type_renderer,
+            default_arguments,
+        )
         cls_info = gen.analyzed.class_table[obj_node.name]
         method = cls_info.methods.get(method_name)
         if method:
@@ -110,6 +137,7 @@ def lower_method_call(
                 node.args,
                 arg_names_for(node, len(node.args)),
                 type_renderer,
+                default_arguments,
                 args,
             )
         return IRCall(callee=f"{obj_node.name}_{method_name}", args=args)
@@ -123,8 +151,18 @@ def lower_method_call(
     if consuming is not None:
         return consuming
 
-    obj = lower_expr(gen, obj_node, type_renderer)
-    args = lower_arg_values(gen, node.args, type_renderer)
+    obj = lower_expr(
+        gen,
+        obj_node,
+        type_renderer,
+        default_arguments,
+    )
+    args = lower_arg_values(
+        gen,
+        node.args,
+        type_renderer,
+        default_arguments,
+    )
 
     if is_string_type(resolved_obj_type) and method_name in _STRING_METHODS:
         return _lower_string_method(gen, obj, method_name, args)
@@ -198,6 +236,7 @@ def lower_method_call(
                 node.args,
                 arg_names_for(node, len(node.args)),
                 type_renderer,
+                default_arguments,
                 args,
             )
         # Generic method: dispatch to the monomorphized instance for the method
