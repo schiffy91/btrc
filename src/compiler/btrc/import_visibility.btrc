@@ -357,18 +357,7 @@ class FeVisibilityDiagnostic {
     }
 }
 
-class FeImportVisibilityChecker {
-    public Node program;
-    public FeResolvedSource resolved;
-    private GrammarInfo grammar;
-
-    public FeImportVisibilityChecker(
-            Node program, FeResolvedSource resolved, GrammarInfo grammar) {
-        self.program = program;
-        self.resolved = resolved;
-        self.grammar = grammar;
-    }
-
+class FeDeclarationSymbolExtractor {
     public bool isNamedDeclaration(Node declaration) {
         return declaration.kind == NK_CLASS_DECL
             || declaration.kind == NK_INTERFACE_DECL
@@ -380,12 +369,71 @@ class FeImportVisibilityChecker {
             || declaration.kind == NK_VAR_DECL_STMT;
     }
 
-    public string declarationName(Node declaration) {
+    private string declarationName(Node declaration) {
         return declaration.kind == NK_TYPEDEF_DECL
             ? declaration.alias : declaration.name;
     }
 
-    public bool containsPath(Vector<string> paths, string path) {
+    public Vector<string> names(Node declaration) {
+        Vector<string> names = [];
+        if (self.isNamedDeclaration(declaration)) {
+            names.push(self.declarationName(declaration));
+        }
+        if (declaration.kind == NK_ENUM_DECL) {
+            int valueIndex = 0;
+            while (valueIndex < declaration.values.len) {
+                names.push(declaration.values.get(valueIndex).name);
+                valueIndex++;
+            }
+        }
+        if (declaration.kind == NK_RICH_ENUM_DECL) {
+            int variantIndex = 0;
+            while (variantIndex < declaration.variants.len) {
+                names.push(declaration.variants.get(variantIndex).name);
+                variantIndex++;
+            }
+        }
+        if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
+            string name = sourceMacroName(declaration.text);
+            if (name != null && !name.isEmpty()) { names.push(name); }
+        }
+        return names;
+    }
+}
+
+class FeStdlibSymbolIndexResult {
+    public bool success;
+    public string diagnostic;
+
+    public FeStdlibSymbolIndexResult(bool success, string diagnostic) {
+        self.success = success;
+        self.diagnostic = diagnostic;
+    }
+}
+
+/* Lazily owns the parser-derived root-symbol index for one compiler pipeline.
+ * Each build consumes an exact root-module snapshot. Changed contents rebuild
+ * transactionally; a failed rebuild never publishes a partial map. */
+class FeStdlibSymbolIndex {
+    private GrammarInfo grammar;
+    private FeDeclarationSymbolExtractor symbolExtractor;
+    private Map<string, Vector<string>> symbolFiles;
+    private FeStdlibRootSnapshot indexedSnapshot;
+    private bool initialized;
+
+    public FeStdlibSymbolIndex(GrammarInfo grammar) {
+        self.grammar = grammar;
+        self.symbolExtractor = FeDeclarationSymbolExtractor();
+        self.symbolFiles = {};
+        Vector<string> emptyPaths = [];
+        Vector<string> emptySources = [];
+        FeStdlibRootSnapshot emptySnapshot = FeStdlibRootSnapshot(
+            emptyPaths, emptySources);
+        self.indexedSnapshot = emptySnapshot;
+        self.initialized = false;
+    }
+
+    private bool containsPath(Vector<string> paths, string path) {
         int index = 0;
         while (index < paths.len) {
             if (paths.get(index).equals(path)) { return true; }
@@ -394,8 +442,132 @@ class FeImportVisibilityChecker {
         return false;
     }
 
-    public void addSymbolOwner(Map<string, Vector<string>> symbols,
-                               string name, string owner) {
+    private void addSymbolOwner(Map<string, Vector<string>> symbols,
+                                string name, string owner) {
+        if (name == null || name.isEmpty()) { return; }
+        string canonicalOwner = feCanonicalPathIdentity(owner);
+        Vector<string> owners = [];
+        if (symbols.has(name)) { owners = symbols.get(name); }
+        if (!self.containsPath(owners, canonicalOwner)) {
+            owners.push(canonicalOwner);
+        }
+        symbols.put(name, owners);
+    }
+
+    private void addDeclarationSymbols(
+            Map<string, Vector<string>> symbols,
+            Node declaration, string owner) {
+        Vector<string> names = self.symbolExtractor.names(declaration);
+        int index = 0;
+        while (index < names.len) {
+            self.addSymbolOwner(symbols, names.get(index), owner);
+            index++;
+        }
+    }
+
+    private FeStdlibSymbolIndexResult build(FeStdlibRootSnapshot snapshot) {
+        if (self.initialized
+                && self.indexedSnapshot.sameContents(snapshot)) {
+            return FeStdlibSymbolIndexResult(true, "");
+        }
+        Map<string, Vector<string>> nextSymbolFiles = {};
+        int fileIndex = 0;
+        while (fileIndex < snapshot.count()) {
+            string path = snapshot.pathAt(fileIndex);
+            string source = snapshot.sourceAt(fileIndex);
+            fileIndex++;
+            Lexer lexer = Lexer(source, self.grammar);
+            Vector<Token> tokens = lexer.tokenize();
+            if (lexer.failed) {
+                return FeStdlibSymbolIndexResult(
+                    false,
+                    f"cannot index standard-library source '{path}': "
+                        + lexer.diagnostic);
+            }
+            Parser parser = Parser(tokens, self.grammar);
+            Node stdlibProgram = parser.parseProgram();
+            if (parser.failed) {
+                return FeStdlibSymbolIndexResult(
+                    false,
+                    f"cannot index standard-library source '{path}': "
+                        + parser.diagnostic);
+            }
+            int declarationIndex = 0;
+            while (declarationIndex < stdlibProgram.declarations.len) {
+                self.addDeclarationSymbols(
+                    nextSymbolFiles,
+                    stdlibProgram.declarations.get(declarationIndex), path);
+                declarationIndex++;
+            }
+        }
+        self.symbolFiles = nextSymbolFiles;
+        self.indexedSnapshot = snapshot;
+        self.initialized = true;
+        return FeStdlibSymbolIndexResult(true, "");
+    }
+
+    public FeStdlibSymbolIndexResult mergeSnapshotInto(
+            Map<string, Vector<string>> target,
+            FeStdlibRootSnapshot snapshot) {
+        FeStdlibSymbolIndexResult built = self.build(snapshot);
+        if (!built.success) { return built; }
+        Vector<string> names = self.symbolFiles.keys();
+        int nameIndex = 0;
+        while (nameIndex < names.len) {
+            string name = names.get(nameIndex);
+            Vector<string> owners = self.symbolFiles.get(name);
+            int ownerIndex = 0;
+            while (ownerIndex < owners.len) {
+                self.addSymbolOwner(target, name, owners.get(ownerIndex));
+                ownerIndex++;
+            }
+            nameIndex++;
+        }
+        return FeStdlibSymbolIndexResult(true, "");
+    }
+
+}
+
+class FeVisibilityCheckResult {
+    public bool success;
+    public string diagnostic;
+    public Vector<FeVisibilityDiagnostic> diagnostics;
+
+    public FeVisibilityCheckResult(
+            bool success, string diagnostic,
+            Vector<FeVisibilityDiagnostic> diagnostics) {
+        self.success = success;
+        self.diagnostic = diagnostic;
+        self.diagnostics = diagnostics;
+    }
+}
+
+class FeImportVisibilityChecker {
+    private Node program;
+    private FeResolvedSource resolved;
+    private FeStdlibSymbolIndex stdlibSymbols;
+    private FeDeclarationSymbolExtractor symbolExtractor;
+
+    public FeImportVisibilityChecker(
+            Node program, FeResolvedSource resolved,
+            FeStdlibSymbolIndex stdlibSymbols) {
+        self.program = program;
+        self.resolved = resolved;
+        self.stdlibSymbols = stdlibSymbols;
+        self.symbolExtractor = FeDeclarationSymbolExtractor();
+    }
+
+    private bool containsPath(Vector<string> paths, string path) {
+        int index = 0;
+        while (index < paths.len) {
+            if (paths.get(index).equals(path)) { return true; }
+            index++;
+        }
+        return false;
+    }
+
+    private void addSymbolOwner(Map<string, Vector<string>> symbols,
+                                string name, string owner) {
         if (name == null || name.isEmpty()) { return; }
         Vector<string> owners = [];
         if (symbols.has(name)) { owners = symbols.get(name); }
@@ -403,74 +575,17 @@ class FeImportVisibilityChecker {
         symbols.put(name, owners);
     }
 
-    public void addDeclarationSymbols(Map<string, Vector<string>> symbols,
-                                      Node declaration, string owner) {
-        if (self.isNamedDeclaration(declaration)) {
-            self.addSymbolOwner(
-                symbols, self.declarationName(declaration), owner);
-        }
-        if (declaration.kind == NK_ENUM_DECL) {
-            int valueIndex = 0;
-            while (valueIndex < declaration.values.len) {
-                self.addSymbolOwner(
-                    symbols, declaration.values.get(valueIndex).name, owner);
-                valueIndex++;
-            }
-        }
-        if (declaration.kind == NK_RICH_ENUM_DECL) {
-            int variantIndex = 0;
-            while (variantIndex < declaration.variants.len) {
-                self.addSymbolOwner(
-                    symbols, declaration.variants.get(variantIndex).name, owner);
-                variantIndex++;
-            }
-        }
-        if (declaration.kind == NK_PREPROCESSOR_DIRECTIVE) {
-            self.addSymbolOwner(
-                symbols, sourceMacroName(declaration.text), owner);
+    private void addDeclarationSymbols(Map<string, Vector<string>> symbols,
+                                       Node declaration, string owner) {
+        Vector<string> names = self.symbolExtractor.names(declaration);
+        int index = 0;
+        while (index < names.len) {
+            self.addSymbolOwner(symbols, names.get(index), owner);
+            index++;
         }
     }
 
-    public void addUncomposedStdlibSymbols(
-            Map<string, Vector<string>> symbols) {
-        Vector<string> files = feDiscoverStdlibFiles();
-        int fileIndex = 0;
-        while (fileIndex < files.len) {
-            string path = feJoinPath(feStdlibDir(), files.get(fileIndex));
-            fileIndex++;
-            if (self.resolved.dependencies.hasSource(path)
-                    || !FileSystem.isFile(path)) {
-                continue;
-            }
-            string source = feReadRequiredSource(path);
-            Lexer lexer = Lexer(source, self.grammar);
-            Vector<Token> tokens = lexer.tokenize();
-            if (lexer.failed) {
-                fprintf(stderr,
-                    "error: cannot index standard-library source '%s': %s\n",
-                    path, lexer.diagnostic);
-                exit(1);
-            }
-            Parser parser = Parser(tokens, self.grammar);
-            Node stdlibProgram = parser.parseProgram();
-            if (parser.failed) {
-                fprintf(stderr,
-                    "error: cannot index standard-library source '%s': %s\n",
-                    path, parser.diagnostic);
-                exit(1);
-            }
-            string owner = self.resolved.dependencies.identity(path);
-            int declarationIndex = 0;
-            while (declarationIndex < stdlibProgram.declarations.len) {
-                self.addDeclarationSymbols(
-                    symbols,
-                    stdlibProgram.declarations.get(declarationIndex), owner);
-                declarationIndex++;
-            }
-        }
-    }
-
-    public Map<string, Vector<string>> symbolFiles() {
+    private Map<string, Vector<string>> localSymbolFiles() {
         Map<string, Vector<string>> symbols = {};
         int index = 0;
         while (index < self.program.declarations.len) {
@@ -483,12 +598,11 @@ class FeImportVisibilityChecker {
             }
             index++;
         }
-        self.addUncomposedStdlibSymbols(symbols);
         return symbols;
     }
 
-    public bool anyOwnerVisible(Vector<string> owners,
-                                Map<string, bool> reachable) {
+    private bool anyOwnerVisible(Vector<string> owners,
+                                 Map<string, bool> reachable) {
         int index = 0;
         while (index < owners.len) {
             if (reachable.has(owners.get(index))) { return true; }
@@ -497,14 +611,21 @@ class FeImportVisibilityChecker {
         return false;
     }
 
-    public Vector<FeVisibilityDiagnostic> check() {
-        Map<string, Vector<string>> symbols = self.symbolFiles();
+    public FeVisibilityCheckResult check() {
+        Map<string, Vector<string>> symbols = self.localSymbolFiles();
+        FeStdlibSymbolIndexResult merged = self.stdlibSymbols.mergeSnapshotInto(
+            symbols, self.resolved.stdlibSnapshot);
+        if (!merged.success) {
+            Vector<FeVisibilityDiagnostic> emptyDiagnostics = [];
+            return FeVisibilityCheckResult(
+                false, merged.diagnostic, emptyDiagnostics);
+        }
         Vector<FeVisibilityDiagnostic> diagnostics = [];
         int declarationIndex = 0;
         while (declarationIndex < self.program.declarations.len) {
             Node declaration = self.program.declarations.get(declarationIndex);
             declarationIndex++;
-            if (!self.isNamedDeclaration(declaration)
+            if (!self.symbolExtractor.isNamedDeclaration(declaration)
                     && declaration.kind != NK_PREPROCESSOR_DIRECTIVE) {
                 continue;
             }
@@ -547,6 +668,6 @@ class FeImportVisibilityChecker {
                 }
             }
         }
-        return diagnostics;
+        return FeVisibilityCheckResult(true, "", diagnostics);
     }
 }

@@ -32,7 +32,6 @@
  * grammar in.
  */
 
-#include "frontend_data_paths.btrc"
 #include "frontend_source_io.btrc"
 
 /* ----- small text helpers (fe-prefixed to avoid clashing with emitter.btrc) - */
@@ -215,6 +214,60 @@ class FeDependencyGraph {
     }
 }
 
+/* One exact, deterministic view of every root standard-library module. Root
+ * modules are the external-symbol index domain; imported nested modules are
+ * compilation-local and contribute declarations through the resolved AST. */
+class FeStdlibRootSnapshot {
+    private Vector<string> paths;
+    private Vector<string> sources;
+
+    public FeStdlibRootSnapshot(Vector<string> paths, Vector<string> sources) {
+        self.paths = paths;
+        self.sources = sources;
+    }
+
+    public int count() {
+        return self.paths.len;
+    }
+
+    public string pathAt(int index) {
+        return self.paths.get(index);
+    }
+
+    public string sourceAt(int index) {
+        return self.sources.get(index);
+    }
+
+    public bool sameContents(FeStdlibRootSnapshot other) {
+        if (self.count() != other.count()) { return false; }
+        int index = 0;
+        while (index < self.count()) {
+            if (!self.pathAt(index).equals(other.pathAt(index))
+                    || !self.sourceAt(index).equals(other.sourceAt(index))) {
+                return false;
+            }
+            index++;
+        }
+        return true;
+    }
+
+    public int indexOf(string path) {
+        string identity = feCanonicalPathIdentity(path);
+        int index = 0;
+        while (index < self.count()) {
+            if (feCanonicalPathIdentity(self.pathAt(index)).equals(identity)) {
+                return index;
+            }
+            index++;
+        }
+        return -1;
+    }
+
+    public bool contains(string path) {
+        return self.indexOf(path) >= 0;
+    }
+}
+
 class FeResolvedSource {
     public string userSource;
     public string source;
@@ -224,11 +277,13 @@ class FeResolvedSource {
     public bool strictImports;
     public int stdlibLineCount;
     public string rootSourcePath;
+    public FeStdlibRootSnapshot stdlibSnapshot;
 
     public FeResolvedSource(string userSource, string source,
                             string stdlibSource, Vector<FeLine> userLines,
                             FeDependencyGraph dependencies, bool strictImports,
-                            int stdlibLineCount, string rootSourcePath) {
+                            int stdlibLineCount, string rootSourcePath,
+                            FeStdlibRootSnapshot stdlibSnapshot) {
         self.userSource = userSource;
         self.source = source;
         self.stdlibSource = stdlibSource;
@@ -237,6 +292,7 @@ class FeResolvedSource {
         self.strictImports = strictImports;
         self.stdlibLineCount = stdlibLineCount;
         self.rootSourcePath = rootSourcePath;
+        self.stdlibSnapshot = stdlibSnapshot;
     }
 
     public FeLine? userLineForCombined(int line) {
@@ -289,117 +345,6 @@ Vector<string> feSortedListDirBudget(string path, FeDirectoryScanBudget budget) 
     return entries;
 }
 
-/* ----- defined class/interface names (skip-if-user-redefined) -------------- */
-
-/* Identifier char test (matches Python \w: alnum or underscore). */
-bool feIsWordChar(char c) {
-    return Strings.isAlnum(c) || c == '_';
-}
-
-/* Skip horizontal whitespace from `i`; return the new index. */
-int feSkipWs(string line, int i) {
-    int n = line.length();
-    while (i < n && (line[i] == ' ' || line[i] == '\t')) { i = i + 1; }
-    return i;
-}
-
-/* Match optional `<...>` generics (one or more non-'>' chars between angles).
- * Returns the index past the closing '>' if matched, else `i` unchanged.
- * Mirrors the regex `\s*<[^>\n]+>`. */
-int feMatchGenerics(string line, int i) {
-    int n = line.length();
-    int j = feSkipWs(line, i);
-    if (j >= n || line[j] != '<') { return i; }
-    int k = j + 1;
-    int count = 0;
-    while (k < n && line[k] != '>') { k = k + 1; count = count + 1; }
-    if (k >= n || count == 0) { return i; }  /* needs '>' and [^>\n]+ */
-    return k + 1;  /* past '>' */
-}
-
-/* Match a class/interface declaration head and return the declared name, or ""
- * if `line` is not such a declaration. Faithfully mirrors the single-line
- * _CLASS_NAME_RE / _INTERFACE_NAME_RE matches in frontend.py:
- *   class:     ^\s*(?:abstract\s+)?class\s+(\w+)(?:\s*<...>)?\s*
- *              (?:extends\s+\w+(?:\s*<...>)?\s*)?
- *              (?:implements\s+\w+(?:\s*,\s*\w+)*\s*)?\{
- *   interface: ^\s*interface\s+(\w+)(?:\s*<...>)?
- *              (?:extends\s+\w+(?:\s*<...>)?\s*)?\{
- * The trailing '{' must follow the (optional) clauses directly, which is what
- * distinguishes a real class def from a static method head like
- * `class Vector<string> listDir(...) {` (the regex never matches that). */
-string feMatchDeclName(string line, string kw) {
-    bool isClass = kw.equals("class");
-    int n = line.length();
-    int i = feSkipWs(line, 0);
-    if (isClass && feRawStartsWith(line, i, "abstract")) {
-        int j = i + 8;
-        if (j < n && (line[j] == ' ' || line[j] == '\t')) {
-            i = feSkipWs(line, j);
-        }
-    }
-    int klen = kw.length();
-    if (!feRawStartsWith(line, i, kw)) { return ""; }
-    int k = i + klen;
-    if (k >= n || (line[k] != ' ' && line[k] != '\t')) { return ""; }  /* \s+ */
-    k = feSkipWs(line, k);
-    int nameStart = k;
-    while (k < n && feIsWordChar(line[k])) { k = k + 1; }
-    if (k == nameStart) { return ""; }
-    string name = line.substring(nameStart, k - nameStart);
-
-    /* optional generics on the declared name */
-    k = feMatchGenerics(line, k);
-    k = feSkipWs(line, k);
-
-    /* optional `extends WORD (<...>)?` */
-    if (feRawStartsWith(line, k, "extends")) {
-        int e = k + 7;
-        if (e < n && (line[e] == ' ' || line[e] == '\t')) {
-            e = feSkipWs(line, e);
-            int ws = e;
-            while (e < n && feIsWordChar(line[e])) { e = e + 1; }
-            if (e > ws) {
-                e = feMatchGenerics(line, e);
-                e = feSkipWs(line, e);
-                k = e;
-            }
-        }
-    }
-
-    /* optional `implements WORD (, WORD)*` (class only) */
-    if (isClass && feRawStartsWith(line, k, "implements")) {
-        int m = k + 10;
-        if (m < n && (line[m] == ' ' || line[m] == '\t')) {
-            m = feSkipWs(line, m);
-            int ws = m;
-            while (m < n && feIsWordChar(line[m])) { m = m + 1; }
-            if (m > ws) {
-                /* (\s*,\s*\w+)* */
-                bool more = true;
-                while (more) {
-                    int save = m;
-                    int t = feSkipWs(line, m);
-                    if (t < n && line[t] == ',') {
-                        t = feSkipWs(line, t + 1);
-                        int ws2 = t;
-                        while (t < n && feIsWordChar(line[t])) { t = t + 1; }
-                        if (t > ws2) { m = t; } else { m = save; more = false; }
-                    } else {
-                        more = false;
-                    }
-                }
-                m = feSkipWs(line, m);
-                k = m;
-            }
-        }
-    }
-
-    /* the next char must be '{' */
-    if (k < n && line[k] == '{') { return name; }
-    return "";
-}
-
 /* Raw "does line[pos:] start with prefix" without allocating substrings. */
 bool feRawStartsWith(string line, int pos, string prefix) {
     int pn = prefix.length();
@@ -411,87 +356,6 @@ bool feRawStartsWith(string line, int pos, string prefix) {
         i = i + 1;
     }
     return true;
-}
-
-/* Collect class/interface names defined in `source` (line-based, mirrors the
- * MULTILINE regexes in frontend.py). */
-Map<string, bool> feDefinedNames(string source) {
-    Map<string, bool> names = {};
-    Vector<string> lines = feSplitLines(source);
-    int i = 0;
-    while (i < lines.len) {
-        string line = lines.get(i);
-        string cn = feMatchDeclName(line, "class");
-        if (cn.length() > 0) { names.put(cn, true); }
-        string iname = feMatchDeclName(line, "interface");
-        if (iname.length() > 0) { names.put(iname, true); }
-        i = i + 1;
-    }
-    return names;
-}
-
-/* True if any name in `a` is also in `b`. */
-bool feNamesIntersect(Map<string, bool> a, Map<string, bool> b) {
-    Vector<string> ks = a.keys();
-    int i = 0;
-    while (i < ks.len) {
-        if (b.has(ks.get(i))) { return true; }
-        i = i + 1;
-    }
-    return false;
-}
-
-/* ----- stdlib discovery ---------------------------------------------------- */
-
-/* Scan the configured stdlib directory and return .btrc filenames in include order:
- * priority files (in listed order, only those present), then the rest sorted.
- * Mirrors _discover_stdlib_files (top-level only, NOT recursive). */
-Vector<string> feDiscoverStdlibFiles() {
-    Vector<string> ordered = [];
-    string dir = feStdlibDir();
-    if (!feIsDir(dir)) { return ordered; }
-    Vector<string> all = feSortedListDir(dir);
-    /* keep only *.btrc */
-    Vector<string> files = [];
-    int i = 0;
-    while (i < all.len) {
-        string f = all.get(i);
-        if (feEndsWith(f, ".btrc")) { files.push(f); }
-        i = i + 1;
-    }
-    Vector<string> priority = [];
-    priority.push("vector.btrc");
-    priority.push("list.btrc");
-    priority.push("strings.btrc");
-    priority.push("platform.btrc");
-    priority.push("process.btrc");
-    priority.push("fs.btrc");
-    priority.push("daemon.btrc");
-    priority.push("ui.btrc");
-    /* priority first (in priority order, only if present) */
-    int p = 0;
-    while (p < priority.len) {
-        string pf = priority.get(p);
-        if (feVecContains(files, pf)) { ordered.push(pf); }
-        p = p + 1;
-    }
-    /* then everything not in priority, in sorted order */
-    int j = 0;
-    while (j < files.len) {
-        string f = files.get(j);
-        if (!feVecContains(priority, f)) { ordered.push(f); }
-        j = j + 1;
-    }
-    return ordered;
-}
-
-bool feVecContains(Vector<string> v, string x) {
-    int i = 0;
-    while (i < v.len) {
-        if (v.get(i).equals(x)) { return true; }
-        i = i + 1;
-    }
-    return false;
 }
 
 /* ----- directive scanning (comment/string-aware, via the lexer) ------------ */
@@ -671,68 +535,322 @@ class FeDirectiveScanner {
     }
 }
 
-/* ----- include / import path resolution ------------------------------------ */
+class FeStdlibLookup {
+    public bool found;
+    public string path;
+    public string diagnostic;
 
-/* Find a stdlib file by root-relative path or by basename in a subdirectory.
- * Mirrors _find_stdlib_file. Returns "" if not found. */
-string feFindStdlibFile(string includePath) {
-    string dir = feStdlibDir();
-    string direct = feJoinPath(dir, includePath);
-    if (feExists(direct)) { return direct; }
-    string base = feBaseName(includePath);
-    Vector<string> entries = feSortedListDir(dir);
-    int i = 0;
-    while (i < entries.len) {
-        string sub = feJoinPath(dir, entries.get(i));
-        if (feIsDir(sub)) {
-            string cand = feJoinPath(sub, base);
-            if (feExists(cand)) { return cand; }
-        }
-        i = i + 1;
+    public FeStdlibLookup(bool found, string path, string diagnostic) {
+        self.found = found;
+        self.path = path;
+        self.diagnostic = diagnostic;
     }
-    return "";
 }
+
+/* Instance-owned access to one standard-library directory. Each compilation
+ * snapshots root modules so resolution and external-symbol indexing share the
+ * same bytes. Nested modules are read once when explicitly resolved. */
+class FeStdlibRepository {
+    private string directoryPath;
+    private FeDirectiveScanner directiveScanner;
+
+    public FeStdlibRepository(string directory, GrammarInfo grammar) {
+        self.directoryPath = feAbsPath(directory);
+        self.directiveScanner = FeDirectiveScanner(grammar);
+    }
+
+    public string directory() {
+        return self.directoryPath;
+    }
+
+    private bool containsPath(Vector<string> paths, string target) {
+        int index = 0;
+        while (index < paths.len) {
+            if (paths.get(index).equals(target)) { return true; }
+            index++;
+        }
+        return false;
+    }
+
+    private Vector<string> discoverFiles() {
+        Vector<string> ordered = [];
+        if (!FileSystem.isDir(self.directoryPath)) { return ordered; }
+        Vector<string> entries = feSortedListDir(self.directoryPath);
+        Vector<string> files = [];
+        int index = 0;
+        while (index < entries.len) {
+            string name = entries.get(index);
+            if (name.endsWith(".btrc")) { files.push(name); }
+            index++;
+        }
+        Vector<string> priority = [
+            "vector.btrc",
+            "list.btrc",
+            "strings.btrc",
+            "platform.btrc",
+            "process.btrc",
+            "fs.btrc",
+            "daemon.btrc",
+            "ui.btrc",
+        ];
+        int priorityIndex = 0;
+        while (priorityIndex < priority.len) {
+            string name = priority.get(priorityIndex);
+            if (self.containsPath(files, name)) { ordered.push(name); }
+            priorityIndex++;
+        }
+        index = 0;
+        while (index < files.len) {
+            string name = files.get(index);
+            if (!self.containsPath(priority, name)) { ordered.push(name); }
+            index++;
+        }
+        return ordered;
+    }
+
+    public FeStdlibRootSnapshot rootSnapshot() {
+        Vector<string> paths = [];
+        Vector<string> sources = [];
+        Vector<string> files = self.discoverFiles();
+        int index = 0;
+        while (index < files.len) {
+            string path = feJoinPath(self.directoryPath, files.get(index));
+            if (FileSystem.isFile(path)) {
+                string source = feReadRequiredSource(path);
+                paths.push(path);
+                sources.push(source);
+            }
+            index++;
+        }
+        return FeStdlibRootSnapshot(paths, sources);
+    }
+
+    /* Prefer captured root-module paths. The one-level nested fallback mirrors
+     * Python's stdlib lookup; its source is read once into this compilation's
+     * resolved AST and never enters the external root-symbol index. */
+    public string findFileForCompilation(
+            string includePath, FeStdlibRootSnapshot snapshot) {
+        string direct = feJoinPath(self.directoryPath, includePath);
+        if (snapshot.contains(direct)) { return direct; }
+        string base = feBaseName(includePath);
+        if (!FileSystem.isDir(self.directoryPath)) { return ""; }
+        Vector<string> entries = feSortedListDir(self.directoryPath);
+        int index = 0;
+        while (index < entries.len) {
+            string child = feJoinPath(self.directoryPath, entries.get(index));
+            if (FileSystem.isDir(child)) {
+                string candidate = feJoinPath(child, base);
+                if (FileSystem.isFile(candidate)) { return candidate; }
+            }
+            index++;
+        }
+        return "";
+    }
+
+    public FeStdlibLookup requiredModuleForCompilation(
+            string name, FeStdlibRootSnapshot snapshot) {
+        string filename = name.endsWith(".btrc") ? name : name + ".btrc";
+        string path = self.findFileForCompilation(filename, snapshot);
+        if (!path.isEmpty()) { return FeStdlibLookup(true, path, ""); }
+        return FeStdlibLookup(
+            false,
+            "",
+            f"stdlib import 'std.{name}' not found\n  searched: {self.directoryPath}");
+    }
+
+    public Vector<string> rootPaths(FeStdlibRootSnapshot snapshot) {
+        Vector<string> paths = [];
+        int index = 0;
+        while (index < snapshot.count()) {
+            paths.push(snapshot.pathAt(index));
+            index++;
+        }
+        return paths;
+    }
+
+    public string readSourceForCompilation(
+            string path, FeStdlibRootSnapshot snapshot) {
+        int index = snapshot.indexOf(path);
+        if (index >= 0) { return snapshot.sourceAt(index); }
+        return feReadRequiredSource(path);
+    }
+
+    private bool wordCharacter(char value) {
+        return Strings.isAlnum(value) || value == '_';
+    }
+
+    private int skipWhitespace(string line, int index) {
+        while (index < line.length()
+                && (line[index] == ' ' || line[index] == '\t')) {
+            index++;
+        }
+        return index;
+    }
+
+    private int matchGenerics(string line, int index) {
+        int next = self.skipWhitespace(line, index);
+        if (next >= line.length() || line[next] != '<') { return index; }
+        int cursor = next + 1;
+        int count = 0;
+        while (cursor < line.length() && line[cursor] != '>') {
+            cursor++;
+            count++;
+        }
+        return cursor < line.length() && count > 0 ? cursor + 1 : index;
+    }
+
+    private string declarationName(string line, string keyword) {
+        bool isClass = keyword.equals("class");
+        int length = line.length();
+        int index = self.skipWhitespace(line, 0);
+        if (isClass && feRawStartsWith(line, index, "abstract")) {
+            int next = index + 8;
+            if (next < length && (line[next] == ' ' || line[next] == '\t')) {
+                index = self.skipWhitespace(line, next);
+            }
+        }
+        if (!feRawStartsWith(line, index, keyword)) { return ""; }
+        int cursor = index + keyword.length();
+        if (cursor >= length
+                || (line[cursor] != ' ' && line[cursor] != '\t')) {
+            return "";
+        }
+        cursor = self.skipWhitespace(line, cursor);
+        int nameStart = cursor;
+        while (cursor < length && self.wordCharacter(line[cursor])) { cursor++; }
+        if (cursor == nameStart) { return ""; }
+        string name = line.substring(nameStart, cursor - nameStart);
+        cursor = self.matchGenerics(line, cursor);
+        cursor = self.skipWhitespace(line, cursor);
+        if (feRawStartsWith(line, cursor, "extends")) {
+            int next = cursor + 7;
+            if (next < length && (line[next] == ' ' || line[next] == '\t')) {
+                next = self.skipWhitespace(line, next);
+                int wordStart = next;
+                while (next < length && self.wordCharacter(line[next])) { next++; }
+                if (next > wordStart) {
+                    next = self.matchGenerics(line, next);
+                    cursor = self.skipWhitespace(line, next);
+                }
+            }
+        }
+        if (isClass && feRawStartsWith(line, cursor, "implements")) {
+            int next = cursor + 10;
+            if (next < length && (line[next] == ' ' || line[next] == '\t')) {
+                next = self.skipWhitespace(line, next);
+                int wordStart = next;
+                while (next < length && self.wordCharacter(line[next])) { next++; }
+                if (next > wordStart) {
+                    bool more = true;
+                    while (more) {
+                        int saved = next;
+                        int separator = self.skipWhitespace(line, next);
+                        if (separator < length && line[separator] == ',') {
+                            separator = self.skipWhitespace(line, separator + 1);
+                            int itemStart = separator;
+                            while (separator < length
+                                    && self.wordCharacter(line[separator])) {
+                                separator++;
+                            }
+                            if (separator > itemStart) { next = separator; }
+                            else { next = saved; more = false; }
+                        } else {
+                            more = false;
+                        }
+                    }
+                    cursor = self.skipWhitespace(line, next);
+                }
+            }
+        }
+        return cursor < length && line[cursor] == '{' ? name : "";
+    }
+
+    private Map<string, bool> definedTypeNames(string source) {
+        Map<string, bool> names = {};
+        Vector<string> lines = feSplitLines(source);
+        int index = 0;
+        while (index < lines.len) {
+            string line = lines.get(index);
+            string className = self.declarationName(line, "class");
+            if (!className.isEmpty()) { names.put(className, true); }
+            string interfaceName = self.declarationName(line, "interface");
+            if (!interfaceName.isEmpty()) { names.put(interfaceName, true); }
+            index++;
+        }
+        return names;
+    }
+
+    private bool namesIntersect(
+            Map<string, bool> left, Map<string, bool> right) {
+        Vector<string> names = left.keys();
+        int index = 0;
+        while (index < names.len) {
+            if (right.has(names.get(index))) { return true; }
+            index++;
+        }
+        return false;
+    }
+
+    private Vector<string> sourceWithoutImports(string content) {
+        Vector<string> lines = feSplitLines(content);
+        Vector<FeDirective> directives = self.directiveScanner.scan(content);
+        Map<int, bool> covered = {};
+        int directiveIndex = 0;
+        while (directiveIndex < directives.len) {
+            FeDirective directive = directives.get(directiveIndex);
+            if (directive.kind.equals("import")) {
+                int line = directive.start;
+                while (line <= directive.end) { covered.put(line, true); line++; }
+            }
+            directiveIndex++;
+        }
+        Vector<string> kept = [];
+        int index = 0;
+        while (index < lines.len) {
+            if (!covered.has(index + 1)) { kept.push(lines.get(index)); }
+            index++;
+        }
+        return kept;
+    }
+
+    public string sourceAtSnapshot(
+            string userSource, FeStdlibRootSnapshot snapshot) {
+        Map<string, bool> userNames = self.definedTypeNames(userSource);
+        Vector<string> lines = [];
+        FeResolutionBudget budget = FeResolutionBudget();
+        int fileIndex = 0;
+        while (fileIndex < snapshot.count()) {
+            string path = snapshot.pathAt(fileIndex);
+            string content = snapshot.sourceAt(fileIndex);
+            budget.enter(content, path, 0);
+            if (!self.namesIntersect(
+                    self.definedTypeNames(content), userNames)) {
+                Vector<string> fileLines = self.sourceWithoutImports(content);
+                int lineIndex = 0;
+                while (lineIndex < fileLines.len) {
+                    lines.push(fileLines.get(lineIndex));
+                    lineIndex++;
+                }
+            }
+            fileIndex++;
+        }
+        return feJoinLines(lines);
+    }
+
+}
+
+/* ----- include / import path resolution ------------------------------------ */
 
 /* Resolve a #include path against the including file's directory, then the
  * stdlib. Mirrors _resolve_include_path. Returns "" if unresolved. */
-string feResolveIncludePath(string includePath, string sourceDir) {
+string feResolveIncludePath(string includePath, string sourceDir,
+                            FeStdlibRepository stdlib,
+                            FeStdlibRootSnapshot stdlibSnapshot) {
     string full = feJoinPath(sourceDir, includePath);
     if (feExists(full)) { return full; }
-    string std = feFindStdlibFile(includePath);
+    string std = stdlib.findFileForCompilation(includePath, stdlibSnapshot);
     if (std.length() > 0) { return std; }
     return "";
-}
-
-/* Resolve a single `std.<name>` module to its stdlib file path (mirrors
- * _stdlib_module_path). Returns "" if not found. */
-string feStdlibModulePath(string name) {
-    string fname = name;
-    if (!feEndsWith(fname, ".btrc")) { fname = fname + ".btrc"; }
-    return feFindStdlibFile(fname);
-}
-
-string feRequiredStdlibModulePath(string name) {
-    string path = feStdlibModulePath(name);
-    if (path.length() == 0) {
-        fprintf(stderr, "error: stdlib import 'std.%s' not found\n  searched: %s\n",
-            name, feStdlibDir());
-        exit(1);
-    }
-    return path;
-}
-
-/* All stdlib files (discovery order, absolute-relative paths). Mirrors
- * _stdlib_glob_paths. */
-Vector<string> feStdlibGlobPaths() {
-    Vector<string> out = [];
-    string dir = feStdlibDir();
-    Vector<string> files = feDiscoverStdlibFiles();
-    int i = 0;
-    while (i < files.len) {
-        out.push(feJoinPath(dir, files.get(i)));
-        i = i + 1;
-    }
-    return out;
 }
 
 /* Recursive directory walk collecting *.btrc and *.c files (for `dir/**`),
@@ -772,7 +890,9 @@ void feSortPaths(Vector<string> v) {
 
 /* Resolve a relative import spec (possibly a glob) to file path(s). Mirrors
  * _relative_import_paths. */
-Vector<string> feRelativeImportPaths(string spec, string sourceDir) {
+Vector<string> feRelativeImportPaths(
+        string spec, string sourceDir, FeStdlibRepository stdlib,
+        FeStdlibRootSnapshot stdlibSnapshot) {
     Vector<string> out = [];
     bool recursive = feEndsWith(spec, "/**");
     bool directGlob = feEndsWith(spec, "/*");
@@ -832,11 +952,12 @@ Vector<string> feRelativeImportPaths(string spec, string sourceDir) {
     string path = spec;
     if (!PathTools.isAbsolute(spec)) { path = feJoinPath(sourceDir, spec); }
     if (feExists(path)) { out.push(path); return out; }
-    string resolved = feResolveIncludePath(spec, sourceDir);
+    string resolved = feResolveIncludePath(
+        spec, sourceDir, stdlib, stdlibSnapshot);
     if (resolved.length() > 0) { out.push(resolved); }
     if (out.len == 0) {
         fprintf(stderr, "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
-            spec, sourceDir, feStdlibDir());
+            spec, sourceDir, stdlib.directory());
         exit(1);
     }
     return out;
@@ -908,7 +1029,9 @@ void feInvalidImportSpec(string spec) {
  *   "rel/path.btrc"  -> quoted relative path (surrounding quotes stripped)
  *   ./path           -> explicit relative file / dir / glob
  * Package paths fail closed because btrc.toml resolution is not self-hosted. */
-Vector<string> feImportSpecPaths(string spec, string sourceDir) {
+Vector<string> feImportSpecPaths(
+        string spec, string sourceDir, FeStdlibRepository stdlib,
+        FeStdlibRootSnapshot stdlibSnapshot) {
     /* Quoted path: import "rel/path.btrc"  (the raw spec keeps its surrounding
      * quotes). Mirror the Python parser's QuotedPath handling: strip the
      * matching surrounding quote and resolve the inner path like a relative
@@ -920,26 +1043,34 @@ Vector<string> feImportSpecPaths(string spec, string sourceDir) {
         char q = spec[0];
         if (q == '"' && spec[sn - 1] == q) {
             string inner = spec.substring(1, sn - 2);
-            return feRelativeImportPaths(inner, sourceDir);
+            return feRelativeImportPaths(
+                inner, sourceDir, stdlib, stdlibSnapshot);
         }
     }
     if (feRawStartsWith(spec, 0, "std.")) {
         string rest = spec.substring(4, spec.length() - 4);
         if (rest.equals("*") || rest.equals("**")) {
-            return feStdlibGlobPaths();
+            return stdlib.rootPaths(stdlibSnapshot);
         }
         Vector<string> names = feStdModuleNames(rest);
         if (names.len == 0) { feInvalidImportSpec(spec); }
         Vector<string> out = [];
         int index = 0;
         while (index < names.len) {
-            out.push(feRequiredStdlibModulePath(names.get(index)));
+            FeStdlibLookup lookup = stdlib.requiredModuleForCompilation(
+                names.get(index), stdlibSnapshot);
+            if (!lookup.found) {
+                fprintf(stderr, "error: %s\n", lookup.diagnostic);
+                exit(1);
+            }
+            out.push(lookup.path);
             index = index + 1;
         }
         return out;
     }
     if (spec.startsWith(".") || spec.startsWith("/") || spec.startsWith("~")) {
-        return feRelativeImportPaths(spec, sourceDir);
+        return feRelativeImportPaths(
+            spec, sourceDir, stdlib, stdlibSnapshot);
     }
     if (fePackageImportSpec(spec)) {
         fprintf(stderr,
@@ -984,72 +1115,12 @@ string feCIncludeDirective(string path) {
     return f"#include \"{path}\"";
 }
 
-/* ----- stdlib composition (mirror get_stdlib_source_mapped) ---------------- */
-
-/* Drop a stdlib file's own import directives; the stdlib is composed wholesale.
- * Returns the kept lines (mirrors _stdlib_file_source). */
-Vector<string> feStdlibFileSource(
-        string content, FeDirectiveScanner directiveScanner) {
-    Vector<string> lines = feSplitLines(content);
-    Vector<FeDirective> directives = directiveScanner.scan(content);
-    Map<int, bool> covered = {};
-    int d = 0;
-    while (d < directives.len) {
-        FeDirective dir = directives.get(d);
-        if (dir.kind.equals("import")) {
-            int ln = dir.start;
-            while (ln <= dir.end) { covered.put(ln, true); ln = ln + 1; }
-        }
-        d = d + 1;
-    }
-    Vector<string> kept = [];
-    int i = 0;
-    while (i < lines.len) {
-        int lineNumber = i + 1;
-        if (!covered.has(lineNumber)) {
-            kept.push(lines.get(i));
-        }
-        i = i + 1;
-    }
-    return kept;
-}
-
-/* Read stdlib sources in discovery order, skipping any file that defines a
- * class/interface already defined by the user source. Mirrors
- * get_stdlib_source_mapped (.source). */
-string feGetStdlibSource(
-        string userSource, FeDirectiveScanner directiveScanner) {
-    string dir = feStdlibDir();
-    Map<string, bool> userNames = feDefinedNames(userSource);
-    Vector<string> allLines = [];
-    Vector<string> files = feDiscoverStdlibFiles();
-    FeResolutionBudget budget = FeResolutionBudget();
-    int f = 0;
-    while (f < files.len) {
-        string fpath = feJoinPath(dir, files.get(f));
-        if (feExists(fpath)) {
-            string content = feReadRequiredSource(fpath);
-            budget.enter(content, fpath, 0);
-            Map<string, bool> fileNames = feDefinedNames(content);
-            if (!feNamesIntersect(fileNames, userNames)) {
-                Vector<string> fileLines = feStdlibFileSource(
-                    content, directiveScanner);
-                int j = 0;
-                while (j < fileLines.len) {
-                    allLines.push(fileLines.get(j));
-                    j = j + 1;
-                }
-            }
-        }
-        f = f + 1;
-    }
-    return feJoinLines(allLines);
-}
-
 /* ----- top-level entry: compose the full source ---------------------------- */
 
 class FeFrontendResolver {
     private FeDirectiveScanner directiveScanner;
+    private FeStdlibRepository stdlib;
+    private FeStdlibRootSnapshot stdlibSnapshot;
     private bool includeStdlib;
     private bool strictImports;
     private Map<string, bool> included;
@@ -1057,8 +1128,15 @@ class FeFrontendResolver {
     private FeResolutionBudget budget;
 
     public FeFrontendResolver(
-            GrammarInfo grammar, bool includeStdlib, bool strictImports) {
+            GrammarInfo grammar, FeStdlibRepository stdlib,
+            bool includeStdlib, bool strictImports) {
         self.directiveScanner = FeDirectiveScanner(grammar);
+        self.stdlib = stdlib;
+        Vector<string> emptyPaths = [];
+        Vector<string> emptySources = [];
+        FeStdlibRootSnapshot emptySnapshot = FeStdlibRootSnapshot(
+            emptyPaths, emptySources);
+        self.stdlibSnapshot = emptySnapshot;
         self.includeStdlib = includeStdlib;
         self.strictImports = strictImports;
         self.included = {};
@@ -1084,7 +1162,8 @@ class FeFrontendResolver {
                         feCIncludeDirective(absolute), absPath, 0));
                 }
             } else {
-                string content = feReadRequiredSource(fullPath);
+                string content = self.stdlib.readSourceForCompilation(
+                    fullPath, self.stdlibSnapshot);
                 self.resolveInto(content, fullPath, out, depth);
             }
             index++;
@@ -1126,19 +1205,22 @@ class FeFrontendResolver {
                 FeDirective directive = directives.get(byStart.get(lineNumber));
                 if (directive.kind.equals("btrc_include")) {
                     string resolved = feResolveIncludePath(
-                        directive.payload, sourceDir);
+                        directive.payload, sourceDir, self.stdlib,
+                        self.stdlibSnapshot);
                     if (resolved.length() == 0) {
                         fprintf(stderr,
                             "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
-                            directive.payload, sourceDir, feStdlibDir());
+                            directive.payload, sourceDir, self.stdlib.directory());
                         exit(1);
                     }
                     self.dependencies.addInclude(absPath, resolved);
-                    string content = feReadRequiredSource(resolved);
+                    string content = self.stdlib.readSourceForCompilation(
+                        resolved, self.stdlibSnapshot);
                     self.resolveInto(content, resolved, out, depth + 1);
                 } else {
                     Vector<string> paths = feImportSpecPaths(
-                        directive.payload, sourceDir);
+                        directive.payload, sourceDir, self.stdlib,
+                        self.stdlibSnapshot);
                     self.inlinePaths(paths, absPath, out, depth + 1);
                 }
             } else if (!covered.has(lineNumber)) {
@@ -1154,6 +1236,8 @@ class FeFrontendResolver {
         self.included = {};
         self.dependencies = FeDependencyGraph();
         self.budget = FeResolutionBudget();
+        FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
+        self.stdlibSnapshot = currentSnapshot;
 
         Vector<FeLine> userLines = [];
         self.resolveInto(source, sourcePath, userLines, 0);
@@ -1167,8 +1251,8 @@ class FeFrontendResolver {
         string userSource = feJoinLines(userTexts);
         string stdlibSource = "";
         if (self.includeStdlib && !self.strictImports) {
-            stdlibSource = feGetStdlibSource(
-                userSource, self.directiveScanner);
+            stdlibSource = self.stdlib.sourceAtSnapshot(
+                userSource, self.stdlibSnapshot);
         }
         string separator = stdlibSource.length() > 0 ? "\n" : "";
         feCheckCombinedSourceSize(stdlibSource, separator, userSource);
@@ -1178,6 +1262,7 @@ class FeFrontendResolver {
             ? feSplitLines(stdlibSource).len : 0;
         return FeResolvedSource(
             userSource, combined, stdlibSource, userLines, self.dependencies,
-            self.strictImports, stdlibLineCount, feAbsPath(sourcePath));
+            self.strictImports, stdlibLineCount, feAbsPath(sourcePath),
+            self.stdlibSnapshot);
     }
 }

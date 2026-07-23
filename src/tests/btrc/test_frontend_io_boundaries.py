@@ -284,6 +284,7 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
 ) -> None:
     stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
     grammar_path = REPO / "src/language/grammar.ebnf"
+    stdlib_path = REPO / "src/stdlib"
     virtual_source = tmp_path / "virtual.btrc"
     isolated_source = tmp_path / "isolated.btrc"
     program = tmp_path / "resolver_reuse.btrc"
@@ -296,7 +297,8 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         "\n"
         "int main() {\n"
         f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
-        "    FeFrontendResolver resolver = FeFrontendResolver(grammar, false, true);\n"
+        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar);\n"
+        "    FeFrontendResolver resolver = FeFrontendResolver(grammar, stdlib, false, true);\n"
         f"    string firstSource = {json.dumps(first_source)};\n"
         f"    string secondSource = {json.dumps(second_source)};\n"
         f"    string sourcePath = {json.dumps(str(virtual_source))};\n"
@@ -340,5 +342,181 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         capture_output=True,
         text=True,
         timeout=30,
+    )
+    assert executed.returncode == 0, executed.stderr
+
+
+@pytest.mark.skipif(
+    not CC or shutil.which(CC[0]) is None,
+    reason="needs a C compiler",
+)
+def test_stdlib_repository_instances_reuse_their_own_isolated_state(
+    tmp_path: Path,
+) -> None:
+    stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
+    grammar_path = REPO / "src/language/grammar.ebnf"
+    stdlib_a = tmp_path / "stdlib_a"
+    stdlib_b = tmp_path / "stdlib_b"
+    stdlib_a.mkdir()
+    stdlib_b.mkdir()
+    (stdlib_a / "vector.btrc").write_text("import std.strings\nclass Alpha { }\n", encoding="utf-8")
+    (stdlib_a / "zeta.btrc").write_text("class Zeta { }\n", encoding="utf-8")
+    (stdlib_b / "strings.btrc").write_text("class Beta { }\n", encoding="utf-8")
+
+    program = tmp_path / "stdlib_repository_isolation.btrc"
+    generated = tmp_path / "stdlib_repository_isolation.c"
+    executable = tmp_path / "stdlib_repository_isolation"
+    program.write_text(
+        f"import {json.dumps(str(stage))};\n"
+        "\n"
+        "int main() {\n"
+        f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
+        f"    FeStdlibRepository first = FeStdlibRepository({json.dumps(str(stdlib_a))}, grammar);\n"
+        f"    FeStdlibRepository second = FeStdlibRepository({json.dumps(str(stdlib_b))}, grammar);\n"
+        "    FeStdlibRootSnapshot firstSnapshot = first.rootSnapshot();\n"
+        "    FeStdlibRootSnapshot secondSnapshot = second.rootSnapshot();\n"
+        "    if (firstSnapshot.count() != 2\n"
+        '            || !PathTools.basename(firstSnapshot.pathAt(0)).equals("vector.btrc")\n'
+        '            || !PathTools.basename(firstSnapshot.pathAt(1)).equals("zeta.btrc")) { return 1; }\n'
+        "    if (secondSnapshot.count() != 1\n"
+        '            || !PathTools.basename(secondSnapshot.pathAt(0)).equals("strings.btrc")) { return 2; }\n'
+        '    if (!first.requiredModuleForCompilation("vector", firstSnapshot).found\n'
+        '            || first.requiredModuleForCompilation("strings", firstSnapshot).found) { return 3; }\n'
+        '    if (!second.requiredModuleForCompilation("strings", secondSnapshot).found\n'
+        '            || second.requiredModuleForCompilation("vector", secondSnapshot).found) { return 4; }\n'
+        '    string firstSource = first.sourceAtSnapshot("int userValue;\\n", firstSnapshot);\n'
+        '    if (!firstSource.contains("class Alpha")\n'
+        '            || !firstSource.contains("class Zeta")\n'
+        '            || firstSource.contains("import std.strings")) { return 5; }\n'
+        '    if (!second.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 6; }\n'
+        '    if (second.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    transpile = _reference(program, generated, timeout=300)
+    assert transpile.returncode == 0, transpile.stderr
+    native = subprocess.run(
+        [
+            *CC,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(generated),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert native.returncode == 0, native.stderr
+    executed = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert executed.returncode == 0, executed.stderr
+
+
+@pytest.mark.skipif(
+    not CC or shutil.which(CC[0]) is None,
+    reason="needs a C compiler",
+)
+def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    parser_stage = REPO / "src/compiler/btrc/parser/stage.btrc"
+    grammar_path = REPO / "src/language/grammar.ebnf"
+    stdlib = tmp_path / "stdlib"
+    stdlib.mkdir()
+    indexed_source = stdlib / "alpha.btrc"
+    indexed_source.write_text("class Alpha { }\n", encoding="utf-8")
+
+    program = tmp_path / "stdlib_symbol_index_reuse.btrc"
+    generated = tmp_path / "stdlib_symbol_index_reuse.c"
+    executable = tmp_path / "stdlib_symbol_index_reuse"
+    invalid_stdlib_source = "class Beta { }\nclass {\n"
+    fixed_stdlib_source = "class Beta { }\nclass Gamma { }\n"
+    program.write_text(
+        "import std.fs;\n"
+        f"import {json.dumps(str(parser_stage))};\n"
+        "\n"
+        "int main() {\n"
+        f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
+        f"    FeStdlibRepository repository = FeStdlibRepository({json.dumps(str(stdlib))}, grammar);\n"
+        "    FeStdlibSymbolIndex index = FeStdlibSymbolIndex(grammar);\n"
+        "    Map<string, Vector<string>> firstSymbols = {};\n"
+        "    FeStdlibRootSnapshot firstSnapshot = repository.rootSnapshot();\n"
+        "    FeStdlibSymbolIndexResult first = index.mergeSnapshotInto(\n"
+        "        firstSymbols, firstSnapshot);\n"
+        '    if (!first.success || !firstSymbols.has("Alpha")\n'
+        '            || firstSymbols.get("Alpha").len != 1) { return 1; }\n'
+        f"    if (!FileSystem.writeText({json.dumps(str(indexed_source))}, "
+        f"{json.dumps(invalid_stdlib_source)})) {{ return 2; }}\n"
+        "    FeStdlibRootSnapshot invalidSnapshot = repository.rootSnapshot();\n"
+        "    Map<string, Vector<string>> failedSymbols = {};\n"
+        "    FeStdlibSymbolIndexResult failed = index.mergeSnapshotInto(\n"
+        "        failedSymbols, invalidSnapshot);\n"
+        "    if (failed.success || !failed.diagnostic.contains(\n"
+        '            "cannot index standard-library source")\n'
+        "            || firstSnapshot.sameContents(invalidSnapshot)\n"
+        '            || failedSymbols.has("Alpha")\n'
+        '            || failedSymbols.has("Beta")) { return 3; }\n'
+        f"    if (!FileSystem.writeText({json.dumps(str(indexed_source))}, "
+        f"{json.dumps(fixed_stdlib_source)})) {{ return 4; }}\n"
+        "    FeStdlibRootSnapshot fixedSnapshot = repository.rootSnapshot();\n"
+        "    Map<string, Vector<string>> fixedSymbols = {};\n"
+        "    FeStdlibSymbolIndexResult fixed = index.mergeSnapshotInto(\n"
+        "        fixedSymbols, fixedSnapshot);\n"
+        "    if (!fixed.success || fixedSnapshot.sameContents(invalidSnapshot)\n"
+        '            || fixedSymbols.has("Alpha")\n'
+        '            || !fixedSymbols.has("Beta")\n'
+        '            || !fixedSymbols.has("Gamma")\n'
+        '            || fixedSymbols.get("Beta").len != 1\n'
+        '            || fixedSymbols.get("Gamma").len != 1) { return 5; }\n'
+        "    return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+
+    transpile = _selfhost(semantic_btrcc, program, timeout=300)
+    assert transpile.returncode == 0 and transpile.stdout.strip(), transpile.stderr
+    generated.write_text(transpile.stdout, encoding="utf-8")
+    native = subprocess.run(
+        [
+            *CC,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(generated),
+            "-o",
+            str(executable),
+            "-lm",
+            "-lpthread",
+        ],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert native.returncode == 0, native.stderr
+    executed = subprocess.run(
+        [str(executable)],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
     assert executed.returncode == 0, executed.stderr

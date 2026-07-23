@@ -89,7 +89,7 @@ def test_application_and_pipeline_have_real_instance_owners() -> None:
 
     assert "class Compiler {" in compiler
     assert "private CompilerPipeline pipeline;" in compiler
-    assert "self.pipeline = CompilerPipeline(grammar);" in compiler
+    assert "self.pipeline = CompilerPipeline(grammar, stdlibDirectory);" in compiler
     assert "class BtrccDriver {" in compiler
     assert "class CompilerPipeline {" in pipeline
     assert "public BtrccCompilationResult compile(" in pipeline
@@ -132,12 +132,82 @@ def test_frontend_scanning_and_recursive_resolution_are_instance_owned() -> None
     ):
         assert loose_behavior not in frontend
 
-    assert "self.grammar, options.includeStdlib, options.strictImports" in pipeline
-    assert "FeImportVisibilityChecker(program, resolved, self.grammar)" in pipeline
+    assert "self.grammar, self.stdlib," in pipeline
+    assert "program, resolved, self.stdlibSymbols" in pipeline
     assert "Lexer lexer = Lexer(source, self.grammar);" in visibility
     assert "Parser parser = Parser(tokens, self.grammar);" in visibility
     assert "FeFrontendResolver resolver = FeFrontendResolver(" in frontend_main
     assert "resolver.resolve(src, path)" in frontend_main
+
+
+def test_stdlib_behavior_has_one_explicit_instance_owner() -> None:
+    frontend = _source("frontend.btrc")
+    compiler = _source("compiler.btrc")
+    pipeline = _source("pipeline/pipeline.btrc")
+    visibility = _source("import_visibility.btrc")
+
+    assert "class FeStdlibRepository {" in frontend
+    assert "class FeStdlibRootSnapshot {" in frontend
+    assert "private Vector<string> paths;" in frontend
+    assert "private Vector<string> sources;" in frontend
+    assert "private string directoryPath;" in frontend
+    assert "private FeDirectiveScanner directiveScanner;" in frontend
+    for owned_behavior in (
+        "public FeStdlibRootSnapshot rootSnapshot()",
+        "public string findFileForCompilation(",
+        "public FeStdlibLookup requiredModuleForCompilation(",
+        "public Vector<string> rootPaths(",
+        "public string readSourceForCompilation(",
+        "public string sourceAtSnapshot(",
+    ):
+        assert owned_behavior in frontend
+    assert "private Vector<string> discoverFiles()" in frontend
+    assert "private Map<string, bool> definedTypeNames(" in frontend
+    assert "public string findFile(string includePath)" not in frontend
+    assert "public string source(string userSource)" not in frontend
+    for leaked_index_lifecycle in (
+        "beginSymbolIndex(",
+        "indexSymbol(",
+        "completeSymbolIndex(",
+        "mergeSymbolFiles(",
+        "hasSymbolIndex(",
+    ):
+        assert leaked_index_lifecycle not in frontend
+
+    for loose_behavior in (
+        "feConfiguredGrammarPath",
+        "feConfiguredStdlibDirectory",
+        "feConfigureDataPaths(",
+        "feGrammarPath(",
+        "feStdlibDir(",
+        "feDiscoverStdlibFiles(",
+        "feFindStdlibFile(",
+        "feStdlibModulePath(",
+        "feRequiredStdlibModulePath(",
+        "feStdlibGlobPaths(",
+        "feStdlibFileSource(",
+        "feGetStdlibSource(",
+        "feDefinedNames(",
+    ):
+        assert loose_behavior not in frontend
+
+    assert not (SELFHOST / "frontend_data_paths.btrc").exists()
+    assert "feConfigureDataPaths" not in compiler
+    assert "private FeStdlibRepository stdlib;" in pipeline
+    assert "FeStdlibRepository(stdlibDirectory, grammar)" in pipeline
+    assert "private FeStdlibSymbolIndex stdlibSymbols;" in pipeline
+    assert "FeStdlibSymbolIndex(grammar)" in pipeline
+    assert pipeline.count("FeStdlibSymbolIndex(") == 1
+    compile_body = pipeline.split("public BtrccCompilationResult compile(", 1)[1]
+    assert "FeStdlibSymbolIndex(" not in compile_body
+    assert "program, resolved, self.stdlibSymbols" in pipeline
+    assert "class FeStdlibSymbolIndex {" in visibility
+    assert "Map<string, Vector<string>> nextSymbolFiles = {};" in visibility
+    assert "self.symbolFiles = nextSymbolFiles;" in visibility
+    assert "self.indexedSnapshot = snapshot;" in visibility
+    assert "self.resolved.stdlibSnapshot" in visibility
+    assert "public FeStdlibSymbolIndexResult mergeSnapshotInto(" in visibility
+    assert "self.stdlibSymbols.mergeSnapshotInto(" in visibility
 
 
 def test_strict_imports_are_the_application_default() -> None:

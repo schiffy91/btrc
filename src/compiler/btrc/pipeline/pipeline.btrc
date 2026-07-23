@@ -2,9 +2,13 @@
 
 class CompilerPipeline {
     private GrammarInfo grammar;
+    private FeStdlibRepository stdlib;
+    private FeStdlibSymbolIndex stdlibSymbols;
 
-    public CompilerPipeline(GrammarInfo grammar) {
+    public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory) {
         self.grammar = grammar;
+        self.stdlib = FeStdlibRepository(stdlibDirectory, grammar);
+        self.stdlibSymbols = FeStdlibSymbolIndex(grammar);
     }
 
     private BtrccCompilationResult failure(string diagnostic) {
@@ -25,7 +29,8 @@ class CompilerPipeline {
     public BtrccCompilationResult compile(string source, string sourcePath,
                                           BtrccOptions options) {
         FeFrontendResolver resolver = FeFrontendResolver(
-            self.grammar, options.includeStdlib, options.strictImports);
+            self.grammar, self.stdlib,
+            options.includeStdlib, options.strictImports);
         FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 
         Lexer lexer = Lexer(resolved.source, self.grammar);
@@ -42,15 +47,21 @@ class CompilerPipeline {
 
         if (options.strictImports) {
             FeImportVisibilityChecker visibility =
-                FeImportVisibilityChecker(program, resolved, self.grammar);
-            Vector<FeVisibilityDiagnostic> diagnostics = visibility.check();
-            if (diagnostics.len > 0) {
-                return self.failure(self.visibilityDiagnostic(diagnostics));
+                FeImportVisibilityChecker(
+                    program, resolved, self.stdlibSymbols);
+            FeVisibilityCheckResult checked = visibility.check();
+            if (!checked.success) {
+                return self.failure("error: " + checked.diagnostic);
+            }
+            if (checked.diagnostics.len > 0) {
+                return self.failure(
+                    self.visibilityDiagnostic(checked.diagnostics));
             }
         }
 
         HostedAbiProvenance.stampProgramSources(
-            program, resolved.stdlibLineCount, resolved.userLines, sourcePath);
+            program, resolved.stdlibLineCount, resolved.userLines, sourcePath,
+            self.stdlib.directory());
         Analyzed analyzed = analyzeProgram(program);
         semanticValidateProgram(program, analyzed);
         closeProgramGenericExpressionGraph(program, analyzed);

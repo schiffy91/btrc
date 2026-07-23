@@ -14,6 +14,7 @@ import std.console;
 import ./frontend/stage.btrc;
 
 #include "driver_output.btrc"
+#include "runtime_paths.btrc"
 
 int main(int argc, char** argv) {
     BtrccOutput output = BtrccOutput(stdout);
@@ -49,10 +50,15 @@ int main(int argc, char** argv) {
 
     string path = Strings.copy(argv[argIdx]);
     string src = feReadRequiredSource(path);
-    GrammarInfo grammar = parseGrammar(
-        feReadRequiredSource(feGrammarPath()));
+    BtrccDataPaths dataPaths = BtrccRuntimePaths.resolve(Strings.copy(argv[0]));
+    if (!dataPaths.valid) {
+        Console.error(dataPaths.diagnostic);
+        return 1;
+    }
+    GrammarInfo grammar = parseGrammar(feReadRequiredSource(dataPaths.grammar));
+    FeStdlibRepository stdlib = FeStdlibRepository(dataPaths.stdlib, grammar);
     FeFrontendResolver resolver = FeFrontendResolver(
-        grammar, includeStdlib, strictImports);
+        grammar, stdlib, includeStdlib, strictImports);
     FeResolvedSource resolved = resolver.resolve(src, path);
     if (output.write(resolved.source)) { return 0; }
     fprintf(stderr, "frontend: error: cannot write standard output\n");

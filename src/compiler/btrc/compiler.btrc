@@ -9,8 +9,8 @@ import ./pipeline/stage.btrc;
 class Compiler {
     private CompilerPipeline pipeline;
 
-    public Compiler(GrammarInfo grammar) {
-        self.pipeline = CompilerPipeline(grammar);
+    public Compiler(GrammarInfo grammar, string stdlibDirectory) {
+        self.pipeline = CompilerPipeline(grammar, stdlibDirectory);
     }
 
     public BtrccCompilationResult compile(string source, string sourcePath,
@@ -56,7 +56,6 @@ class BtrccDriver {
         BtrccDataPaths dataPaths = BtrccRuntimePaths.resolve(
             self.commandLine.executable());
         if (!dataPaths.valid) { return self.fail(dataPaths.diagnostic); }
-        feConfigureDataPaths(dataPaths.grammar, dataPaths.stdlib);
         if (options.showStdlibDirectory) {
             return self.writeLine(dataPaths.stdlib);
         }
@@ -72,7 +71,7 @@ class BtrccDriver {
             return self.fail("input file does not exist: " + sourcePath);
         }
         string source = feReadRequiredSource(sourcePath);
-        Compiler compiler = Compiler(grammar);
+        Compiler compiler = Compiler(grammar, dataPaths.stdlib);
         BtrccCompilationResult result =
             compiler.compile(source, sourcePath, options);
         if (!result.success) {
