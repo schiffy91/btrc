@@ -133,7 +133,16 @@ def unlink_edge_value(gen, value, type_expr, owner=None):
     return unlink_edge_if_present(gen, value, owner)
 
 
-def replace_edge_value(gen, slot, replacement, type_expr, owner, *, adopt: bool):
+def replace_edge_value(
+    gen,
+    slot,
+    replacement,
+    type_expr,
+    owner,
+    type_renderer,
+    *,
+    adopt: bool,
+):
     """Replace one class edge atomically; strings use their side-table path."""
     if not is_arc_type(gen, type_expr):
         raise ValueError("transactional edge replacement requires an ARC type")
@@ -145,6 +154,7 @@ def replace_edge_value(gen, slot, replacement, type_expr, owner, *, adopt: bool)
         replacement,
         type_expr,
         owner,
+        type_renderer,
         adopt=adopt,
     )
 

@@ -3,10 +3,16 @@
 from ...ast_nodes import BraceInitializer, ListLiteral
 from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import CType, IRGlobalDecl, IRLiteral
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
-def emit_global_var(gen, declaration, *, force_external=False) -> None:
+def emit_global_var(
+    gen,
+    declaration,
+    type_renderer: CTypeRenderer,
+    *,
+    force_external=False,
+) -> None:
     if declaration.initializer is not None:
         from .callable_boundaries import reject_persistent_callable_escape
 
@@ -17,7 +23,12 @@ def emit_global_var(gen, declaration, *, force_external=False) -> None:
             "global storage",
         )
     if _materialized_array(declaration):
-        _emit_array_global(gen, declaration, force_external)
+        _emit_array_global(
+            gen,
+            declaration,
+            type_renderer,
+            force_external,
+        )
         return
     from .aggregate_initializers import lower_static_initializer
 
@@ -25,10 +36,14 @@ def emit_global_var(gen, declaration, *, force_external=False) -> None:
     is_extern = bool(type_expr and type_expr.is_extern and not force_external)
     gen.module.global_decls.append(
         IRGlobalDecl(
-            c_type=CType(text=type_to_c(type_expr) if type_expr else "int"),
+            c_type=CType(text=type_renderer.render(type_expr) if type_expr else "int"),
             name=declaration.name,
             init=(
-                lower_static_initializer(gen, declaration.initializer)
+                lower_static_initializer(
+                    gen,
+                    declaration.initializer,
+                    type_renderer,
+                )
                 if declaration.initializer and not is_extern
                 else None
             ),
@@ -56,7 +71,12 @@ def _materialized_array(declaration) -> bool:
     )
 
 
-def _emit_array_global(gen, declaration, force_external) -> None:
+def _emit_array_global(
+    gen,
+    declaration,
+    type_renderer: CTypeRenderer,
+    force_external,
+) -> None:
     from ...type_composition import strip_outer_storage
     from .aggregate_initializers import lower_static_initializer
     from .expressions import lower_expr
@@ -67,11 +87,11 @@ def _emit_array_global(gen, declaration, force_external) -> None:
     initializer = declaration.initializer
     gen.module.global_decls.append(
         IRGlobalDecl(
-            c_type=CType(text=type_to_c(element_type)),
+            c_type=CType(text=type_renderer.render(element_type)),
             name=declaration.name,
-            init=(lower_static_initializer(gen, initializer) if initializer else None),
+            init=(lower_static_initializer(gen, initializer, type_renderer) if initializer else None),
             array_size=(
-                lower_expr(gen, type_expr.array_size)
+                lower_expr(gen, type_expr.array_size, type_renderer)
                 if type_expr.array_size is not None
                 else IRLiteral(text=str(len(initializer.elements)))
                 if initializer is not None

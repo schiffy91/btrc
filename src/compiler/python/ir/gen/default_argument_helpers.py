@@ -17,7 +17,7 @@ from ..nodes import CType, IRBlock, IRFunctionDecl, IRFunctionDef, IRParam
 from .function_symbols import source_function_c_name
 from .parameters import lower_source_param
 from .type_resolution import canonical_type
-from .types import mangle_generic_type, type_to_c
+from .types import CTypeRenderer, mangle_generic_type
 
 
 @dataclass(frozen=True)
@@ -30,7 +30,13 @@ class DefaultTarget:
     substitutions: dict | None = None
 
 
-def ensure_default_helper(gen, call, params, param_index: int) -> tuple[DefaultTarget, str]:
+def ensure_default_helper(
+    gen,
+    call,
+    params,
+    param_index: int,
+    type_renderer: CTypeRenderer,
+) -> tuple[DefaultTarget, str]:
     """Emit one typed evaluator and return its target metadata and symbol."""
 
     target = _resolve_target(gen, call, params, param_index)
@@ -44,19 +50,41 @@ def ensure_default_helper(gen, call, params, param_index: int) -> tuple[DefaultT
     emitted.add(symbol)
 
     param = params[param_index]
-    helper_params = _helper_params(gen, target, params, param_index)
+    helper_params = _helper_params(
+        gen,
+        target,
+        params,
+        param_index,
+        type_renderer,
+    )
     gen.module.function_decls.append(
         IRFunctionDecl(
             name=symbol,
-            return_type=CType(text=type_to_c(param.type)),
+            return_type=CType(text=type_renderer.render(param.type)),
             params=list(helper_params),
             is_static=True,
         )
     )
     definition = (
-        _emit_generic_helper(gen, target, symbol, params, param_index, helper_params)
+        _emit_generic_helper(
+            gen,
+            target,
+            symbol,
+            params,
+            param_index,
+            helper_params,
+            type_renderer,
+        )
         if target.substitutions
-        else _emit_ordinary_helper(gen, target, symbol, params, param_index, helper_params)
+        else _emit_ordinary_helper(
+            gen,
+            target,
+            symbol,
+            params,
+            param_index,
+            helper_params,
+            type_renderer,
+        )
     )
     gen.module.function_defs.append(definition)
     return target, symbol
@@ -155,11 +183,23 @@ def _receiver_class(gen, callee):
     return gen.analyzed.class_table.get(receiver_type.base) if receiver_type else None
 
 
-def _helper_params(gen, target, params, param_index):
+def _helper_params(gen, target, params, param_index, type_renderer):
     result = []
     if target.self_type is not None:
-        result.append(IRParam(c_type=CType(text=type_to_c(target.self_type)), name="self"))
-    result.extend(lower_source_param(param, analyzed=gen.analyzed) for param in params[:param_index])
+        result.append(
+            IRParam(
+                c_type=CType(text=type_renderer.render(target.self_type)),
+                name="self",
+            )
+        )
+    result.extend(
+        lower_source_param(
+            param,
+            type_renderer.render,
+            analyzed=gen.analyzed,
+        )
+        for param in params[:param_index]
+    )
     return result
 
 
@@ -170,7 +210,15 @@ def _default_line_map(gen, target):
     return lambda source_line: gen.declaration_line_map(source_file, source_line)
 
 
-def _emit_ordinary_helper(gen, target, symbol, params, param_index, helper_params):
+def _emit_ordinary_helper(
+    gen,
+    target,
+    symbol,
+    params,
+    param_index,
+    helper_params,
+    type_renderer,
+):
     from .default_argument_context import default_argument_scope
     from .isolated_context import isolated_function_context
     from .statements import lower_block
@@ -180,7 +228,11 @@ def _emit_ordinary_helper(gen, target, symbol, params, param_index, helper_param
     previous_class_name = gen.current_class_name
     owner = gen.analyzed.class_table.get(target.owner_name)
     source_file = getattr(target.declaration, "source_file", None) or gen.source_file
-    with isolated_function_context(gen, type_to_c(param.type), param.type):
+    with isolated_function_context(
+        gen,
+        type_renderer.render(param.type),
+        param.type,
+    ):
         gen.current_class = owner
         gen.current_class_name = target.owner_name
         try:
@@ -199,20 +251,29 @@ def _emit_ordinary_helper(gen, target, symbol, params, param_index, helper_param
                         *(parameter.name for parameter in params[:param_index]),
                     ],
                     callable_bindings=params[:param_index],
+                    type_renderer=type_renderer,
                 )
         finally:
             gen.current_class = previous_class
             gen.current_class_name = previous_class_name
     return IRFunctionDef(
         name=symbol,
-        return_type=CType(text=type_to_c(param.type)),
+        return_type=CType(text=type_renderer.render(param.type)),
         params=list(helper_params),
         body=body,
         is_static=True,
     )
 
 
-def _emit_generic_helper(gen, target, symbol, params, param_index, helper_params):
+def _emit_generic_helper(
+    gen,
+    target,
+    symbol,
+    params,
+    param_index,
+    helper_params,
+    type_renderer,
+):
     from .default_argument_context import default_argument_scope
     from .generics.user_emitter import _UserGenericEmitter
 
@@ -222,7 +283,7 @@ def _emit_generic_helper(gen, target, symbol, params, param_index, helper_params
     emitter = _UserGenericEmitter(
         target.substitutions,
         target.class_prefix,
-        type_to_c,
+        type_renderer,
         gen=gen,
         cls_info=owner,
     )
@@ -239,7 +300,7 @@ def _emit_generic_helper(gen, target, symbol, params, param_index, helper_params
         statements = emitter.emit_stmts([ReturnStmt(value=param.default)])
     return IRFunctionDef(
         name=symbol,
-        return_type=CType(text=type_to_c(param.type)),
+        return_type=CType(text=type_renderer.render(param.type)),
         params=list(helper_params),
         body=IRBlock(stmts=statements),
         is_static=True,

@@ -40,7 +40,6 @@ from .typed_numeric import (
     lower_numeric_operation,
     lower_typed_ternary,
 )
-from .types import type_to_c
 
 
 def lower_typed_binary(
@@ -190,7 +189,7 @@ def _lower_reference_equality(
         )
         if function_type is not None:
             null_value = IRCast(
-                target_type=CType(text=type_to_c(function_type)),
+                target_type=CType(text=context.type_renderer.render(function_type)),
                 expr=IRLiteral(text="0"),
             )
             if is_null_type(left_type):
@@ -203,7 +202,7 @@ def _lower_reference_equality(
         right_name = context.fresh_temp("__btrc_fn_right")
         left_var = IRVar(name=left_name)
         right_var = IRVar(name=right_name)
-        pointer_type = CType(text=type_to_c(left_type))
+        pointer_type = CType(text=context.type_renderer.render(left_type))
         return IRStmtExpr(
             stmts=[
                 IRVarDecl(c_type=pointer_type, name=left_name),
@@ -256,7 +255,12 @@ def _lower_null_coalesce(
     temp_name = context.fresh_temp("__nc")
     temp = IRVar(name=temp_name)
     return IRStmtExpr(
-        stmts=[IRVarDecl(c_type=CType(text=type_to_c(result_type)), name=temp_name)],
+        stmts=[
+            IRVarDecl(
+                c_type=CType(text=context.type_renderer.render(result_type)),
+                name=temp_name,
+            )
+        ],
         result=IRCommaExpr(
             expressions=[
                 IRBinOp(left=temp, op="=", right=left),

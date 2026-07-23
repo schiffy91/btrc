@@ -7,21 +7,29 @@ from typing import TYPE_CHECKING
 from ...ast_nodes import BraceInitializer, FieldDecl, ListLiteral
 from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import CType, IRGlobalDecl, IRLiteral
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from ...ast_nodes import ClassDecl
     from .lowerer import IRLowerer
 
 
-def emit_static_fields(gen: IRLowerer, declaration: ClassDecl) -> None:
+def emit_static_fields(
+    gen: IRLowerer,
+    declaration: ClassDecl,
+    type_renderer: CTypeRenderer,
+) -> None:
     from .aggregate_initializers import lower_static_initializer
     from .expressions import lower_expr
 
     for field in declaration.members:
         if not isinstance(field, FieldDecl) or field.access != "class":
             continue
-        field_type, array_size = _static_field_type(gen, field)
+        field_type, array_size = _static_field_type(
+            gen,
+            field,
+            type_renderer,
+        )
         initializer = field.initializer
         if initializer is not None:
             from .callable_boundaries import reject_persistent_callable_escape
@@ -33,12 +41,16 @@ def emit_static_fields(gen: IRLowerer, declaration: ClassDecl) -> None:
                 "class field storage",
             )
         if isinstance(initializer, (BraceInitializer, ListLiteral)):
-            init = lower_static_initializer(gen, initializer)
+            init = lower_static_initializer(
+                gen,
+                initializer,
+                type_renderer,
+            )
         else:
-            init = lower_expr(gen, initializer) if initializer is not None else None
+            init = lower_expr(gen, initializer, type_renderer) if initializer is not None else None
         gen.module.global_decls.append(
             IRGlobalDecl(
-                c_type=CType(text=type_to_c(field_type)),
+                c_type=CType(text=type_renderer.render(field_type)),
                 name=f"{declaration.name}_{field.name}",
                 init=init,
                 array_size=array_size,
@@ -52,7 +64,7 @@ def emit_static_fields(gen: IRLowerer, declaration: ClassDecl) -> None:
         )
 
 
-def _static_field_type(gen, field):
+def _static_field_type(gen, field, type_renderer: CTypeRenderer):
     if not field.type.is_array:
         return field.type, None
     from ...type_composition import strip_outer_storage
@@ -61,7 +73,11 @@ def _static_field_type(gen, field):
     if field.type.array_size is not None:
         from .expressions import lower_expr
 
-        return field_type, lower_expr(gen, field.type.array_size)
+        return field_type, lower_expr(
+            gen,
+            field.type.array_size,
+            type_renderer,
+        )
     if isinstance(field.initializer, (BraceInitializer, ListLiteral)):
         return field_type, IRLiteral(text=str(len(field.initializer.elements)))
     # Without backing storage an unsized array is a rebindable pointer slot.

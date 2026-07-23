@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from ...ast_nodes import TypeExpr
 from ..nodes import CType, IRCall, IRCast, IRCommaExpr, IRExpr, IRLiteral, IRTernary
 from .type_resolution import canonical_type
-from .types import format_spec_for_type
+from .types import CTypeRenderer
 
 
 @dataclass(frozen=True)
@@ -23,6 +23,7 @@ def adapt_printf_arg(
     value: IRExpr,
     value_type: TypeExpr | None,
     format_spec: str,
+    type_renderer: CTypeRenderer,
 ) -> PrintfArg:
     """Make one printf argument match its format without duplicating effects.
 
@@ -34,7 +35,7 @@ def adapt_printf_arg(
     unused-but-set strict-C diagnostic.
     """
     resolved_type = canonical_type(value_type, gen.analyzed.typedef_table) if value_type is not None else None
-    format_spec = format_spec_for_type(resolved_type) if resolved_type is not None else format_spec
+    format_spec = type_renderer.format_spec(resolved_type) if resolved_type is not None else format_spec
 
     if (
         resolved_type is not None

@@ -20,14 +20,25 @@ from ..nodes import (
     IRVarDecl,
 )
 from .lvalues import value_c_type
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
-def lower_taken_delete(gen, target, type_expr, *, edge_owner=None):
+def lower_taken_delete(
+    gen,
+    target,
+    type_expr,
+    type_renderer: CTypeRenderer,
+    *,
+    edge_owner=None,
+):
     """Move one lvalue to a temporary, clear its slot, then destroy it."""
     from .managed_values import is_arc_type, is_string_type, release_value
 
-    value_c = value_c_type(type_expr, gen.analyzed.class_table, type_to_c)
+    value_c = value_c_type(
+        type_expr,
+        gen.analyzed.class_table,
+        type_renderer.render,
+    )
     slot_name = gen.fresh_temp("__btrc_delete_slot")
     slot_decl = IRVarDecl(
         c_type=CType(text=f"{qualify_volatile_object(value_c, True)}*"),

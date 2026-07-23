@@ -160,6 +160,7 @@ def order_generic_call_arguments(
                 param.type,
                 source_type,
                 value,
+                emitter._type_renderer,
             )
         )
     return result

@@ -8,13 +8,17 @@ from ...ast_nodes import FunctionDecl
 from ..nodes import CType, IRFunctionDecl, IRFunctionDef
 from .function_symbols import source_function_c_name
 from .parameters import lower_source_param
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def emit_function_decl(gen: IRLowerer, decl: FunctionDecl):
+def emit_function_decl(
+    gen: IRLowerer,
+    decl: FunctionDecl,
+    type_renderer: CTypeRenderer,
+):
     """Lower a top-level FunctionDecl to an IRFunctionDef or forward decl."""
     # @gpu functions are lowered to WGSL kernels, plus a CPU-loop fallback so
     # they run on the CPU when no GPU is available.
@@ -24,14 +28,21 @@ def emit_function_decl(gen: IRLowerer, decl: FunctionDecl):
         from .gpu import emit_gpu_cpu_fallback, emit_gpu_kernel
 
         emit_gpu_kernel(gen, decl)
-        emit_gpu_cpu_fallback(gen, decl)
+        emit_gpu_cpu_fallback(gen, decl, type_renderer)
         gen._emitted_gpu_functions.add(decl.name)
         return
 
-    ret_type = type_to_c(decl.return_type) if decl.return_type else "void"
+    ret_type = type_renderer.render(decl.return_type) if decl.return_type else "void"
     if decl.name == "main" and ret_type == "void":
         ret_type = "int"
-    params = [lower_source_param(parameter, analyzed=gen.analyzed) for parameter in decl.params]
+    params = [
+        lower_source_param(
+            parameter,
+            type_renderer.render,
+            analyzed=gen.analyzed,
+        )
+        for parameter in decl.params
+    ]
     is_static = bool(decl.return_type and decl.return_type.is_static)
     c_name = source_function_c_name(gen.analyzed, decl.name)
 
@@ -65,6 +76,7 @@ def emit_function_decl(gen: IRLowerer, decl: FunctionDecl):
         decl.body,
         local_bindings=[parameter.name for parameter in decl.params],
         callable_bindings=decl.params,
+        type_renderer=type_renderer,
     )
     gen._normalizing_void_main = previous_void_main
     gen.current_return_type = previous_return_type

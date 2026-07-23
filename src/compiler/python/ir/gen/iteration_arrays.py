@@ -17,10 +17,15 @@ from ..nodes import (
     IRVarDecl,
 )
 from .iteration_bindings import IterationBinding
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
-def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
+def lower_fixed_array_for_in(
+    gen,
+    node,
+    array_type,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Hoist array backing once and iterate over its preserved C extent."""
     from ...hosted_alias_carriers import hosted_alias_argument
     from .expressions import lower_expr
@@ -60,12 +65,16 @@ def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
             values=gen.context.owning_overrides,
             types=storage_types,
             type_values=gen.context.type_overrides,
-            operation=lambda expression=expression: lower_expr(gen, expression),
+            operation=lambda expression=expression: lower_expr(
+                gen,
+                expression,
+                type_renderer,
+            ),
         )
         name = gen.fresh_temp("__array_storage")
         prefix.append(
             IRVarDecl(
-                c_type=CType(text=type_to_c(storage_type)),
+                c_type=CType(text=type_renderer.render(storage_type)),
                 name=name,
                 init=lowered,
             )
@@ -87,7 +96,7 @@ def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
         values=gen.context.owning_overrides,
         types=storage_types,
         type_values=gen.context.type_overrides,
-        operation=lambda: lower_expr(gen, node.iterable),
+        operation=lambda: lower_expr(gen, node.iterable, type_renderer),
     )
     iterable = gen.fresh_temp("__iter")
     length = gen.fresh_temp("__n")
@@ -95,7 +104,7 @@ def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
     prefix.extend(
         [
             IRVarDecl(
-                c_type=CType(text=type_to_c(array_type)),
+                c_type=CType(text=type_renderer.render(array_type)),
                 name=iterable,
                 init=projected,
             ),
@@ -114,10 +123,11 @@ def lower_fixed_array_for_in(gen, node, array_type) -> list[IRStmt]:
     body = _lower_loop_body(
         gen,
         node.body,
+        type_renderer,
         iteration_bindings=[
             IterationBinding(
                 name=node.var_name,
-                c_type=type_to_c(element_type),
+                c_type=type_renderer.render(element_type),
                 type_expr=element_type,
                 value=IRIndex(
                     obj=IRVar(name=iterable),

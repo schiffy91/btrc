@@ -3,13 +3,14 @@
 from ...qualifier_provenance import effective_outer_volatile
 from ...type_composition import strip_outer_storage
 from ..nodes import CType, IRStructField
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
 def lower_instance_storage_field(
     gen,
     name,
     field_type,
+    type_renderer: CTypeRenderer,
     *,
     bound_lowerer=None,
 ) -> IRStructField:
@@ -20,11 +21,11 @@ def lower_instance_storage_field(
             from .expressions import lower_expr
 
             def bound_lowerer(expression):
-                return lower_expr(gen, expression)
+                return lower_expr(gen, expression, type_renderer)
 
         element_type = strip_outer_storage(field_type, array=True)
         return IRStructField(
-            c_type=CType(text=type_to_c(element_type)),
+            c_type=CType(text=type_renderer.render(element_type)),
             name=name,
             array_size=bound_lowerer(field_type.array_size),
             is_volatile=bool(field_type.is_volatile),
@@ -34,7 +35,7 @@ def lower_instance_storage_field(
             ),
         )
     return IRStructField(
-        c_type=CType(text=type_to_c(field_type)),
+        c_type=CType(text=type_renderer.render(field_type)),
         name=name,
         is_volatile=bool(field_type and field_type.is_volatile),
         effective_is_volatile=effective_outer_volatile(

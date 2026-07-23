@@ -63,11 +63,18 @@ def resolve_default_predefined_identifier(node):
     return None
 
 
-def lower_call_argument(gen, param, node, *, is_default=False):
+def lower_call_argument(
+    gen,
+    param,
+    node,
+    type_renderer,
+    *,
+    is_default=False,
+):
     from .expressions import lower_expr
 
     with default_argument_scope(param, is_default):
-        return lower_expr(gen, node)
+        return lower_expr(gen, node, type_renderer)
 
 
 def call_argument_type(gen, param, node, *, is_default=False):

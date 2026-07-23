@@ -10,12 +10,11 @@ from src.compiler.python.ir.gen.generics.methods_mono import (
     generic_method_instance_name,
 )
 from src.compiler.python.ir.gen.types import (
-    fn_ptr_typedef_name,
+    CTypeRenderer,
     is_string_type,
     mangle_generic_type,
     mangle_tuple_type,
     mangle_type_name,
-    reset_fn_ptr_typedefs,
 )
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -203,6 +202,7 @@ def test_qualified_structural_type_arguments_remain_supported():
 
     assert result.errors == []
     assert result.generic_instances == {}
-    assert fn_ptr_typedef_name(fn_ptr).startswith("__btrc_fn_ZQf")
+    renderer = CTypeRenderer()
+    assert renderer.render(fn_ptr).startswith("__btrc_fn_ZQf")
     assert mangle_tuple_type(tuple_type).startswith("btrc_ZQg")
-    reset_fn_ptr_typedefs()
+    assert len(renderer.consume_function_pointer_typedefs()) == 1

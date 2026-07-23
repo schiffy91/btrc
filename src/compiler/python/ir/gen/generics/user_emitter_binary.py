@@ -84,6 +84,7 @@ def lower_generic_binary_plain(emitter, expression):
             expression.op,
             left,
             right,
+            emitter._type_renderer,
         )
         if overloaded is not None:
             return overloaded
@@ -93,7 +94,11 @@ def lower_generic_binary_plain(emitter, expression):
         right,
         left_type,
         right_type,
-        operator_context(emitter._gen, fresh_temp=emitter._fresh_temp),
+        operator_context(
+            emitter._gen,
+            emitter._type_renderer,
+            fresh_temp=emitter._fresh_temp,
+        ),
     )
     if lowered is not None:
         return lowered
@@ -168,6 +173,7 @@ def _lower_prepared_overload(emitter, expression):
             expression.op,
             values[id(expression.left)],
             values[id(expression.right)],
+            emitter._type_renderer,
         ),
         result_c_type=emitter.iter_value_c(result_type),
         result_type=result_type,

@@ -66,6 +66,7 @@ class _UserGenericReleaseMixin:
                         IRLiteral(text="NULL"),
                         resolved,
                         edge_owner,
+                        self._type_renderer,
                         adopt=False,
                     )
                 )

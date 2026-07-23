@@ -11,6 +11,7 @@ from ..nodes import IRExpr
 if TYPE_CHECKING:
     from .gpu_outputs import GpuOutputTarget
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 
 @dataclass(frozen=True)
@@ -19,7 +20,7 @@ class GpuHostLowering:
 
     lower_argument: Callable[[object, dict[int, IRExpr]], IRExpr]
     resolve_type: Callable[[object], Any]
-    render_type: Callable[[object], str]
+    type_renderer: CTypeRenderer
     array_length: Callable[[object, IRExpr], IRExpr]
     output_target: Callable[[object, IRExpr], GpuOutputTarget]
     owns_result: Callable[[object], bool]
@@ -30,13 +31,15 @@ class GpuHostLowering:
     activate_cleanup: Callable[[], None]
 
 
-def ordinary_gpu_host(gen: IRLowerer) -> GpuHostLowering:
+def ordinary_gpu_host(
+    gen: IRLowerer,
+    type_renderer: CTypeRenderer,
+) -> GpuHostLowering:
     """Build the ordinary, analyzer-backed host-expression adapter."""
 
     from .gpu_arguments import bare_array_argument_length
     from .gpu_outputs import assignment_target
     from .managed_values import is_managed_type
-    from .types import type_to_c
 
     def lower_argument(expression, overrides):
         from .expressions import lower_expr
@@ -45,13 +48,17 @@ def ordinary_gpu_host(gen: IRLowerer) -> GpuHostLowering:
         return evaluate_with_operand_overrides(
             overrides,
             values=gen.context.owning_overrides,
-            operation=lambda: lower_expr(gen, expression),
+            operation=lambda: lower_expr(
+                gen,
+                expression,
+                type_renderer,
+            ),
         )
 
     return GpuHostLowering(
         lower_argument=lower_argument,
         resolve_type=lambda expression: gen.analyzed.node_types.get(id(expression)),
-        render_type=type_to_c,
+        type_renderer=type_renderer,
         array_length=lambda expression, lowered: bare_array_argument_length(
             gen,
             expression,
@@ -61,6 +68,7 @@ def ordinary_gpu_host(gen: IRLowerer) -> GpuHostLowering:
             gen,
             expression,
             lowered,
+            type_renderer,
         ),
         owns_result=lambda expression: bool(
             id(expression) not in gen.context.owning_overrides and gen.ownership.owns_result(expression)

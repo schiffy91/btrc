@@ -5,10 +5,14 @@ from __future__ import annotations
 from ...ast_nodes import AssignExpr, Identifier
 from ..nodes import IRBinOp
 from .managed_values import is_managed_type
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
-def lower_managed_local_assignment(gen, node: AssignExpr):
+def lower_managed_local_assignment(
+    gen,
+    node: AssignExpr,
+    type_renderer: CTypeRenderer,
+):
     """Lower replacement of an owned local, or return None when borrowed."""
     if not isinstance(node.target, Identifier):
         return None
@@ -26,32 +30,58 @@ def lower_managed_local_assignment(gen, node: AssignExpr):
 
     from .expressions import lower_expr
 
-    target = lower_expr(gen, node.target)
-    return lower_managed_slot_assignment(gen, node, target, target_type)
+    target = lower_expr(gen, node.target, type_renderer)
+    return lower_managed_slot_assignment(
+        gen,
+        node,
+        target,
+        target_type,
+        type_renderer,
+    )
 
 
-def lower_managed_slot_assignment(gen, node, target, target_type):
+def lower_managed_slot_assignment(
+    gen,
+    node,
+    target,
+    target_type,
+    type_renderer: CTypeRenderer,
+):
     """Replace one persistent non-edge slot (local, global, or static)."""
     from .upcast import upcast_class_pointer
     from .updates import _lower_assignment_value
 
     if node.op != "=":
-        return _lower_managed_slot_compound(gen, node, target, target_type)
+        return _lower_managed_slot_compound(
+            gen,
+            node,
+            target,
+            target_type,
+            type_renderer,
+        )
     from .prepared_values import prepare_normal_value
 
     prepared = prepare_normal_value(
         gen,
         node.value,
         target_type,
+        type_renderer,
         lower_value=lambda value: _lower_assignment_value(
             gen,
             target_type,
             value,
+            type_renderer,
         ),
     )
     value = prepared.value
     value_type = prepared.effective_type
-    value = upcast_class_pointer(gen, target_type, value_type, value)
+    value = upcast_class_pointer(
+        gen,
+        target_type,
+        value_type,
+        value,
+        type_renderer,
+    )
     from .managed_replacement import lower_managed_slot_replacement
 
     return lower_managed_slot_replacement(
@@ -60,14 +90,20 @@ def lower_managed_slot_assignment(gen, node, target, target_type):
         target_type=target_type,
         value=value,
         value_owned=prepared.owned,
-        c_type=type_to_c,
+        c_type=type_renderer.render,
         fresh_temp=gen.fresh_temp,
         record_decl=gen.context.function_declarations.append,
         cleanup_active=gen.exception_cleanup_active(),
     )
 
 
-def _lower_managed_slot_compound(gen, node, target, target_type):
+def _lower_managed_slot_compound(
+    gen,
+    node,
+    target,
+    target_type,
+    type_renderer: CTypeRenderer,
+):
     from .managed_compound import (
         lower_managed_compound_operator,
         managed_compound_keeps_rhs,
@@ -82,7 +118,12 @@ def _lower_managed_slot_compound(gen, node, target, target_type):
         right_type=right_type,
         old_expr=target,
         current_expr=target,
-        right_expr=_lower_assignment_value(gen, target_type, node.value),
+        right_expr=_lower_assignment_value(
+            gen,
+            target_type,
+            node.value,
+            type_renderer,
+        ),
         compute=lambda old, right: lower_managed_compound_operator(
             gen,
             node,
@@ -91,6 +132,7 @@ def _lower_managed_slot_compound(gen, node, target, target_type):
             target_type,
             right_type,
             fresh_temp=gen.fresh_temp,
+            type_renderer=type_renderer,
         ),
         commit=lambda _old, replacement: [IRBinOp(left=target, op="=", right=replacement)],
         result_expr=lambda: target,
@@ -103,7 +145,7 @@ def _lower_managed_slot_compound(gen, node, target, target_type):
             right_type,
         ),
         release_replaced_old=True,
-        c_type=type_to_c,
+        c_type=type_renderer.render,
         fresh_temp=gen.fresh_temp,
         record_decl=gen.context.function_declarations.append,
         cleanup_active=gen.exception_cleanup_active(),

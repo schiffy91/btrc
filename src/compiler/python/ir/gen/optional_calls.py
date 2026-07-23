@@ -19,10 +19,14 @@ from .arc_ops import release_if_present
 from .arguments import arg_names_for, bind_arg_nodes_to_params
 from .optional_call_temporaries import optional_call_temp
 from .optional_values import optional_zero_value
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
-def lower_optional_method_call(gen, node: CallExpr):
+def lower_optional_method_call(
+    gen,
+    node: CallExpr,
+    type_renderer: CTypeRenderer,
+):
     """Lower ``receiver?.method(args)`` with lazy managed arguments."""
     assert isinstance(node.callee, FieldAccessExpr) and node.callee.optional
     from ...ownership_effects import owned_transfer_param_indices
@@ -33,7 +37,7 @@ def lower_optional_method_call(gen, node: CallExpr):
     receiver_decl = optional_call_temp(
         gen,
         "__btrc_optional_receiver",
-        type_to_c(receiver_type) if receiver_type is not None else "void*",
+        type_renderer.render(receiver_type) if receiver_type is not None else "void*",
     )
     receiver = IRVar(name=receiver_decl.name)
     declarations = [receiver_decl]
@@ -41,7 +45,7 @@ def lower_optional_method_call(gen, node: CallExpr):
         IRBinOp(
             left=receiver,
             op="=",
-            right=lower_expr(gen, receiver_node),
+            right=lower_expr(gen, receiver_node, type_renderer),
         )
     ]
     declaration = gen.calls.resolver.declaration(node)
@@ -73,6 +77,7 @@ def lower_optional_method_call(gen, node: CallExpr):
             later_effect=has_later_operand,
             owned_local_type=gen.managed_local_type,
         ),
+        type_renderer=type_renderer,
     )
     operands, needs_boundary = gen.calls.operands.plan(
         params,
@@ -89,7 +94,11 @@ def lower_optional_method_call(gen, node: CallExpr):
         previous = gen.context.owning_overrides.get(id(receiver_node))
         gen.context.owning_overrides[id(receiver_node)] = receiver
         try:
-            return lower_expr(gen, plain_callee if value is node.callee else value)
+            return lower_expr(
+                gen,
+                plain_callee if value is node.callee else value,
+                type_renderer,
+            )
         finally:
             if previous is None:
                 gen.context.owning_overrides.pop(id(receiver_node), None)
@@ -105,7 +114,7 @@ def lower_optional_method_call(gen, node: CallExpr):
         try:
             from .methods import lower_method_call
 
-            return lower_method_call(gen, plain_node)
+            return lower_method_call(gen, plain_node, type_renderer)
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -118,7 +127,7 @@ def lower_optional_method_call(gen, node: CallExpr):
             operands,
             lower_expr=lower_guarded_operand,
             build_call=build_call,
-            result_c_type=(type_to_c(result_type) if result_type is not None else None),
+            result_c_type=(type_renderer.render(result_type) if result_type is not None else None),
             result_type=result_type,
             result_owned=gen.ownership.owns_result(node),
         )
@@ -132,6 +141,7 @@ def lower_optional_method_call(gen, node: CallExpr):
         receiver_suffix,
         declarations,
         result_owned=gen.ownership.owns_result(node),
+        type_renderer=type_renderer,
     )
     prelude.append(
         IRTernary(
@@ -141,7 +151,11 @@ def lower_optional_method_call(gen, node: CallExpr):
                 right=IRLiteral(text="NULL"),
             ),
             true_expr=true_value,
-            false_expr=optional_zero_value(gen, result_type),
+            false_expr=optional_zero_value(
+                gen,
+                result_type,
+                type_renderer,
+            ),
         )
     )
     return IRStmtExpr(
@@ -159,6 +173,7 @@ def _receiver_cleanup(
     prelude,
     *,
     pin_borrowed,
+    type_renderer: CTypeRenderer,
 ):
     receiver = IRVar(name=receiver_decl.name)
     owned = bool(receiver_type is not None and gen.ownership.owns_result(receiver_node))
@@ -193,7 +208,7 @@ def _receiver_cleanup(
     saved_decl = optional_call_temp(
         gen,
         "__btrc_optional_receiver_release",
-        type_to_c(receiver_type),
+        type_renderer.render(receiver_type),
         IRLiteral(text="NULL"),
     )
     declarations.append(saved_decl)
@@ -217,6 +232,7 @@ def _release_receiver_after_call(
     declarations,
     *,
     result_owned,
+    type_renderer: CTypeRenderer,
 ):
     if not suffix:
         return call
@@ -225,7 +241,7 @@ def _release_receiver_after_call(
         result_decl = optional_call_temp(
             gen,
             "__btrc_optional_result",
-            type_to_c(result_type),
+            type_renderer.render(result_type),
         )
         declarations.append(result_decl)
         result = IRVar(name=result_decl.name)
@@ -247,7 +263,7 @@ def _release_receiver_after_call(
             handoff_decl = optional_call_temp(
                 gen,
                 "__btrc_optional_result_handoff",
-                type_to_c(result_type),
+                type_renderer.render(result_type),
                 IRLiteral(text="NULL"),
             )
             declarations.append(handoff_decl)

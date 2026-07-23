@@ -14,10 +14,10 @@ from ...ast_nodes import (
 )
 from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import CType, IRStructDef, IRStructField, IRStructForward
-from .types import mangle_tuple_type, type_to_c
+from .types import CTypeRenderer, mangle_tuple_type
 
 
-def emit_tuple_structs(gen) -> None:
+def emit_tuple_structs(gen, type_renderer: CTypeRenderer) -> None:
     seen = {}
     for declaration in gen.analyzed.program.declarations:
         for type_expr in _declaration_types(declaration):
@@ -31,7 +31,7 @@ def emit_tuple_structs(gen) -> None:
                 name=mangled,
                 fields=[
                     IRStructField(
-                        c_type=CType(text=type_to_c(argument)),
+                        c_type=CType(text=type_renderer.render(argument)),
                         name=f"_{index}",
                         is_volatile=bool(argument.is_volatile),
                         effective_is_volatile=effective_outer_volatile(

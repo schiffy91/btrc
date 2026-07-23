@@ -20,6 +20,7 @@ from .gpu_wgsl import btrc_type_to_wgsl_elem
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 _WORKGROUP_SIZE = 64
 
@@ -109,12 +110,16 @@ def emit_gpu_kernel(gen: IRLowerer, decl: FunctionDecl) -> None:
     gen.module.gpu_kernels.append(kernel)
 
 
-def emit_gpu_cpu_fallback(gen: IRLowerer, decl: FunctionDecl) -> None:
+def emit_gpu_cpu_fallback(
+    gen: IRLowerer,
+    decl: FunctionDecl,
+    type_renderer: CTypeRenderer,
+) -> None:
     """Emit per-invocation and loop-wrapper CPU fallbacks."""
 
     from .gpu_cpu_fallback import emit_gpu_cpu_fallback as emit_fallback
 
-    emit_fallback(gen, decl)
+    emit_fallback(gen, decl, type_renderer)
 
 
 def lower_gpu_call(
@@ -123,6 +128,7 @@ def lower_gpu_call(
     ast_args: list,
     arg_names: list[str],
     ir_args: list | None,
+    type_renderer: CTypeRenderer,
     *,
     call=None,
 ):
@@ -136,6 +142,7 @@ def lower_gpu_call(
         ast_args,
         arg_names,
         ir_args,
+        type_renderer,
         call=call,
     )
 
@@ -156,7 +163,11 @@ def is_direct_gpu_call(gen: IRLowerer, node) -> bool:
     )
 
 
-def lower_direct_gpu_call(gen: IRLowerer, node):
+def lower_direct_gpu_call(
+    gen: IRLowerer,
+    node,
+    type_renderer: CTypeRenderer,
+):
     """Lower one unshadowed kernel call without eager outer argument replay."""
 
     if not is_direct_gpu_call(gen, node):
@@ -169,6 +180,7 @@ def lower_direct_gpu_call(gen: IRLowerer, node):
         node.args,
         arg_names_for(node, len(node.args)),
         None,
+        type_renderer,
         call=node,
     )
 

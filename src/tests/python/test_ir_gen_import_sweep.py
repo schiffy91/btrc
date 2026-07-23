@@ -20,8 +20,9 @@ CALL_OWNER_CONSTRUCTORS = {
         "resolver",
         "arguments",
         "hosted_results",
+        "type_renderer",
     },
-    "call_resolver.py": {"self", "context", "expressions"},
+    "call_resolver.py": {"self", "context", "expressions", "type_renderer"},
     "calls.py": {
         "self",
         "context",
@@ -29,6 +30,7 @@ CALL_OWNER_CONSTRUCTORS = {
         "hosted_results",
         "arguments",
         "dispatch",
+        "type_renderer",
     },
 }
 

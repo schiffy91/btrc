@@ -41,13 +41,13 @@ from .parameters import source_binding_c_name
 from .thread_captures import emit_capture_disposer, managed_capture_type
 from .thread_returns import rewrite_thread_returns
 from .thread_values import thread_result_disposal_args
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def lower_spawn(gen: IRLowerer, node):
+def lower_spawn(gen: IRLowerer, node, type_renderer: CTypeRenderer):
     """Lower a SpawnExpr to IR that spawns a thread.
 
     Returns __btrc_thread_t* — the opaque thread handle.
@@ -63,13 +63,17 @@ def lower_spawn(gen: IRLowerer, node):
 
         spawn_type = gen.analyzed.node_types.get(id(node))
         result_type = spawn_type.generic_args[0] if spawn_type and spawn_type.generic_args else None
-        return _spawn_call(gen, lower_expr(gen, fn), result_type)
+        return _spawn_call(
+            gen,
+            lower_expr(gen, fn, type_renderer),
+            result_type,
+        )
 
     # Determine return type of the lambda
     from .lambdas import resolved_lambda_return_type
 
     return_type = resolved_lambda_return_type(gen, fn)
-    ret_c_type = type_to_c(return_type) if return_type else "void"
+    ret_c_type = type_renderer.render(return_type) if return_type else "void"
 
     spawn_id = gen.fresh_lambda_id()
     wrapper_name = f"__btrc_spawn_wrapper_{spawn_id}"
@@ -80,7 +84,7 @@ def lower_spawn(gen: IRLowerer, node):
     if has_captures:
         cap_fields = []
         for cap in fn.captures:
-            c_type = type_to_c(cap.type) if cap.type else "int"
+            c_type = type_renderer.render(cap.type) if cap.type else "int"
             cap_fields.append(
                 IRStructField(
                     c_type=CType(text=c_type),
@@ -100,10 +104,19 @@ def lower_spawn(gen: IRLowerer, node):
         fn,
         env_name,
         spawn_id,
+        type_renderer,
     )
 
     # Build wrapper function: void* wrapper(void* __arg)
-    body_stmts = _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type)
+    body_stmts = _build_wrapper_body(
+        gen,
+        fn,
+        env_name,
+        has_captures,
+        ret_c_type,
+        return_type,
+        type_renderer,
+    )
 
     gen.module.function_defs.append(
         IRFunctionDef(
@@ -214,7 +227,15 @@ def _spawn_call(
     )
 
 
-def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type):
+def _build_wrapper_body(
+    gen,
+    fn,
+    env_name,
+    has_captures,
+    ret_c_type,
+    return_type,
+    type_renderer: CTypeRenderer,
+):
     """Build the body of the pthread wrapper function."""
     body_stmts = []
 
@@ -231,7 +252,7 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type
             )
         )
         for cap in fn.captures:
-            c_type = type_to_c(cap.type) if cap.type else "int"
+            c_type = type_renderer.render(cap.type) if cap.type else "int"
             body_stmts.append(
                 IRVarDecl(
                     c_type=CType(text=c_type),
@@ -287,8 +308,14 @@ def _build_wrapper_body(gen, fn, env_name, has_captures, ret_c_type, return_type
                 local_bindings=local_bindings,
                 callable_bindings=fn.params,
                 callable_abis=capture_abis,
+                type_renderer=type_renderer,
             )
-            rewritten = rewrite_thread_returns(gen, block, return_type)
+            rewritten = rewrite_thread_returns(
+                gen,
+                block,
+                return_type,
+                type_renderer,
+            )
             body_stmts.extend(rewritten.stmts)
 
     # A structured final statement may not cover every path. Keep the C wrapper

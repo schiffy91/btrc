@@ -26,22 +26,26 @@ from ..nodes import (
     IRVarDecl,
 )
 from .parameters import lower_source_param, source_binding_c_name
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def emit_enum_decls(gen: IRLowerer):
+def emit_enum_decls(gen: IRLowerer, type_renderer: CTypeRenderer):
     """Emit all enum declarations."""
     for decl in gen.analyzed.program.declarations:
         if isinstance(decl, EnumDecl):
-            _emit_enum(gen, decl)
+            _emit_enum(gen, decl, type_renderer)
         elif isinstance(decl, RichEnumDecl):
-            _emit_rich_enum(gen, decl)
+            _emit_rich_enum(gen, decl, type_renderer)
 
 
-def _emit_enum(gen: IRLowerer, decl: EnumDecl):
+def _emit_enum(
+    gen: IRLowerer,
+    decl: EnumDecl,
+    type_renderer: CTypeRenderer,
+):
     """Emit a simple enum and, for named enums, its toString helper."""
     # Build enum definition
     values = []
@@ -55,7 +59,7 @@ def _emit_enum(gen: IRLowerer, decl: EnumDecl):
             gen._enum_lowering_owner = decl.name or ""
             gen._enum_lowering_members = frozenset(prior_members)
             try:
-                lowered_value = lower_expr(gen, v.value)
+                lowered_value = lower_expr(gen, v.value, type_renderer)
             finally:
                 gen._enum_lowering_owner = previous_owner
                 gen._enum_lowering_members = previous_members
@@ -104,7 +108,11 @@ def _enum_value_name(enum_name: str, value_name: str) -> str:
     return f"{enum_name}_{value_name}" if enum_name else value_name
 
 
-def _emit_rich_enum(gen: IRLowerer, decl: RichEnumDecl):
+def _emit_rich_enum(
+    gen: IRLowerer,
+    decl: RichEnumDecl,
+    type_renderer: CTypeRenderer,
+):
     """Emit a rich enum as tag IREnumDef + data structs + tagged union + ctors."""
     name = decl.name
 
@@ -123,7 +131,7 @@ def _emit_rich_enum(gen: IRLowerer, decl: RichEnumDecl):
             name=variant.name,
             fields=[
                 IRStructField(
-                    c_type=CType(text=type_to_c(param.type)),
+                    c_type=CType(text=type_renderer.render(param.type)),
                     name=source_binding_c_name(param.name),
                     is_volatile=bool(param.type and param.type.is_volatile),
                     effective_is_volatile=effective_outer_volatile(
@@ -147,7 +155,14 @@ def _emit_rich_enum(gen: IRLowerer, decl: RichEnumDecl):
     # Constructor functions → IRFunctionDef
     for v in decl.variants:
         if v.params:
-            params = [lower_source_param(parameter, analyzed=gen.analyzed) for parameter in v.params]
+            params = [
+                lower_source_param(
+                    parameter,
+                    type_renderer.render,
+                    analyzed=gen.analyzed,
+                )
+                for parameter in v.params
+            ]
             body_stmts = [
                 IRVarDecl(c_type=CType(text=name), name="__result", init=None),
                 IRAssign(

@@ -12,6 +12,7 @@ from src.compiler.python.ast_nodes import IntLiteral
 from src.compiler.python.ir.gen.generics.user_emitter import _UserGenericEmitter
 from src.compiler.python.ir.gen.literal_text import format_c_integer_literal
 from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.ir.gen.types import CTypeRenderer
 from src.compiler.python.ir.nodes import IRBinOp, IRCall, IRLiteral, IRVar
 from src.compiler.python.ir.optimizer_walk import iter_ir_nodes
 from src.compiler.python.lexer import Lexer
@@ -64,7 +65,7 @@ def test_binary_literal_never_leaks_into_emitted_c():
 
 
 def test_generic_integer_literal_uses_the_same_c11_formatter():
-    emitter = _UserGenericEmitter({}, "Box_int", lambda type_expr: type_expr.base)
+    emitter = _UserGenericEmitter({}, "Box_int", CTypeRenderer())
     literal = IntLiteral(value=10, raw="0B1010ULL")
 
     lowered = emitter._expr(literal)

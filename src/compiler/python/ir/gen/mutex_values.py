@@ -22,9 +22,15 @@ from .value_boxes import (
 if TYPE_CHECKING:
     from ...ast_nodes import TypeExpr
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 
-def create_mutex_value(gen: IRLowerer, value, value_type: TypeExpr):
+def create_mutex_value(
+    gen: IRLowerer,
+    value,
+    value_type: TypeExpr,
+    type_renderer: CTypeRenderer,
+):
     """Create a mutex that owns an exact copy of ``value``."""
     canonical = canonical_value_type(gen, value_type)
     if canonical is None:
@@ -38,7 +44,7 @@ def create_mutex_value(gen: IRLowerer, value, value_type: TypeExpr):
         release,
         finalize,
         raise_callback,
-    ) = _ownership_callbacks(gen, canonical)
+    ) = _ownership_callbacks(gen, canonical, type_renderer)
     gen.helpers.use("__btrc_mutex_val_create")
     return IRCall(
         callee="__btrc_mutex_val_create",
@@ -47,9 +53,10 @@ def create_mutex_value(gen: IRLowerer, value, value_type: TypeExpr):
                 gen,
                 value,
                 canonical,
+                type_renderer,
                 prefix="__btrc_mutex",
             ),
-            IRSizeof(operand=CType(text=value_storage_c_type(canonical))),
+            IRSizeof(operand=CType(text=value_storage_c_type(canonical, type_renderer))),
             access,
             slot_access,
             context,
@@ -63,7 +70,12 @@ def create_mutex_value(gen: IRLowerer, value, value_type: TypeExpr):
     )
 
 
-def get_mutex_value(gen: IRLowerer, mutex, value_type: TypeExpr):
+def get_mutex_value(
+    gen: IRLowerer,
+    mutex,
+    value_type: TypeExpr,
+    type_renderer: CTypeRenderer,
+):
     """Copy the stored value while locked and return one typed value."""
     gen.helpers.use("__btrc_mutex_val_get")
     payload = IRCall(
@@ -75,6 +87,7 @@ def get_mutex_value(gen: IRLowerer, mutex, value_type: TypeExpr):
         gen,
         payload,
         value_type,
+        type_renderer,
         prefix="__btrc_mutex",
     )
 
@@ -84,6 +97,7 @@ def set_mutex_value(
     mutex,
     value,
     value_type: TypeExpr,
+    type_renderer: CTypeRenderer,
 ):
     """Transfer a newly boxed value to the runtime's locked swap."""
     gen.helpers.use("__btrc_mutex_val_set")
@@ -95,6 +109,7 @@ def set_mutex_value(
                 gen,
                 value,
                 value_type,
+                type_renderer,
                 prefix="__btrc_mutex",
             ),
         ],
@@ -102,11 +117,15 @@ def set_mutex_value(
     )
 
 
-def _ownership_callbacks(gen: IRLowerer, value_type: TypeExpr):
+def _ownership_callbacks(
+    gen: IRLowerer,
+    value_type: TypeExpr,
+    type_renderer: CTypeRenderer,
+):
     from .managed_values import is_class_type, is_string_type
 
     if is_string_type(gen, value_type):
-        access = _value_access(gen, value_type)
+        access = _value_access(gen, value_type, type_renderer)
         return (
             access,
             IRLiteral(text="NULL"),
@@ -121,8 +140,8 @@ def _ownership_callbacks(gen: IRLowerer, value_type: TypeExpr):
         from .arc_ops import arc_type_descriptor
 
         return (
-            _value_access(gen, value_type),
-            _slot_access(gen, value_type),
+            _value_access(gen, value_type, type_renderer),
+            _slot_access(gen, value_type, type_renderer),
             arc_type_descriptor(gen, value_type),
             IRSizeof(operand=CType(text="__btrc_arc_type")),
             _callback(gen, "__btrc_mutex_arc_retain"),
@@ -134,22 +153,30 @@ def _ownership_callbacks(gen: IRLowerer, value_type: TypeExpr):
     return null, null, null, IRLiteral(text="0"), null, null, null, null
 
 
-def _value_access(gen: IRLowerer, value_type: TypeExpr):
+def _value_access(
+    gen: IRLowerer,
+    value_type: TypeExpr,
+    type_renderer: CTypeRenderer,
+):
     from .cleanup_slots import ensure_mutex_value_adapter
 
     name = ensure_mutex_value_adapter(
         gen,
-        CType(text=value_storage_c_type(value_type)),
+        CType(text=value_storage_c_type(value_type, type_renderer)),
     )
     return IRFunctionRef(name=name)
 
 
-def _slot_access(gen: IRLowerer, value_type: TypeExpr):
+def _slot_access(
+    gen: IRLowerer,
+    value_type: TypeExpr,
+    type_renderer: CTypeRenderer,
+):
     from .cleanup_slots import ensure_arc_slot_adapter
 
     name = ensure_arc_slot_adapter(
         gen,
-        CType(text=value_storage_c_type(value_type)),
+        CType(text=value_storage_c_type(value_type, type_renderer)),
     )
     return IRFunctionRef(name=name)
 

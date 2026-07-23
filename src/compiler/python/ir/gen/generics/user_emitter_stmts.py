@@ -159,6 +159,7 @@ class _UserGenericStmtMixin(
                 self._gen,
                 target,
                 resolved,
+                self._type_renderer,
                 edge_owner=edge_owner,
             ),
         ]
@@ -207,6 +208,7 @@ class _UserGenericStmtMixin(
                 resolved,
                 prepared.effective_type,
                 init,
+                self._type_renderer,
             )
         else:
             prepared = None

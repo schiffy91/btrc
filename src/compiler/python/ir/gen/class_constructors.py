@@ -35,7 +35,7 @@ from .managed_values import (
     retain_edge_value,
 )
 from .parameters import lower_source_param
-from .types import is_generic_class_type, mangle_generic_type
+from .types import CTypeRenderer, is_generic_class_type, mangle_generic_type
 
 if TYPE_CHECKING:
     from ...analyzer.core import ClassInfo
@@ -43,12 +43,22 @@ if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def emit_constructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> None:
+def emit_constructor(
+    gen: IRLowerer,
+    decl: ClassDecl,
+    cls_info: ClassInfo,
+    type_renderer: CTypeRenderer,
+) -> None:
     """Emit ``Class_init`` and allocating ``Class_new`` functions."""
     name = decl.name
     constructor = cls_info.constructor
     constructor_params = [
-        lower_source_param(param, analyzed=gen.analyzed) for param in (constructor.params if constructor else [])
+        lower_source_param(
+            param,
+            type_renderer.render,
+            analyzed=gen.analyzed,
+        )
+        for param in (constructor.params if constructor else [])
     ]
     init_params = [
         IRParam(c_type=CType(text=f"{name}*"), name="self"),
@@ -77,9 +87,11 @@ def emit_constructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> No
                 gen,
                 member.initializer,
                 member.type,
+                type_renderer,
                 lower_value=lambda _value, member=member: _lower_field_init(
                     gen,
                     member,
+                    type_renderer,
                 ),
             )
             value = prepared.value
@@ -90,6 +102,7 @@ def emit_constructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> No
                 member.type,
                 prepared.effective_type,
                 value,
+                type_renderer,
             )
             if is_arc_type(gen, member.type):
                 init_stmts.append(
@@ -100,6 +113,7 @@ def emit_constructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> No
                             value,
                             member.type,
                             IRVar(name="self"),
+                            type_renderer,
                             adopt=prepared.owned,
                         )
                     )
@@ -130,6 +144,7 @@ def emit_constructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> No
                 constructor.body,
                 local_bindings=["self", *(parameter.name for parameter in constructor.params)],
                 callable_bindings=constructor.params,
+                type_renderer=type_renderer,
             ).stmts
         )
 
@@ -186,7 +201,11 @@ def emit_constructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> No
     )
 
 
-def _lower_field_init(gen: IRLowerer, field: FieldDecl):
+def _lower_field_init(
+    gen: IRLowerer,
+    field: FieldDecl,
+    type_renderer: CTypeRenderer,
+):
     from .expressions import lower_expr
 
     initializer = field.initializer
@@ -198,7 +217,7 @@ def _lower_field_init(gen: IRLowerer, field: FieldDecl):
     if is_empty and field.type and is_generic_class_type(field.type, gen.analyzed.class_table):
         mangled = mangle_generic_type(field.type.base, field.type.generic_args)
         return IRCall(callee=f"{mangled}_new", args=[])
-    return lower_expr(gen, initializer)
+    return lower_expr(gen, initializer, type_renderer)
 
 
 def _is_managed_field(gen: IRLowerer, field: FieldDecl) -> bool:

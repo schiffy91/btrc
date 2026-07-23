@@ -79,6 +79,7 @@ def emit_generic_lifecycle(
         type_map,
         mangled,
         gen,
+        emitter._type_renderer,
     )
     definitions = [
         _emit_init(gen, mangled, ctor, ctor_params, emitter),
@@ -92,6 +93,7 @@ def emit_generic_lifecycle(
             mangled,
             cls_info,
             type_map,
+            emitter._type_renderer,
         )
     )
     gen.module.function_defs.extend(definitions)
@@ -108,6 +110,7 @@ def emit_generic_lifecycle(
                 type_map,
                 gen.analyzed.typedef_table,
             ),
+            emitter._type_renderer,
         )
     emit_arc_descriptor(
         gen,
@@ -216,8 +219,14 @@ def _emit_destroy(
     mangled,
     cls_info,
     type_map,
+    type_renderer,
 ) -> IRFunctionDef:
-    field_releases = build_generic_field_release_stmts(cls_info, type_map, gen)
+    field_releases = build_generic_field_release_stmts(
+        cls_info,
+        type_map,
+        gen,
+        type_renderer,
+    )
     body_stmts = list(field_releases)
     body_stmts.insert(
         0,

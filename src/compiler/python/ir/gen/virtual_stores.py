@@ -8,6 +8,7 @@ from ...index_protocol import indexed_protocol
 from ..nodes import IRCommaExpr
 from .call_boundary import CallOperand
 from .managed_values import is_managed_type
+from .types import CTypeRenderer
 
 
 def lower_virtual_store_boundary(
@@ -18,8 +19,9 @@ def lower_virtual_store_boundary(
     ownership,
     lower_value,
     coerce,
-    render_type: Callable,
+    type_renderer: CTypeRenderer,
     owns_result: Callable,
+    render_type: Callable | None = None,
     prepare=None,
     activate_cleanup=None,
 ):
@@ -34,6 +36,7 @@ def lower_virtual_store_boundary(
         if setter is None:
             return None
 
+    render = render_type or type_renderer.render
     if prepare is None:
         from .prepared_values import prepare_normal_value
 
@@ -41,6 +44,7 @@ def lower_virtual_store_boundary(
             gen,
             node.value,
             plan.value_type,
+            type_renderer,
             lower_value=lambda value: lower_value(plan.value_type, value),
         )
     else:
@@ -56,7 +60,7 @@ def lower_virtual_store_boundary(
     operand = CallOperand(
         node=node.value,
         type_expr=source_type,
-        c_type=render_type(source_type),
+        c_type=render(source_type),
         keep=keep,
         pin=bool(managed and not owned and borrowed_value_can_be_pinned(node.value)),
         owned=owned,
@@ -76,7 +80,7 @@ def lower_virtual_store_boundary(
         [operand],
         lower_expr=lambda _value: None,
         build_call=build_store,
-        result_c_type=render_type(plan.value_type),
+        result_c_type=render(plan.value_type),
         result_type=plan.value_type,
         promote_result=result_owned,
         activate_cleanup=activate_cleanup,

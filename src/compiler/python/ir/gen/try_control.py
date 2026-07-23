@@ -17,6 +17,7 @@ from .try_stack import (
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 
 def _require_setjmp(gen: IRLowerer):
@@ -24,16 +25,24 @@ def _require_setjmp(gen: IRLowerer):
     gen.require_runtime_include("setjmp.h")
 
 
-def _lower_try_catch(gen: IRLowerer, node: TryCatchStmt) -> list[IRStmt]:
+def _lower_try_catch(
+    gen: IRLowerer,
+    node: TryCatchStmt,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Lower try/catch to setjmp/longjmp boilerplate."""
     gen.in_trycatch_depth += 1
     try:
-        return _lower_try_catch_inner(gen, node)
+        return _lower_try_catch_inner(gen, node, type_renderer)
     finally:
         gen.in_trycatch_depth -= 1
 
 
-def _lower_try_catch_inner(gen: IRLowerer, node: TryCatchStmt) -> list[IRStmt]:
+def _lower_try_catch_inner(
+    gen: IRLowerer,
+    node: TryCatchStmt,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     from .callable_provenance import (
         begin_exceptional_callable_capture,
         finish_exceptional_callable_capture,
@@ -68,7 +77,11 @@ def _lower_try_catch_inner(gen: IRLowerer, node: TryCatchStmt) -> list[IRStmt]:
     try:
         try_body, try_flow = lower_isolated_callable_flow(
             gen,
-            lambda: lower_block(gen, node.try_block),
+            lambda: lower_block(
+                gen,
+                node.try_block,
+                type_renderer=type_renderer,
+            ),
         )
     finally:
         exceptional_flows = finish_exceptional_callable_capture(
@@ -108,6 +121,7 @@ def _lower_try_catch_inner(gen: IRLowerer, node: TryCatchStmt) -> list[IRStmt]:
                 gen,
                 node.catch_block,
                 iteration_bindings=catch_bindings,
+                type_renderer=type_renderer,
             ),
         )
 
@@ -120,7 +134,13 @@ def _lower_try_catch_inner(gen: IRLowerer, node: TryCatchStmt) -> list[IRStmt]:
         )
     )
     if node.finally_block:
-        stmts.extend(lower_block(gen, node.finally_block).stmts)
+        stmts.extend(
+            lower_block(
+                gen,
+                node.finally_block,
+                type_renderer=type_renderer,
+            ).stmts
+        )
         if finally_only:
             stmts.append(rethrow_finally_error(error_name, pending_name))
     return stmts
@@ -155,12 +175,16 @@ def _catch_bindings(gen, node):
     ]
 
 
-def _lower_throw(gen: IRLowerer, node: ThrowStmt) -> list[IRStmt]:
+def _lower_throw(
+    gen: IRLowerer,
+    node: ThrowStmt,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     _require_setjmp(gen)
     gen.helpers.use("__btrc_throw")
     from .expressions import lower_expr
 
-    expr = lower_expr(gen, node.expr)
+    expr = lower_expr(gen, node.expr, type_renderer)
     return [
         IRExprStmt(
             expr=IRCall(

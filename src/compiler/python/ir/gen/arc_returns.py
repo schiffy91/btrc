@@ -21,9 +21,14 @@ from .try_stack import pop_try_frames
 if TYPE_CHECKING:
     from ...ast_nodes import ReturnStmt
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 
-def lower_return(gen: IRLowerer, node: ReturnStmt) -> list[IRStmt]:
+def lower_return(
+    gen: IRLowerer,
+    node: ReturnStmt,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Lower one return while enforcing the managed-value return ABI.
 
     A btrc function or method returning a class value always gives its caller
@@ -55,6 +60,7 @@ def lower_return(gen: IRLowerer, node: ReturnStmt) -> list[IRStmt]:
         gen,
         node.value,
         gen.current_return_type,
+        type_renderer,
     )
     value = prepared.value
     value_type = prepared.effective_type
@@ -65,6 +71,7 @@ def lower_return(gen: IRLowerer, node: ReturnStmt) -> list[IRStmt]:
         gen.current_return_type,
         value_type,
         value,
+        type_renderer,
     )
     managed_value_type = is_managed_type(gen, gen.current_return_type)
     managed_return = managed_value_type and gen.current_return_owned

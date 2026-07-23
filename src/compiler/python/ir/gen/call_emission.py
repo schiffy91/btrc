@@ -9,6 +9,7 @@ from ..nodes import CType, IRCall, IRSizeof
 if TYPE_CHECKING:
     from ...ast_nodes import CallExpr
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 
 class CallDispatchLowerer:
@@ -22,13 +23,18 @@ class CallDispatchLowerer:
     injected owners and remove this owner's ``lowerer`` reach-through.
     """
 
-    def __init__(self, lowerer: IRLowerer) -> None:
+    def __init__(
+        self,
+        lowerer: IRLowerer,
+        type_renderer: CTypeRenderer,
+    ) -> None:
         self.lowerer = lowerer
+        self.type_renderer = type_renderer
 
     def lower_expression(self, node):
         from .expressions import lower_expr
 
-        return lower_expr(self.lowerer, node)
+        return lower_expr(self.lowerer, node, self.type_renderer)
 
     def validate_arguments(self, node: CallExpr, params) -> None:
         from .aggregate_ownership import reject_rich_enum_owned_args
@@ -44,7 +50,11 @@ class CallDispatchLowerer:
     def lower_direct_gpu_call(self, node: CallExpr):
         from .gpu import lower_direct_gpu_call
 
-        return lower_direct_gpu_call(self.lowerer, node)
+        return lower_direct_gpu_call(
+            self.lowerer,
+            node,
+            self.type_renderer,
+        )
 
     def lower_immediate_lambda_call(self, node: CallExpr):
         from .arguments import arg_names_for
@@ -55,12 +65,17 @@ class CallDispatchLowerer:
             node.callee,
             node.args,
             arg_names_for(node, len(node.args)),
+            self.type_renderer,
         )
 
     def lower_method_call(self, node: CallExpr):
         from .methods import lower_method_call
 
-        return lower_method_call(self.lowerer, node)
+        return lower_method_call(
+            self.lowerer,
+            node,
+            self.type_renderer,
+        )
 
     def lower_special_identifier_call(
         self,
@@ -94,7 +109,7 @@ class CallDispatchLowerer:
             name,
             args,
             [context.type_of(arg) for arg in node.args],
-            operator_context(self.lowerer),
+            operator_context(self.lowerer, self.type_renderer),
         )
         if intrinsic is not None:
             return intrinsic
@@ -110,19 +125,30 @@ class CallDispatchLowerer:
                 node.args,
                 arg_names_for(node, len(node.args)),
                 args,
+                self.type_renderer,
                 call=node,
             )
         if name == "Mutex" and not source_call:
             from .call_builtins import lower_mutex_constructor
 
-            return lower_mutex_constructor(self.lowerer, node.args, args)
+            return lower_mutex_constructor(
+                self.lowerer,
+                node.args,
+                args,
+                self.type_renderer,
+            )
         if name in context.analyzed.function_table:
             return None
 
         from .call_builtins import lower_len, lower_print
 
         if name == "print":
-            return lower_print(self.lowerer, node.args, args)
+            return lower_print(
+                self.lowerer,
+                node.args,
+                args,
+                self.type_renderer,
+            )
         if name == "printf":
             return IRCall(callee="printf", args=args)
         if name == "sizeof":

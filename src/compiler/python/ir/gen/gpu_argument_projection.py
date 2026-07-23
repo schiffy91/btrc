@@ -38,7 +38,7 @@ def prepare_projection_roots(
             raise CodegenError("GPU array projection root has no concrete type")
         name = gen.fresh_temp("__gpu_projection_root")
         declaration = IRVarDecl(
-            c_type=CType(text=host.render_type(root_type)),
+            c_type=CType(text=host.type_renderer.render(root_type)),
             name=name,
         )
         declarations.append(declaration)
@@ -58,7 +58,7 @@ def prepare_projection_roots(
                 declaration,
                 stable,
                 root_type,
-                host.render_type(root_type),
+                host.type_renderer.render(root_type),
                 pin=not owned,
             )
             declarations.extend(extra)

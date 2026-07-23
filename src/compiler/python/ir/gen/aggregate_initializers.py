@@ -1,15 +1,22 @@
 """Lower context-typed brace initializers to structured C expressions."""
 
 from ..nodes import CType, IRCall, IRCompoundLiteral, IRInitializerList, IRLiteral
-from .types import is_generic_class_type, type_to_c
+from .types import CTypeRenderer, is_generic_class_type
 
 
-def lower_brace_initializer(gen, node, *, node_type=None, lower=None):
+def lower_brace_initializer(
+    gen,
+    node,
+    type_renderer: CTypeRenderer,
+    *,
+    node_type=None,
+    lower=None,
+):
     """Lower a brace initializer using the analyzer's contextual type stamp."""
 
     from .expressions import lower_expr
 
-    lower = lower or (lambda element: lower_expr(gen, element))
+    lower = lower or (lambda element: lower_expr(gen, element, type_renderer))
     analyzed = gen.analyzed
     node_type = node_type or analyzed.node_types.get(id(node))
     from .aggregate_ownership import reject_shallow_initializer
@@ -31,12 +38,12 @@ def lower_brace_initializer(gen, node, *, node_type=None, lower=None):
         declaration = analyzed.struct_table.get(struct_name)
         if declaration is not None and not declaration.is_forward:
             return IRCompoundLiteral(
-                c_type=CType(text=type_to_c(node_type)),
+                c_type=CType(text=type_renderer.render(node_type)),
                 fields=[(field.name, lower(element)) for field, element in zip(declaration.fields, node.elements)],
             )
         if canonical.base == "Tuple":
             return IRCompoundLiteral(
-                c_type=CType(text=type_to_c(node_type)),
+                c_type=CType(text=type_renderer.render(node_type)),
                 fields=[(f"_{index}", lower(element)) for index, element in enumerate(node.elements)],
             )
 
@@ -51,7 +58,7 @@ def _canonical_type(type_expr, typedefs):
     return canonical_type(type_expr, typedefs)
 
 
-def lower_static_initializer(gen, node):
+def lower_static_initializer(gen, node, type_renderer: CTypeRenderer):
     """Preserve nested initializer lists in strict-C static storage."""
 
     from ...ast_nodes import BraceInitializer, ListLiteral
@@ -63,12 +70,12 @@ def lower_static_initializer(gen, node):
 
         reject_shallow_initializer(gen, node, node_type)
         canonical = _canonical_type(node_type, gen.analyzed.typedef_table)
-        elements = [lower_static_initializer(gen, element) for element in node.elements]
+        elements = [lower_static_initializer(gen, element, type_renderer) for element in node.elements]
         field_types = _aggregate_field_types(gen, canonical)
         if field_types is not None and elements:
             elements.extend(_zero_static_initializer(gen, field_type) for field_type in field_types[len(elements) :])
         return IRInitializerList(elements=elements)
-    return lower_expr(gen, node)
+    return lower_expr(gen, node, type_renderer)
 
 
 def _aggregate_field_types(gen, type_expr):

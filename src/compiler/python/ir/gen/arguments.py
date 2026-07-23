@@ -11,7 +11,15 @@ from .default_argument_context import (
 from .upcast import upcast_class_pointer
 
 
-def _coerce_arg(gen, param, ast_node, value: IRExpr, *, is_default=False) -> IRExpr:
+def _coerce_arg(
+    gen,
+    param,
+    ast_node,
+    value: IRExpr,
+    type_renderer,
+    *,
+    is_default=False,
+) -> IRExpr:
     """Apply Derived→Base upcasting after call-boundary preparation."""
     if ast_node is None:
         return value
@@ -21,7 +29,13 @@ def _coerce_arg(gen, param, ast_node, value: IRExpr, *, is_default=False) -> IRE
         ast_node,
         is_default=is_default,
     )
-    return upcast_class_pointer(gen, param.type, source_type, value)
+    return upcast_class_pointer(
+        gen,
+        param.type,
+        source_type,
+        value,
+        type_renderer,
+    )
 
 
 def arg_names_for(node, count: int) -> list[str]:
@@ -71,10 +85,10 @@ def bind_arg_nodes_to_params(
     return result
 
 
-def lower_arg_values(gen, args: list) -> list[IRExpr]:
+def lower_arg_values(gen, args: list, type_renderer) -> list[IRExpr]:
     from .expressions import lower_expr
 
-    return [lower_expr(gen, arg) for arg in args]
+    return [lower_expr(gen, arg, type_renderer) for arg in args]
 
 
 def resolved_constructor_params(gen, cls_info, instance_type):
@@ -101,7 +115,12 @@ def resolved_constructor_params(gen, cls_info, instance_type):
 
 
 def order_args_for_params(
-    gen, params: list, ast_args: list, arg_names: list[str], ir_args: list[IRExpr] | None = None
+    gen,
+    params: list,
+    ast_args: list,
+    arg_names: list[str],
+    type_renderer,
+    ir_args: list[IRExpr] | None = None,
 ) -> list[IRExpr]:
     """Return IR args in parameter order, filling omitted defaults.
 
@@ -114,6 +133,7 @@ def order_args_for_params(
         params,
         ast_args,
         arg_names,
+        type_renderer,
         ir_args,
     )
     return result
@@ -124,6 +144,7 @@ def order_args_and_nodes_for_params(
     params: list,
     ast_args: list,
     arg_names: list[str],
+    type_renderer,
     ir_args: list[IRExpr] | None = None,
     *,
     reject_missing: bool = False,
@@ -131,7 +152,7 @@ def order_args_and_nodes_for_params(
     """Order both AST and lowered values, retaining defaults as metadata."""
 
     if ir_args is None:
-        ir_args = lower_arg_values(gen, ast_args)
+        ir_args = lower_arg_values(gen, ast_args, type_renderer)
     if not params:
         return list(ast_args), ir_args
 
@@ -152,6 +173,7 @@ def order_args_and_nodes_for_params(
                     gen,
                     params[index],
                     default,
+                    type_renderer,
                     is_default=True,
                 )
                 if default is not None
@@ -165,6 +187,7 @@ def order_args_and_nodes_for_params(
                 params[index],
                 ast_result[index],
                 result[index],
+                type_renderer,
                 is_default=default_flags[index],
             )
             for index in range(len(result))
@@ -197,6 +220,7 @@ def order_args_and_nodes_for_params(
                     gen,
                     param,
                     param.default,
+                    type_renderer,
                     is_default=True,
                 )
                 if param.default is not None
@@ -210,6 +234,7 @@ def order_args_and_nodes_for_params(
             params[index],
             ast_result[index],
             arg,
+            type_renderer,
             is_default=default_flags[index],
         )
         for index, arg in enumerate(result)

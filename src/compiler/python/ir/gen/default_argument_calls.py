@@ -5,7 +5,7 @@ from __future__ import annotations
 from ..nodes import CType, IRCall, IRCast
 from .default_argument_context import call_argument_type
 from .default_argument_helpers import ensure_default_helper
-from .types import type_to_c
+from .types import CTypeRenderer
 from .upcast import upcast_class_pointer
 
 
@@ -25,6 +25,7 @@ def default_call_builder(
     params,
     param_index,
     bound_nodes,
+    type_renderer: CTypeRenderer,
     *,
     receiver_node=None,
     receiver_value=None,
@@ -47,6 +48,7 @@ def default_call_builder(
             call,
             params,
             param_index,
+            type_renderer,
         )
         args = []
         if target.self_type is not None:
@@ -57,7 +59,7 @@ def default_call_builder(
                 _missing_dependency("method receiver")
             args.append(
                 IRCast(
-                    target_type=CType(text=type_to_c(target.self_type)),
+                    target_type=CType(text=type_renderer.render(target.self_type)),
                     expr=value,
                 )
             )
@@ -74,6 +76,7 @@ def default_call_builder(
                     prior_param.type,
                     source_type,
                     value,
+                    type_renderer,
                 )
             )
         return IRCall(callee=symbol, args=args)

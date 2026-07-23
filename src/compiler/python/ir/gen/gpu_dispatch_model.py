@@ -8,6 +8,7 @@ from ..gpu_names import GpuDispatchNames
 from ..nodes import CType, IRGpuBuffer, IRGpuKernel, IRLiteral, IRParam, IRVar
 from .gpu_argument_bindings import buffer_length_name
 from .parameters import lower_source_param, source_binding_c_name
+from .types import CTypeRenderer
 
 OUTPUT_PARAM = "__gpu_output"
 OUTPUT_CAPACITY = "__gpu_output_capacity"
@@ -21,6 +22,7 @@ class GpuDispatchSpec:
     prefix: str
     result_elem_type: str
     cpu_fallback: str
+    type_renderer: CTypeRenderer
 
     @property
     def names(self) -> GpuDispatchNames:
@@ -49,7 +51,13 @@ class GpuDispatchSpec:
     def helper_params(self) -> list[IRParam]:
         params: list[IRParam] = []
         for parameter in self.declaration.params:
-            params.append(lower_source_param(parameter, analyzed=self.analyzed))
+            params.append(
+                lower_source_param(
+                    parameter,
+                    self.type_renderer.render,
+                    analyzed=self.analyzed,
+                )
+            )
             if parameter.type and parameter.type.is_array:
                 params.append(
                     IRParam(

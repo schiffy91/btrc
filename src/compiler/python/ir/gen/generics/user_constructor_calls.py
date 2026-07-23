@@ -32,6 +32,7 @@ def lower_new_constructor_call(emitter, expression):
             emitter._gen,
             emitter._expr(expression.args[0]),
             resolved.generic_args[0],
+            emitter._type_renderer,
         )
 
     target = mangle_generic_type(resolved.base, resolved.generic_args) if resolved.generic_args else resolved.base

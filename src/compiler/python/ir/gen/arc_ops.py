@@ -137,16 +137,30 @@ def release_edge_if_present(gen, value, type_expr, replacement=None) -> IRCall:
     )
 
 
-def replace_edge(gen, slot, replacement, type_expr, owner, *, adopt: bool) -> IRCall:
+def replace_edge(
+    gen,
+    slot,
+    replacement,
+    type_expr,
+    owner,
+    type_renderer,
+    *,
+    adopt: bool,
+) -> IRCall:
     """Replace one persistent class edge as a single topology transaction."""
     from .cleanup_slots import ensure_arc_slot_adapter
     from .lvalues import value_c_type
-    from .types import type_to_c
 
     helper = "__btrc_arc_replace_edge"
     access = ensure_arc_slot_adapter(
         gen,
-        CType(text=value_c_type(type_expr, gen.analyzed.class_table, type_to_c)),
+        CType(
+            text=value_c_type(
+                type_expr,
+                gen.analyzed.class_table,
+                type_renderer.render,
+            )
+        ),
     )
     gen.helpers.use(helper)
     return IRCall(

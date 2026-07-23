@@ -12,16 +12,24 @@ from ...ast_nodes import (
 )
 from ..nodes import CType, IRCall, IRCommaExpr, IRExprStmt, IRStmt, IRVar, IRVarDecl
 from .expressions import lower_expr
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
-def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
+def lower_expression_statement(
+    gen,
+    node: ExprStmt,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Lower one expression and release any discarded caller-owned result."""
     from .macro_boundaries import lower_assert_statement
 
     assertion = lower_assert_statement(
         node.expr,
-        lower_condition=lambda condition: lower_expr(gen, condition),
+        lower_condition=lambda condition: lower_expr(
+            gen,
+            condition,
+            type_renderer,
+        ),
         fresh_temp=gen.fresh_temp,
         record_decl=gen.context.function_declarations.append,
         hosted=not gen.freestanding and "assert" not in gen.analyzed.function_table,
@@ -33,8 +41,12 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
     if destroy_receiver is not None:
         from .arc import lower_release_expression
 
-        return lower_release_expression(gen, destroy_receiver)
-    lowered = lower_expr(gen, node.expr)
+        return lower_release_expression(
+            gen,
+            destroy_receiver,
+            type_renderer,
+        )
+    lowered = lower_expr(gen, node.expr, type_renderer)
 
     from .assignments import _is_gpu_output_assignment
 
@@ -46,7 +58,7 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
 
     if _is_fresh_thread_result(gen, node.expr, result_type):
         temporary = IRVarDecl(
-            c_type=CType(text=type_to_c(result_type)),
+            c_type=CType(text=type_renderer.render(result_type)),
             name=gen.fresh_temp("__btrc_discarded_thread"),
             init=lowered,
         )
@@ -64,7 +76,7 @@ def lower_expression_statement(gen, node: ExprStmt) -> list[IRStmt]:
         ]
     elif gen.ownership.owns_result(node.expr) and is_managed_type(gen, result_type):
         temporary = IRVarDecl(
-            c_type=CType(text=type_to_c(result_type)),
+            c_type=CType(text=type_renderer.render(result_type)),
             name=gen.fresh_temp("__btrc_discarded"),
             init=lowered,
         )

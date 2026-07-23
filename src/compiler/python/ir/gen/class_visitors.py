@@ -19,12 +19,14 @@ from ..nodes import (
 )
 from .collection_visitors import ensure_cycle_callback_alias, slot_visit_stmts
 from .cycle_metadata import cycle_visitor_symbol, register_cycle_visitor
+from .types import CTypeRenderer
 
 
 def emit_class_visitor(
     gen,
     emitted_name: str,
     storage: Iterable[tuple[str, object]],
+    type_renderer: CTypeRenderer,
     resolve_type: Callable[[TypeExpr], TypeExpr] | None = None,
 ) -> None:
     """Emit ``NAME_visit(object, fn)`` for one cyclable representation."""
@@ -64,7 +66,12 @@ def emit_class_visitor(
             continue
         resolved = resolve_type(field_type) if resolve_type else field_type
         field = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
-        field_visits = slot_visit_stmts(gen, resolved, field)
+        field_visits = slot_visit_stmts(
+            gen,
+            resolved,
+            field,
+            type_renderer,
+        )
         visited = visited or bool(field_visits)
         body.extend(field_visits)
 

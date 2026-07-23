@@ -33,7 +33,7 @@ from .parameters import (
     lower_named_source_type_param,
     source_binding_c_name,
 )
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from ...analyzer.core import ClassInfo
@@ -44,14 +44,21 @@ def emit_property(
     gen: IRLowerer,
     declaration: ClassDecl,
     prop: PropertyDecl,
+    type_renderer: CTypeRenderer,
 ) -> None:
     """Emit getter/setter functions for one declared property."""
     name = declaration.name
-    prop_type = type_to_c(prop.type) if prop.type else "int"
+    prop_type = type_renderer.render(prop.type) if prop.type else "int"
     backing = f"_prop_{prop.name}"
 
     if prop.has_getter:
-        body = _getter_body(gen, prop, backing, prop_type)
+        body = _getter_body(
+            gen,
+            prop,
+            backing,
+            prop_type,
+            type_renderer,
+        )
         gen.module.function_defs.append(
             IRFunctionDef(
                 name=f"{name}_get_{prop.name}",
@@ -62,7 +69,13 @@ def emit_property(
         )
     if prop.has_setter:
         value_name = source_binding_c_name("value", gen.analyzed)
-        body = _setter_body(gen, prop, backing, value_name)
+        body = _setter_body(
+            gen,
+            prop,
+            backing,
+            value_name,
+            type_renderer,
+        )
         gen.module.function_defs.append(
             IRFunctionDef(
                 name=f"{name}_set_{prop.name}",
@@ -86,6 +99,7 @@ def emit_inherited_properties(
     declaration: ClassDecl,
     class_info: ClassInfo,
     own_properties: set[str],
+    type_renderer: CTypeRenderer,
 ) -> None:
     """Expose direct-parent property accessors with child-typed wrappers."""
     parent_name = class_info.parent
@@ -99,7 +113,7 @@ def emit_inherited_properties(
     for name, prop in parent.properties.items():
         if name in own_properties:
             continue
-        prop_type = CType(text=type_to_c(prop.type))
+        prop_type = CType(text=type_renderer.render(prop.type))
         if prop.has_getter:
             gen.module.function_defs.append(
                 IRFunctionDef(
@@ -155,7 +169,13 @@ def emit_inherited_properties(
             )
 
 
-def _getter_body(gen, prop, backing, prop_type):
+def _getter_body(
+    gen,
+    prop,
+    backing,
+    prop_type,
+    type_renderer: CTypeRenderer,
+):
     if prop.getter_body is None:
         return IRBlock(
             stmts=[
@@ -183,7 +203,12 @@ def _getter_body(gen, prop, backing, prop_type):
     previous_backing = gen.context.current_property_backing
     gen.context.current_property_backing = prop.name if property_needs_backing(prop) else None
     try:
-        body = lower_block(gen, prop.getter_body, local_bindings=["self"])
+        body = lower_block(
+            gen,
+            prop.getter_body,
+            local_bindings=["self"],
+            type_renderer=type_renderer,
+        )
     finally:
         gen.context.current_property_backing = previous_backing
         gen.current_return_type = previous_return_type
@@ -192,7 +217,13 @@ def _getter_body(gen, prop, backing, prop_type):
     return body
 
 
-def _setter_body(gen, prop, backing, value_name):
+def _setter_body(
+    gen,
+    prop,
+    backing,
+    value_name,
+    type_renderer: CTypeRenderer,
+):
     if prop.setter_body is None:
         if is_managed_type(gen, prop.type):
             target = IRFieldAccess(
@@ -209,6 +240,7 @@ def _setter_body(gen, prop, backing, value_name):
                             IRVar(name=value_name),
                             prop.type,
                             IRVar(name="self"),
+                            type_renderer,
                             adopt=False,
                         )
                     )
@@ -217,7 +249,7 @@ def _setter_body(gen, prop, backing, value_name):
                 old_name = gen.fresh_temp("__btrc_property_old")
                 stmts = [
                     IRVarDecl(
-                        c_type=CType(text=type_to_c(prop.type)),
+                        c_type=CType(text=type_renderer.render(prop.type)),
                         name=old_name,
                         init=target,
                     ),
@@ -278,6 +310,7 @@ def _setter_body(gen, prop, backing, value_name):
             prop.setter_body,
             local_bindings=["self", "value"],
             callable_bindings=[("value", prop.type)],
+            type_renderer=type_renderer,
         )
     finally:
         gen.context.current_property_backing = previous_backing

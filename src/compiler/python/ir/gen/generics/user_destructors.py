@@ -11,11 +11,17 @@ from ...nodes import (
     IRVarDecl,
 )
 from ..destructor_hooks import build_destructor_hook
-from ..types import type_to_c
+from ..types import CTypeRenderer
 from .core import _resolve_type
 
 
-def build_generic_destructor_hook(cls_info, type_map, mangled, gen):
+def build_generic_destructor_hook(
+    cls_info,
+    type_map,
+    mangled,
+    gen,
+    type_renderer: CTypeRenderer,
+):
     """Lower one source ``__del__`` into an isolated hidden function."""
     destructor = cls_info.methods.get("__del__")
     if destructor is None or destructor.body is None:
@@ -25,7 +31,7 @@ def build_generic_destructor_hook(cls_info, type_map, mangled, gen):
     emitter = _UserGenericEmitter(
         type_map,
         mangled,
-        type_to_c,
+        type_renderer,
         gen=gen,
         cls_info=cls_info,
     )
@@ -36,7 +42,12 @@ def build_generic_destructor_hook(cls_info, type_map, mangled, gen):
     )
 
 
-def build_generic_field_release_stmts(cls_info, type_map, gen):
+def build_generic_field_release_stmts(
+    cls_info,
+    type_map,
+    gen,
+    type_renderer: CTypeRenderer,
+):
     """Build compiler-owned field detachment for one concrete instance."""
     stmts = []
 
@@ -47,18 +58,22 @@ def build_generic_field_release_stmts(cls_info, type_map, gen):
         from ..managed_values import is_managed_type
 
         if is_managed_type(gen, resolved):
-            stmts.append(_field_release(gen, field_name, resolved))
+            stmts.append(_field_release(gen, field_name, resolved, type_renderer))
     return stmts
 
 
-def _field_release(gen, field_name: str, field_type) -> IRBlock:
+def _field_release(
+    gen,
+    field_name: str,
+    field_type,
+    type_renderer: CTypeRenderer,
+) -> IRBlock:
     from ..managed_values import (
         is_arc_type,
         release_edge_value,
         replace_edge_value,
         unlink_edge_value,
     )
-    from ..types import type_to_c
 
     field = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
     if is_arc_type(gen, field_type):
@@ -71,6 +86,7 @@ def _field_release(gen, field_name: str, field_type) -> IRBlock:
                         IRLiteral(text="NULL"),
                         field_type,
                         IRVar(name="self"),
+                        type_renderer,
                         adopt=False,
                     )
                 )
@@ -80,7 +96,7 @@ def _field_release(gen, field_name: str, field_type) -> IRBlock:
     return IRBlock(
         stmts=[
             IRVarDecl(
-                c_type=CType(text=type_to_c(field_type)),
+                c_type=CType(text=type_renderer.render(field_type)),
                 name=old_name,
                 init=field,
             ),

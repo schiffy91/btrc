@@ -16,7 +16,13 @@ from ..nodes import (
 from .iteration_bindings import IterationBinding
 
 
-def lower_string_for_in(gen, node, iterable, var_name) -> list[IRStmt]:
+def lower_string_for_in(
+    gen,
+    node,
+    iterable,
+    var_name,
+    type_renderer,
+) -> list[IRStmt]:
     """Hoist the string once, then bind each character in body scope."""
     from .statements import _lower_loop_body
 
@@ -40,6 +46,7 @@ def lower_string_for_in(gen, node, iterable, var_name) -> list[IRStmt]:
     body = _lower_loop_body(
         gen,
         node.body,
+        type_renderer,
         iteration_bindings=[
             IterationBinding(
                 name=var_name,

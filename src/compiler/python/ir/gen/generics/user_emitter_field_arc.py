@@ -103,6 +103,7 @@ def lower_generic_field_assignment(emitter, expression):
         field_type,
         value_type,
         value,
+        emitter._type_renderer,
     )
     owned = prepared.owned
     sequence = [
@@ -122,6 +123,7 @@ def lower_generic_field_assignment(emitter, expression):
                 new_value,
                 field_type,
                 receiver,
+                emitter._type_renderer,
                 adopt=owned,
             )
         )
@@ -186,6 +188,7 @@ def _lower_generic_field_compound(
                     replacement,
                     field_type,
                     receiver,
+                    emitter._type_renderer,
                     adopt=True,
                 )
             ]
@@ -210,6 +213,7 @@ def _lower_generic_field_compound(
             field_type,
             right_type,
             fresh_temp=emitter._fresh_temp,
+            type_renderer=emitter._type_renderer,
         ),
         commit=commit,
         result_expr=lambda: target,

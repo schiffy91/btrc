@@ -32,13 +32,17 @@ from .managed_values import (
     retain_edge_value,
     unlink_edge_value,
 )
-from .types import is_generic_class_type, mangle_generic_type, type_to_c
+from .types import CTypeRenderer, is_generic_class_type, mangle_generic_type
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def lower_managed_field_assignment(gen: IRLowerer, node: AssignExpr):
+def lower_managed_field_assignment(
+    gen: IRLowerer,
+    node: AssignExpr,
+    type_renderer: CTypeRenderer,
+):
     """Return a sequenced assignment expression, or ``None`` if unmanaged."""
     if not isinstance(node.target, FieldAccessExpr):
         return None
@@ -50,8 +54,9 @@ def lower_managed_field_assignment(gen: IRLowerer, node: AssignExpr):
         return lower_managed_slot_assignment(
             gen,
             node,
-            lower_expr(gen, node.target),
+            lower_expr(gen, node.target, type_renderer),
             static_type,
+            type_renderer,
         )
     receiver_type = gen.analyzed.node_types.get(id(node.target.obj))
     if not receiver_type or receiver_type.base not in gen.analyzed.class_table:
@@ -79,7 +84,7 @@ def lower_managed_field_assignment(gen: IRLowerer, node: AssignExpr):
     receiver_decl = _temp_decl(
         gen,
         "__btrc_field_obj",
-        type_to_c(receiver_type),
+        type_renderer.render(receiver_type),
         None,
     )
     receiver = IRVar(name=receiver_decl.name)
@@ -97,6 +102,7 @@ def lower_managed_field_assignment(gen: IRLowerer, node: AssignExpr):
             receiver,
             target,
             field_type,
+            type_renderer,
         )
     from .prepared_values import prepare_normal_value
 
@@ -104,17 +110,38 @@ def lower_managed_field_assignment(gen: IRLowerer, node: AssignExpr):
         gen,
         node.value,
         field_type,
-        lower_value=lambda value: _lower_value(gen, value, field_type),
+        type_renderer,
+        lower_value=lambda value: _lower_value(
+            gen,
+            value,
+            field_type,
+            type_renderer,
+        ),
     )
     value = prepared.value
     value_type = prepared.effective_type
-    value = upcast_class_pointer(gen, field_type, value_type, value)
+    value = upcast_class_pointer(
+        gen,
+        field_type,
+        value_type,
+        value,
+        type_renderer,
+    )
     owned = prepared.owned
-    value_decl = _temp_decl(gen, "__btrc_field_new", type_to_c(field_type), None)
+    value_decl = _temp_decl(
+        gen,
+        "__btrc_field_new",
+        type_renderer.render(field_type),
+        None,
+    )
     new_value = IRVar(name=value_decl.name)
 
     sequence = [
-        IRBinOp(left=receiver, op="=", right=lower_expr(gen, node.target.obj)),
+        IRBinOp(
+            left=receiver,
+            op="=",
+            right=lower_expr(gen, node.target.obj, type_renderer),
+        ),
         IRBinOp(left=new_value, op="=", right=value),
     ]
     declarations = [receiver_decl, value_decl]
@@ -126,11 +153,17 @@ def lower_managed_field_assignment(gen: IRLowerer, node: AssignExpr):
                 new_value,
                 field_type,
                 receiver,
+                type_renderer,
                 adopt=owned,
             )
         )
     else:
-        old_decl = _temp_decl(gen, "__btrc_field_old", type_to_c(field_type), None)
+        old_decl = _temp_decl(
+            gen,
+            "__btrc_field_old",
+            type_renderer.render(field_type),
+            None,
+        )
         declarations.append(old_decl)
         old_value = IRVar(name=old_decl.name)
         sequence.append(IRBinOp(left=old_value, op="=", right=target))
@@ -158,6 +191,7 @@ def _lower_managed_field_compound(
     receiver,
     target,
     field_type,
+    type_renderer,
 ):
     from .expressions import lower_expr
     from .managed_compound import (
@@ -178,6 +212,7 @@ def _lower_managed_field_compound(
                     replacement,
                     field_type,
                     receiver,
+                    type_renderer,
                     adopt=True,
                 )
             ]
@@ -193,7 +228,12 @@ def _lower_managed_field_compound(
         right_type=right_type,
         old_expr=target,
         current_expr=None if class_edge else target,
-        right_expr=_lower_value(gen, node.value, field_type),
+        right_expr=_lower_value(
+            gen,
+            node.value,
+            field_type,
+            type_renderer,
+        ),
         compute=lambda old, right: lower_managed_compound_operator(
             gen,
             node,
@@ -202,6 +242,7 @@ def _lower_managed_field_compound(
             field_type,
             right_type,
             fresh_temp=gen.fresh_temp,
+            type_renderer=type_renderer,
         ),
         commit=commit,
         result_expr=lambda: target,
@@ -215,7 +256,7 @@ def _lower_managed_field_compound(
         ),
         release_replaced_old=not class_edge,
         transfer_before_commit=class_edge,
-        c_type=type_to_c,
+        c_type=type_renderer.render,
         fresh_temp=gen.fresh_temp,
         record_decl=gen.context.function_declarations.append,
         cleanup_active=gen.exception_cleanup_active(),
@@ -227,7 +268,7 @@ def _lower_managed_field_compound(
                 IRBinOp(
                     left=receiver,
                     op="=",
-                    right=lower_expr(gen, node.target.obj),
+                    right=lower_expr(gen, node.target.obj, type_renderer),
                 ),
                 update,
             ]
@@ -245,7 +286,7 @@ def _temp_decl(gen, prefix: str, c_type: str, init) -> IRVarDecl:
     return declaration
 
 
-def _lower_value(gen, value, field_type):
+def _lower_value(gen, value, field_type, type_renderer):
     from .expressions import lower_expr
 
     empty_collection = (
@@ -256,7 +297,7 @@ def _lower_value(gen, value, field_type):
     if empty_collection and is_generic_class_type(field_type, gen.analyzed.class_table):
         mangled = mangle_generic_type(field_type.base, field_type.generic_args)
         return IRCall(callee=f"{mangled}_new", args=[])
-    return lower_expr(gen, value)
+    return lower_expr(gen, value, type_renderer)
 
 
 def _is_owned_value(gen, value) -> bool:

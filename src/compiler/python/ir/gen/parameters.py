@@ -3,7 +3,6 @@
 from ...hosted_abi import HOSTED_MACROS, HOSTED_TYPEDEF_NAMES
 from ...qualifier_provenance import effective_outer_volatile
 from ..nodes import CType, IRParam
-from .types import type_to_c
 
 
 def source_binding_c_name(name: str, analyzed=None) -> str:
@@ -65,7 +64,7 @@ def source_field_c_name(analyzed, receiver, name: str, *, resolve_type=None) -> 
 
 def lower_source_param(
     parameter,
-    render=type_to_c,
+    render,
     analyzed=None,
     *,
     resolved_type=None,

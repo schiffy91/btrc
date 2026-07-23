@@ -14,6 +14,7 @@ from ...nodes import (
     IRVar,
 )
 from ..literal_text import format_c_integer_literal
+from ..types import CTypeRenderer
 from .core import _resolve_type, _resolve_type_c
 from .user_constructor_calls import lower_new_constructor_call
 from .user_emitter_bindings import (
@@ -34,10 +35,19 @@ class _UserGenericEmitter(
 ):
     """Emits IR nodes from AST nodes within a monomorphized generic class."""
 
-    def __init__(self, type_map, mangled, type_to_c_fn, *, gen=None, cls_info=None):
+    def __init__(
+        self,
+        type_map,
+        mangled,
+        type_renderer: CTypeRenderer,
+        *,
+        gen=None,
+        cls_info=None,
+    ):
         self.type_map = type_map
         self.mangled = mangled
-        self._ttc = type_to_c_fn
+        self._type_renderer = type_renderer
+        self._ttc = type_renderer.render
         self._gen = gen
         self._cls_info = cls_info  # the generic class being monomorphized
         # Track variable types for method-call mangling on local variables

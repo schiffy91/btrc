@@ -108,6 +108,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                     expression.args,
                     lower_value=self._expr,
                     resolve_type=self._resolve_expr_type,
+                    type_renderer=self._type_renderer,
                 )
             if is_builtin and name == "len" and expression.args:
                 argument = expression.args[0]
@@ -152,12 +153,21 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                 )
                 from ..mutex_values import create_mutex_value
 
-                return create_mutex_value(self._gen, args[0], value_type)
+                return create_mutex_value(
+                    self._gen,
+                    args[0],
+                    value_type,
+                    self._type_renderer,
+                )
             intrinsic = lower_generic_intrinsic(
                 name,
                 args,
                 [self._resolve_expr_type(arg) for arg in expression.args],
-                operator_context(self._gen, fresh_temp=self._fresh_temp),
+                operator_context(
+                    self._gen,
+                    self._type_renderer,
+                    fresh_temp=self._fresh_temp,
+                ),
             )
             if intrinsic is not None:
                 return intrinsic
@@ -261,6 +271,7 @@ class _UserGenericCallMixin(_UserGenericArcMixin):
                     method_name,
                     receiver_type,
                     args,
+                    self._type_renderer,
                 )
                 if sync is not None:
                     return sync

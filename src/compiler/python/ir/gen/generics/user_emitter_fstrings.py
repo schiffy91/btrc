@@ -12,7 +12,7 @@ class _UserGenericFStringMixin:
             lower_value=self._expr,
             type_of=self._resolve_expr_type,
             owns=self._owns_expr,
-            render_type=self.iter_value_c,
+            type_renderer=self._type_renderer,
             activate_cleanup=self._activate_cleanup_registration,
         )
 

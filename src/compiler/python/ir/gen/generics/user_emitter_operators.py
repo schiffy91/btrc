@@ -49,7 +49,11 @@ class _UserGenericOperatorMixin:
             false_expr,
             self._resolve_expr_type(expression.true_expr),
             self._resolve_expr_type(expression.false_expr),
-            operator_context(self._gen, fresh_temp=self._fresh_temp),
+            operator_context(
+                self._gen,
+                self._type_renderer,
+                fresh_temp=self._fresh_temp,
+            ),
         )
 
     def _unary_expr(self, expression) -> IRExpr:
@@ -217,7 +221,11 @@ class _UserGenericOperatorMixin:
         )
         return UpdateContext(
             lvalues=lvalues,
-            operators=operator_context(self._gen, fresh_temp=self._fresh_temp),
+            operators=operator_context(
+                self._gen,
+                self._type_renderer,
+                fresh_temp=self._fresh_temp,
+            ),
             lower_overload=(
                 lambda left_type, right_type, operator, left, right: lower_overloaded_values(
                     self._gen,
@@ -226,10 +234,17 @@ class _UserGenericOperatorMixin:
                     operator,
                     left,
                     right,
+                    self._type_renderer,
                 )
             ),
             coerce_assignment=(
-                lambda target_type, source_type, value: upcast_class_pointer(self._gen, target_type, source_type, value)
+                lambda target_type, source_type, value: upcast_class_pointer(
+                    self._gen,
+                    target_type,
+                    source_type,
+                    value,
+                    self._type_renderer,
+                )
             ),
             lower_value=self._assignment_value,
             store_boundary=lambda node, plan: lower_virtual_store_boundary(
@@ -239,10 +254,15 @@ class _UserGenericOperatorMixin:
                 ownership=self._boundary_ownership,
                 lower_value=self._assignment_value,
                 coerce=lambda target_type, source_type, value: upcast_class_pointer(
-                    self._gen, target_type, source_type, value
+                    self._gen,
+                    target_type,
+                    source_type,
+                    value,
+                    self._type_renderer,
                 ),
-                render_type=self.iter_value_c,
+                type_renderer=self._type_renderer,
                 owns_result=self._owns_expr,
+                render_type=self.iter_value_c,
                 prepare=lambda value, target_type: _prepare_generic_assignment(
                     self,
                     value,

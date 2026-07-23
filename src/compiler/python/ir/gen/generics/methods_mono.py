@@ -47,7 +47,7 @@ def generic_method_instance_name(class_base, class_args, method_name, method_arg
     return mangle_method_instance_symbol(class_base, class_args, method_name, method_args)
 
 
-def emit_generic_method_instances(gen: IRLowerer):
+def emit_generic_method_instances(gen: IRLowerer, type_renderer):
     """Emit every monomorphized generic-method function recorded by the analyzer.
 
     Each function is emitted with a combined type map binding both the class
@@ -68,7 +68,15 @@ def emit_generic_method_instances(gen: IRLowerer):
         if not method or not getattr(method, "generic_params", None):
             continue
         for class_args, method_args in combos:
-            _emit_one_method_instance(gen, class_base, cls_info, method, class_args, method_args)
+            _emit_one_method_instance(
+                gen,
+                class_base,
+                cls_info,
+                method,
+                class_args,
+                method_args,
+                type_renderer,
+            )
 
 
 def _build_type_map(cls_info, method, class_args, method_args) -> dict:
@@ -83,9 +91,15 @@ def _build_type_map(cls_info, method, class_args, method_args) -> dict:
     return type_map
 
 
-def _emit_one_method_instance(gen, class_base, cls_info, method, class_args, method_args):
-    from ..types import type_to_c as ttc
-
+def _emit_one_method_instance(
+    gen,
+    class_base,
+    cls_info,
+    method,
+    class_args,
+    method_args,
+    type_renderer,
+):
     if class_args:
         self_mangled = mangle_generic_type(class_base, list(class_args))
     else:
@@ -93,7 +107,13 @@ def _emit_one_method_instance(gen, class_base, cls_info, method, class_args, met
     fn_name = generic_method_instance_name(class_base, class_args, method.name, method_args)
 
     type_map = _build_type_map(cls_info, method, class_args, method_args)
-    emitter = _UserGenericEmitter(type_map, self_mangled, ttc, gen=gen, cls_info=cls_info)
+    emitter = _UserGenericEmitter(
+        type_map,
+        self_mangled,
+        type_renderer,
+        gen=gen,
+        cls_info=cls_info,
+    )
     public_collection_method = class_base in PUBLIC_COLLECTION_BASES and method.access == "public"
     emitter.reset_var_types(
         method.params,

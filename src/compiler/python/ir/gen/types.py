@@ -1,16 +1,16 @@
-"""Type utilities for IR generation: btrc TypeExpr → C type string."""
+"""Owned C type rendering plus stateless IR type predicates and identity."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
-from contextvars import ContextVar
-from dataclasses import dataclass
+from collections.abc import Mapping
 from types import MappingProxyType
 
 from ...ast_nodes import TypeExpr
 from ...reference_semantics import is_c_string_pointer
-from ...type_composition import nullable_collapses_reference_layer
+from ...type_composition import (
+    nullable_collapses_reference_layer,
+    resolved_reference_shape,
+)
 from ...type_identity import (
     ensure_supported_generic_arguments,
     is_semantic_scalar_string,
@@ -19,7 +19,6 @@ from ...type_identity import (
     type_symbol_component,
 )
 from ..nodes import CType, IRFunctionPointerTypedef
-from .type_render_context import typedef_base_is_reference
 
 # Primitive btrc types → C type strings
 _PRIMITIVE_MAP = {
@@ -38,137 +37,166 @@ _PRIMITIVE_MAP = {
 }
 
 
-def type_to_c(t: TypeExpr | None) -> str:
-    """Convert a btrc TypeExpr to a C type string."""
-    from .default_argument_context import resolve_default_type
-
-    t = resolve_default_type(t)
-    if t is None:
-        return "void"
-    base = t.base
-
-    # Function pointer types: __fn_ptr(ret, param1, param2, ...) → typedef name
-    # Const qualifier prefix
-    prefix = "const " if getattr(t, "is_const", False) else ""
-
-    if base == "__fn_ptr" and t.generic_args:
-        c = fn_ptr_typedef_name(t)
-    # Thread<T> → __btrc_thread_t* (opaque handle, no class struct)
-    elif base == "Thread" and t.generic_args:
-        c = "__btrc_thread_t*"
-
-    # Mutex<T> → __btrc_mutex_val_t* (ARC-managed graph node)
-    elif base == "Mutex" and t.generic_args:
-        c = "__btrc_mutex_val_t*"
-
-    # Primitives
-    elif base in _PRIMITIVE_MAP and not t.generic_args:
-        c = _PRIMITIVE_MAP[base]
-    # Tuple types
-    elif base == "Tuple" or base.startswith("("):
-        c = mangle_tuple_type(t)
-    # Generic types (List<int>, Map<string, int>, user generics)
-    elif t.generic_args:
-        c = mangle_generic_type(base, t.generic_args)
-    else:
-        # User-defined class/struct → pointer by convention
-        c = base
-
-    # Apply pointer depth. A nullable `?` contributes one pointer level so value
-    # types can be boxed (int? → int*), but `string` is already a pointer
-    # (char*), so a nullable string must collapse back to char* rather than
-    # double-pointering to char** (which older compilers only warned about, but
-    # gcc 15 rejects as an incompatible-pointer error).
-    depth = t.pointer_depth
-    base_is_reference = c.endswith("*") or base == "__fn_ptr" or typedef_base_is_reference(base)
-    if nullable_collapses_reference_layer(t, base_is_reference=base_is_reference):
-        depth -= 1
-    c += "*" * depth
-
-    # Array types
-    if t.is_array:
-        c += "*"
-
-    return prefix + c
-
-
-# Function-pointer declarations belong to one translation unit. Context-local,
-# immutable state keeps nested, async, and concurrent compilations isolated.
 _FnPtrSignature = tuple[str, tuple[str, ...]]
 
 
-@dataclass(frozen=True)
-class _FnPtrTypedefState:
-    definitions: Mapping[str, _FnPtrSignature]
-    emitted: frozenset[str]
+class FunctionPointerTypedefRegistry:
+    """Own ordered callback declarations for one C translation unit."""
 
+    def __init__(self) -> None:
+        self._definitions: dict[str, _FnPtrSignature] = {}
+        self._emitted: set[str] = set()
 
-_fn_ptr_typedefs: ContextVar[_FnPtrTypedefState | None] = ContextVar(
-    "btrc_fn_ptr_typedefs",
-    default=None,
-)
+    def register(
+        self,
+        type_expr: TypeExpr,
+        *,
+        return_type: str,
+        parameter_types: list[str],
+    ) -> str:
+        name = mangle_function_pointer_symbol(type_expr.generic_args)
+        self._definitions.setdefault(name, (return_type, tuple(parameter_types)))
+        return name
 
-
-def _empty_fn_ptr_state() -> _FnPtrTypedefState:
-    return _FnPtrTypedefState(MappingProxyType({}), frozenset())
-
-
-def _current_fn_ptr_state() -> _FnPtrTypedefState:
-    return _fn_ptr_typedefs.get() or _empty_fn_ptr_state()
-
-
-@contextmanager
-def fn_ptr_typedef_scope() -> Iterator[None]:
-    """Create and reliably tear down one translation unit's typedef registry."""
-    token = _fn_ptr_typedefs.set(_empty_fn_ptr_state())
-    try:
-        yield
-    finally:
-        _fn_ptr_typedefs.reset(token)
-
-
-def fn_ptr_typedef_name(t: TypeExpr) -> str:
-    """Get/create a typedef name for a function pointer type."""
-    ret_type = type_to_c(t.generic_args[0]) if t.generic_args else "void"
-    param_types = [type_to_c(a) for a in t.generic_args[1:]]
-    mangled = mangle_function_pointer_symbol(t.generic_args)
-    state = _current_fn_ptr_state()
-    if mangled not in state.definitions:
-        definitions = dict(state.definitions)
-        definitions[mangled] = (ret_type, tuple(param_types))
-        _fn_ptr_typedefs.set(
-            _FnPtrTypedefState(
-                definitions=MappingProxyType(definitions),
-                emitted=state.emitted,
+    def consume_pending(self) -> list[IRFunctionPointerTypedef]:
+        pending = [
+            IRFunctionPointerTypedef(
+                name=name,
+                return_type=CType(text=return_type),
+                param_types=[CType(text=parameter) for parameter in parameters],
             )
+            for name, (return_type, parameters) in self._definitions.items()
+            if name not in self._emitted
+        ]
+        self._emitted.update(self._definitions)
+        return pending
+
+
+class CTypeRenderer:
+    """Render source types and own callback typedefs for one lowering run."""
+
+    def __init__(self, typedefs: Mapping[str, TypeExpr] | None = None) -> None:
+        self._typedefs = MappingProxyType(dict(typedefs or {}))
+        self._function_pointers = FunctionPointerTypedefRegistry()
+
+    def render(self, type_expr: TypeExpr | None) -> str:
+        """Convert one btrc type to its source-preserving C spelling."""
+        from .default_argument_context import resolve_default_type
+
+        type_expr = resolve_default_type(type_expr)
+        if type_expr is None:
+            return "void"
+        base = type_expr.base
+        prefix = "const " if getattr(type_expr, "is_const", False) else ""
+
+        if base == "__fn_ptr" and type_expr.generic_args:
+            c_type = self._function_pointer_name(type_expr)
+        elif base == "Thread" and type_expr.generic_args:
+            c_type = "__btrc_thread_t*"
+        elif base == "Mutex" and type_expr.generic_args:
+            c_type = "__btrc_mutex_val_t*"
+        elif base in _PRIMITIVE_MAP and not type_expr.generic_args:
+            c_type = _PRIMITIVE_MAP[base]
+        elif base == "Tuple" or base.startswith("("):
+            c_type = mangle_tuple_type(type_expr)
+        elif type_expr.generic_args:
+            c_type = mangle_generic_type(base, type_expr.generic_args)
+        else:
+            c_type = base
+
+        depth = type_expr.pointer_depth
+        base_is_reference = c_type.endswith("*") or base == "__fn_ptr" or self._typedef_base_is_reference(base)
+        if nullable_collapses_reference_layer(
+            type_expr,
+            base_is_reference=base_is_reference,
+        ):
+            depth -= 1
+        c_type += "*" * depth
+        if type_expr.is_array:
+            c_type += "*"
+        return prefix + c_type
+
+    def element_type(self, type_expr: TypeExpr) -> str:
+        """Render a collection's element C type."""
+        if type_expr.generic_args:
+            return self.render(type_expr.generic_args[0])
+        return "void*"
+
+    def format_spec(self, type_expr: TypeExpr | None) -> str:
+        """Return the portable printf format for one source type."""
+        if type_expr is None:
+            return "%d"
+        base = type_expr.base
+        if base == "__fn_ptr":
+            return "%s"
+        if is_string_type(type_expr) or is_c_string_pointer(type_expr):
+            return "%s"
+        if self.render(type_expr).rstrip().endswith("*") or type_expr.is_array:
+            return "%p"
+        if base in (
+            "int",
+            "short",
+            "short int",
+            "signed int",
+            "signed short",
+            "signed short int",
+        ):
+            return "%d"
+        if base in (
+            "byte",
+            "uint",
+            "unsigned int",
+            "unsigned short",
+            "unsigned short int",
+            "unsigned char",
+        ):
+            return "%u"
+        if base in ("long", "long int", "signed long", "signed long int"):
+            return "%ld"
+        if base in ("unsigned long", "unsigned long int"):
+            return "%lu"
+        if base in (
+            "long long",
+            "long long int",
+            "signed long long",
+            "signed long long int",
+        ):
+            return "%lld"
+        if base in ("unsigned long long", "unsigned long long int"):
+            return "%llu"
+        if base == "size_t":
+            return "%zu"
+        if base in ("float", "double"):
+            return "%f"
+        if base == "long double":
+            return "%Lf"
+        if base == "char":
+            return "%c"
+        if base == "bool":
+            return "%s"
+        return "%d"
+
+    def consume_function_pointer_typedefs(self) -> list[IRFunctionPointerTypedef]:
+        """Drain callback declarations registered since the previous phase."""
+        return self._function_pointers.consume_pending()
+
+    def _function_pointer_name(self, type_expr: TypeExpr) -> str:
+        # Recursive rendering registers nested callbacks before their owners.
+        return_type = self.render(type_expr.generic_args[0])
+        parameter_types = [self.render(argument) for argument in type_expr.generic_args[1:]]
+        return self._function_pointers.register(
+            type_expr,
+            return_type=return_type,
+            parameter_types=parameter_types,
         )
-    return mangled
 
+    def _typedef_base_is_reference(self, base: str) -> bool:
+        if base not in self._typedefs:
+            return False
+        from .type_resolution import canonical_type
 
-def get_fn_ptr_typedefs() -> list[IRFunctionPointerTypedef]:
-    """Return declarations not yet emitted in this translation unit."""
-    state = _current_fn_ptr_state()
-    result = [
-        IRFunctionPointerTypedef(
-            name=name,
-            return_type=CType(text=return_type),
-            param_types=[CType(text=parameter) for parameter in parameters],
-        )
-        for name, (return_type, parameters) in state.definitions.items()
-        if name not in state.emitted
-    ]
-    _fn_ptr_typedefs.set(
-        _FnPtrTypedefState(
-            definitions=state.definitions,
-            emitted=frozenset(state.definitions),
-        )
-    )
-    return result
-
-
-def reset_fn_ptr_typedefs() -> None:
-    """Reset the function-pointer registry in the current execution context."""
-    _fn_ptr_typedefs.set(_empty_fn_ptr_state())
+        resolved = canonical_type(TypeExpr(base=base), dict(self._typedefs))
+        return bool(resolved and resolved_reference_shape(resolved))
 
 
 def mangle_generic_type(base: str, args: list[TypeExpr]) -> str:
@@ -234,44 +262,15 @@ def is_direct_generic_instance_reference(
     return depth <= 1
 
 
-def element_type_c(t: TypeExpr) -> str:
-    """Get the C type for a collection's element type."""
-    if t.generic_args:
-        return type_to_c(t.generic_args[0])
-    return "void*"
-
-
-def format_spec_for_type(t: TypeExpr | None) -> str:
-    """Get printf format specifier for a type."""
-    if t is None:
-        return "%d"  # Default: most untracked expressions are int
-    base = t.base
-    if base == "__fn_ptr":
-        return "%s"  # Rendered as a fixed token; never cast to void*.
-    if is_string_type(t) or is_c_string_pointer(t):
-        return "%s"
-    if type_to_c(t).rstrip().endswith("*") or t.is_array:
-        return "%p"
-    if base in ("int", "short", "short int", "signed int", "signed short", "signed short int"):
-        return "%d"
-    if base in ("byte", "uint", "unsigned int", "unsigned short", "unsigned short int", "unsigned char"):
-        return "%u"
-    if base in ("long", "long int", "signed long", "signed long int"):
-        return "%ld"
-    if base in ("unsigned long", "unsigned long int"):
-        return "%lu"
-    if base in ("long long", "long long int", "signed long long", "signed long long int"):
-        return "%lld"
-    if base in ("unsigned long long", "unsigned long long int"):
-        return "%llu"
-    if base == "size_t":
-        return "%zu"
-    if base in ("float", "double"):
-        return "%f"
-    if base == "long double":
-        return "%Lf"
-    if base == "char":
-        return "%c"
-    if base == "bool":
-        return "%s"  # Needs special handling: val ? "true" : "false"
-    return "%d"  # Default to %d for unknown types
+__all__ = [
+    "CTypeRenderer",
+    "FunctionPointerTypedefRegistry",
+    "is_direct_generic_instance_reference",
+    "is_generic_class_type",
+    "is_numeric_type",
+    "is_pointer_type",
+    "is_string_type",
+    "mangle_generic_type",
+    "mangle_tuple_type",
+    "mangle_type_name",
+]

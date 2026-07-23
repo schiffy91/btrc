@@ -27,6 +27,7 @@ from .managed_local import ManagedLocal
 if TYPE_CHECKING:
     from ...ast_nodes import ReleaseStmt
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 
 def _get_destroy_name(gen: IRLowerer, type_expr, cls_name: str) -> str:
@@ -148,14 +149,22 @@ def _emit_control_exit_release(gen: IRLowerer, targets: set[str]) -> list[IRStmt
     return _emit_scope_release(gen.get_control_managed_vars(targets), gen, force=True)
 
 
-def _lower_release(gen: IRLowerer, node: ReleaseStmt) -> list[IRStmt]:
+def _lower_release(
+    gen: IRLowerer,
+    node: ReleaseStmt,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Lower an explicit typed ownership release and flush boundary."""
-    return lower_release_expression(gen, node.expr)
+    return lower_release_expression(gen, node.expr, type_renderer)
 
 
-def lower_release_expression(gen: IRLowerer, expression) -> list[IRStmt]:
+def lower_release_expression(
+    gen: IRLowerer,
+    expression,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Clear and release one analyzed physical managed slot."""
-    expr = lower_expr(gen, expression)
+    expr = lower_expr(gen, expression, type_renderer)
     expr_type = gen.analyzed.node_types.get(id(expression))
     from .managed_values import is_managed_type
 
@@ -170,16 +179,16 @@ def lower_release_expression(gen: IRLowerer, expression) -> list[IRStmt]:
         unlink_edge_value,
     )
     from .persistent_slots import stabilize_persistent_slot
-    from .types import type_to_c
 
     expr, edge_owner, owner_decls = stabilize_persistent_slot(
         gen,
         expression,
         expr,
+        render_type=type_renderer.render,
         prefix="__btrc_release_owner",
     )
 
-    value_c = type_to_c(expr_type)
+    value_c = type_renderer.render(expr_type)
     slot_name = gen.fresh_temp("__btrc_release_slot")
     slot_decl = IRVarDecl(
         c_type=CType(text=f"{qualify_volatile_object(value_c, True)}*"),
@@ -198,6 +207,7 @@ def lower_release_expression(gen: IRLowerer, expression) -> list[IRStmt]:
                     IRLiteral(text="NULL"),
                     expr_type,
                     edge_owner,
+                    type_renderer,
                     adopt=False,
                 )
             )

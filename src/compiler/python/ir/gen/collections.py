@@ -15,10 +15,14 @@ from ..nodes import (
 )
 from .call_boundary import CallOperand
 from .prepared_values import prepare_normal_value, prepared_value_pin_flags
-from .types import mangle_generic_type, type_to_c
+from .types import CTypeRenderer, mangle_generic_type
 
 
-def lower_list_literal(gen, node: ListLiteral):
+def lower_list_literal(
+    gen,
+    node: ListLiteral,
+    type_renderer: CTypeRenderer,
+):
     """Build a typed list/vector and consume caller-owned elements."""
     list_type = gen.analyzed.node_types.get(id(node))
     element_type = (
@@ -42,6 +46,7 @@ def lower_list_literal(gen, node: ListLiteral):
             _prepared_effect(
                 gen,
                 [(element, element_type)],
+                type_renderer,
                 lambda values, element=element: IRCall(
                     callee=f"{mangled}_push",
                     args=[collection, values[id(element)]],
@@ -55,7 +60,11 @@ def lower_list_literal(gen, node: ListLiteral):
     )
 
 
-def lower_map_literal(gen, node: MapLiteral):
+def lower_map_literal(
+    gen,
+    node: MapLiteral,
+    type_renderer: CTypeRenderer,
+):
     """Build a typed map and consume caller-owned keys and values."""
     map_type = gen.analyzed.node_types.get(id(node))
     if map_type is not None and len(map_type.generic_args) == 2:
@@ -82,6 +91,7 @@ def lower_map_literal(gen, node: MapLiteral):
             _prepared_effect(
                 gen,
                 [(entry.key, key_type), (entry.value, value_type)],
+                type_renderer,
                 lambda values, entry=entry: IRCall(
                     callee=f"{mangled}_put",
                     args=[
@@ -99,8 +109,14 @@ def lower_map_literal(gen, node: MapLiteral):
     )
 
 
-def _prepared_effect(gen, values, build):
-    prepared = [(node, prepare_normal_value(gen, node, target_type)) for node, target_type in values]
+def _prepared_effect(gen, values, type_renderer: CTypeRenderer, build):
+    prepared = [
+        (
+            node,
+            prepare_normal_value(gen, node, target_type, type_renderer),
+        )
+        for node, target_type in values
+    ]
     if len(prepared) == 1 and not prepared[0][1].owned:
         node, value = prepared[0]
         return build({id(node): value.value})
@@ -111,7 +127,7 @@ def _prepared_effect(gen, values, build):
             CallOperand(
                 node=node,
                 type_expr=value.effective_type,
-                c_type=type_to_c(value.effective_type),
+                c_type=type_renderer.render(value.effective_type),
                 pin=pins[index],
                 owned=value.owned,
                 lowered=value.value,

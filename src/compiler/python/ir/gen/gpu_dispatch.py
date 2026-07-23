@@ -30,7 +30,7 @@ from .gpu_dispatch_pipeline import (
 from .gpu_dispatch_setup import initial_state, storage_buffers
 from .gpu_outputs import declaration_capacity
 from .parameters import source_binding_c_name
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .gpu_host import GpuHostLowering
@@ -50,6 +50,7 @@ def lower_gpu_call(
     ast_args: list,
     arg_names: list[str],
     ir_args: list[IRExpr] | None,
+    type_renderer: CTypeRenderer,
     *,
     call=None,
     host: GpuHostLowering | None = None,
@@ -68,6 +69,7 @@ def lower_gpu_call(
         ast_args,
         arg_names,
         ir_args,
+        type_renderer,
         call=call,
         host=host,
     )
@@ -93,6 +95,7 @@ def lower_gpu_output_declaration(
     gen: IRLowerer,
     call: CallExpr,
     target: IRExpr,
+    type_renderer: CTypeRenderer,
     *,
     host: GpuHostLowering | None = None,
 ) -> GpuOutputDeclaration:
@@ -107,6 +110,7 @@ def lower_gpu_output_declaration(
         call.args,
         _arg_names(call),
         None,
+        type_renderer,
         call=call,
         host=host,
     )
@@ -130,6 +134,7 @@ def lower_gpu_output_assignment(
     call: CallExpr,
     ast_target,
     target: IRExpr,
+    type_renderer: CTypeRenderer,
     *,
     host: GpuHostLowering | None = None,
 ) -> IRExpr:
@@ -138,13 +143,17 @@ def lower_gpu_output_assignment(
     name = output_gpu_call_name(gen, call)
     if name is None:
         raise CodegenError("expected an array-returning @gpu call")
-    output = _host(gen, host).output_target(ast_target, target)
+    output = _host(gen, host, type_renderer).output_target(
+        ast_target,
+        target,
+    )
     spec, arguments = _prepare_site(
         gen,
         name,
         call.args,
         _arg_names(call),
         None,
+        type_renderer,
         call=call,
         host=host,
     )
@@ -164,13 +173,14 @@ def _prepare_site(
     ast_args: list,
     arg_names: list[str],
     ir_args: list[IRExpr] | None,
+    type_renderer: CTypeRenderer,
     *,
     call=None,
     host: GpuHostLowering | None = None,
 ) -> tuple[GpuDispatchSpec, GpuArgumentPlan]:
     kernel = gen._gpu_kernels[function_name]
     declaration = gen.analyzed.function_table[function_name]
-    result_elem_type = _result_element_type(declaration) if kernel.output_buffer is not None else ""
+    result_elem_type = _result_element_type(declaration, type_renderer) if kernel.output_buffer is not None else ""
     prefix = gen.fresh_temp("__gpu_dispatch")
     spec = GpuDispatchSpec(
         kernel=kernel,
@@ -179,6 +189,7 @@ def _prepare_site(
         prefix=prefix,
         result_elem_type=result_elem_type,
         cpu_fallback=f"{function_name}__gpucpu",
+        type_renderer=type_renderer,
     )
     arguments = prepare_gpu_arguments(
         gen,
@@ -186,19 +197,23 @@ def _prepare_site(
         ast_args,
         arg_names,
         ir_args,
-        _host(gen, host),
+        _host(gen, host, type_renderer),
         call=call,
     )
     _register_dispatch_helper(gen, spec)
     return spec, arguments
 
 
-def _host(gen: IRLowerer, host: GpuHostLowering | None) -> GpuHostLowering:
+def _host(
+    gen: IRLowerer,
+    host: GpuHostLowering | None,
+    type_renderer: CTypeRenderer,
+) -> GpuHostLowering:
     if host is not None:
         return host
     from .gpu_host import ordinary_gpu_host
 
-    return ordinary_gpu_host(gen)
+    return ordinary_gpu_host(gen, type_renderer)
 
 
 def _register_dispatch_helper(gen: IRLowerer, spec: GpuDispatchSpec) -> None:
@@ -284,10 +299,13 @@ def _call_with_cleanup(arguments: GpuArgumentPlan, call: IRCall) -> IRExpr:
     return IRCommaExpr(expressions=[call, *arguments.cleanup])
 
 
-def _result_element_type(declaration) -> str:
+def _result_element_type(
+    declaration,
+    type_renderer: CTypeRenderer,
+) -> str:
     from ...type_composition import strip_outer_storage
 
-    return type_to_c(strip_outer_storage(declaration.return_type, array=True))
+    return type_renderer.render(strip_outer_storage(declaration.return_type, array=True))
 
 
 def _arg_names(call: CallExpr) -> list[str]:

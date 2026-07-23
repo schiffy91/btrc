@@ -8,7 +8,7 @@ from ...analyzer.core import ClassInfo
 from ...ast_nodes import ClassDecl, MethodDecl, PropertyDecl
 from ..nodes import CType, IRFunctionDecl, IRParam
 from .parameters import lower_named_source_type_param, lower_source_param
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
@@ -18,6 +18,7 @@ def emit_class_callable_declarations(
     gen: IRLowerer,
     declaration: ClassDecl,
     class_info: ClassInfo,
+    type_renderer: CTypeRenderer,
 ) -> None:
     """Register declarations for a class's own and inherited callables."""
 
@@ -26,6 +27,7 @@ def emit_class_callable_declarations(
         class_info,
         gen.analyzed.class_table,
         gen.analyzed,
+        type_renderer,
     ):
         if function not in gen.module.function_decls:
             gen.module.function_decls.append(function)
@@ -36,6 +38,7 @@ def class_callable_declarations(
     class_info: ClassInfo,
     class_table: dict,
     analyzed,
+    type_renderer: CTypeRenderer,
 ) -> list[IRFunctionDecl]:
     """Describe every callable prototype exposed by one concrete class."""
 
@@ -43,6 +46,7 @@ def class_callable_declarations(
     constructor_params = _parameters(
         class_info.constructor.params if class_info.constructor else [],
         analyzed,
+        type_renderer,
     )
     declarations = [
         IRFunctionDecl(
@@ -67,16 +71,23 @@ def class_callable_declarations(
             params = []
             if member.access != "class":
                 params.append(IRParam(c_type=CType(text=f"{name}*"), name="self"))
-            params.extend(_parameters(member.params, analyzed))
+            params.extend(_parameters(member.params, analyzed, type_renderer))
             declarations.append(
                 IRFunctionDecl(
                     name=f"{name}_{member.name}",
-                    return_type=CType(text=type_to_c(member.return_type)),
+                    return_type=CType(text=type_renderer.render(member.return_type)),
                     params=params,
                 )
             )
         elif isinstance(member, PropertyDecl):
-            declarations.extend(_property_declarations(name, member, analyzed))
+            declarations.extend(
+                _property_declarations(
+                    name,
+                    member,
+                    analyzed,
+                    type_renderer,
+                )
+            )
 
     declarations.extend(
         _inherited_property_declarations(
@@ -85,6 +96,7 @@ def class_callable_declarations(
             class_info,
             class_table,
             analyzed,
+            type_renderer,
         )
     )
     declarations.extend(
@@ -94,21 +106,34 @@ def class_callable_declarations(
             class_info,
             class_table,
             analyzed,
+            type_renderer,
         )
     )
     return declarations
 
 
-def _parameters(parameters, analyzed) -> list[IRParam]:
-    return [lower_source_param(parameter, analyzed=analyzed) for parameter in parameters]
+def _parameters(
+    parameters,
+    analyzed,
+    type_renderer: CTypeRenderer,
+) -> list[IRParam]:
+    return [
+        lower_source_param(
+            parameter,
+            type_renderer.render,
+            analyzed=analyzed,
+        )
+        for parameter in parameters
+    ]
 
 
 def _property_declarations(
     class_name: str,
     declaration: PropertyDecl,
     analyzed,
+    type_renderer: CTypeRenderer,
 ) -> list[IRFunctionDecl]:
-    prop_type = CType(text=type_to_c(declaration.type))
+    prop_type = CType(text=type_renderer.render(declaration.type))
     self_param = IRParam(c_type=CType(text=f"{class_name}*"), name="self")
     result = []
     if declaration.has_getter:
@@ -144,6 +169,7 @@ def _inherited_property_declarations(
     class_info: ClassInfo,
     class_table: dict,
     analyzed,
+    type_renderer: CTypeRenderer,
 ) -> list[IRFunctionDecl]:
     parent = class_table.get(class_info.parent) if class_info.parent else None
     if parent is None:
@@ -152,7 +178,14 @@ def _inherited_property_declarations(
     result = []
     for name, prop in parent.properties.items():
         if name not in own:
-            result.extend(_property_declarations(class_name, prop, analyzed))
+            result.extend(
+                _property_declarations(
+                    class_name,
+                    prop,
+                    analyzed,
+                    type_renderer,
+                )
+            )
     return result
 
 
@@ -162,6 +195,7 @@ def _inherited_method_declarations(
     class_info: ClassInfo,
     class_table: dict,
     analyzed,
+    type_renderer: CTypeRenderer,
 ) -> list[IRFunctionDecl]:
     declarations = []
     seen = {member.name for member in declaration.members if isinstance(member, MethodDecl)}
@@ -180,11 +214,11 @@ def _inherited_method_declarations(
                         name="self",
                     )
                 )
-            params.extend(_parameters(method.params, analyzed))
+            params.extend(_parameters(method.params, analyzed, type_renderer))
             declarations.append(
                 IRFunctionDecl(
                     name=f"{class_name}_{method_name}",
-                    return_type=CType(text=type_to_c(method.return_type)),
+                    return_type=CType(text=type_renderer.render(method.return_type)),
                     params=params,
                 )
             )

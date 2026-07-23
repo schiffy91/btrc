@@ -27,22 +27,25 @@ from .prepared_values import prepare_value, prepared_value_pin_flags
 from .printf_args import adapt_printf_arg
 from .stringable import has_to_string
 from .type_resolution import canonical_type
-from .types import format_spec_for_type
+from .types import CTypeRenderer
 
 
-def lower_fstring(gen, node: FStringLiteral):
+def lower_fstring(
+    gen,
+    node: FStringLiteral,
+    type_renderer: CTypeRenderer,
+):
     """Lower a normal f-string through the shared typed implementation."""
     from .expressions import lower_expr
-    from .types import type_to_c
 
     return lower_typed_fstring(
         gen,
         node,
         ownership=gen.ownership,
-        lower_value=lambda value: lower_expr(gen, value),
+        lower_value=lambda value: lower_expr(gen, value, type_renderer),
         type_of=lambda value: gen.analyzed.node_types.get(id(value)),
         owns=lambda value: gen.ownership.owns_result(value),
-        render_type=type_to_c,
+        type_renderer=type_renderer,
     )
 
 
@@ -54,7 +57,7 @@ def lower_typed_fstring(
     lower_value,
     type_of,
     owns,
-    render_type,
+    type_renderer: CTypeRenderer,
     activate_cleanup=None,
 ):
     """Format interpolations once and consume any caller-owned arguments."""
@@ -81,14 +84,14 @@ def lower_typed_fstring(
             lower_expr=lower_value,
             type_of=type_of,
             owns_result=owns,
-            render_type=render_type,
+            render_type=type_renderer.render,
             activate_cleanup=activate_cleanup,
         )
-        spec = "%s" if prepared.converted else format_spec_for_type(source_type)
+        spec = "%s" if prepared.converted else type_renderer.format_spec(source_type)
         if source_type is None:
             spec = _untracked_format(expression, spec)
         c_type = (
-            render_type(prepared.effective_type)
+            type_renderer.render(prepared.effective_type)
             if prepared.effective_type is not None
             else "char*"
             if spec == "%s"
@@ -132,6 +135,7 @@ def lower_typed_fstring(
                 overrides[id(expression)],
                 value_type,
                 spec,
+                type_renderer,
             )
             formats[part_index] = adapted.format_spec
             arguments.append(adapted.value)

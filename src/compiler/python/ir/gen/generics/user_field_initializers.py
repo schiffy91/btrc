@@ -85,6 +85,7 @@ def emit_generic_field_initializers(
             field_type,
             prepared.effective_type,
             value,
+            emitter._type_renderer,
         )
         owned = prepared.owned
 
@@ -97,6 +98,7 @@ def emit_generic_field_initializers(
                         value,
                         field_type,
                         owner,
+                        emitter._type_renderer,
                         adopt=owned,
                     )
                 )
@@ -150,6 +152,7 @@ def _lower_value_aggregate(gen, emitter, initializer, target_type):
     return lower_brace_initializer(
         gen,
         initializer,
+        emitter._type_renderer,
         node_type=target_type,
         lower=lambda element: _lower_aggregate_element(gen, emitter, element),
     )

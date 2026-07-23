@@ -26,16 +26,20 @@ from ..nodes import (
     IRVarDecl,
 )
 from .types import (
+    CTypeRenderer,
     is_direct_generic_instance_reference,
     mangle_generic_type,
-    type_to_c,
 )
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def _lower_field_access(gen: IRLowerer, node: FieldAccessExpr) -> IRExpr:
+def _lower_field_access(
+    gen: IRLowerer,
+    node: FieldAccessExpr,
+    type_renderer: CTypeRenderer,
+) -> IRExpr:
     """Lower field access, handling optional chaining and special types."""
     from .managed_values import is_managed_type
 
@@ -56,21 +60,29 @@ def _lower_field_access(gen: IRLowerer, node: FieldAccessExpr) -> IRExpr:
     )
     sequenced = gen.ownership.sequence_operands(
         [*dependencies, node.obj],
-        build=lambda: _lower_field_access_plain(gen, node),
+        build=lambda: _lower_field_access_plain(
+            gen,
+            node,
+            type_renderer,
+        ),
         result_type=result_type,
         pin_nodes=[node.obj] if custom_getter else [],
         promote_result=bool(is_managed_type(gen, result_type) and not gen.ownership.projection_is_owned_call(node)),
     )
     if sequenced is not None:
         return sequenced
-    return _lower_field_access_plain(gen, node)
+    return _lower_field_access_plain(gen, node, type_renderer)
 
 
-def _lower_field_access_plain(gen: IRLowerer, node: FieldAccessExpr) -> IRExpr:
+def _lower_field_access_plain(
+    gen: IRLowerer,
+    node: FieldAccessExpr,
+    type_renderer: CTypeRenderer,
+) -> IRExpr:
     """Lower one field access after any owning receiver is stabilized."""
     from .expressions import lower_expr
 
-    obj = lower_expr(gen, node.obj)
+    obj = lower_expr(gen, node.obj, type_renderer)
     obj_type = gen.analyzed.node_types.get(id(node.obj))
     from .parameters import source_field_c_name
 
@@ -99,6 +111,7 @@ def _lower_field_access_plain(gen: IRLowerer, node: FieldAccessExpr) -> IRExpr:
                 obj,
                 obj_type,
                 gen.analyzed.node_types.get(id(node)),
+                type_renderer,
                 lambda receiver: IRFieldAccess(obj=receiver, field="len", arrow=True),
             )
         return IRFieldAccess(obj=obj, field="len", arrow=True)
@@ -149,6 +162,7 @@ def _lower_field_access_plain(gen: IRLowerer, node: FieldAccessExpr) -> IRExpr:
                     obj,
                     obj_type,
                     gen.analyzed.node_types.get(id(node)),
+                    type_renderer,
                     lambda receiver: IRCall(
                         callee=f"{callee_prefix}_get_{node.field}",
                         args=[receiver],
@@ -162,6 +176,7 @@ def _lower_field_access_plain(gen: IRLowerer, node: FieldAccessExpr) -> IRExpr:
             obj,
             obj_type,
             gen.analyzed.node_types.get(id(node)),
+            type_renderer,
             lambda receiver: IRFieldAccess(
                 obj=receiver,
                 field=field_name,
@@ -194,12 +209,13 @@ def _lower_optional_access(
     receiver,
     receiver_type,
     result_type,
+    type_renderer: CTypeRenderer,
     access_factory,
 ) -> IRExpr:
     """Evaluate one nullable receiver once, then conditionally read its value."""
     name = gen.fresh_temp("__btrc_optional")
     temporary = IRVar(name=name)
-    c_type = type_to_c(receiver_type) if receiver_type is not None else "void*"
+    c_type = type_renderer.render(receiver_type) if receiver_type is not None else "void*"
     return IRStmtExpr(
         stmts=[IRVarDecl(c_type=CType(text=c_type), name=name)],
         result=IRCommaExpr(
@@ -212,20 +228,28 @@ def _lower_optional_access(
                         right=IRLiteral(text="NULL"),
                     ),
                     true_expr=access_factory(temporary),
-                    false_expr=_optional_zero(gen, result_type),
+                    false_expr=_optional_zero(
+                        gen,
+                        result_type,
+                        type_renderer,
+                    ),
                 ),
             ]
         ),
     )
 
 
-def _optional_zero(gen, result_type):
+def _optional_zero(gen, result_type, type_renderer: CTypeRenderer):
     from .optional_values import optional_zero_value
 
-    return optional_zero_value(gen, result_type)
+    return optional_zero_value(gen, result_type, type_renderer)
 
 
-def _lower_index(gen: IRLowerer, node: IndexExpr) -> IRExpr:
+def _lower_index(
+    gen: IRLowerer,
+    node: IndexExpr,
+    type_renderer: CTypeRenderer,
+) -> IRExpr:
     """Lower index expression: list[i] → List_get(list, i), map[k] → Map_get(map, k)."""
     from .managed_values import is_managed_type
 
@@ -246,7 +270,7 @@ def _lower_index(gen: IRLowerer, node: IndexExpr) -> IRExpr:
     )
     sequenced = gen.ownership.sequence_operands(
         [*dependencies, node.obj, node.index],
-        build=lambda: _lower_index_plain(gen, node),
+        build=lambda: _lower_index_plain(gen, node, type_renderer),
         result_type=result_type,
         pin_nodes=[node.obj] if protocol_getter is not None else [],
         promote_result=bool(is_managed_type(gen, result_type) and not projection_call),
@@ -254,15 +278,19 @@ def _lower_index(gen: IRLowerer, node: IndexExpr) -> IRExpr:
     )
     if sequenced is not None:
         return sequenced
-    return _lower_index_plain(gen, node)
+    return _lower_index_plain(gen, node, type_renderer)
 
 
-def _lower_index_plain(gen: IRLowerer, node: IndexExpr) -> IRExpr:
+def _lower_index_plain(
+    gen: IRLowerer,
+    node: IndexExpr,
+    type_renderer: CTypeRenderer,
+) -> IRExpr:
     """Lower one index projection after its receiver is stabilized."""
     from .expressions import lower_expr
 
-    obj = lower_expr(gen, node.obj)
-    index = lower_expr(gen, node.index)
+    obj = lower_expr(gen, node.obj, type_renderer)
+    index = lower_expr(gen, node.index, type_renderer)
     obj_type = gen.analyzed.node_types.get(id(node.obj))
     gpu_lengths = getattr(gen, "_gpu_cpu_array_lengths", None)
     if gpu_lengths and isinstance(node.obj, Identifier) and node.obj.name in gpu_lengths:

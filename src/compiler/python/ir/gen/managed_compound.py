@@ -15,6 +15,7 @@ def lower_managed_compound_operator(
     right_type,
     *,
     fresh_temp,
+    type_renderer,
 ) -> IRExpr:
     """Return the ownership-producing operator result for one ``op=``."""
     from .errors import CodegenError
@@ -30,6 +31,7 @@ def lower_managed_compound_operator(
         operator,
         left,
         right,
+        type_renderer,
     )
     if result is None:
         result = lower_typed_binary(
@@ -38,7 +40,11 @@ def lower_managed_compound_operator(
             right,
             target_type,
             right_type,
-            operator_context(gen, fresh_temp=fresh_temp),
+            operator_context(
+                gen,
+                type_renderer,
+                fresh_temp=fresh_temp,
+            ),
         )
     if result is None:
         raise CodegenError(f"managed compound operator '{assignment.op}' has no structured lowering")

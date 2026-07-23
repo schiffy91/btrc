@@ -5,9 +5,8 @@ import pytest
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import TypeExpr
 from src.compiler.python.ir.gen.generics.core import _resolve_type_c
-from src.compiler.python.ir.gen.type_render_context import type_render_scope
 from src.compiler.python.ir.gen.type_resolution import canonical_type
-from src.compiler.python.ir.gen.types import type_to_c
+from src.compiler.python.ir.gen.types import CTypeRenderer
 from src.compiler.python.type_composition import add_outer_pointer, strip_outer_storage
 from src.compiler.python.type_identity import (
     TypeShapeError,
@@ -206,7 +205,14 @@ def test_generic_c_rendering_preserves_template_pointer_boundaries(
     concrete: TypeExpr,
     expected: str,
 ) -> None:
-    assert _resolve_type_c(template, {"T": concrete}, render=type_to_c) == expected
+    assert (
+        _resolve_type_c(
+            template,
+            {"T": concrete},
+            render=CTypeRenderer().render,
+        )
+        == expected
+    )
 
 
 def test_transitive_nullable_boundary_is_injective_in_instance_identity() -> None:
@@ -224,14 +230,15 @@ def test_transitive_nullable_boundary_is_injective_in_instance_identity() -> Non
     )
     assert generic_instance_key("Inner", [direct]) != generic_instance_key("Inner", [transitive])
     assert mangle_generic_symbol("Inner", [direct]) != mangle_generic_symbol("Inner", [transitive])
-    assert type_to_c(direct) == "int*"
-    assert type_to_c(transitive) == "int**"
+    renderer = CTypeRenderer()
+    assert renderer.render(direct) == "int*"
+    assert renderer.render(transitive) == "int**"
 
 
 @pytest.mark.parametrize("alias", ["RawPointer", "NullableInt", "IntArray", "TextAlias", "ItemAlias", "Callback"])
 def test_nullable_typedef_use_reuses_reference_shaped_alias(alias: str) -> None:
-    with type_render_scope(TYPEDEFS):
-        assert type_to_c(TypeExpr(base=alias, pointer_depth=1, is_nullable=True)) == alias
+    renderer = CTypeRenderer(TYPEDEFS)
+    assert renderer.render(TypeExpr(base=alias, pointer_depth=1, is_nullable=True)) == alias
 
 
 def test_outer_storage_add_and_remove_preserve_nullable_boundary() -> None:
@@ -272,7 +279,7 @@ def test_outer_storage_add_and_remove_preserve_nullable_boundary() -> None:
         is_nullable=True,
         nullable_outer_depth=1,
     )
-    assert type_to_c(address) == "int**"
+    assert CTypeRenderer().render(address) == "int**"
     assert strip_outer_storage(TypeExpr(base="string", pointer_depth=1, is_nullable=True)).pointer_depth == 0
 
 
@@ -281,8 +288,9 @@ def test_intrinsic_reference_depth_distinguishes_string_pointer_storage() -> Non
     pointer = TypeExpr(base="string", pointer_depth=2, is_nullable=True)
     analyzer = SemanticAnalyzer()
 
-    assert type_to_c(scalar) == "char*"
-    assert type_to_c(pointer) == "char**"
+    renderer = CTypeRenderer()
+    assert renderer.render(scalar) == "char*"
+    assert renderer.render(pointer) == "char**"
     assert analyzer._semantic_pointer_depth(scalar) == 1
     assert analyzer._semantic_pointer_depth(pointer) == 2
     assert not analyzer._types_compatible(scalar, pointer)

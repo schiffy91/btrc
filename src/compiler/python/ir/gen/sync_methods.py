@@ -4,9 +4,16 @@ from ..nodes import IRCall
 from .errors import CodegenError
 from .mutex_values import get_mutex_value, set_mutex_value
 from .thread_values import consume_thread_handle, unbox_thread_result
+from .types import CTypeRenderer
 
 
-def lower_thread_method(gen, obj, method_name, obj_type):
+def lower_thread_method(
+    gen,
+    obj,
+    method_name,
+    obj_type,
+    type_renderer: CTypeRenderer,
+):
     if method_name != "join":
         return IRCall(callee=f"__btrc_thread_{method_name}", args=[obj])
     gen.helpers.use("__btrc_thread_join")
@@ -18,16 +25,31 @@ def lower_thread_method(gen, obj, method_name, obj_type):
     )
     if return_type is None or return_type.base == "void":
         return call
-    return unbox_thread_result(gen, call, return_type)
+    return unbox_thread_result(gen, call, return_type, type_renderer)
 
 
-def lower_mutex_method(gen, obj, method_name, obj_type, args, *, obj_node=None):
+def lower_mutex_method(
+    gen,
+    obj,
+    method_name,
+    obj_type,
+    args,
+    type_renderer: CTypeRenderer,
+    *,
+    obj_node=None,
+):
     value_type = obj_type.generic_args[0] if obj_type.generic_args else None
     if method_name == "get":
-        return get_mutex_value(gen, obj, value_type)
+        return get_mutex_value(gen, obj, value_type, type_renderer)
     if method_name == "set":
         if args:
-            return set_mutex_value(gen, obj, args[0], value_type)
+            return set_mutex_value(
+                gen,
+                obj,
+                args[0],
+                value_type,
+                type_renderer,
+            )
         raise CodegenError("Mutex.set() requires one value")
     if method_name == "destroy":
         raise CodegenError("Mutex.destroy() must be lowered as a standalone expression statement")
@@ -41,10 +63,24 @@ def lower_consuming_sync_method(gen, obj_node, method_name, obj_type):
     return None
 
 
-def lower_sync_method(gen, obj_node, obj, method_name, obj_type, args):
+def lower_sync_method(
+    gen,
+    obj_node,
+    obj,
+    method_name,
+    obj_type,
+    args,
+    type_renderer: CTypeRenderer,
+):
     """Lower an ordinary Thread/Mutex method, or return ``None``."""
     if obj_type and obj_type.base == "Thread" and obj_type.generic_args:
-        return lower_thread_method(gen, obj, method_name, obj_type)
+        return lower_thread_method(
+            gen,
+            obj,
+            method_name,
+            obj_type,
+            type_renderer,
+        )
     if obj_type and obj_type.base == "Mutex" and obj_type.generic_args:
         return lower_mutex_method(
             gen,
@@ -52,6 +88,7 @@ def lower_sync_method(gen, obj_node, obj, method_name, obj_type, args):
             method_name,
             obj_type,
             args,
+            type_renderer,
             obj_node=obj_node,
         )
     return None

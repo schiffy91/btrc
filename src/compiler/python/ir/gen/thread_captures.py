@@ -22,7 +22,7 @@ from ..nodes import (
     IRVarDecl,
 )
 from .parameters import source_binding_c_name
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
 def managed_capture_type(gen, capture):
@@ -35,7 +35,13 @@ def managed_capture_type(gen, capture):
     return capture_type if is_managed_type(gen, capture_type) else None
 
 
-def emit_capture_disposer(gen, fn, env_name: str, spawn_id: int) -> str | None:
+def emit_capture_disposer(
+    gen,
+    fn,
+    env_name: str,
+    spawn_id: int,
+    type_renderer: CTypeRenderer,
+) -> str | None:
     """Emit one completion-safe owner for a captured lambda environment."""
     if not fn.captures:
         return None
@@ -53,6 +59,7 @@ def emit_capture_disposer(gen, fn, env_name: str, spawn_id: int) -> str | None:
                 env_name,
                 capture.name,
                 capture_type,
+                type_renderer,
             )
         )
         adapters.append(name)
@@ -68,6 +75,7 @@ def _capture_release_adapter(
     env_name: str,
     field_name: str,
     capture_type,
+    type_renderer: CTypeRenderer,
 ) -> IRFunctionDef:
     from .managed_values import release_value
 
@@ -93,7 +101,7 @@ def _capture_release_adapter(
                     ),
                 ),
                 IRVarDecl(
-                    c_type=CType(text=type_to_c(capture_type)),
+                    c_type=CType(text=type_renderer.render(capture_type)),
                     name=value.name,
                     init=field,
                 ),

@@ -48,6 +48,7 @@ def lower_generic_return(emitter, statement):
         emitter._return_type,
         prepared.effective_type,
         value,
+        emitter._type_renderer,
     )
 
     managed_return = bool(emitter._return_owned and emitter._is_managed_type(emitter._return_type))

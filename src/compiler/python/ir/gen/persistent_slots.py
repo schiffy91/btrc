@@ -11,18 +11,16 @@ def stabilize_persistent_slot(
     expression,
     target,
     *,
+    render_type,
     resolve_type=None,
-    render_type=None,
     fresh_temp=None,
     record_decl=None,
     prefix="__btrc_slot_owner",
 ):
     """Evaluate a class owner once and return its physical child slot."""
     from .managed_values import is_class_type
-    from .types import type_to_c
 
     resolve_type = resolve_type or (lambda node: gen.analyzed.node_types.get(id(node)))
-    render_type = render_type or type_to_c
     fresh_temp = fresh_temp or gen.fresh_temp
     record_decl = record_decl or gen.context.function_declarations.append
 

@@ -24,13 +24,17 @@ from ..nodes import (
 from .iteration_bindings import IterationBinding
 from .iteration_loops import _lower_c_for, _lower_range_for  # noqa: F401
 from .iteration_strings import lower_string_for_in as _lower_string_for_in
-from .types import mangle_generic_type, type_to_c
+from .types import CTypeRenderer, mangle_generic_type
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def _lower_for_in(gen: IRLowerer, node) -> list[IRStmt]:
+def _lower_for_in(
+    gen: IRLowerer,
+    node,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Lower for-in to C-style for loop."""
     from .statements import _lower_loop_body
 
@@ -41,25 +45,51 @@ def _lower_for_in(gen: IRLowerer, node) -> list[IRStmt]:
     # Detect range() calls
     if isinstance(iterable, CallExpr) and isinstance(iterable.callee, Identifier):
         if iterable.callee.name == "range":
-            return _lower_range_for(gen, var_name, iterable.args, node.body)
+            return _lower_range_for(
+                gen,
+                var_name,
+                iterable.args,
+                node.body,
+                type_renderer,
+            )
 
     # Get the iterable type from the analyzer
     iter_type = gen.analyzed.node_types.get(id(iterable))
     if id(iterable) in gen.analyzed.array_iteration_capacity_ids:
         from .iteration_arrays import lower_fixed_array_for_in
 
-        return lower_fixed_array_for_in(gen, node, iter_type)
-    ir_iter = _lower_expr(gen, iterable)
+        return lower_fixed_array_for_in(
+            gen,
+            node,
+            iter_type,
+            type_renderer,
+        )
+    ir_iter = _lower_expr(gen, iterable, type_renderer)
 
     # Iterable protocol: any class with iterLen + iterGet methods
     if iter_type:
         cls_info = gen.analyzed.class_table.get(iter_type.base)
         if cls_info and "iterLen" in cls_info.methods and "iterGet" in cls_info.methods:
-            return _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, var_name2)
+            return _lower_iterable_for_in(
+                gen,
+                node,
+                ir_iter,
+                iter_type,
+                cls_info,
+                var_name,
+                var_name2,
+                type_renderer,
+            )
 
     # String iteration: for c in str
     if iter_type and iter_type.base == "string":
-        return _lower_string_for_in(gen, node, ir_iter, var_name)
+        return _lower_string_for_in(
+            gen,
+            node,
+            ir_iter,
+            var_name,
+            type_renderer,
+        )
 
     # Fallback: assume list-like with ->len and ->data[i]
     # Use a temp variable so the iterable is only evaluated once and
@@ -69,11 +99,15 @@ def _lower_for_in(gen: IRLowerer, node) -> list[IRStmt]:
     tmp_iter = gen.fresh_temp("__iter")
     iter_c_type = "void*"
     if iter_type:
-        iter_c_type = type_to_c(iter_type)
+        iter_c_type = type_renderer.render(iter_type)
         if not iter_c_type.endswith("*"):
             iter_c_type += "*"
     if iter_type and iter_type.generic_args:
-        elem_c = _iter_value_c(gen, iter_type.generic_args[0])
+        elem_c = _iter_value_c(
+            gen,
+            iter_type.generic_args[0],
+            type_renderer,
+        )
     else:
         elem_c = "int"
 
@@ -95,6 +129,7 @@ def _lower_for_in(gen: IRLowerer, node) -> list[IRStmt]:
     body_block = _lower_loop_body(
         gen,
         node.body,
+        type_renderer,
         iteration_bindings=[
             IterationBinding(
                 name=var_name,
@@ -120,7 +155,16 @@ def _lower_for_in(gen: IRLowerer, node) -> list[IRStmt]:
     return result
 
 
-def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, var_name2) -> list[IRStmt]:
+def _lower_iterable_for_in(
+    gen,
+    node,
+    ir_iter,
+    iter_type,
+    cls_info,
+    var_name,
+    var_name2,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Lower for-in via Iterable protocol (iterLen/iterGet/iterValueAt)."""
     from .statements import _lower_loop_body
 
@@ -135,7 +179,7 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
     )
 
     tmp_iter = gen.fresh_temp("__iter")
-    iter_c_type = type_to_c(iter_type)
+    iter_c_type = type_renderer.render(iter_type)
     if not iter_c_type.endswith("*"):
         iter_c_type += "*"
     hoist_decl = IRVarDecl(c_type=CType(text=iter_c_type), name=tmp_iter, init=ir_iter)
@@ -156,7 +200,7 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
     # btrc, and generic methods are monomorphized with pointer return types for
     # class arguments, so the loop binding must match the concrete iterGet ABI.
     elem_type = _iter_method_return_type(gen, cls_info, iter_type, "iterGet")
-    elem_c = _iter_value_c(gen, elem_type)
+    elem_c = _iter_value_c(gen, elem_type, type_renderer)
 
     bindings = [
         IterationBinding(
@@ -179,7 +223,7 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
             iter_type,
             "iterValueAt",
         )
-        v_c = _iter_value_c(gen, value_type)
+        v_c = _iter_value_c(gen, value_type, type_renderer)
         bindings.append(
             IterationBinding(
                 name=var_name2,
@@ -193,7 +237,12 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
             )
         )
 
-    body_block = _lower_loop_body(gen, node.body, iteration_bindings=bindings)
+    body_block = _lower_loop_body(
+        gen,
+        node.body,
+        type_renderer,
+        iteration_bindings=bindings,
+    )
 
     # int __n = TYPE_iterLen(coll);
     # for (int __i = 0; __i < __n; __i++) { body }
@@ -212,8 +261,12 @@ def _lower_iterable_for_in(gen, node, ir_iter, iter_type, cls_info, var_name, va
     return stmts
 
 
-def _iter_value_c(gen: IRLowerer, t) -> str:
-    c_type = type_to_c(t)
+def _iter_value_c(
+    gen: IRLowerer,
+    t,
+    type_renderer: CTypeRenderer,
+) -> str:
+    c_type = type_renderer.render(t)
     if t and t.base in gen.analyzed.class_table and not c_type.endswith("*"):
         return f"{c_type}*"
     return c_type
@@ -234,8 +287,8 @@ def _iter_method_return_type(gen, cls_info, iter_type, method_name):
     )
 
 
-def _lower_expr(gen, node):
+def _lower_expr(gen, node, type_renderer):
     """Convenience wrapper to avoid circular import at module level."""
     from .expressions import lower_expr
 
-    return lower_expr(gen, node)
+    return lower_expr(gen, node, type_renderer)

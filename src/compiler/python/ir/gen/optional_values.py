@@ -4,17 +4,21 @@ from __future__ import annotations
 
 from ..nodes import CType, IRCast, IRCompoundLiteral, IRLiteral
 from .type_resolution import canonical_type
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
-def optional_zero_value(gen, type_expr):
+def optional_zero_value(
+    gen,
+    type_expr,
+    type_renderer: CTypeRenderer,
+):
     """Return the strict-C zero/null value for an analyzed expression type."""
     canonical = _canonical_type(gen, type_expr)
     if canonical is None:
         return IRLiteral(text="0")
     if canonical.base == "void":
         return IRCast(target_type=CType(text="void"), expr=IRLiteral(text="0"))
-    c_type = type_to_c(type_expr)
+    c_type = type_renderer.render(type_expr)
     if (
         canonical.pointer_depth > 0
         or canonical.is_array

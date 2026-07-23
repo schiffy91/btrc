@@ -27,13 +27,17 @@ from .cleanup_registration import (
     maybe_register_direct_cleanup as _maybe_register_direct_cleanup,
 )
 from .type_resolution import canonical_type
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def _lower_var_decl(gen: IRLowerer, node: VarDeclStmt) -> list[IRStmt]:
+def _lower_var_decl(
+    gen: IRLowerer,
+    node: VarDeclStmt,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     from ...ast_nodes import BraceInitializer
     from .types import is_generic_class_type, mangle_generic_type
 
@@ -51,13 +55,18 @@ def _lower_var_decl(gen: IRLowerer, node: VarDeclStmt) -> list[IRStmt]:
     if node.type and node.type.is_array:
         from .array_variables import lower_array_var_decl
 
-        result = lower_array_var_decl(gen, node, _storage_metadata(gen, node))
+        result = lower_array_var_decl(
+            gen,
+            node,
+            _storage_metadata(gen, node),
+            type_renderer,
+        )
         if external_declaration:
             result.append(_mark_external_declaration_used(gen.source_binding_c_name(node.name)))
         gen.context.callable_environments.pop(node.name, None)
         return result
 
-    c_type = type_to_c(node.type) if node.type else "int"
+    c_type = type_renderer.render(node.type) if node.type else "int"
     init = None
     prepared = None
     if node.initializer:
@@ -91,7 +100,11 @@ def _lower_var_decl(gen: IRLowerer, node: VarDeclStmt) -> list[IRStmt]:
             if node.type and node.type.is_static:
                 from .aggregate_initializers import lower_static_initializer
 
-                init = lower_static_initializer(gen, node.initializer)
+                init = lower_static_initializer(
+                    gen,
+                    node.initializer,
+                    type_renderer,
+                )
             else:
                 from .prepared_values import prepare_normal_value
 
@@ -99,6 +112,7 @@ def _lower_var_decl(gen: IRLowerer, node: VarDeclStmt) -> list[IRStmt]:
                     gen,
                     node.initializer,
                     node.type,
+                    type_renderer,
                 )
                 init = prepared.value
 
@@ -116,6 +130,7 @@ def _lower_var_decl(gen: IRLowerer, node: VarDeclStmt) -> list[IRStmt]:
                 gen,
                 node.initializer,
                 node.type,
+                type_renderer,
                 lowered=init,
             )
             init = prepared.value
@@ -128,7 +143,13 @@ def _lower_var_decl(gen: IRLowerer, node: VarDeclStmt) -> list[IRStmt]:
             init_type = (
                 prepared.effective_type if prepared is not None else gen.analyzed.node_types.get(id(node.initializer))
             )
-            init = upcast_class_pointer(gen, node.type, init_type, init)
+            init = upcast_class_pointer(
+                gen,
+                node.type,
+                init_type,
+                init,
+                type_renderer,
+            )
     concrete_managed = _is_concrete_managed_type(gen, node.type)
     if init is None and concrete_managed and not external_declaration:
         # An uninitialized managed declaration is still an owned lexical slot.

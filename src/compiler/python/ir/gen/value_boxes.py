@@ -19,7 +19,7 @@ from ..nodes import (
     IRVar,
     IRVarDecl,
 )
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
@@ -29,6 +29,7 @@ def box_exact_value(
     gen: IRLowerer,
     expr,
     type_expr: TypeExpr | None,
+    type_renderer: CTypeRenderer,
     *,
     prefix: str,
 ):
@@ -38,7 +39,7 @@ def box_exact_value(
         return IRLiteral(text="NULL")
 
     gen.helpers.use("__btrc_safe_realloc")
-    storage_c = value_storage_c_type(canonical)
+    storage_c = value_storage_c_type(canonical, type_renderer)
     box_name = gen.fresh_temp(f"{prefix}_box")
     value_name = gen.fresh_temp(f"{prefix}_value")
     box = IRVar(name=box_name)
@@ -77,6 +78,7 @@ def unbox_exact_value(
     gen: IRLowerer,
     payload_call,
     type_expr: TypeExpr | None,
+    type_renderer: CTypeRenderer,
     *,
     prefix: str,
 ):
@@ -85,7 +87,7 @@ def unbox_exact_value(
     if canonical is None or is_scalar_void(canonical):
         return payload_call
 
-    storage_c = value_storage_c_type(canonical)
+    storage_c = value_storage_c_type(canonical, type_renderer)
     payload_name = gen.fresh_temp(f"{prefix}_payload")
     value_name = gen.fresh_temp(f"{prefix}_value")
     payload = IRVar(name=payload_name)
@@ -125,9 +127,12 @@ def canonical_value_type(
     return canonical_type(type_expr, gen.analyzed.typedef_table)
 
 
-def value_storage_c_type(type_expr: TypeExpr) -> str:
+def value_storage_c_type(
+    type_expr: TypeExpr,
+    type_renderer: CTypeRenderer,
+) -> str:
     """Return one assignable local-storage spelling for ``type_expr``."""
-    return type_to_c(
+    return type_renderer.render(
         replace(
             type_expr,
             is_const=False,

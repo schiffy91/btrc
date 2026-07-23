@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..lowerer import IRLowerer
 
 
-def emit_generic_instances(gen: IRLowerer):
+def emit_generic_instances(gen: IRLowerer, type_renderer):
     """Emit all monomorphized generic class types and their methods.
 
     ALL generic classes (stdlib and user-defined) go through user.py.
@@ -38,7 +38,13 @@ def emit_generic_instances(gen: IRLowerer):
                     continue
                 seen.add(mangled)
                 changed = True
-                _emit_user_generic_instance(gen, base_name, list(args), seen)
+                _emit_user_generic_instance(
+                    gen,
+                    base_name,
+                    list(args),
+                    type_renderer,
+                    seen,
+                )
 
 
 def _resolve_type(

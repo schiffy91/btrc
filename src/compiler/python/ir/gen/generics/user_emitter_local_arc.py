@@ -68,6 +68,7 @@ def lower_generic_managed_slot_assignment(
         target_type,
         value_type,
         value,
+        emitter._type_renderer,
     )
     from ..managed_replacement import lower_managed_slot_replacement
 
@@ -108,6 +109,7 @@ def _lower_generic_local_compound(emitter, expression, target, target_type):
             target_type,
             right_type,
             fresh_temp=emitter._fresh_temp,
+            type_renderer=emitter._type_renderer,
         ),
         commit=lambda _old, replacement: [IRBinOp(left=target, op="=", right=replacement)],
         result_expr=lambda: target,

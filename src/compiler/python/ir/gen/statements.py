@@ -54,6 +54,7 @@ from .variables import _lower_var_decl
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 
 def lower_block(
@@ -64,6 +65,7 @@ def lower_block(
     local_bindings=(),
     callable_bindings=(),
     callable_abis=(),
+    type_renderer: CTypeRenderer,
 ) -> IRBlock:
     """Lower a btrc Block to an IRBlock."""
     if block is None:
@@ -105,7 +107,7 @@ def lower_block(
             stmts.extend(emit_iteration_bindings(gen, iteration_bindings))
         for statement in block.statements:
             _emit_line_marker(gen, statement, stmts)
-            stmts.extend(lower_stmt(gen, statement))
+            stmts.extend(lower_stmt(gen, statement, type_renderer))
         from ..completion import (
             sequence_may_fall_through,
             sequence_references_variable,
@@ -146,7 +148,11 @@ def _emit_line_marker(gen: IRLowerer, ast_stmt, out: list) -> None:
     out.append(IRLineMarker(file=mapped[0], line=mapped[1]))
 
 
-def lower_stmt(gen: IRLowerer, node) -> list[IRStmt]:
+def lower_stmt(
+    gen: IRLowerer,
+    node,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Lower a single AST statement to one or more IRStmts."""
     from .control_flow import (
         _lower_c_for,
@@ -159,49 +165,54 @@ def lower_stmt(gen: IRLowerer, node) -> list[IRStmt]:
     )
 
     if isinstance(node, VarDeclStmt):
-        return _lower_var_decl(gen, node)
+        return _lower_var_decl(gen, node, type_renderer)
 
     if isinstance(node, ReturnStmt):
         from .gpu_cpu_fallback import lower_gpu_cpu_item_return
 
-        gpu_return = lower_gpu_cpu_item_return(gen, node)
+        gpu_return = lower_gpu_cpu_item_return(gen, node, type_renderer)
         if gpu_return is not None:
             return gpu_return
         from .arc_returns import lower_return
 
-        return lower_return(gen, node)
+        return lower_return(gen, node, type_renderer)
 
     if isinstance(node, IfStmt):
-        return [_lower_if(gen, node)]
+        return [_lower_if(gen, node, type_renderer)]
 
     if isinstance(node, WhileStmt):
         return [
             IRWhile(
-                condition=lower_expr(gen, node.condition),
-                body=_lower_loop_body(gen, node.body),
+                condition=lower_expr(gen, node.condition, type_renderer),
+                body=_lower_loop_body(gen, node.body, type_renderer),
             )
         ]
 
     if isinstance(node, DoWhileStmt):
         return [
             IRDoWhile(
-                body=_lower_loop_body(gen, node.body, may_skip=False),
-                condition=lower_expr(gen, node.condition),
+                body=_lower_loop_body(
+                    gen,
+                    node.body,
+                    type_renderer,
+                    may_skip=False,
+                ),
+                condition=lower_expr(gen, node.condition, type_renderer),
             )
         ]
 
     if isinstance(node, ForInStmt):
-        return _lower_for_in(gen, node)
+        return _lower_for_in(gen, node, type_renderer)
 
     if isinstance(node, CForStmt):
-        return [_lower_c_for(gen, node)]
+        return [_lower_c_for(gen, node, type_renderer)]
 
     if isinstance(node, ParallelForStmt):
         # Parallel for -> regular for (no GPU support yet)
-        return _lower_for_in(gen, node)
+        return _lower_for_in(gen, node, type_renderer)
 
     if isinstance(node, SwitchStmt):
-        return [_lower_switch(gen, node)]
+        return [_lower_switch(gen, node, type_renderer)]
 
     if isinstance(node, BreakStmt):
         from .arc_returns import _emit_try_pop
@@ -229,31 +240,31 @@ def lower_stmt(gen: IRLowerer, node) -> list[IRStmt]:
     if isinstance(node, ExprStmt):
         from .expression_statements import lower_expression_statement
 
-        return lower_expression_statement(gen, node)
+        return lower_expression_statement(gen, node, type_renderer)
 
     if isinstance(node, DeleteStmt):
-        return _lower_delete(gen, node)
+        return _lower_delete(gen, node, type_renderer)
 
     if isinstance(node, TryCatchStmt):
-        return _lower_try_catch(gen, node)
+        return _lower_try_catch(gen, node, type_renderer)
 
     if isinstance(node, ThrowStmt):
-        return _lower_throw(gen, node)
+        return _lower_throw(gen, node, type_renderer)
 
     if isinstance(node, Block):
         # Bare block statement: { ... }
-        return [lower_block(gen, node)]
+        return [lower_block(gen, node, type_renderer=type_renderer)]
 
     if isinstance(node, KeepStmt):
         # Nullable ownership values make keep a guarded retain.
-        expr = lower_expr(gen, node.expr)
+        expr = lower_expr(gen, node.expr, type_renderer)
         from .arc_ops import retain_if_present
 
         return [IRExprStmt(expr=retain_if_present(gen, expr))]
 
     if isinstance(node, ReleaseStmt):
         # release expr -> if (--expr->__rc <= 0) destroy(expr); expr = NULL;
-        return _lower_release(gen, node)
+        return _lower_release(gen, node, type_renderer)
 
     raise unsupported_node("statement", node)
 
@@ -261,6 +272,7 @@ def lower_stmt(gen: IRLowerer, node) -> list[IRStmt]:
 def _lower_loop_body(
     gen: IRLowerer,
     body: Block | None,
+    type_renderer: CTypeRenderer,
     *,
     iteration_bindings=(),
     local_bindings=(),
@@ -275,4 +287,5 @@ def _lower_loop_body(
         iteration_bindings=iteration_bindings,
         local_bindings=local_bindings,
         may_skip=may_skip,
+        type_renderer=type_renderer,
     )

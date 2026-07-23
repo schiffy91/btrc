@@ -24,7 +24,7 @@ from ...index_protocol import indexed_protocol_info
 from .call_boundary import CallOperand
 from .evaluation_order import borrowed_value_can_be_pinned
 from .lowering_context import LoweringContext
-from .types import is_generic_class_type, mangle_generic_type, type_to_c
+from .types import CTypeRenderer, is_generic_class_type, mangle_generic_type
 
 
 class OwnershipLowerer:
@@ -38,6 +38,7 @@ class OwnershipLowerer:
         lifetime,
         boundaries,
         expressions,
+        type_renderer: CTypeRenderer,
     ) -> None:
         self.context = context
         self.types = types
@@ -48,6 +49,7 @@ class OwnershipLowerer:
         self.lifetime = lifetime
         self.boundaries = boundaries
         self.expressions = expressions
+        self.type_renderer = type_renderer
 
     def owns_result(self, expression) -> bool:
         """Whether evaluating ``expression`` produces caller-owned +1."""
@@ -143,10 +145,9 @@ class OwnershipLowerer:
             return lowered
 
         from ..nodes import CType, IRBinOp, IRCommaExpr, IRStmtExpr, IRVar, IRVarDecl
-        from .types import type_to_c
 
         declaration = IRVarDecl(
-            c_type=CType(text=type_to_c(type_expr)),
+            c_type=CType(text=self.type_renderer.render(type_expr)),
             name=self.context.fresh_temp("__btrc_promoted_branch"),
         )
         self.context.record_declaration(declaration)
@@ -234,7 +235,7 @@ class OwnershipLowerer:
                 c_type=self.order.operand_c_type(
                     node,
                     type_expr,
-                    render=type_to_c,
+                    render=self.type_renderer.render,
                 ),
                 keep=keep,
                 pin=pin,
@@ -261,7 +262,7 @@ class OwnershipLowerer:
             operands,
             lower_expr=self.expressions.lower_expression,
             build_call=build_with_overrides,
-            result_c_type=(type_to_c(result_type) if result_type is not None else None),
+            result_c_type=(self.type_renderer.render(result_type) if result_type is not None else None),
             result_type=result_type,
             promote_result=promote_result,
             result_owned=bool(result_owned or promote_result),

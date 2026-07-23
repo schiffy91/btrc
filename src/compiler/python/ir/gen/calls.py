@@ -21,7 +21,7 @@ from .errors import CodegenError
 from .function_symbols import source_function_c_name
 from .lowering_context import LoweringContext
 from .type_resolution import canonical_type
-from .types import is_string_type, mangle_generic_type, type_to_c
+from .types import CTypeRenderer, is_string_type, mangle_generic_type
 
 
 class CallLowerer:
@@ -34,19 +34,22 @@ class CallLowerer:
         hosted_results,
         arguments,
         dispatch,
+        type_renderer: CTypeRenderer,
     ) -> None:
         self.context = context
         self.ownership = ownership
         self.hosted_results = hosted_results
         self.arguments = arguments
         self.dispatch = dispatch
-        self.resolver = CallResolver(context, dispatch)
+        self.type_renderer = type_renderer
+        self.resolver = CallResolver(context, dispatch, type_renderer)
         self.operands = CallOperandPlanner(
             context,
             ownership,
             self.resolver,
             arguments,
             hosted_results,
+            type_renderer,
         )
 
     def lower(self, node: CallExpr) -> IRExpr:
@@ -100,7 +103,7 @@ class CallLowerer:
             operands,
             lower_expr=self.dispatch.lower_expression,
             build_call=build_call,
-            result_c_type=(type_to_c(result_type) if result_type is not None else None),
+            result_c_type=(self.type_renderer.render(result_type) if result_type is not None else None),
             result_type=result_type,
             opaque_result=result_type is None,
             opaque_result_site=node,

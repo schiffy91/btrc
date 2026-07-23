@@ -23,7 +23,7 @@ from ..nodes import (
 from .feature_scan import uses_trycatch
 from .function_symbols import source_function_c_name
 from .parameters import lower_source_param
-from .types import mangle_generic_type, type_to_c
+from .types import mangle_generic_type
 
 _STANDARD_FEATURE_MACROS = ("_DEFAULT_SOURCE", "_DARWIN_C_SOURCE")
 _STANDARD_INCLUDES = [
@@ -109,6 +109,7 @@ class _ModuleGenerationMixin:
                             class_info,
                             self.analyzed.class_table,
                             self.analyzed,
+                            self.type_renderer,
                         )
                     )
             elif isinstance(decl, RichEnumDecl):
@@ -117,7 +118,14 @@ class _ModuleGenerationMixin:
                     IRFunctionDecl(
                         name=f"{decl.name}_{variant.name}",
                         return_type=CType(text=decl.name),
-                        params=[lower_source_param(param, analyzed=self.analyzed) for param in variant.params],
+                        params=[
+                            lower_source_param(
+                                param,
+                                self.type_renderer.render,
+                                analyzed=self.analyzed,
+                            )
+                            for param in variant.params
+                        ],
                         is_static=True,
                     )
                     for variant in decl.variants
@@ -127,8 +135,15 @@ class _ModuleGenerationMixin:
                 function_decls.append(
                     IRFunctionDecl(
                         name=source_function_c_name(self.analyzed, decl.name),
-                        return_type=CType(text=type_to_c(decl.return_type)),
-                        params=[lower_source_param(param, analyzed=self.analyzed) for param in decl.params],
+                        return_type=CType(text=self.type_renderer.render(decl.return_type)),
+                        params=[
+                            lower_source_param(
+                                param,
+                                self.type_renderer.render,
+                                analyzed=self.analyzed,
+                            )
+                            for param in decl.params
+                        ],
                         is_static=bool(decl.return_type.is_static),
                     )
                 )
@@ -152,19 +167,19 @@ class _ModuleGenerationMixin:
 
         for decl in self.analyzed.program.declarations:
             if isinstance(decl, StructDecl):
-                emit_struct_decl(self, decl)
+                emit_struct_decl(self, decl, self.type_renderer)
 
     def _emit_generic_collections(self):
         from .generics.core import emit_generic_instances
         from .generics.methods_mono import emit_generic_method_instances
 
-        emit_generic_instances(self)
-        emit_generic_method_instances(self)
+        emit_generic_instances(self, self.type_renderer)
+        emit_generic_method_instances(self, self.type_renderer)
 
     def _emit_enums(self):
         from .enums import emit_enum_decls
 
-        emit_enum_decls(self)
+        emit_enum_decls(self, self.type_renderer)
 
     def _emit_declarations(self):
         """Emit executable and non-executable top-level declarations."""
@@ -179,13 +194,13 @@ class _ModuleGenerationMixin:
                 continue
             if isinstance(decl, ClassDecl):
                 if not decl.generic_params:
-                    emit_class_decl(self, decl)
+                    emit_class_decl(self, decl, self.type_renderer)
             elif isinstance(decl, FunctionDecl):
-                emit_function_decl(self, decl)
+                emit_function_decl(self, decl, self.type_renderer)
             elif isinstance(decl, TypedefDecl):
                 self.module.typedef_defs.append(
                     IRTypedefDef(
-                        target_type=CType(text=type_to_c(decl.original)),
+                        target_type=CType(text=self.type_renderer.render(decl.original)),
                         name=decl.alias,
                         is_volatile=bool(decl.original.is_volatile),
                     )
@@ -220,14 +235,17 @@ class _ModuleGenerationMixin:
     def _emit_global_var(self, decl: VarDeclStmt, *, force_external=False):
         from .module_globals import emit_global_var
 
-        emit_global_var(self, decl, force_external=force_external)
+        emit_global_var(
+            self,
+            decl,
+            self.type_renderer,
+            force_external=force_external,
+        )
 
     def _emit_fn_ptr_typedefs(self):
         """Emit function-pointer typedefs accumulated during lowering."""
 
-        from .types import get_fn_ptr_typedefs
-
-        self.module.function_pointer_typedefs.extend(get_fn_ptr_typedefs())
+        self.module.function_pointer_typedefs.extend(self.type_renderer.consume_function_pointer_typedefs())
 
     def _emit_helpers(self):
         self.helpers.materialize(self.module, self.require_runtime_include)
@@ -235,4 +253,4 @@ class _ModuleGenerationMixin:
     def _emit_tuple_structs(self):
         from .tuple_declarations import emit_tuple_structs
 
-        emit_tuple_structs(self)
+        emit_tuple_structs(self, self.type_renderer)

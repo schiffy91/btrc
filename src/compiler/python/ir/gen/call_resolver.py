@@ -14,15 +14,21 @@ from .type_resolution import (
     function_pointer_signature,
     substitute_concrete_type,
 )
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
 class CallResolver:
     """Resolve callable targets and concrete parameter contracts."""
 
-    def __init__(self, context, expressions) -> None:
+    def __init__(
+        self,
+        context,
+        expressions,
+        type_renderer: CTypeRenderer,
+    ) -> None:
         self.context = context
         self.expressions = expressions
+        self.type_renderer = type_renderer
 
     def declaration(self, node):
         callee = node.callee
@@ -194,7 +200,7 @@ class CallResolver:
         value = IRVar(name=temp)
         callable_type = TypeExpr(base="__fn_ptr", generic_args=signature)
         declaration = IRVarDecl(
-            c_type=CType(text=type_to_c(callable_type)),
+            c_type=CType(text=self.type_renderer.render(callable_type)),
             name=temp,
         )
         (record_decl or self.context.record_declaration)(declaration)

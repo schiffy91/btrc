@@ -36,7 +36,7 @@ def generic_gpu_host(emitter) -> GpuHostLowering:
     return GpuHostLowering(
         lower_argument=lower_argument,
         resolve_type=emitter._resolve_expr_type,
-        render_type=emitter.iter_value_c,
+        type_renderer=emitter._type_renderer,
         array_length=lambda expression, lowered: _array_argument_length(
             emitter,
             expression,
@@ -72,6 +72,7 @@ def lower_generic_gpu_call(emitter, call, lowered_args: list[IRExpr] | None) -> 
         call.args,
         arg_names_for(call, len(call.args)),
         lowered_args,
+        emitter._type_renderer,
         call=call,
         host=generic_gpu_host(emitter),
     )
@@ -108,6 +109,7 @@ def lower_generic_gpu_output_assignment(emitter, assignment) -> IRExpr | None:
         assignment.value,
         assignment.target,
         emitter._expr(assignment.target),
+        emitter._type_renderer,
         host=generic_gpu_host(emitter),
     )
 

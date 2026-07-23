@@ -14,7 +14,7 @@ from ..nodes import (
     IRSizeof,
 )
 from .handle_values import consume_addressable_handle
-from .types import type_to_c
+from .types import CTypeRenderer
 from .value_boxes import (
     box_exact_value,
     canonical_value_type,
@@ -30,6 +30,7 @@ def box_thread_result(
     gen: IRLowerer,
     expr,
     result_type: TypeExpr | None,
+    type_renderer: CTypeRenderer,
 ):
     """Return one ``void*`` payload without changing the result's bits."""
     canonical = canonical_value_type(gen, result_type)
@@ -42,6 +43,7 @@ def box_thread_result(
         gen,
         expr,
         canonical,
+        type_renderer,
         prefix="__btrc_thread",
     )
 
@@ -50,6 +52,7 @@ def unbox_thread_result(
     gen: IRLowerer,
     payload_call,
     result_type: TypeExpr | None,
+    type_renderer: CTypeRenderer,
 ):
     """Copy a boxed value before freeing its transport allocation."""
     canonical = canonical_value_type(gen, result_type)
@@ -57,7 +60,7 @@ def unbox_thread_result(
         return payload_call
     if not _requires_box(gen, canonical):
         return IRCast(
-            target_type=CType(text=type_to_c(result_type)),
+            target_type=CType(text=type_renderer.render(result_type)),
             expr=payload_call,
         )
 
@@ -65,6 +68,7 @@ def unbox_thread_result(
         gen,
         payload_call,
         canonical,
+        type_renderer,
         prefix="__btrc_thread",
     )
 

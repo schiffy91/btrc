@@ -15,19 +15,23 @@ from ..nodes import (
 )
 from .managed_values import is_string_type, release_value, retain_value
 from .temporary_cleanup import cleanup_registration
-from .types import type_to_c
+from .types import CTypeRenderer
 
 _FLAT_CHAIN_MIN_TERMS = 32
 
 
-def lower_long_string_concat(gen, node):
+def lower_long_string_concat(
+    gen,
+    node,
+    type_renderer: CTypeRenderer,
+):
     """Lower a long left-associated chain as one flat comma sequence."""
     leaves = _left_chain_leaves(gen, node)
     if len(leaves) < _FLAT_CHAIN_MIN_TERMS:
         return None
 
     result_type = gen.analyzed.node_types.get(id(node))
-    c_type = type_to_c(result_type)
+    c_type = type_renderer.render(result_type)
     declarations: list[IRVarDecl] = []
     sequence = []
     values = []
@@ -70,6 +74,7 @@ def lower_long_string_concat(gen, node):
         initial_pins[0],
         declarations,
         sequence,
+        type_renderer,
     )
     _evaluate_leaf(
         gen,
@@ -81,6 +86,7 @@ def lower_long_string_concat(gen, node):
         False,
         declarations,
         sequence,
+        type_renderer,
     )
     sequence.append(
         IRBinOp(
@@ -119,6 +125,7 @@ def lower_long_string_concat(gen, node):
             False,
             declarations,
             sequence,
+            type_renderer,
         )
         sequence.append(
             IRBinOp(
@@ -222,10 +229,17 @@ def _evaluate_leaf(
     pinned,
     declarations,
     sequence,
+    type_renderer,
 ) -> None:
     from .expressions import lower_expr
 
-    sequence.append(IRBinOp(left=value, op="=", right=lower_expr(gen, node)))
+    sequence.append(
+        IRBinOp(
+            left=value,
+            op="=",
+            right=lower_expr(gen, node, type_renderer),
+        )
+    )
     if pinned:
         sequence.append(retain_value(gen, value, type_expr))
     if owned or pinned:

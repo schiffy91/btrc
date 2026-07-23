@@ -20,6 +20,7 @@ from ..nodes import (
 from .lvalues import LValueContext, LValuePlan, build_lvalue_plan, lvalue_kind
 from .operator_context import OperatorLoweringContext
 from .typed_operators import lower_typed_binary
+from .types import CTypeRenderer
 
 
 @dataclass(frozen=True)
@@ -173,13 +174,15 @@ def lower_incdec(context: UpdateContext, node: UnaryExpr) -> IRExpr:
     )
 
 
-def generator_update_context(gen) -> UpdateContext:
+def generator_update_context(
+    gen,
+    type_renderer: CTypeRenderer,
+) -> UpdateContext:
     """Build the normal IR generator's update dependency bundle."""
     from ...ast_nodes import FieldAccessExpr, SelfExpr
     from .expressions import lower_expr
     from .operator_context import operator_context
     from .operators import lower_overloaded_values
-    from .types import type_to_c
     from .upcast import upcast_class_pointer
     from .virtual_stores import lower_virtual_store_boundary
 
@@ -192,9 +195,9 @@ def generator_update_context(gen) -> UpdateContext:
         )
 
     lvalues = LValueContext(
-        lower_expr=lambda node: lower_expr(gen, node),
+        lower_expr=lambda node: lower_expr(gen, node, type_renderer),
         type_of=type_of,
-        c_type=type_to_c,
+        c_type=type_renderer.render,
         fresh_temp=gen.fresh_temp,
         register_decl=gen.context.function_declarations.append,
         class_table=analyzed.class_table,
@@ -206,29 +209,60 @@ def generator_update_context(gen) -> UpdateContext:
     )
     return UpdateContext(
         lvalues=lvalues,
-        operators=operator_context(gen),
+        operators=operator_context(gen, type_renderer),
         lower_overload=lambda left_type, right_type, operator, left, right: lower_overloaded_values(
-            gen, left_type, right_type, operator, left, right
+            gen,
+            left_type,
+            right_type,
+            operator,
+            left,
+            right,
+            type_renderer,
         ),
         coerce_assignment=lambda target_type, source_type, value: upcast_class_pointer(
-            gen, target_type, source_type, value
+            gen,
+            target_type,
+            source_type,
+            value,
+            type_renderer,
         ),
-        lower_value=lambda target_type, value: _lower_assignment_value(gen, target_type, value),
+        lower_value=lambda target_type, value: _lower_assignment_value(
+            gen,
+            target_type,
+            value,
+            type_renderer,
+        ),
         store_boundary=lambda node, plan: lower_virtual_store_boundary(
             gen,
             node,
             plan,
             ownership=gen.ownership,
-            lower_value=lambda target_type, value: _lower_assignment_value(gen, target_type, value),
-            coerce=lambda target_type, source_type, value: upcast_class_pointer(gen, target_type, source_type, value),
-            render_type=type_to_c,
+            lower_value=lambda target_type, value: _lower_assignment_value(
+                gen,
+                target_type,
+                value,
+                type_renderer,
+            ),
+            coerce=lambda target_type, source_type, value: upcast_class_pointer(
+                gen,
+                target_type,
+                source_type,
+                value,
+                type_renderer,
+            ),
+            type_renderer=type_renderer,
             owns_result=lambda value: gen.ownership.owns_result(value),
         ),
         allow_unresolved_c_operands=True,
     )
 
 
-def _lower_assignment_value(gen, target_type, value) -> IRExpr:
+def _lower_assignment_value(
+    gen,
+    target_type,
+    value,
+    type_renderer: CTypeRenderer,
+) -> IRExpr:
     """Use assignment context to select the concrete collection literal."""
     from ...ast_nodes import BraceInitializer, ListLiteral, MapLiteral
     from .collections import lower_list_literal, lower_map_literal
@@ -237,10 +271,10 @@ def _lower_assignment_value(gen, target_type, value) -> IRExpr:
 
     if is_direct_generic_instance_reference(target_type, gen.analyzed.class_table):
         if isinstance(value, (BraceInitializer, ListLiteral)):
-            return lower_list_literal(gen, value)
+            return lower_list_literal(gen, value, type_renderer)
         if isinstance(value, MapLiteral):
-            return lower_map_literal(gen, value)
-    return lower_expr(gen, value)
+            return lower_map_literal(gen, value, type_renderer)
+    return lower_expr(gen, value, type_renderer)
 
 
 __all__ = [

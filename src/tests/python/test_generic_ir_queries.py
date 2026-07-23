@@ -5,10 +5,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from src.compiler.python.analyzer.core import AnalyzedProgram
 from src.compiler.python.ast_nodes import (
     FieldAccessExpr,
     Identifier,
     IntLiteral,
+    Program,
     SizeofExprOp,
     TypeExpr,
 )
@@ -25,6 +27,7 @@ from src.compiler.python.ir.gen.generics.user_ir_queries import (
 from src.compiler.python.ir.gen.generics.user_methods import (
     _drop_methods_calling_skipped,
 )
+from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
@@ -46,6 +49,21 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
+
+
+def _generic_emitter(analyzed: AnalyzedProgram | None = None):
+    analyzed = analyzed or AnalyzedProgram(
+        program=Program(),
+        generic_instances={},
+        class_table={},
+    )
+    lowerer = IRLowerer(analyzed)
+    return _UserGenericEmitter(
+        {},
+        "Box_int",
+        lowerer.type_renderer,
+        gen=lowerer,
+    )
 
 
 @dataclass
@@ -164,7 +182,7 @@ def test_type_compatibility_queries_typed_calls_and_pointer_addition():
 
 
 def test_generic_sizeof_preserves_unknown_structured_operand():
-    emitter = _UserGenericEmitter({}, "Box_int", lambda type_expr: type_expr.base)
+    emitter = _generic_emitter()
     emitter._expr = lambda _expression: FutureExpr()
     operand = SizeofExprOp(expr=IntLiteral(value=1, raw="1"))
 
@@ -177,7 +195,9 @@ def test_generic_sizeof_preserves_unknown_structured_operand():
 
 def test_generic_static_method_projection_preserves_lexical_receiver() -> None:
     static_method = SimpleNamespace(access="class", generic_params=[])
-    analyzed = SimpleNamespace(
+    analyzed = AnalyzedProgram(
+        program=Program(),
+        generic_instances={},
         class_table={
             "Util": SimpleNamespace(
                 generic_params=[],
@@ -190,19 +210,8 @@ def test_generic_static_method_projection_preserves_lexical_receiver() -> None:
                 properties={},
             ),
         },
-        interface_table={},
-        struct_table={},
-        node_types={},
-        typedef_table={},
-        enum_table={},
-        rich_enum_table={},
     )
-    emitter = _UserGenericEmitter(
-        {},
-        "Box_int",
-        lambda type_expr: type_expr.base,
-        gen=SimpleNamespace(analyzed=analyzed),
-    )
+    emitter = _generic_emitter(analyzed)
     emitter._var_types["Util"] = TypeExpr(base="Receiver")
 
     lowered = _plain_field_access(

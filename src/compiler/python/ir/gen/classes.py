@@ -39,13 +39,17 @@ from .class_properties import (
 from .class_static_fields import emit_static_fields as _emit_static_fields
 from .class_storage_fields import lower_instance_storage_field
 from .class_visitors import emit_class_visitor
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def emit_struct_decl(gen: IRLowerer, decl: StructDecl):
+def emit_struct_decl(
+    gen: IRLowerer,
+    decl: StructDecl,
+    type_renderer: CTypeRenderer,
+):
     """Emit a plain struct (not class) definition."""
     if decl.is_forward:
         return
@@ -60,9 +64,13 @@ def emit_struct_decl(gen: IRLowerer, decl: StructDecl):
             base_type = strip_outer_storage(f.type, array=True)
             fields.append(
                 IRStructField(
-                    c_type=CType(text=type_to_c(base_type)),
+                    c_type=CType(text=type_renderer.render(base_type)),
                     name=f.name,
-                    array_size=lower_expr(gen, f.type.array_size),
+                    array_size=lower_expr(
+                        gen,
+                        f.type.array_size,
+                        type_renderer,
+                    ),
                     is_volatile=bool(f.type.is_volatile),
                     effective_is_volatile=effective_outer_volatile(
                         f.type,
@@ -73,7 +81,7 @@ def emit_struct_decl(gen: IRLowerer, decl: StructDecl):
         else:
             fields.append(
                 IRStructField(
-                    c_type=CType(text=type_to_c(f.type)),
+                    c_type=CType(text=type_renderer.render(f.type)),
                     name=f.name,
                     is_volatile=bool(f.type and f.type.is_volatile),
                     effective_is_volatile=effective_outer_volatile(
@@ -91,7 +99,11 @@ def emit_struct_decl(gen: IRLowerer, decl: StructDecl):
     )
 
 
-def emit_class_decl(gen: IRLowerer, decl: ClassDecl):
+def emit_class_decl(
+    gen: IRLowerer,
+    decl: ClassDecl,
+    type_renderer: CTypeRenderer,
+):
     """Emit a class: struct + constructor + destructor + methods."""
     cls_info = gen.analyzed.class_table.get(decl.name)
     if not cls_info:
@@ -101,25 +113,40 @@ def emit_class_decl(gen: IRLowerer, decl: ClassDecl):
     gen.current_class_name = decl.name
 
     # Struct definition
-    _emit_class_struct(gen, decl, cls_info)
-    _emit_static_fields(gen, decl)
+    _emit_class_struct(gen, decl, cls_info, type_renderer)
+    _emit_static_fields(gen, decl, type_renderer)
 
     # Forward-declare all methods (avoids ordering issues like
     # destructor calling close() before close is defined)
-    emit_class_callable_declarations(gen, decl, cls_info)
+    emit_class_callable_declarations(
+        gen,
+        decl,
+        cls_info,
+        type_renderer,
+    )
 
     # Constructor: ClassName_init and ClassName_new
-    _emit_constructor(gen, decl, cls_info)
+    _emit_constructor(gen, decl, cls_info, type_renderer)
 
     # Destructor
-    destructor_hook = _emit_destructor(gen, decl, cls_info)
+    destructor_hook = _emit_destructor(
+        gen,
+        decl,
+        cls_info,
+        type_renderer,
+    )
 
     # ARC: every representation with managed outgoing slots gets a visitor.
     from .cycle_metadata import type_needs_visitor
 
     visitor_name = None
     if type_needs_visitor(gen, TypeExpr(base=decl.name), set()):
-        emit_class_visitor(gen, decl.name, cls_info.instance_storage)
+        emit_class_visitor(
+            gen,
+            decl.name,
+            cls_info.instance_storage,
+            type_renderer,
+        )
         from .cycle_metadata import cycle_visitor_symbol
 
         visitor_name = cycle_visitor_symbol(decl.name)
@@ -132,22 +159,39 @@ def emit_class_decl(gen: IRLowerer, decl: ClassDecl):
         if isinstance(member, MethodDecl) and not member.is_constructor and member.name != "__del__":
             own_methods.add(member.name)
             if not member.generic_params and not member.is_abstract and member.body is not None:
-                _emit_method(gen, decl, member)
+                _emit_method(gen, decl, member, type_renderer)
         elif isinstance(member, PropertyDecl):
-            _emit_property(gen, decl, member)
+            _emit_property(gen, decl, member, type_renderer)
             own_properties.add(member.name)
 
-    _emit_inherited_properties(gen, decl, cls_info, own_properties)
+    _emit_inherited_properties(
+        gen,
+        decl,
+        cls_info,
+        own_properties,
+        type_renderer,
+    )
 
     # Inherit parent methods that aren't overridden
     if cls_info.parent and cls_info.parent in gen.analyzed.class_table:
-        _emit_inherited_methods(gen, decl, cls_info, own_methods)
+        _emit_inherited_methods(
+            gen,
+            decl,
+            cls_info,
+            own_methods,
+            type_renderer,
+        )
 
     gen.current_class = None
     gen.current_class_name = ""
 
 
-def _emit_class_struct(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo):
+def _emit_class_struct(
+    gen: IRLowerer,
+    decl: ClassDecl,
+    cls_info: ClassInfo,
+    type_renderer: CTypeRenderer,
+):
     """Emit the struct definition for a class."""
     fields: list[IRStructField] = []
 
@@ -156,7 +200,14 @@ def _emit_class_struct(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo):
     fields.append(arc_header_field(gen))
 
     for storage_name, member in cls_info.instance_storage:
-        fields.append(lower_instance_storage_field(gen, storage_name, member.type))
+        fields.append(
+            lower_instance_storage_field(
+                gen,
+                storage_name,
+                member.type,
+                type_renderer,
+            )
+        )
 
     gen.module.struct_defs.append(
         IRStructDef(

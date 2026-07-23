@@ -22,6 +22,7 @@ from .ownership import OwnershipLowerer
 from .ownership_lifetime import ManagedLifetimeLowerer
 from .ownership_order import OwnershipOperandOrder
 from .ownership_state import _OwnershipStateMixin
+from .types import CTypeRenderer
 
 
 class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
@@ -45,6 +46,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         self.freestanding = freestanding
         self.module = IRModule()
         self.helpers = RuntimeHelperRegistry()
+        self.type_renderer = CTypeRenderer(self.analyzed.typedef_table)
         self.context = LoweringContext(
             analyzed=self.analyzed,
             module=self.module,
@@ -95,7 +97,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
         )
         self.lifetime = ManagedLifetimeLowerer(self, self.managed_types)
         boundaries = CallBoundaryLowerer(self.context, self.lifetime)
-        call_dispatch = CallDispatchLowerer(self)
+        call_dispatch = CallDispatchLowerer(self, self.type_renderer)
         self.ownership = OwnershipLowerer(
             self.context,
             self.managed_types,
@@ -103,6 +105,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
             self.lifetime,
             boundaries,
             call_dispatch,
+            self.type_renderer,
         )
         hosted_results = HostedResultLowerer(self.context)
         call_arguments = CallArgumentLowerer(
@@ -111,6 +114,7 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
             self.ownership,
             hosted_results,
             call_dispatch,
+            self.type_renderer,
         )
         self.calls = CallLowerer(
             self.context,
@@ -118,38 +122,35 @@ class IRLowerer(_OwnershipStateMixin, _ModuleGenerationMixin):
             hosted_results,
             call_arguments,
             call_dispatch,
+            self.type_renderer,
         )
 
     def lower(self) -> IRModule:
         """Lower the analyzed program into a complete IR module."""
-        from .type_render_context import type_render_scope
-        from .types import fn_ptr_typedef_scope
+        self._emit_includes()
+        self._emit_forward_decls()
+        self._emit_fn_ptr_typedefs()
+        self._emit_structs()
+        from .gpu_registration import emit_gpu_functions
 
-        with fn_ptr_typedef_scope(), type_render_scope(self.analyzed.typedef_table):
-            self._emit_includes()
-            self._emit_forward_decls()
-            self._emit_fn_ptr_typedefs()
-            self._emit_structs()
-            from .gpu_registration import emit_gpu_functions
+        emit_gpu_functions(self, self.type_renderer)
+        self._emit_generic_collections()
+        self._emit_enums()
+        self._emit_declarations()
+        self._emit_fn_ptr_typedefs()
+        from .cleanup_slots import finalize_cleanup_take_adapters
 
-            emit_gpu_functions(self)
-            self._emit_generic_collections()
-            self._emit_enums()
-            self._emit_declarations()
-            self._emit_fn_ptr_typedefs()
-            from .cleanup_slots import finalize_cleanup_take_adapters
+        finalize_cleanup_take_adapters(self)
+        from .setjmp_volatility import apply_setjmp_volatility
 
-            finalize_cleanup_take_adapters(self)
-            from .setjmp_volatility import apply_setjmp_volatility
+        apply_setjmp_volatility(self.module)
+        self._emit_helpers()
+        self.module.refresh_type_declarations()
+        from ..runtime_dependencies import refresh_runtime_dependencies
 
-            apply_setjmp_volatility(self.module)
-            self._emit_helpers()
-            self.module.refresh_type_declarations()
-            from ..runtime_dependencies import refresh_runtime_dependencies
-
-            refresh_runtime_dependencies(self.module)
-            self.module.validate_declarations()
-            return self.module
+        refresh_runtime_dependencies(self.module)
+        self.module.validate_declarations()
+        return self.module
 
     def fresh_temp(self, prefix: str = "__tmp") -> str:
         """Generate a unique temporary variable name."""

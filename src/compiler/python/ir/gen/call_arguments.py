@@ -9,7 +9,7 @@ from .default_argument_context import (
 )
 from .default_argument_helpers import ensure_default_helper
 from .prepared_values import prepare_value
-from .types import type_to_c
+from .types import CTypeRenderer
 from .upcast import upcast_class_pointer
 
 
@@ -27,12 +27,14 @@ class CallArgumentLowerer:
         ownership,
         hosted_results,
         expressions,
+        type_renderer: CTypeRenderer,
     ) -> None:
         self.lowerer = lowerer
         self.context = context
         self.ownership = ownership
         self.hosted_results = hosted_results
         self.expressions = expressions
+        self.type_renderer = type_renderer
 
     def default_builder(
         self,
@@ -52,6 +54,7 @@ class CallArgumentLowerer:
                 call,
                 params,
                 param_index,
+                self.type_renderer,
             )
             args = []
             if target.self_type is not None:
@@ -62,7 +65,7 @@ class CallArgumentLowerer:
                     self._missing_dependency("method receiver")
                 args.append(
                     IRCast(
-                        target_type=CType(text=type_to_c(target.self_type)),
+                        target_type=CType(text=self.type_renderer.render(target.self_type)),
                         expr=value,
                     )
                 )
@@ -81,6 +84,7 @@ class CallArgumentLowerer:
                         prior_param.type,
                         source_type,
                         value,
+                        self.type_renderer,
                     )
                 )
             return IRCall(callee=symbol, args=args)
@@ -114,7 +118,7 @@ class CallArgumentLowerer:
                 is_default=is_default,
             ),
             owns_result=owns_result,
-            render_type=type_to_c,
+            render_type=self.type_renderer.render,
             hosted_results=self.hosted_results,
         )
 
@@ -130,6 +134,7 @@ class CallArgumentLowerer:
             params,
             ast_args,
             arg_names,
+            self.type_renderer,
             ir_args,
         )
 

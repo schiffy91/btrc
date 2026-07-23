@@ -16,7 +16,7 @@ def capture_collection_view(
     data_name = gen.fresh_temp("__gpu_data")
     length_name = gen.fresh_temp("__gpu_len")
     data_declaration = IRVarDecl(
-        c_type=CType(text=host.render_type(parameter.type)),
+        c_type=CType(text=host.type_renderer.render(parameter.type)),
         name=data_name,
     )
     length_declaration = IRVarDecl(

@@ -18,7 +18,7 @@ from ..nodes import (
 )
 from .errors import CodegenError
 from .gpu_arguments import backed_global_array, backed_static_field, bare_array_length, is_heap_collection
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
@@ -57,6 +57,7 @@ def assignment_target(
     gen: IRLowerer,
     ast_target,
     ir_target: IRExpr,
+    type_renderer: CTypeRenderer,
 ) -> GpuOutputTarget:
     """Resolve writable data and a proven capacity for a direct assignment."""
 
@@ -67,7 +68,7 @@ def assignment_target(
             ast_target,
             target_type,
             ir_target,
-            render_type=type_to_c,
+            render_type=type_renderer.render,
             fresh_temp=gen.fresh_temp,
             record_declaration=gen.context.function_declarations.append,
             cleanup_active=gen.exception_cleanup_active,
@@ -95,11 +96,15 @@ def assignment_target(
             ir_target,
             target_type,
             capacity=(
-                lower_expr(gen, target_type.array_size)
+                lower_expr(
+                    gen,
+                    target_type.array_size,
+                    type_renderer,
+                )
                 if target_type.array_size is not None
                 else bare_array_length(ir_target)
             ),
-            render_type=type_to_c,
+            render_type=type_renderer.render,
             fresh_temp=gen.fresh_temp,
             record_declaration=gen.context.function_declarations.append,
         )

@@ -12,13 +12,17 @@ from .arguments import (
     order_args_for_params,
     resolved_constructor_params,
 )
-from .types import mangle_generic_type, type_to_c
+from .types import CTypeRenderer, mangle_generic_type
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def lower_new_expr(gen: IRLowerer, node: NewExpr):
+def lower_new_expr(
+    gen: IRLowerer,
+    node: NewExpr,
+    type_renderer: CTypeRenderer,
+):
     """Lower an explicitly typed ``new Class<Args>(...)`` expression."""
     from .default_argument_context import resolve_default_type
 
@@ -43,13 +47,13 @@ def lower_new_expr(gen: IRLowerer, node: NewExpr):
         call=node,
     )
     if not needs_boundary:
-        return _lower_new_plain(gen, node)
+        return _lower_new_plain(gen, node, type_renderer)
 
     def build_call(overrides):
         previous = {key: gen.context.owning_overrides.get(key) for key in overrides}
         gen.context.owning_overrides.update(overrides)
         try:
-            return _lower_new_plain(gen, node)
+            return _lower_new_plain(gen, node, type_renderer)
         finally:
             for key, value in previous.items():
                 if value is None:
@@ -62,15 +66,19 @@ def lower_new_expr(gen: IRLowerer, node: NewExpr):
 
     return gen.ownership.boundaries.sequence(
         operands,
-        lower_expr=lambda value: lower_expr(gen, value),
+        lower_expr=lambda value: lower_expr(gen, value, type_renderer),
         build_call=build_call,
-        result_c_type=type_to_c(result_type),
+        result_c_type=type_renderer.render(result_type),
         result_type=result_type,
         result_owned=True,
     )
 
 
-def _lower_new_plain(gen: IRLowerer, node: NewExpr):
+def _lower_new_plain(
+    gen: IRLowerer,
+    node: NewExpr,
+    type_renderer: CTypeRenderer,
+):
     """Lower a constructor after any managed operands are stabilized."""
     from .default_argument_context import resolve_default_type
 
@@ -78,12 +86,13 @@ def _lower_new_plain(gen: IRLowerer, node: NewExpr):
     if instance_type.base == "Mutex":
         from .call_builtins import lower_mutex_constructor
 
-        args = lower_arg_values(gen, node.args)
+        args = lower_arg_values(gen, node.args, type_renderer)
         value_type = instance_type.generic_args[0] if instance_type.generic_args else None
         return lower_mutex_constructor(
             gen,
             node.args,
             args,
+            type_renderer,
             value_type,
         )
     type_name = instance_type.base
@@ -92,7 +101,7 @@ def _lower_new_plain(gen: IRLowerer, node: NewExpr):
             instance_type.base,
             instance_type.generic_args,
         )
-    args = lower_arg_values(gen, node.args)
+    args = lower_arg_values(gen, node.args, type_renderer)
     cls_info = gen.analyzed.class_table.get(instance_type.base)
     if cls_info and cls_info.constructor:
         params = resolved_constructor_params(gen, cls_info, instance_type)
@@ -101,6 +110,7 @@ def _lower_new_plain(gen: IRLowerer, node: NewExpr):
             params,
             node.args,
             arg_names_for(node, len(node.args)),
+            type_renderer,
             args,
         )
     return IRCall(callee=f"{type_name}_new", args=args)

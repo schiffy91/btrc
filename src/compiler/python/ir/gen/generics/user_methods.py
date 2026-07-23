@@ -24,6 +24,7 @@ from ...topology_boundaries import install_collection_topology_boundary
 from ..cycle_metadata import generic_instance_needs_visitor
 from ..errors import TypedOperatorError
 from ..parameters import lower_source_param
+from ..types import CTypeRenderer
 from .user_emitter import _UserGenericEmitter
 from .user_ir_queries import (
     called_callees,
@@ -39,19 +40,29 @@ if TYPE_CHECKING:
 
 
 def _emit_user_generic_methods(
-    gen: IRLowerer, base_name: str, mangled: str, args: list[TypeExpr], type_map: dict[str, TypeExpr], cls_info
+    gen: IRLowerer,
+    base_name: str,
+    mangled: str,
+    args: list[TypeExpr],
+    type_map: dict[str, TypeExpr],
+    cls_info,
+    type_renderer: CTypeRenderer,
 ):
     """Emit constructor + methods for a user-defined generic class instance."""
-    from ..types import type_to_c as ttc
-
     if args:
         from ..type_resolution import canonical_type
 
         first_arg = canonical_type(args[0], gen.analyzed.typedef_table)
-        first_arg_c = ttc(first_arg)
+        first_arg_c = type_renderer.render(first_arg)
     else:
         first_arg_c = "int"
-    emitter = _UserGenericEmitter(type_map, mangled, ttc, gen=gen, cls_info=cls_info)
+    emitter = _UserGenericEmitter(
+        type_map,
+        mangled,
+        type_renderer,
+        gen=gen,
+        cls_info=cls_info,
+    )
     function_decls, lifecycle_functions = emit_generic_lifecycle(
         gen, base_name, mangled, args, type_map, cls_info, emitter
     )

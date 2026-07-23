@@ -8,6 +8,7 @@ from ...ast_nodes import TypeExpr
 from ..nodes import IRBinOp, IRExpr, IRLiteral, IRTernary
 from .call_boundary import CallOperand
 from .stringable import to_string_call
+from .types import CTypeRenderer
 
 
 @dataclass(frozen=True)
@@ -156,15 +157,15 @@ def prepare_normal_value(
     gen,
     node,
     target_type,
+    type_renderer: CTypeRenderer,
     *,
     lowered=None,
     lower_value=None,
 ) -> PreparedValue:
     """Prepare one value with the normal generator's concrete dependencies."""
     from .expressions import lower_expr
-    from .types import type_to_c
 
-    lower_value = lower_value or (lambda value: lower_expr(gen, value))
+    lower_value = lower_value or (lambda value: lower_expr(gen, value, type_renderer))
     return prepare_value(
         gen,
         node,
@@ -175,7 +176,7 @@ def prepare_normal_value(
         owns_result=lambda value: bool(
             id(value) not in gen.context.owning_overrides and gen.ownership.owns_result(value)
         ),
-        render_type=type_to_c,
+        render_type=type_renderer.render,
     )
 
 

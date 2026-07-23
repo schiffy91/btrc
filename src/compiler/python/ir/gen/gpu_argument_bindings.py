@@ -1,9 +1,7 @@
 """Source bindings and lifetime facts for GPU arguments."""
 
-from .types import type_to_c
 
-
-def argument_c_type(parameter_type, argument_type, render_type=type_to_c) -> str:
+def argument_c_type(parameter_type, argument_type, render_type) -> str:
     effective = argument_type or parameter_type
     return render_type(effective) if effective is not None else "int"
 

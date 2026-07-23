@@ -10,7 +10,6 @@ from src.compiler.python.ast_nodes import Program, TypeExpr
 from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.gen.lowerer import IRLowerer
 from src.compiler.python.ir.gen.lowering_context import LoweringContext
-from src.compiler.python.ir.gen.types import type_to_c
 from src.compiler.python.ir.nodes import IRModule
 
 
@@ -28,6 +27,7 @@ def _generator(
         class_table={},
     )
     generator = IRLowerer(analyzed)
+    renderer = generator.type_renderer
     callback_type = TypeExpr(
         base="__fn_ptr",
         generic_args=[
@@ -37,17 +37,17 @@ def _generator(
     )
 
     def register_callback_type():
-        type_to_c(callback_type)
+        renderer.render(callback_type)
         if barrier is not None:
             barrier.wait(timeout=10)
         if fail:
             raise RuntimeError("forced lowering failure")
 
-    # Exercise the real translation-unit scope in generate(), while keeping
+    # Exercise the real translation-unit owner in lower(), while keeping
     # this regression independent of semantic-analyzer implementation details.
     generator._emit_forward_decls = register_callback_type
     if repeat_in_declarations:
-        generator._emit_declarations = lambda: type_to_c(callback_type)
+        generator._emit_declarations = lambda: renderer.render(callback_type)
     return generator
 
 
@@ -102,6 +102,37 @@ def test_function_pointer_typedef_is_emitted_once_across_generation_phases():
 
     assert len(module.function_pointer_typedefs) == 1
     assert _typedef_shapes(module) == {("int", ("int",))}
+
+
+def test_nested_compiler_run_cannot_disturb_outer_typedef_registry():
+    outer = _generator("int", "int")
+    inner = _generator("bool", "string")
+    second_outer_type = TypeExpr(
+        base="__fn_ptr",
+        generic_args=[TypeExpr(base="double"), TypeExpr(base="long")],
+    )
+    inner_module = None
+
+    def lower_nested_compiler():
+        nonlocal inner_module
+        outer.type_renderer.render(
+            TypeExpr(
+                base="__fn_ptr",
+                generic_args=[TypeExpr(base="int"), TypeExpr(base="int")],
+            )
+        )
+        inner_module = inner.lower()
+        outer.type_renderer.render(second_outer_type)
+
+    outer._emit_forward_decls = lower_nested_compiler
+    outer_module = outer.lower()
+
+    assert _typedef_shapes(outer_module) == {
+        ("int", ("int",)),
+        ("double", ("long",)),
+    }
+    assert inner_module is not None
+    assert _typedef_shapes(inner_module) == {("bool", ("char*",))}
 
 
 def test_nested_operand_scopes_restore_missing_and_explicit_none_values():

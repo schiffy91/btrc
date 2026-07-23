@@ -9,7 +9,7 @@ from ....type_identity import generic_instance_key, type_references_names
 from ...nodes import IRStructDef, IRStructForward
 from ..arc_metadata import arc_header_field
 from ..class_storage_fields import lower_instance_storage_field
-from ..types import mangle_generic_type, type_to_c
+from ..types import mangle_generic_type
 from .core import _resolve_type
 from .user_emitter import _UserGenericEmitter
 from .user_methods import _emit_user_generic_methods
@@ -52,7 +52,13 @@ def _register_if_generic(gen: IRLowerer, t: TypeExpr, unresolved=()):
             instances.append(args_tuple)
 
 
-def _emit_user_generic_instance(gen: IRLowerer, base_name: str, args: list[TypeExpr], seen: set | None = None):
+def _emit_user_generic_instance(
+    gen: IRLowerer,
+    base_name: str,
+    args: list[TypeExpr],
+    type_renderer,
+    seen: set | None = None,
+):
     """Emit a user-defined generic class instance (struct + methods).
 
     The `seen` set tracks already-emitted mangled names. When field types
@@ -84,7 +90,13 @@ def _emit_user_generic_instance(gen: IRLowerer, base_name: str, args: list[TypeE
                     dep_mangled = mangle_generic_type(resolved.base, list(resolved.generic_args))
                     if dep_mangled not in seen:
                         seen.add(dep_mangled)
-                        _emit_user_generic_instance(gen, resolved.base, list(resolved.generic_args), seen)
+                        _emit_user_generic_instance(
+                            gen,
+                            resolved.base,
+                            list(resolved.generic_args),
+                            type_renderer,
+                            seen,
+                        )
 
     # Transitive dependencies may be discovered after the initial declaration
     # pass, so register their typed struct forward on demand.
@@ -98,7 +110,7 @@ def _emit_user_generic_instance(gen: IRLowerer, base_name: str, args: list[TypeE
     bound_emitter = _UserGenericEmitter(
         type_map,
         mangled,
-        type_to_c,
+        type_renderer,
         gen=gen,
         cls_info=cls_info,
     )
@@ -113,10 +125,19 @@ def _emit_user_generic_instance(gen: IRLowerer, base_name: str, args: list[TypeE
                 gen,
                 name,
                 resolved,
+                type_renderer,
                 bound_lowerer=bound_emitter._expr,
             )
         )
     gen.module.struct_defs.append(IRStructDef(name=mangled, fields=fields))
 
     # Emit constructor, destructor, and methods
-    _emit_user_generic_methods(gen, base_name, mangled, args, type_map, cls_info)
+    _emit_user_generic_methods(
+        gen,
+        base_name,
+        mangled,
+        args,
+        type_map,
+        cls_info,
+        type_renderer,
+    )

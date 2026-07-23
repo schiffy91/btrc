@@ -86,6 +86,7 @@ def prepare_gpu_arguments(
                     bound_nodes,
                     stable_overrides,
                     values,
+                    host.type_renderer,
                 )
         else:
             if ir_args is None:
@@ -112,7 +113,7 @@ def prepare_gpu_arguments(
         c_type_text = argument_c_type(
             parameter.type,
             argument_type,
-            host.render_type,
+            host.type_renderer.render,
         )
         declaration_node = IRVarDecl(
             c_type=CType(text=c_type_text),

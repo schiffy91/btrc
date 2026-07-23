@@ -33,13 +33,17 @@ from ..nodes import (
     IRVarDecl,
 )
 from .parameters import lower_source_param, source_binding_c_name
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def lower_lambda(gen: IRLowerer, node: LambdaExpr) -> IRFunctionRef:
+def lower_lambda(
+    gen: IRLowerer,
+    node: LambdaExpr,
+    type_renderer: CTypeRenderer,
+) -> IRFunctionRef:
     """Lower a lambda expression to a static function + capture struct.
 
     Returns a structured function-name reference for function-pointer use.
@@ -54,7 +58,7 @@ def lower_lambda(gen: IRLowerer, node: LambdaExpr) -> IRFunctionRef:
     if has_captures:
         cap_fields = []
         for cap in node.captures:
-            c_type = type_to_c(cap.type) if cap.type else "int"
+            c_type = type_renderer.render(cap.type) if cap.type else "int"
             cap_fields.append(
                 IRStructField(
                     c_type=CType(text=c_type),
@@ -71,7 +75,13 @@ def lower_lambda(gen: IRLowerer, node: LambdaExpr) -> IRFunctionRef:
     # Build function params
     params = []
     for p in node.params:
-        params.append(lower_source_param(p, analyzed=gen.analyzed))
+        params.append(
+            lower_source_param(
+                p,
+                type_renderer.render,
+                analyzed=gen.analyzed,
+            )
+        )
     # Add void* env parameter only when there are captures.
     # The typedef doesn't include void*, so captured lambdas are called
     # directly by name (bypassing the function pointer) with the env arg.
@@ -82,7 +92,7 @@ def lower_lambda(gen: IRLowerer, node: LambdaExpr) -> IRFunctionRef:
     # body needs both for return coercion/ARC; passing only node.return_type
     # loses inferred lambda returns because that annotation remains None.
     return_type = resolved_lambda_return_type(gen, node)
-    ret_type = type_to_c(return_type) if return_type else "void"
+    ret_type = type_renderer.render(return_type) if return_type else "void"
 
     # Build body
     body_stmts = []
@@ -97,7 +107,7 @@ def lower_lambda(gen: IRLowerer, node: LambdaExpr) -> IRFunctionRef:
             )
         )
         for cap in node.captures:
-            c_type = type_to_c(cap.type) if cap.type else "int"
+            c_type = type_renderer.render(cap.type) if cap.type else "int"
             body_stmts.append(
                 IRVarDecl(
                     c_type=CType(text=c_type),
@@ -136,6 +146,7 @@ def lower_lambda(gen: IRLowerer, node: LambdaExpr) -> IRFunctionRef:
                 local_bindings=local_bindings,
                 callable_bindings=node.params,
                 callable_abis=capture_abis,
+                type_renderer=type_renderer,
             )
             body_stmts.extend(block.stmts)
         elif isinstance(node.body, LambdaExprBody) and node.body.expression:
@@ -166,6 +177,7 @@ def lower_lambda(gen: IRLowerer, node: LambdaExpr) -> IRFunctionRef:
                             line=node.body.expression.line,
                             col=node.body.expression.col,
                         ),
+                        type_renderer,
                     )
                 )
             finally:
@@ -238,16 +250,29 @@ def resolved_lambda_return_type(gen: IRLowerer, node: LambdaExpr):
     return None
 
 
-def lower_immediate_lambda_call(gen: IRLowerer, node: LambdaExpr, ast_args, arg_names) -> IRExpr:
+def lower_immediate_lambda_call(
+    gen: IRLowerer,
+    node: LambdaExpr,
+    ast_args,
+    arg_names,
+    type_renderer: CTypeRenderer,
+) -> IRExpr:
     """Lift and immediately invoke ``node``, preserving its capture env."""
-    lower_lambda(gen, node)
+    lower_lambda(gen, node, type_renderer)
     lambda_id = gen._last_lambda_id
     fn_name = f"__btrc_lambda_{lambda_id}"
 
     from .arguments import lower_arg_values, order_args_for_params
 
-    args = lower_arg_values(gen, ast_args)
-    args = order_args_for_params(gen, node.params, ast_args, arg_names, args)
+    args = lower_arg_values(gen, ast_args, type_renderer)
+    args = order_args_for_params(
+        gen,
+        node.params,
+        ast_args,
+        arg_names,
+        type_renderer,
+        args,
+    )
     if not node.captures:
         return IRCall(callee=fn_name, args=args)
 

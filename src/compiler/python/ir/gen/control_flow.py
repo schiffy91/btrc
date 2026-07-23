@@ -21,13 +21,18 @@ from ..nodes import (
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
+    from .types import CTypeRenderer
 
 # Re-export iteration lowering so statements.py can import from one place
 from .iterations import _lower_c_for, _lower_for_in, _lower_range_for  # noqa: F401
 from .try_control import _lower_throw, _lower_try_catch  # noqa: F401
 
 
-def _lower_if(gen: IRLowerer, node: IfStmt) -> IRIf:
+def _lower_if(
+    gen: IRLowerer,
+    node: IfStmt,
+    type_renderer: CTypeRenderer,
+) -> IRIf:
     from .callable_provenance import (
         join_callable_flows,
         lower_isolated_callable_flow,
@@ -35,11 +40,15 @@ def _lower_if(gen: IRLowerer, node: IfStmt) -> IRIf:
     )
     from .statements import lower_block
 
-    cond = _lower_expr(gen, node.condition)
+    cond = _lower_expr(gen, node.condition, type_renderer)
     incoming = snapshot_callable_flow(gen)
     then, then_flow = lower_isolated_callable_flow(
         gen,
-        lambda: lower_block(gen, node.then_block),
+        lambda: lower_block(
+            gen,
+            node.then_block,
+            type_renderer=type_renderer,
+        ),
     )
     else_block = None
     else_flow = incoming
@@ -47,20 +56,32 @@ def _lower_if(gen: IRLowerer, node: IfStmt) -> IRIf:
         if isinstance(node.else_block, ElseBlock):
             else_block, else_flow = lower_isolated_callable_flow(
                 gen,
-                lambda: lower_block(gen, node.else_block.body),
+                lambda: lower_block(
+                    gen,
+                    node.else_block.body,
+                    type_renderer=type_renderer,
+                ),
             )
         elif isinstance(node.else_block, ElseIf):
             # Chain: else if → IRIf inside an else block
             inner, else_flow = lower_isolated_callable_flow(
                 gen,
-                lambda: _lower_if(gen, node.else_block.if_stmt),
+                lambda: _lower_if(
+                    gen,
+                    node.else_block.if_stmt,
+                    type_renderer,
+                ),
             )
             else_block = IRBlock(stmts=[inner])
     join_callable_flows(gen, then_flow, else_flow)
     return IRIf(condition=cond, then_block=then, else_block=else_block)
 
 
-def _lower_switch(gen: IRLowerer, node: SwitchStmt) -> IRSwitch:
+def _lower_switch(
+    gen: IRLowerer,
+    node: SwitchStmt,
+    type_renderer: CTypeRenderer,
+) -> IRSwitch:
     from .arc import _emit_scope_release
     from .callable_provenance import (
         begin_callable_scope,
@@ -73,7 +94,7 @@ def _lower_switch(gen: IRLowerer, node: SwitchStmt) -> IRSwitch:
     from .cleanup_scopes import cleanup_scope_entry, cleanup_scope_exit
     from .statements import lower_stmt
 
-    val = _lower_expr(gen, node.value)
+    val = _lower_expr(gen, node.value, type_renderer)
     incoming = snapshot_callable_flow(gen)
     cases = []
     case_flows = []
@@ -81,7 +102,7 @@ def _lower_switch(gen: IRLowerer, node: SwitchStmt) -> IRSwitch:
     gen.push_control_context("switch")
     try:
         for c in node.cases:
-            case_val = _lower_expr(gen, c.value) if c.value else None
+            case_val = _lower_expr(gen, c.value, type_renderer) if c.value else None
 
             restore_callable_flow(gen, incoming)
             if fallthrough_flow is not None:
@@ -97,7 +118,7 @@ def _lower_switch(gen: IRLowerer, node: SwitchStmt) -> IRSwitch:
                 managed_scope_active = True
                 try:
                     for statement in case.body:
-                        case_stmts.extend(lower_stmt(gen, statement))
+                        case_stmts.extend(lower_stmt(gen, statement, type_renderer))
                     from ..completion import (
                         sequence_may_fall_through,
                         sequence_references_variable,
@@ -146,19 +167,24 @@ def _lower_switch(gen: IRLowerer, node: SwitchStmt) -> IRSwitch:
     return IRSwitch(value=val, cases=cases)
 
 
-def _lower_delete(gen: IRLowerer, node: DeleteStmt) -> list[IRStmt]:
+def _lower_delete(
+    gen: IRLowerer,
+    node: DeleteStmt,
+    type_renderer: CTypeRenderer,
+) -> list[IRStmt]:
     """Lower delete through the shared take-clear destruction boundary."""
     from .managed_local import mark_borrowed_cycle_seeds
     from .manual_destruction import lower_taken_delete
     from .persistent_slots import stabilize_persistent_slot
 
     mark_borrowed_cycle_seeds(gen._managed_vars_stack)
-    target = _lower_expr(gen, node.expr)
+    target = _lower_expr(gen, node.expr, type_renderer)
     obj_type = gen.analyzed.node_types.get(id(node.expr))
     target, edge_owner, owner_decls = stabilize_persistent_slot(
         gen,
         node.expr,
         target,
+        render_type=type_renderer.render,
         prefix="__btrc_delete_owner",
     )
     return [
@@ -167,13 +193,14 @@ def _lower_delete(gen: IRLowerer, node: DeleteStmt) -> list[IRStmt]:
             gen,
             target,
             obj_type,
+            type_renderer,
             edge_owner=edge_owner,
         ),
     ]
 
 
-def _lower_expr(gen, node):
+def _lower_expr(gen, node, type_renderer):
     """Convenience wrapper to avoid circular import at module level."""
     from .expressions import lower_expr
 
-    return lower_expr(gen, node)
+    return lower_expr(gen, node, type_renderer)

@@ -41,6 +41,7 @@ def build_boundary_ownership(emitter, lowerer):
         lowerer.lifetime,
         CallBoundaryLowerer(context, lowerer.lifetime),
         _GenericExpressionLowerer(emitter),
+        emitter._type_renderer,
     )
 
 

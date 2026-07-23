@@ -30,7 +30,7 @@ def _gen_and_inits(src):
 def test_lower_nonempty_list_literal_infers_vector():
     gen, inits = _gen_and_inits("int main() { var xs = [1, 2, 3]; return 0; }")
     lit = next(i for i in inits if isinstance(i, ListLiteral))
-    call = lower_list_literal(gen, lit)
+    call = lower_list_literal(gen, lit, gen.type_renderer)
     assert "Vector" in str(call)
 
 
@@ -38,7 +38,7 @@ def test_lower_empty_list_literal_falls_back():
     gen, inits = _gen_and_inits("int main() { var xs = []; return 0; }")
     lits = [i for i in inits if isinstance(i, ListLiteral)]
     if lits:
-        call = lower_list_literal(gen, lits[0])
+        call = lower_list_literal(gen, lits[0], gen.type_renderer)
         assert "Vector" in str(call)
 
 
@@ -46,7 +46,7 @@ def test_lower_nonempty_map_literal_infers_map():
     gen, inits = _gen_and_inits('int main() { var m = {"a": 1, "b": 2}; return 0; }')
     lits = [i for i in inits if isinstance(i, MapLiteral)]
     if lits:
-        call = lower_map_literal(gen, lits[0])
+        call = lower_map_literal(gen, lits[0], gen.type_renderer)
         assert "Map" in str(call)
 
 
@@ -54,5 +54,5 @@ def test_lower_empty_map_literal_falls_back():
     gen, inits = _gen_and_inits("int main() { Map<string, int> m = {}; return 0; }")
     lits = [i for i in inits if isinstance(i, MapLiteral)]
     if lits:
-        call = lower_map_literal(gen, lits[0])
+        call = lower_map_literal(gen, lits[0], gen.type_renderer)
         assert "Map" in str(call)

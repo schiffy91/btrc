@@ -12,7 +12,6 @@ from .operator_context import (
     OperatorLoweringContext,
     canonical_operator_type,
 )
-from .types import type_to_c
 
 
 def lower_numeric_operation(
@@ -26,7 +25,7 @@ def lower_numeric_operation(
     result_type = numeric_result_type(left_type, right_type, context.enum_names)
     if result_type is None:
         raise TypedOperatorError(f"cannot resolve numeric result type for operator '{operator}'")
-    target = CType(text=type_to_c(result_type))
+    target = CType(text=context.type_renderer.render(result_type))
     if (
         left_type is not None
         and right_type is not None
@@ -54,7 +53,7 @@ def lower_numeric_comparison(
         raise TypedOperatorError(f"cannot resolve numeric result type for operator '{operator}'")
     if left_type is not None and right_type is not None and left_type.base == right_type.base:
         return IRBinOp(left=left, op=operator, right=right)
-    target = CType(text=type_to_c(result_type))
+    target = CType(text=context.type_renderer.render(result_type))
     return IRBinOp(
         left=IRCast(target_type=target, expr=left),
         op=operator,
@@ -75,7 +74,7 @@ def lower_checked_divmod(
     result_type = numeric_result_type(left_type, right_type, context.enum_names)
     if result_type is None:
         raise TypedOperatorError("cannot resolve divmod result type")
-    target = CType(text=type_to_c(result_type))
+    target = CType(text=context.type_renderer.render(result_type))
     helper = "__btrc_mod" if operator == "%" else "__btrc_div"
     if context.use_helper is not None:
         context.use_helper(helper)
@@ -107,7 +106,7 @@ def lower_typed_ternary(
         and false_type is not None
         and numeric_operands_need_cast(true_type, false_type, context.enum_names)
     ):
-        target = CType(text=type_to_c(result_type))
+        target = CType(text=context.type_renderer.render(result_type))
         true_expr = IRCast(target_type=target, expr=true_expr)
         false_expr = IRCast(target_type=target, expr=false_expr)
     return IRTernary(

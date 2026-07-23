@@ -9,7 +9,7 @@ from .default_argument_context import (
 )
 from .evaluation_order import borrowed_value_can_be_pinned
 from .projection_storage import evaluate_with_operand_overrides
-from .types import type_to_c
+from .types import CTypeRenderer
 
 
 class CallOperandPlanner:
@@ -22,12 +22,14 @@ class CallOperandPlanner:
         resolver,
         arguments,
         hosted_results,
+        type_renderer: CTypeRenderer,
     ) -> None:
         self.context = context
         self.ownership = ownership
         self.resolver = resolver
         self.arguments = arguments
         self.hosted_results = hosted_results
+        self.type_renderer = type_renderer
 
     def plan(
         self,
@@ -344,12 +346,12 @@ class CallOperandPlanner:
                     node=argument,
                     type_expr=type_expr,
                     c_type=(
-                        type_to_c(type_expr)
+                        self.type_renderer.render(type_expr)
                         if prepared is not None or lower_with_overrides is not None
                         else self.ownership.order.operand_c_type(
                             argument,
                             type_expr,
-                            render=type_to_c,
+                            render=self.type_renderer.render,
                         )
                     ),
                     keep=keep,

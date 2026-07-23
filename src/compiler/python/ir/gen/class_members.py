@@ -31,13 +31,18 @@ from .managed_values import (
     unlink_edge_value,
 )
 from .parameters import lower_source_param, source_binding_c_name
-from .types import type_to_c
+from .types import CTypeRenderer
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def emit_destructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> str | None:
+def emit_destructor(
+    gen: IRLowerer,
+    decl: ClassDecl,
+    cls_info: ClassInfo,
+    type_renderer: CTypeRenderer,
+) -> str | None:
     """Emit ClassName_destroy(self) which frees internal resources."""
     name = decl.name
     dtor = cls_info.methods.get("__del__")
@@ -55,7 +60,12 @@ def emit_destructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> str
         try:
             hook = build_destructor_hook(
                 name,
-                lower_block(gen, dtor.body, local_bindings=["self"]),
+                lower_block(
+                    gen,
+                    dtor.body,
+                    local_bindings=["self"],
+                    type_renderer=type_renderer,
+                ),
             )
         finally:
             gen.current_return_type = previous_return_type
@@ -77,7 +87,14 @@ def emit_destructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> str
         # Generic class fields use their compiler-owned terminal destructor;
         # source lifecycle behavior is explicit in an isolated ``__del__`` hook.
         if is_managed_type(gen, fd.type):
-            body_stmts.append(_emit_field_release(gen, fname, fd.type))
+            body_stmts.append(
+                _emit_field_release(
+                    gen,
+                    fname,
+                    fd.type,
+                    type_renderer,
+                )
+            )
             has_owned_field_cleanup = has_owned_field_cleanup or is_arc_type(gen, fd.type)
 
     # Mark cascade destruction before freeing. The helper itself checks the
@@ -107,7 +124,12 @@ def emit_destructor(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo) -> str
     return destructor_hook_symbol(name) if hook is not None else None
 
 
-def emit_method(gen: IRLowerer, decl: ClassDecl, method: MethodDecl):
+def emit_method(
+    gen: IRLowerer,
+    decl: ClassDecl,
+    method: MethodDecl,
+    type_renderer: CTypeRenderer,
+):
     """Emit ClassName_methodname(self, ...) as a free function."""
     name = decl.name
     is_static = method.access == "class"
@@ -115,9 +137,15 @@ def emit_method(gen: IRLowerer, decl: ClassDecl, method: MethodDecl):
     if not is_static:
         params.append(IRParam(c_type=CType(text=f"{name}*"), name="self"))
     for p in method.params:
-        params.append(lower_source_param(p, analyzed=gen.analyzed))
+        params.append(
+            lower_source_param(
+                p,
+                type_renderer.render,
+                analyzed=gen.analyzed,
+            )
+        )
 
-    ret_type = type_to_c(method.return_type) if method.return_type else "void"
+    ret_type = type_renderer.render(method.return_type) if method.return_type else "void"
 
     body = IRBlock()
     if method.body:
@@ -135,6 +163,7 @@ def emit_method(gen: IRLowerer, decl: ClassDecl, method: MethodDecl):
             method.body,
             local_bindings=["self", *(parameter.name for parameter in method.params)],
             callable_bindings=method.params,
+            type_renderer=type_renderer,
         )
         gen.current_return_type = previous_return_type
         gen.current_return_c_type = previous_return_c_type
@@ -150,7 +179,13 @@ def emit_method(gen: IRLowerer, decl: ClassDecl, method: MethodDecl):
     )
 
 
-def emit_inherited_methods(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo, own_methods: set[str]):
+def emit_inherited_methods(
+    gen: IRLowerer,
+    decl: ClassDecl,
+    cls_info: ClassInfo,
+    own_methods: set[str],
+    type_renderer: CTypeRenderer,
+):
     """Emit wrapper functions for inherited methods not overridden."""
     parent_name = cls_info.parent
     while parent_name and parent_name in gen.analyzed.class_table:
@@ -172,9 +207,15 @@ def emit_inherited_methods(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo,
                     )
                 )
             for p in method.params:
-                params.append(lower_source_param(p, analyzed=gen.analyzed))
+                params.append(
+                    lower_source_param(
+                        p,
+                        type_renderer.render,
+                        analyzed=gen.analyzed,
+                    )
+                )
                 call_args.append(IRVar(name=source_binding_c_name(p.name, gen.analyzed)))
-            ret_type = type_to_c(method.return_type) if method.return_type else "void"
+            ret_type = type_renderer.render(method.return_type) if method.return_type else "void"
             call = IRCall(callee=f"{parent_name}_{mname}", args=call_args)
             if ret_type == "void":
                 body = IRBlock(stmts=[IRExprStmt(expr=call)])
@@ -191,7 +232,12 @@ def emit_inherited_methods(gen: IRLowerer, decl: ClassDecl, cls_info: ClassInfo,
         parent_name = parent_info.parent
 
 
-def _emit_field_release(gen, field_name: str, field_type) -> IRBlock:
+def _emit_field_release(
+    gen,
+    field_name: str,
+    field_type,
+    type_renderer: CTypeRenderer,
+) -> IRBlock:
     """Release one internal field without a reentrant collector flush."""
     fa = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
     if is_arc_type(gen, field_type):
@@ -204,6 +250,7 @@ def _emit_field_release(gen, field_name: str, field_type) -> IRBlock:
                         IRLiteral(text="NULL"),
                         field_type,
                         IRVar(name="self"),
+                        type_renderer,
                         adopt=False,
                     )
                 )
@@ -213,7 +260,7 @@ def _emit_field_release(gen, field_name: str, field_type) -> IRBlock:
     return IRBlock(
         stmts=[
             IRVarDecl(
-                c_type=CType(text=type_to_c(field_type)),
+                c_type=CType(text=type_renderer.render(field_type)),
                 name=old_name,
                 init=fa,
             ),

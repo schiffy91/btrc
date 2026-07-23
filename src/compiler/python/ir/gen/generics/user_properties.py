@@ -143,6 +143,7 @@ def _setter_body(gen, emitter, prop, resolved, property_c, backing, value_name):
                         IRVar(name=value_name),
                         resolved,
                         IRVar(name="self"),
+                        emitter._type_renderer,
                         adopt=False,
                     )
                 )

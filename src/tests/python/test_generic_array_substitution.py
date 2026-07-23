@@ -10,7 +10,7 @@ import pytest
 
 from src.compiler.python.ast_nodes import IntLiteral, TypeExpr
 from src.compiler.python.ir.gen.generics.core import _resolve_type
-from src.compiler.python.ir.gen.types import type_to_c
+from src.compiler.python.ir.gen.types import CTypeRenderer
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -113,8 +113,9 @@ def test_generic_array_layout_retains_the_mapped_element_type(
     )
     element = replace(storage, is_array=False, array_size=None)
 
-    assert type_to_c(storage) == storage_c
-    assert type_to_c(element) == element_c
+    renderer = CTypeRenderer()
+    assert renderer.render(storage) == storage_c
+    assert renderer.render(element) == element_c
 
 
 @pytest.mark.skipif(

@@ -16,21 +16,27 @@ from .errors import CodegenError
 from .mutex_values import create_mutex_value
 from .printf_args import adapt_printf_arg
 from .type_resolution import canonical_type
-from .types import format_spec_for_type, is_string_type
+from .types import CTypeRenderer, is_string_type
 
 if TYPE_CHECKING:
     from .lowerer import IRLowerer
 
 
-def lower_print(gen: IRLowerer, args: list, lowered_args: list):
+def lower_print(
+    gen: IRLowerer,
+    args: list,
+    lowered_args: list,
+    type_renderer: CTypeRenderer,
+):
     """Lower ``print`` to one typed ``printf`` call."""
     from .expressions import lower_expr
 
     return lower_typed_print(
         gen,
         args,
-        lower_value=lambda arg: lower_expr(gen, arg),
+        lower_value=lambda arg: lower_expr(gen, arg, type_renderer),
         resolve_type=lambda arg: gen.analyzed.node_types.get(id(arg)),
+        type_renderer=type_renderer,
         lowered_values=lowered_args,
     )
 
@@ -41,6 +47,7 @@ def lower_typed_print(
     *,
     lower_value,
     resolve_type,
+    type_renderer: CTypeRenderer,
     lowered_values=None,
 ):
     """Lower print with caller-provided value and concrete-type resolution."""
@@ -57,7 +64,7 @@ def lower_typed_print(
             resolve_type(arg),
             gen.analyzed.typedef_table,
         )
-        fmt = format_spec_for_type(arg_type)
+        fmt = type_renderer.format_spec(arg_type)
         boundary_type = arg_type
 
         if has_to_string(gen.analyzed, arg_type):
@@ -74,7 +81,13 @@ def lower_typed_print(
                 if isinstance(callee, FieldAccessExpr) and callee.field in _STRING_METHODS:
                     fmt = "%s"
 
-        adapted = adapt_printf_arg(gen, ir_arg, boundary_type, fmt)
+        adapted = adapt_printf_arg(
+            gen,
+            ir_arg,
+            boundary_type,
+            fmt,
+            type_renderer,
+        )
         formats.append(adapted.format_spec)
         ir_args.append(adapted.value)
 
@@ -120,6 +133,7 @@ def lower_mutex_constructor(
     gen: IRLowerer,
     ast_args,
     ir_args,
+    type_renderer: CTypeRenderer,
     value_type=None,
 ):
     """Lower ``Mutex(value)`` to the opaque runtime handle constructor."""
@@ -132,4 +146,5 @@ def lower_mutex_constructor(
         gen,
         ir_args[0],
         value_type,
+        type_renderer,
     )
