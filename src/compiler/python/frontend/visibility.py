@@ -8,12 +8,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from typing import Any
 
 from .. import ast_nodes as ast
-from ..source_macros import (
-    source_macro_name,
-    source_macro_replacement_identifiers,
-    source_macro_replacement_member_identifiers,
-    source_symbol_directive,
-)
+from ..source_macros import SourceSymbolDirective
 from .dependencies import SourceDependencyGraph
 
 _NAMED_DECLS = (
@@ -242,7 +237,8 @@ class ImportVisibilityChecker:
         }
         for declaration in self.program.declarations:
             if isinstance(declaration, ast.PreprocessorDirective):
-                name = source_macro_name(declaration.text) or ""
+                directive = SourceSymbolDirective.parse(declaration.text)
+                name = directive.name if directive is not None and directive.operation == "define" else ""
             elif isinstance(declaration, _NAMED_DECLS):
                 name = self._decl_name(declaration)
             else:
@@ -265,13 +261,13 @@ class ImportVisibilityChecker:
 
     @staticmethod
     def _macro_references(declaration: ast.PreprocessorDirective) -> list[ImportReference]:
-        directive = source_symbol_directive(declaration.text)
+        directive = SourceSymbolDirective.parse(declaration.text)
         if directive is None:
             return []
-        members = set(source_macro_replacement_member_identifiers(directive))
+        members = set(directive.replacement_member_identifiers())
         return [
             ImportReference(name, declaration.line or 1, declaration.col or 1)
-            for name in source_macro_replacement_identifiers(directive)
+            for name in directive.replacement_identifiers()
             if name not in members
         ]
 

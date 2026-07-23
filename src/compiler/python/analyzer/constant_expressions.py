@@ -155,7 +155,7 @@ class ConstantExpressionMixin:
         return True, self.declarations.enum_constant_values.get((owner, expression.field))
 
     def _is_constant_macro_name(self, name) -> bool:
-        return name in self.declarations.source_macro_names or (name.isupper() and name != "NULL")
+        return self.declarations.source_macros.declared(name) or (name.isupper() and name != "NULL")
 
     def _character_constant_value(self, raw):
         return self.numeric_literals.decode_character(raw)

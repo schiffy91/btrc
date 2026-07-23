@@ -20,6 +20,7 @@ from ...ast_nodes import (
     VarDeclStmt,
 )
 from ...class_storage import instance_storage_name
+from ...source_macros import SourceMacroNamespace
 from ...type_identity import TypeIdentity
 from ..analysis_context import AnalysisContext
 from ..core_models import AnalyzedProgram, ClassInfo, InterfaceInfo, Scope
@@ -51,8 +52,7 @@ class DeclarationRegistry:
         self.rich_enum_table: dict[str, RichEnumDecl] = {}
         self.declared_type_names: set[str] = set()
         self.top_level_kinds: dict[str, str] = {}
-        self.source_macro_names: set[str] = set()
-        self.source_macro_definitions: dict[str, object] = {}
+        self.source_macros = SourceMacroNamespace.empty()
         self.enum_member_owners: dict[str, set[str]] = {}
         self.enum_constant_values: dict[tuple[str, str], int | None] = {}
         self.global_declarations: dict[str, object] = {}

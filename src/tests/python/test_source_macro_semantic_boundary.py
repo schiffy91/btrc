@@ -7,8 +7,7 @@ import pytest
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.source_macro_queries import source_macro_expands_to_any
-from src.compiler.python.source_macros import source_symbol_directive
+from src.compiler.python.source_macros import SourceMacroNamespace, SourceSymbolDirective
 
 
 def _errors(source: str) -> list[str]:
@@ -119,13 +118,48 @@ def test_undef_removes_the_final_active_definition() -> None:
 
 
 def test_context_identifier_query_is_transitive_and_cycle_safe() -> None:
-    outer = source_symbol_directive("#define OUTER() INNER()")
-    inner = source_symbol_directive("#define INNER() __LINE__")
-    left = source_symbol_directive("#define LEFT() RIGHT()")
-    right = source_symbol_directive("#define RIGHT() LEFT()")
+    outer = SourceSymbolDirective.parse("#define OUTER() INNER()")
+    inner = SourceSymbolDirective.parse("#define INNER() __LINE__")
+    left = SourceSymbolDirective.parse("#define LEFT() RIGHT()")
+    right = SourceSymbolDirective.parse("#define RIGHT() LEFT()")
     assert outer is not None and inner is not None
     assert left is not None and right is not None
-    definitions = {item.name: item for item in (outer, inner, left, right)}
+    namespace = SourceMacroNamespace(
+        (item.name for item in (outer, inner, left, right)),
+        {item.name: item for item in (outer, inner, left, right)},
+    )
 
-    assert source_macro_expands_to_any("OUTER", definitions, frozenset({"__LINE__"}))
-    assert not source_macro_expands_to_any("LEFT", definitions, frozenset({"__LINE__"}))
+    assert namespace.expands_to_any("OUTER", frozenset({"__LINE__"}))
+    assert not namespace.expands_to_any("LEFT", frozenset({"__LINE__"}))
+
+
+@pytest.mark.parametrize(
+    ("definition", "invocation", "expectation"),
+    (
+        ("#define ID(value) (value)", "ID()", "expects 1 argument(s) but got 0"),
+        ("#define ID(value) (value)", "ID(1, 2)", "expects 1 argument(s) but got 2"),
+        ("#define ZERO() 0", "ZERO(1)", "expects 0 argument(s) but got 1"),
+        (
+            "#define SUM(first, ...) ((first) + (__VA_ARGS__))",
+            "SUM(1)",
+            "expects at least 2 argument(s) but got 1",
+        ),
+    ),
+)
+def test_function_like_source_macro_arity_is_validated(
+    definition: str,
+    invocation: str,
+    expectation: str,
+) -> None:
+    errors = _errors(f"{definition}\nint main() {{ return {invocation}; }}")
+    assert any(expectation in error for error in errors)
+
+
+def test_valid_fixed_and_variadic_source_macro_arities_remain_valid() -> None:
+    source = """
+        #define ZERO() 0
+        #define ID(value) (value)
+        #define SUM(first, ...) ((first) + (__VA_ARGS__))
+        int main() { return ZERO() + ID(1) + SUM(2, 3); }
+    """
+    assert _errors(source) == []

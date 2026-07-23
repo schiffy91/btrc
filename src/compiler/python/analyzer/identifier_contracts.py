@@ -62,7 +62,7 @@ class IdentifierContractsMixin:
                 expression.col,
             )
             return
-        if name in self.declarations.source_macro_names or name in _KNOWN_C_GLOBALS:
+        if self.declarations.source_macros.declared(name) or name in _KNOWN_C_GLOBALS:
             return
         if validate_constructor_default_member(
             self,

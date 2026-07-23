@@ -1,7 +1,5 @@
 """Semantic boundaries specific to source default arguments."""
 
-from ..source_macro_queries import source_macro_expands_to_any
-
 _CONTEXT_SENSITIVE_PREDEFINED = frozenset({"__func__", "__LINE__", "__FILE__"})
 
 
@@ -10,10 +8,8 @@ def validate_default_macro_context(analyzer, identifier) -> None:
 
     if not analyzer._analyzing_parameter_default:
         return
-    definitions = analyzer.declarations.source_macro_definitions
-    if not source_macro_expands_to_any(
+    if not analyzer.declarations.source_macros.expands_to_any(
         identifier.name,
-        definitions,
         _CONTEXT_SENSITIVE_PREDEFINED,
     ):
         return

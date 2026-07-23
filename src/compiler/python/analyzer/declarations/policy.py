@@ -50,7 +50,7 @@ class DeclarationPolicy:
     ) -> bool:
         if not name:
             return True
-        if name in self.registry.source_macro_names:
+        if self.registry.source_macros.declared(name):
             self.context.error(
                 f"{subject} name '{name}' collides with source macro '{name}'",
                 line,

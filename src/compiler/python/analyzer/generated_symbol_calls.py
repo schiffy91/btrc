@@ -11,11 +11,7 @@ from ..hosted_abi import (
     hosted_owned_name,
     hosted_raw_lifetime_arity,
 )
-from ..source_macros import (
-    source_macro_replacement_identifiers,
-    source_macro_uses_token_paste,
-    source_symbol_directive,
-)
+from ..source_macros import SourceSymbolDirective
 from ..source_runtime_symbols import (
     is_compiler_owned_symbol,
     is_source_runtime_helper,
@@ -119,7 +115,7 @@ def validate_generated_symbol_references(analyzer, program, claims) -> None:
 
 
 def _validate_preprocessor_symbols(analyzer, declaration, claims) -> None:
-    directive = source_symbol_directive(declaration.text)
+    directive = SourceSymbolDirective.parse(declaration.text)
     if directive is None:
         return
     if directive.operation == "undef":
@@ -131,13 +127,13 @@ def _validate_preprocessor_symbols(analyzer, declaration, claims) -> None:
             claims,
         )
         return
-    if source_macro_uses_token_paste(directive):
+    if directive.uses_token_paste():
         analyzer.context.error(
             f"Source macro '{directive.name}' uses token pasting, which can construct compiler-owned C symbols",
             declaration.line,
             declaration.col,
         )
-    for identifier in source_macro_replacement_identifiers(directive):
+    for identifier in directive.replacement_identifiers():
         _validate_macro_replacement_symbol(
             analyzer,
             identifier,
@@ -167,11 +163,8 @@ def _validate_macro_replacement_symbol(
             declaration.line,
             declaration.col,
         )
-    from .source_macro_contracts import validate_macro_replacement_language_symbol
-
-    validate_macro_replacement_language_symbol(
-        analyzer,
-        source_symbol_directive(declaration.text),
+    analyzer._validate_macro_replacement_language_symbol(
+        SourceSymbolDirective.parse(declaration.text),
         symbol,
         declaration,
     )

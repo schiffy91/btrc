@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from ...hosted_abi import hosted_owned_name
 from ..core_models import SymbolInfo
 from .enums import EnumRegistrar
-from .source_macros import collect_source_macros
+from .source_macros import SourceMacroDeclarations
 
 if TYPE_CHECKING:
     from .registry import DeclarationRegistry
@@ -18,6 +18,7 @@ class TopLevelRegistrar:
     def __init__(self, registry: DeclarationRegistry) -> None:
         self.registry = registry
         self.enums = EnumRegistrar(registry, self)
+        self.source_macros = SourceMacroDeclarations(registry.context)
 
     @property
     def context(self):
@@ -30,9 +31,8 @@ class TopLevelRegistrar:
     def initialize(self, program) -> None:
         registry = self.registry
         registry.top_level_kinds = {}
-        registry.source_macro_names, registry.source_macro_definitions = collect_source_macros(
+        registry.source_macros = self.source_macros.collect(
             self.context.declarations(program),
-            self.context,
         )
         registry.enum_member_owners = {}
         registry.enum_constant_values = {}

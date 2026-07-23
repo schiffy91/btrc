@@ -14,7 +14,7 @@ from ..numeric_literals import NumericLiteralSemantics
 from ..parser.parser import Parser
 from ..pipeline.models import StdlibSource
 from ..pkg import IncludeResolutionError
-from ..source_macros import source_macro_name
+from ..source_macros import SourceSymbolDirective
 from ..stdlib_ast_cache import StdlibAstCache
 from .dependencies import SourceDependencyGraph
 from .source_io import SourceDirectiveScanner, SourceFileReader, SourceReadError
@@ -190,8 +190,8 @@ class StdlibRepository:
     @staticmethod
     def _declaration_names(declaration) -> tuple[str, ...]:
         if isinstance(declaration, ast.PreprocessorDirective):
-            name = source_macro_name(declaration.text)
-            return (name,) if name else ()
+            directive = SourceSymbolDirective.parse(declaration.text)
+            return (directive.name,) if directive is not None and directive.operation == "define" else ()
         if isinstance(declaration, ast.TypedefDecl):
             return (declaration.alias,) if declaration.alias else ()
         if isinstance(

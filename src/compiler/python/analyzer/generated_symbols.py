@@ -41,7 +41,7 @@ class GeneratedSymbolContractsMixin:
                 line,
                 col,
             )
-        if symbol in self.declarations.source_macro_names:
+        if self.declarations.source_macros.declared(symbol):
             self.context.error(
                 f"Generated C symbol '{symbol}' for {owner} collides with source macro '{symbol}'",
                 line,
@@ -58,7 +58,7 @@ class GeneratedSymbolContractsMixin:
             claims[symbol] = owner
 
     def _reject_generated_member_macro(self, symbol, owner, line, col) -> None:
-        if symbol in self.declarations.source_macro_names:
+        if self.declarations.source_macros.declared(symbol):
             self.context.error(
                 f"Generated C member '{symbol}' for {owner} collides with source macro '{symbol}'",
                 line,
