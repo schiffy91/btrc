@@ -26,7 +26,8 @@ void lowerOwnedReturn(IRGen generator, Node statement,
     PreparedValue prepared = prepareTargetValue(
         generator, expression, returnType, varTypes);
     IRNode value = prepared.value;
-    bool managedValue = irManagedType(generator, returnType);
+    bool managedValue = generator.managedValues.isManaged(
+        generator.resolveBodyType(returnType));
     bool managedReturn = managedValue
         && generator.currentReturnOwned;
     bool expressionOwned = managedValue
@@ -75,8 +76,9 @@ void lowerOwnedReturn(IRGen generator, Node statement,
         /* A destructor in the release batch may throw across this return.
          * Register the in-flight owned result so longjmp cannot strand it.
          * Returned managed locals already own registered source slots. */
-        string runtimeType = irManagedRuntimeType(
-            generator, returnType);
+        string runtimeType =
+            generator.managedValues.runtimeType(
+                generator.resolveBodyType(returnType));
         generator.maybeRegisterCleanup(
             temporaryName,
             irManagedCleanupSymbol(generator, runtimeType),

@@ -1,184 +1,204 @@
-/* Typed cleanup-slot registration and take-and-clear adapter generation. */
+/* Per-generation typed cleanup-slot registration and adapter ownership. */
 
-void cleanupSlotContractFail(string message) {
-    fprintf(stderr, "internal compiler error: %s\n", message);
-    abortGen();
-}
+class CleanupSlotRegistry {
+    private Map<string, string> cleanupTakeAdapters;
+    private Map<string, string> arcSlotAdapters;
+    private Map<string, string> mutexValueAdapters;
+    private Vector<IRFunction> adapterDefinitions;
+    private int nextSite;
+    private bool finalized;
 
-IRNode requireCleanupSlotDeclaration(Vector<IRNode> statements,
-        string name) {
-    int index = statements.len - 1;
-    while (index >= 0) {
-        IRNode statement = statements.get(index);
-        if (statement.kind == IRK_VAR_DECL && statement.name == name) {
-            return statement;
+    public CleanupSlotRegistry() {
+        self.cleanupTakeAdapters = {};
+        self.arcSlotAdapters = {};
+        self.mutexValueAdapters = {};
+        self.adapterDefinitions = [];
+        self.nextSite = 0;
+        self.finalized = false;
+    }
+
+    private void fail(string message) {
+        fprintf(stderr, "internal compiler error: %s\n", message);
+        abortGen();
+    }
+
+    public IRNode requireDeclaration(
+            Vector<IRNode> statements, string name) {
+        int index = statements.len - 1;
+        while (index >= 0) {
+            IRNode statement = statements.get(index);
+            if (statement.kind == IRK_VAR_DECL
+                    && statement.name == name) {
+                return statement;
+            }
+            index = index - 1;
         }
-        index = index - 1;
+        self.fail(
+            "cleanup registration has no preceding declaration: " + name);
+        return irVarDecl("void*", name, null);
     }
-    cleanupSlotContractFail(
-        "cleanup registration has no preceding declaration: " + name);
-    return irVarDecl("void*", name, null);
-}
 
-IRFunction cleanupTakeAdapter(string name, string slotType) {
-    string pointerType = slotType + " volatile*";
-    IRFunction definition = IRFunction();
-    definition.name = name;
-    definition.return_type = "void*";
-    definition.is_static = true;
-    definition.params.push(IRParam("void*", "raw_slot"));
-    Vector<IRNode> body = [];
-    body.push(irVarDecl(pointerType, "typed_slot",
-        irCast(pointerType, irVar("raw_slot"))));
-    body.push(irVarDecl(slotType, "value",
-        irDeref(irVar("typed_slot"))));
-    body.push(irAssign(
-        irDeref(irVar("typed_slot")), irLiteral("NULL")));
-    body.push(irReturn(irCast("void*", irVar("value"))));
-    definition.body = irBlock(body);
-    return definition;
-}
-
-string ensureCleanupTakeAdapter(IRGen generator, string slotType) {
-    if (generator.cleanupTakeAdapters.has(slotType)) {
-        return generator.cleanupTakeAdapters.get(slotType);
+    private IRFunction takeAdapter(string name, string slotType) {
+        string pointerType = slotType + " volatile*";
+        IRFunction definition = IRFunction();
+        definition.name = name;
+        definition.return_type = "void*";
+        definition.is_static = true;
+        definition.params.push(IRParam("void*", "raw_slot"));
+        Vector<IRNode> body = [];
+        body.push(irVarDecl(pointerType, "typed_slot",
+            irCast(pointerType, irVar("raw_slot"))));
+        body.push(irVarDecl(slotType, "value",
+            irDeref(irVar("typed_slot"))));
+        body.push(irAssign(
+            irDeref(irVar("typed_slot")), irLiteral("NULL")));
+        body.push(irReturn(irCast("void*", irVar("value"))));
+        definition.body = irBlock(body);
+        return definition;
     }
-    string name = "__btrc_cleanup_take_" + Strings.fromInt(
-        generator.cleanupTakeAdapterDefinitions.len + 1);
-    generator.cleanupTakeAdapters.put(slotType, name);
-    generator.cleanupTakeAdapterDefinitions.push(
-        cleanupTakeAdapter(name, slotType));
-    return name;
-}
 
-IRFunction arcSlotAccessAdapter(string name, string slotType) {
-    string pointerType = slotType + " volatile*";
-    IRFunction definition = IRFunction();
-    definition.name = name;
-    definition.return_type = "void*";
-    definition.is_static = true;
-    definition.params.push(IRParam("volatile void*", "raw_slot"));
-    definition.params.push(IRParam("void*", "expected"));
-    definition.params.push(IRParam("void*", "replacement"));
-    definition.params.push(IRParam("int", "replace_if_equal"));
-    Vector<IRNode> body = [];
-    body.push(irVarDecl(pointerType, "typed_slot",
-        irCast(pointerType, irVar("raw_slot"))));
-    body.push(irVarDecl(slotType, "current",
-        irDeref(irVar("typed_slot"))));
-    Vector<IRNode> clearBody = [];
-    clearBody.push(irAssign(
-        irDeref(irVar("typed_slot")),
-        irCast(slotType, irVar("replacement"))));
-    body.push(irIf(irBinOp(
-        irBinOp(irVar("replace_if_equal"), "!=", irLiteral("0")),
-        "&&",
-        irBinOp(irVar("current"), "==",
-            irCast(slotType, irVar("expected")))),
-        irBlock(clearBody), null));
-    body.push(irReturn(irCast("void*", irVar("current"))));
-    definition.body = irBlock(body);
-    return definition;
-}
-
-string ensureArcSlotAdapter(IRGen generator, string slotType) {
-    if (generator.arcSlotAdapters.has(slotType)) {
-        return generator.arcSlotAdapters.get(slotType);
-    }
-    string name = "__btrc_arc_slot_access_" + Strings.fromInt(
-        generator.arcSlotAdapters.len + 1);
-    generator.arcSlotAdapters.put(slotType, name);
-    generator.cleanupTakeAdapterDefinitions.push(
-        arcSlotAccessAdapter(name, slotType));
-    return name;
-}
-
-IRFunction mutexValueAccessAdapter(string name, string valueType) {
-    IRFunction definition = IRFunction();
-    definition.name = name;
-    definition.return_type = "void*";
-    definition.is_static = true;
-    definition.params.push(IRParam("const void*", "raw_storage"));
-    Vector<IRNode> body = [];
-    body.push(irReturn(irCast("void*", irDeref(irCast(
-        valueType + " const*", irVar("raw_storage"))))));
-    definition.body = irBlock(body);
-    return definition;
-}
-
-string ensureMutexValueAdapter(IRGen generator, string valueType) {
-    if (generator.mutexValueAdapters.has(valueType)) {
-        return generator.mutexValueAdapters.get(valueType);
-    }
-    string name = "__btrc_mutex_value_access_" + Strings.fromInt(
-        generator.mutexValueAdapters.len + 1);
-    generator.mutexValueAdapters.put(valueType, name);
-    generator.cleanupTakeAdapterDefinitions.push(
-        mutexValueAccessAdapter(name, valueType));
-    return name;
-}
-
-IRNode registerCleanupSlot(IRGen generator, IRNode declaration,
-        IRNode cleanupFunction, IRNode? visitor, bool direct) {
-    if (declaration.kind != IRK_VAR_DECL || declaration.is_static
-            || declaration.is_extern || declaration.is_array_decl) {
-        cleanupSlotContractFail(
-            "cleanup registration requires an automatic pointer object");
-    }
-    string adapter = ensureCleanupTakeAdapter(
-        generator, declaration.c_type);
-    IRCleanupSlot metadata = declaration.cleanup_slot;
-    if (metadata == null) {
-        generator.cleanupSlotCounter = generator.cleanupSlotCounter + 1;
-        metadata = IRCleanupSlot(generator.cleanupSlotCounter,
-            declaration.name, declaration.c_type, adapter);
-        declaration.cleanup_slot = metadata;
-    } else if (metadata.name != declaration.name
-            || metadata.c_type != declaration.c_type
-            || metadata.take_function != adapter) {
-        cleanupSlotContractFail(
-            "conflicting cleanup metadata for " + declaration.name);
-    }
-    declaration.is_volatile = true;
-
-    string helper = "__btrc_register_cleanup";
-    if (direct) { helper = "__btrc_register_direct_cleanup"; }
-    generator.useHelper(helper);
-    Vector<IRNode> arguments = [];
-    arguments.push(irCast(
-        "void*", irAddressOf(irVar(declaration.name))));
-    arguments.push(irFunctionRef(adapter));
-    arguments.push(cleanupFunction);
-    if (!direct) {
-        if (visitor == null) {
-            cleanupSlotContractFail(
-                "managed cleanup registration requires a visitor");
+    public string ensureTakeAdapter(string slotType) {
+        if (self.cleanupTakeAdapters.has(slotType)) {
+            return self.cleanupTakeAdapters.get(slotType);
         }
-        arguments.push(visitor);
+        string name = "__btrc_cleanup_take_" + Strings.fromInt(
+            self.adapterDefinitions.len + 1);
+        self.cleanupTakeAdapters.put(slotType, name);
+        self.adapterDefinitions.push(
+            self.takeAdapter(name, slotType));
+        return name;
     }
-    IRNode call = irCall(helper, arguments);
-    call.helper_ref = helper;
-    call.cleanup_slot = metadata;
-    return call;
-}
 
-void finalizeCleanupTakeAdapters(IRGen generator, IRModule module) {
-    if (generator.cleanupTakeAdaptersFinalized) {
-        cleanupSlotContractFail("cleanup adapters finalized more than once");
+    private IRFunction arcSlotAccessAdapter(
+            string name, string slotType) {
+        string pointerType = slotType + " volatile*";
+        IRFunction definition = IRFunction();
+        definition.name = name;
+        definition.return_type = "void*";
+        definition.is_static = true;
+        definition.params.push(IRParam("volatile void*", "raw_slot"));
+        definition.params.push(IRParam("void*", "expected"));
+        definition.params.push(IRParam("void*", "replacement"));
+        definition.params.push(IRParam("int", "replace_if_equal"));
+        Vector<IRNode> body = [];
+        body.push(irVarDecl(pointerType, "typed_slot",
+            irCast(pointerType, irVar("raw_slot"))));
+        body.push(irVarDecl(slotType, "current",
+            irDeref(irVar("typed_slot"))));
+        Vector<IRNode> clearBody = [];
+        clearBody.push(irAssign(
+            irDeref(irVar("typed_slot")),
+            irCast(slotType, irVar("replacement"))));
+        body.push(irIf(irBinOp(
+            irBinOp(irVar("replace_if_equal"), "!=", irLiteral("0")),
+            "&&",
+            irBinOp(irVar("current"), "==",
+                irCast(slotType, irVar("expected")))),
+            irBlock(clearBody), null));
+        body.push(irReturn(irCast("void*", irVar("current"))));
+        definition.body = irBlock(body);
+        return definition;
     }
-    generator.cleanupTakeAdaptersFinalized = true;
-    if (generator.cleanupTakeAdapterDefinitions.len == 0) { return; }
-    Vector<IRFunction> definitions = [];
-    int index = 0;
-    while (index < generator.cleanupTakeAdapterDefinitions.len) {
-        definitions.push(
-            generator.cleanupTakeAdapterDefinitions.get(index));
-        index = index + 1;
+
+    public string ensureArcSlotAdapter(string slotType) {
+        if (self.arcSlotAdapters.has(slotType)) {
+            return self.arcSlotAdapters.get(slotType);
+        }
+        string name = "__btrc_arc_slot_access_" + Strings.fromInt(
+            self.arcSlotAdapters.len + 1);
+        self.arcSlotAdapters.put(slotType, name);
+        self.adapterDefinitions.push(
+            self.arcSlotAccessAdapter(name, slotType));
+        return name;
     }
-    index = 0;
-    while (index < module.functions.len) {
-        definitions.push(module.functions.get(index));
-        index = index + 1;
+
+    private IRFunction mutexValueAccessAdapter(
+            string name, string valueType) {
+        IRFunction definition = IRFunction();
+        definition.name = name;
+        definition.return_type = "void*";
+        definition.is_static = true;
+        definition.params.push(IRParam(
+            "const void*", "raw_storage"));
+        Vector<IRNode> body = [];
+        body.push(irReturn(irCast("void*", irDeref(irCast(
+            valueType + " const*", irVar("raw_storage"))))));
+        definition.body = irBlock(body);
+        return definition;
     }
-    module.functions = definitions;
+
+    public string ensureMutexValueAdapter(string valueType) {
+        if (self.mutexValueAdapters.has(valueType)) {
+            return self.mutexValueAdapters.get(valueType);
+        }
+        string name = "__btrc_mutex_value_access_" + Strings.fromInt(
+            self.mutexValueAdapters.len + 1);
+        self.mutexValueAdapters.put(valueType, name);
+        self.adapterDefinitions.push(
+            self.mutexValueAccessAdapter(name, valueType));
+        return name;
+    }
+
+    public IRNode registerSlot(IRGen generator, IRNode declaration,
+            IRNode cleanupFunction, IRNode? visitor, bool direct) {
+        if (declaration.kind != IRK_VAR_DECL || declaration.is_static
+                || declaration.is_extern || declaration.is_array_decl) {
+            self.fail(
+                "cleanup registration requires an automatic pointer object");
+        }
+        string adapter = self.ensureTakeAdapter(declaration.c_type);
+        IRCleanupSlot metadata = declaration.cleanup_slot;
+        if (metadata == null) {
+            self.nextSite = self.nextSite + 1;
+            metadata = IRCleanupSlot(self.nextSite,
+                declaration.name, declaration.c_type, adapter);
+            declaration.cleanup_slot = metadata;
+        } else if (metadata.name != declaration.name
+                || metadata.c_type != declaration.c_type
+                || metadata.take_function != adapter) {
+            self.fail(
+                "conflicting cleanup metadata for " + declaration.name);
+        }
+        declaration.is_volatile = true;
+
+        string helper = "__btrc_register_cleanup";
+        if (direct) { helper = "__btrc_register_direct_cleanup"; }
+        generator.useHelper(helper);
+        Vector<IRNode> arguments = [];
+        arguments.push(irCast(
+            "void*", irAddressOf(irVar(declaration.name))));
+        arguments.push(irFunctionRef(adapter));
+        arguments.push(cleanupFunction);
+        if (!direct) {
+            if (visitor == null) {
+                self.fail(
+                    "managed cleanup registration requires a visitor");
+            }
+            arguments.push(visitor);
+        }
+        IRNode call = irCall(helper, arguments);
+        call.helper_ref = helper;
+        call.cleanup_slot = metadata;
+        return call;
+    }
+
+    public void finalize(IRModule module) {
+        if (self.finalized) {
+            self.fail("cleanup adapters finalized more than once");
+        }
+        self.finalized = true;
+        if (self.adapterDefinitions.len == 0) { return; }
+        Vector<IRFunction> definitions = [];
+        int index = 0;
+        while (index < self.adapterDefinitions.len) {
+            definitions.push(self.adapterDefinitions.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < module.functions.len) {
+            definitions.push(module.functions.get(index));
+            index = index + 1;
+        }
+        module.functions = definitions;
+    }
 }

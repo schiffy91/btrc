@@ -7,6 +7,7 @@
 class SemanticValidationState {
     public Analyzed analyzed;
     public OperatorSemantics operators;
+    public CycleMetadata cycles;
     public Node? returnType;
     public string owner;
     public Map<string, bool> typeParams;
@@ -41,9 +42,11 @@ class SemanticValidationState {
     public bool inParameterDefault;
 
     public SemanticValidationState(
-            Analyzed analyzed, OperatorSemantics operators) {
+            Analyzed analyzed, OperatorSemantics operators,
+            CycleMetadata cycles) {
         self.analyzed = analyzed;
         self.operators = operators;
+        self.cycles = cycles;
         self.returnType = null;
         self.owner = "";
         self.typeParams = {};

@@ -62,13 +62,15 @@ void appendInstanceFieldInitializers(IRGen generator, Node declaration,
                 generator, field.initializer, fieldType, variables);
             IRNode target = irFieldAccess(
                 irVar("self"), storage, true);
-            if (irManagedArcType(generator, fieldType)) {
+            if (generator.managedValues.isArc(
+                    generator.resolveBodyType(fieldType))) {
                 body.push(irExprStmt(irManagedReplaceEdge(
                     generator, target, prepared.value, fieldType,
                     irVar("self"), prepared.owned)));
             } else {
                 body.push(irAssign(target, prepared.value));
-                if (irManagedType(generator, fieldType)) {
+                if (generator.managedValues.isManaged(
+                        generator.resolveBodyType(fieldType))) {
                     if (prepared.owned) {
                         body.push(irExprStmt(irManagedAdoptEdge(
                             generator, target, fieldType,

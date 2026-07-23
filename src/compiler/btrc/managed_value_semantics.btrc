@@ -1,0 +1,100 @@
+/* Per-compilation classification and emitted identities for managed values. */
+
+class ManagedValueSemantics {
+    private Analyzed analyzed;
+
+    public ManagedValueSemantics(Analyzed analyzed) {
+        self.analyzed = analyzed;
+    }
+
+    private Node canonical(Node? typeExpr) {
+        Node? resolved = resolveOuterTypedefType(
+            typeExpr, self.analyzed.typedefTable);
+        if (resolved == null) { return makePrimType("void"); }
+        return resolved;
+    }
+
+    public string stringRuntimeType() {
+        return "__btrc_managed_string";
+    }
+
+    public string mutexRuntimeType() {
+        return "__btrc_managed_mutex";
+    }
+
+    public bool isString(Node? typeExpr) {
+        if (typeExpr == null) { return false; }
+        return isStringType(self.canonical(typeExpr));
+    }
+
+    public bool isClass(Node? typeExpr) {
+        if (typeExpr == null) { return false; }
+        Node resolved = self.canonical(typeExpr);
+        int depth = resolved.pointer_depth;
+        if (TypeComposition.nullableCollapsesReferenceLayer(
+                resolved, false)) {
+            depth = depth - 1;
+        }
+        /* Substitution can add an indirection: inside Vector<T>, the template
+         * field T* resolves to Item** for T = Item*. Raw backing storage is not
+         * a managed Item value. */
+        if (resolved.is_array || depth > 1) { return false; }
+        return self.analyzed.isClass(resolved.base)
+            || (resolved.generic_args.len > 0
+                && self.analyzed.isGenericClass(resolved.base));
+    }
+
+    public bool isMutex(Node? typeExpr) {
+        if (typeExpr == null) { return false; }
+        Node resolved = self.canonical(typeExpr);
+        int depth = resolved.pointer_depth;
+        if (TypeComposition.nullableCollapsesReferenceLayer(
+                resolved, true)) {
+            depth = depth - 1;
+        }
+        return !resolved.is_array
+            && depth == 0
+            && resolved.base == "Mutex"
+            && resolved.generic_args.len == 1;
+    }
+
+    public bool isArc(Node? typeExpr) {
+        return self.isClass(typeExpr) || self.isMutex(typeExpr);
+    }
+
+    public bool isManaged(Node? typeExpr) {
+        return self.isString(typeExpr) || self.isArc(typeExpr);
+    }
+
+    public string runtimeType(Node typeExpr) {
+        Node resolved = self.canonical(typeExpr);
+        if (isStringType(resolved)) { return self.stringRuntimeType(); }
+        if (self.isMutex(resolved)) { return self.mutexRuntimeType(); }
+        if (resolved.generic_args.len > 0
+                && self.analyzed.isGenericClass(resolved.base)) {
+            return TypeIdentity.mangleGenericType(
+                resolved.base, resolved.generic_args);
+        }
+        return resolved.base;
+    }
+
+    public string runtimeCType(string runtimeType) {
+        if (runtimeType == self.stringRuntimeType()) {
+            return "const char*";
+        }
+        if (runtimeType == self.mutexRuntimeType()) {
+            return "__btrc_mutex_val_t*";
+        }
+        return "struct " + runtimeType + "*";
+    }
+
+    public string cleanupSymbol(string runtimeType) {
+        if (runtimeType == self.stringRuntimeType()) {
+            return "__btrc_string_release_cleanup";
+        }
+        if (runtimeType == self.mutexRuntimeType()) {
+            return "__btrc_mutex_arc_destroy";
+        }
+        return runtimeType + "_destroy";
+    }
+}

@@ -16,7 +16,8 @@ class IRRawProjectionContextBuilder {
         Node? typeExpr = self.generator.resolvedExpressionType(
             expression, self.varTypes);
         context.recordExpression(expression, typeExpr,
-            irManagedType(self.generator, typeExpr),
+            self.generator.managedValues.isManaged(
+                self.generator.resolveBodyType(typeExpr)),
             self.generator.owningTempOverrides.has(astNodeKey(expression)));
         if (expression.kind == NK_CALL_EXPR
                 && expression.callee != null

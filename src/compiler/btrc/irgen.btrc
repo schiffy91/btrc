@@ -210,6 +210,7 @@ class ScopeSnapshot {
     public Vector<string> controls;
     public Vector<int> controlManagedStarts;
     public Vector<string> cleanupMarkers;
+    public Vector<string> activeCleanupMarkers;
     public Vector<int> controlCleanupStarts;
     public string retC;
     public Node? retType;
@@ -235,6 +236,7 @@ class ScopeSnapshot {
         self.controls = [];
         self.controlManagedStarts = [];
         self.cleanupMarkers = [];
+        self.activeCleanupMarkers = [];
         self.controlCleanupStarts = [];
         self.retC = "";
         self.retType = null;
@@ -254,6 +256,9 @@ class ScopeSnapshot {
 class IRGen {
     public Analyzed analyzed;
     public OperatorSemantics operators;
+    public ManagedValueSemantics managedValues;
+    public CycleMetadata cycles;
+    public CleanupSlotRegistry cleanupSlots;
     public CallableBoundaryPolicy callableBoundaries;
     public CallableFlowState callableFlow;
     public AssignmentLowerer assignments;
@@ -271,11 +276,6 @@ class IRGen {
     /* Cached once at module entry. Allocating constructor wrappers need an
      * exception cleanup guard only when this translation unit can throw. */
     public bool programHasExceptions;
-    /* The analyzed class/generic graph is immutable during IR generation.
-     * Cache both positive and negative cycle queries so each runtime type's
-     * reachability graph is traversed at most once. */
-    public Map<string, bool> cyclableRuntimeTypeKnown;
-    public Map<string, bool> cyclableRuntimeTypeValues;
     /* ARC managed-variable tracking. `managedStack` is a flat list of all
      * currently-live managed vars across nested scopes; `scopeStarts` records
      * the index in managedStack where each open scope began (so a scope's vars
@@ -421,14 +421,6 @@ class IRGen {
      * Mirrors generator._func_var_decls + control_flow._lower_try_catch. */
     public Vector<IRNode> funcVarDecls;
 
-    /* One structured take-and-clear adapter per concrete cleanup-slot C type. */
-    public Map<string, string> cleanupTakeAdapters;
-    public Map<string, string> arcSlotAdapters;
-    public Map<string, string> mutexValueAdapters;
-    public Vector<IRFunction> cleanupTakeAdapterDefinitions;
-    public int cleanupSlotCounter;
-    public bool cleanupTakeAdaptersFinalized;
-
     /* Context for lowering explicit enum initializers. Bare references to an
      * earlier member must stay qualified even when the same spelling appears
      * in another enum and is therefore ambiguous program-wide. */
@@ -437,10 +429,14 @@ class IRGen {
     public Map<string, bool> enumLoweringMembers;
 
     public IRGen(Analyzed analyzed, OperatorSemantics operators,
+            ManagedValueSemantics managedValues, CycleMetadata cycles,
             string sourceFile,
             int stdlibLineCount, Vector<FeLine> userLines) {
         self.analyzed = analyzed;
         self.operators = operators;
+        self.managedValues = managedValues;
+        self.cycles = cycles;
+        self.cleanupSlots = CleanupSlotRegistry();
         self.callableBoundaries = CallableBoundaryPolicy(analyzed);
         self.callableFlow = CallableFlowState();
         self.assignments = AssignmentLowerer(
@@ -455,8 +451,6 @@ class IRGen {
         self.usedHelpers = {};
         self.dceEnabled = true;
         self.programHasExceptions = false;
-        self.cyclableRuntimeTypeKnown = {};
-        self.cyclableRuntimeTypeValues = {};
         self.managedStack = [];
         self.scopeStarts = [];
         self.borrowedLocalBindings = {};
@@ -507,12 +501,6 @@ class IRGen {
         self.fnPtrEnvFn = {};
         self.fnPtrEnvVar = {};
         self.funcVarDecls = [];
-        self.cleanupTakeAdapters = {};
-        self.arcSlotAdapters = {};
-        self.mutexValueAdapters = {};
-        self.cleanupTakeAdapterDefinitions = [];
-        self.cleanupSlotCounter = 0;
-        self.cleanupTakeAdaptersFinalized = false;
         self.inEnumInitializer = false;
         self.enumLoweringOwner = "";
         self.enumLoweringMembers = {};
@@ -927,6 +915,14 @@ class IRGen {
             snap.cleanupMarkers.push(self.cleanupMarkers.get(cm));
             cm = cm + 1;
         }
+        Vector<string> activeMarkers =
+            self.activeCleanupMarkers.keys();
+        int activeMarkerIndex = 0;
+        while (activeMarkerIndex < activeMarkers.len) {
+            snap.activeCleanupMarkers.push(
+                activeMarkers.get(activeMarkerIndex));
+            activeMarkerIndex = activeMarkerIndex + 1;
+        }
         int k = 0;
         while (k < self.funcVarDecls.len) {
             snap.funcVarDecls.push(self.funcVarDecls.get(k));
@@ -959,6 +955,13 @@ class IRGen {
         while (self.controlContext.len > 0) { self.controlContext.pop(); }
         while (self.controlManagedStarts.len > 0) { self.controlManagedStarts.pop(); }
         while (self.cleanupMarkers.len > 0) { self.cleanupMarkers.pop(); }
+        activeMarkers = self.activeCleanupMarkers.keys();
+        activeMarkerIndex = 0;
+        while (activeMarkerIndex < activeMarkers.len) {
+            self.activeCleanupMarkers.remove(
+                activeMarkers.get(activeMarkerIndex));
+            activeMarkerIndex = activeMarkerIndex + 1;
+        }
         while (self.controlCleanupStarts.len > 0) { self.controlCleanupStarts.pop(); }
         while (self.funcVarDecls.len > 0) { self.funcVarDecls.pop(); }
         self.clearClosureEnvs();
@@ -984,6 +987,14 @@ class IRGen {
         while (self.controlContext.len > 0) { self.controlContext.pop(); }
         while (self.controlManagedStarts.len > 0) { self.controlManagedStarts.pop(); }
         while (self.cleanupMarkers.len > 0) { self.cleanupMarkers.pop(); }
+        Vector<string> activeMarkers =
+            self.activeCleanupMarkers.keys();
+        int activeMarkerIndex = 0;
+        while (activeMarkerIndex < activeMarkers.len) {
+            self.activeCleanupMarkers.remove(
+                activeMarkers.get(activeMarkerIndex));
+            activeMarkerIndex = activeMarkerIndex + 1;
+        }
         while (self.controlCleanupStarts.len > 0) { self.controlCleanupStarts.pop(); }
         int i = 0;
         while (i < snap.managed.len) {
@@ -1014,6 +1025,14 @@ class IRGen {
         while (cm < snap.cleanupMarkers.len) {
             self.cleanupMarkers.push(snap.cleanupMarkers.get(cm));
             cm = cm + 1;
+        }
+        activeMarkerIndex = 0;
+        while (activeMarkerIndex
+                < snap.activeCleanupMarkers.len) {
+            string marker =
+                snap.activeCleanupMarkers.get(activeMarkerIndex);
+            self.activeCleanupMarkers.put(marker, true);
+            activeMarkerIndex = activeMarkerIndex + 1;
         }
         while (self.funcVarDecls.len > 0) { self.funcVarDecls.pop(); }
         int k = 0;
@@ -1047,21 +1066,22 @@ class IRGen {
     public void maybeRegisterCleanup(string varName, string destroyFn,
             string clsName, Vector<IRNode> stmts) {
         if (!self.programHasExceptions) { return; }
-        if (clsName == irManagedStringRuntimeType()) {
+        if (clsName == self.managedValues.stringRuntimeType()) {
             self.maybeRegisterDirectCleanup(varName, destroyFn, stmts);
             return;
         }
         self.markCleanupRegistration();
-        IRNode declaration = requireCleanupSlotDeclaration(
+        IRNode declaration = self.cleanupSlots.requireDeclaration(
             stmts, varName);
         /* Pass the exact layout visitor so a throw can traverse owned fields.
          * Layouts without outgoing managed edges pass NULL. */
         IRNode visitor = irLiteral("NULL");
-        string visitorSymbol = managedVisitorSymbol(self, clsName);
+        string visitorSymbol = self.cycles.visitorSymbol(clsName);
         if (visitorSymbol != "") {
             visitor = irFunctionRef(visitorSymbol);
         }
-        stmts.push(irExprStmt(registerCleanupSlot(self, declaration,
+        stmts.push(irExprStmt(self.cleanupSlots.registerSlot(
+            self, declaration,
             irFunctionRef(destroyFn), visitor, false)));
     }
 
@@ -1069,10 +1089,11 @@ class IRGen {
             Vector<IRNode> stmts) {
         if (!self.programHasExceptions) { return; }
         self.markCleanupRegistration();
-        IRNode declaration = requireCleanupSlotDeclaration(
+        IRNode declaration = self.cleanupSlots.requireDeclaration(
             stmts, varName);
         self.useHelper(cleanupFn);
-        stmts.push(irExprStmt(registerCleanupSlot(self, declaration,
+        stmts.push(irExprStmt(self.cleanupSlots.registerSlot(
+            self, declaration,
             irFunctionRef(cleanupFn), null, true)));
     }
 
@@ -1168,6 +1189,7 @@ class IRGen {
          * generation run under contextual type environments, so they must not
          * inherit the final body memo from an earlier generate() call. */
         disableExpressionInferenceMemo(self.analyzed);
+        self.cleanupSlots = CleanupSlotRegistry();
         IRModule m = IRModule();
         self.curModule = m;
         self.packAlignments = declarationPackAlignments(prog);
@@ -1185,9 +1207,9 @@ class IRGen {
         self.emitMethodGenericInstances(m);
         self.emitDeclarations(prog, m);
         self.emitFunctionPointerTypedefs(m);
-        finalizeCleanupTakeAdapters(self, m);
+        self.cleanupSlots.finalize(m);
         applySetjmpVolatility(m);
-        validateCleanupSlots(m);
+        CleanupSlotValidator(m).validate();
         /* Stage 5 — reachability DCE (functions then structs), then helpers.
          * Mirrors optimizer.optimize: dead helpers are pruned via usedHelpers
          * tracking in collectHelpers (called last). */
@@ -1831,7 +1853,7 @@ class IRGen {
         m.functions.push(dFn);
         emitGenericCycleVisitor(self, inst, decl, typeMap, m);
         emitArcDescriptor(self, m, mangled,
-            genericInstanceNeedsVisitor(self.analyzed, inst),
+            self.cycles.genericInstanceNeedsVisitor(inst),
             hasDestructorHook);
 
         /* --- methods --- */
@@ -1870,7 +1892,7 @@ class IRGen {
                     isPublicCollectionBase(inst.base)
                     && mem.access == "public";
                 bool topologyCollection = isPublicCollectionBase(inst.base)
-                    && genericInstanceNeedsVisitor(self.analyzed, inst);
+                    && self.cycles.genericInstanceNeedsVisitor(inst);
                 self.batchExplicitReleases = publicCollectionMethod;
                 Vector<IRNode> mbody = [];
                 if (mem.body_node != null) {
@@ -2008,8 +2030,8 @@ class IRGen {
         if (isPublicCollectionBase(inst.classBase)) {
             GenInstance ownerInstance = GenInstance(
                 inst.classBase, inst.classArgs, selfMangled);
-            topologyCollection = genericInstanceNeedsVisitor(
-                self.analyzed, ownerInstance);
+            topologyCollection =
+                self.cycles.genericInstanceNeedsVisitor(ownerInstance);
         }
         self.batchExplicitReleases = publicCollectionMethod;
         self.collectionEdgeKeeps = isPublicCollectionBase(inst.classBase);
@@ -2122,7 +2144,8 @@ class IRGen {
             if (storage != "") {
                 Node rt = resolveGenericType(
                     mem.type, typeMap, self.analyzed);
-                if (irManagedType(self, rt)) {
+                if (self.managedValues.isManaged(
+                        self.resolveBodyType(rt))) {
                     body.push(self.fieldReleaseStmt(storage, rt));
                     emitted = true;
                 }
@@ -2143,7 +2166,7 @@ class IRGen {
         self.emitConstructor(decl, m);
         bool hasDestructorHook = self.emitDestructor(decl, m);
         emitArcDescriptor(self, m, decl.name,
-            classNeedsCycleVisitor(self, decl.name),
+            self.cycles.classNeedsVisitor(decl.name),
             hasDestructorHook);
 
         /* Own methods + properties (skip constructor + __del__). */
@@ -2484,7 +2507,7 @@ class IRGen {
         /* ARC: cycle-detection visitor for cyclable classes (after the dtor so
          * the visitor's forward use of {name}_destroy is already declared).
          * Mirrors classes._emit_visitor, gated on is_cyclable. */
-        if (classNeedsCycleVisitor(self, name)) {
+        if (self.cycles.classNeedsVisitor(name)) {
             self.emitVisitor(name, m);
         }
         return dtor != null && dtor.kind == NK_METHOD_DECL
@@ -2499,7 +2522,7 @@ class IRGen {
     public void emitVisitor(string name, IRModule m) {
         self.useHelper("__btrc_arc_callback_types");
         IRFunctionDecl visitorDeclaration = IRFunctionDecl(
-            cycleVisitorName(name), "void", true);
+            self.cycles.visitorName(name), "void", true);
         visitorDeclaration.params.push(IRParam("void*", "object"));
         visitorDeclaration.params.push(IRParam(
             "__btrc_field_visit_fn", "fn"));
@@ -2507,7 +2530,7 @@ class IRGen {
         m.function_decls.push(visitorDeclaration);
 
         IRFunction fn = IRFunction();
-        fn.name = cycleVisitorName(name);
+        fn.name = self.cycles.visitorName(name);
         fn.return_type = "void";
         fn.is_static = true;
         fn.archive_export = true;
@@ -2519,7 +2542,7 @@ class IRGen {
             name + "*", "self", irCast(name + "*", irVar("object"))));
 
         Vector<Node> fields = [];
-        self.collectClassFields(name, fields);
+        self.cycles.collectClassFields(name, fields);
         bool visited = false;
         int i = 0;
         while (i < fields.len) {
@@ -2550,106 +2573,24 @@ class IRGen {
         /* Build the ordered field list the way Python's cls_info.fields does:
          * inherited first, then own. */
         Vector<Node> fields = [];
-        self.collectClassFields(cls, fields);
+        self.cycles.collectClassFields(cls, fields);
         bool any = false;
         int i = 0;
         while (i < fields.len) {
             Node fd = fields.get(i);
             Node ft = fd.type;
-            if (irManagedType(self, ft)) {
+            if (self.managedValues.isManaged(
+                    self.resolveBodyType(ft))) {
                 body.push(self.fieldReleaseStmt(
                     instanceStorageName(fd), ft));
-                if (irManagedArcType(self, ft)) { any = true; }
+                if (self.managedValues.isArc(
+                        self.resolveBodyType(ft))) {
+                    any = true;
+                }
             }
             i = i + 1;
         }
         return any;
-    }
-
-    /* Collect a class's fields (inherited first, then own) — mirrors the
-     * insertion order of ClassInfo.fields. */
-    public void collectClassFields(string cls, Vector<Node> out) {
-        if (!self.analyzed.isClass(cls)) { return; }
-        Node decl = self.analyzed.classTable.get(cls);
-        string par = parentName(decl);
-        if (par != "" && self.analyzed.isClass(par)) {
-            self.collectClassFields(par, out);
-        }
-        int i = 0;
-        while (i < decl.members.len) {
-            Node mem = decl.members.get(i);
-            if (instanceStorageName(mem) != "") { out.push(mem); }
-            i = i + 1;
-        }
-    }
-
-    public void appendRuntimeClassRefs(
-            string staticClass, Map<string, bool> out) {
-        Vector<string> runtimeClasses = self.analyzed.classTable.keys();
-        int index = 0;
-        while (index < runtimeClasses.len) {
-            string runtimeClass = runtimeClasses.get(index);
-            if (self.analyzed.isSubclass(runtimeClass, staticClass)) {
-                out.put(runtimeClass, true);
-            }
-            index = index + 1;
-        }
-    }
-
-    /* The set of class names directly referenced through `cls`'s fields (a
-     * field whose declared type, or a generic-arg of it, is a known class).
-     * Mirrors the `refs[name]` adjacency built in analyzer.core
-     * _compute_cyclable. Includes inherited fields so a base-class field can
-     * close a cycle through a subclass. */
-    public void classFieldRefs(string cls, Map<string, bool> out) {
-        Vector<Node> fields = [];
-        self.collectClassFields(cls, fields);
-        int i = 0;
-        while (i < fields.len) {
-            Node fd = fields.get(i);
-            Node ft = fd.type;
-            if (ft != null) {
-                if (self.analyzed.isClass(ft.base)) {
-                    self.appendRuntimeClassRefs(ft.base, out);
-                }
-                int g = 0;
-                while (g < ft.generic_args.len) {
-                    Node ga = ft.generic_args.get(g);
-                    if (self.analyzed.isClass(ga.base)) {
-                        self.appendRuntimeClassRefs(ga.base, out);
-                    }
-                    g = g + 1;
-                }
-            }
-            i = i + 1;
-        }
-    }
-
-    /* True if `cls` can reach itself through field references (directly or
-     * transitively) — i.e. instances of `cls` may form reference cycles, so
-     * scope-release must run the cycle collector. DFS over the static field-ref
-     * graph; mirrors analyzer.core _compute_cyclable. */
-    public bool isCyclable(string cls) {
-        if (!self.analyzed.isClass(cls)) { return false; }
-        Map<string, bool> visited = {};
-        Vector<string> stack = [];
-        Map<string, bool> seed = {};
-        self.classFieldRefs(cls, seed);
-        Vector<string> sk = seed.keys();
-        int si = 0;
-        while (si < sk.len) { stack.push(sk.get(si)); si = si + 1; }
-        while (stack.len > 0) {
-            string cur = stack.pop();
-            if (cur == cls) { return true; }
-            if (visited.has(cur)) { continue; }
-            visited.put(cur, true);
-            Map<string, bool> refs = {};
-            self.classFieldRefs(cur, refs);
-            Vector<string> rk = refs.keys();
-            int ri = 0;
-            while (ri < rk.len) { stack.push(rk.get(ri)); ri = ri + 1; }
-        }
-        return false;
     }
 
     /* True if any managed var in `managed` is of a cyclable class — drives the
@@ -2660,7 +2601,7 @@ class IRGen {
         while (i < managed.len) {
             Managed owner = managed.get(i);
             if (owner.cleanupKind == "arc"
-                    && irManagedRuntimeCanCycle(self, owner.cls)) {
+                    && self.cycles.runtimeTypeMayCycle(owner.cls)) {
                 return true;
             }
             i = i + 1;
@@ -2671,7 +2612,8 @@ class IRGen {
     /* Typed field release; the enclosing scope owns the collector flush. */
     public IRNode fieldReleaseStmt(string field, Node typeExpr) {
         IRNode fa = irFieldAccess(irVar("self"), field, true);
-        if (irManagedArcType(self, typeExpr)) {
+        if (self.managedValues.isArc(
+                self.resolveBodyType(typeExpr))) {
             Vector<IRNode> atomicStatements = [];
             atomicStatements.push(irExprStmt(irManagedReplaceEdge(
                 self, fa, irLiteral("NULL"), typeExpr,
@@ -3347,17 +3289,20 @@ class IRGen {
                 self.callableFlow.declare(sourceName);
                 self.funcVarDecls.push(declaration);
                 if (owned.get(binding)
-                        && irManagedType(self, bindingType)) {
+                        && self.managedValues.isManaged(
+                            self.resolveBodyType(bindingType))) {
                     self.borrowedLocalBindings.remove(
                         sourceName);
-                    string runtimeType = irManagedRuntimeType(
-                        self, bindingType);
+                    string runtimeType =
+                        self.managedValues.runtimeType(
+                            self.resolveBodyType(bindingType));
                     self.registerManagedVar(
                         sourceName, runtimeType);
                     self.maybeRegisterCleanup(declaration.name,
                         irManagedCleanupSymbol(self, runtimeType),
                         runtimeType, stmts);
-                } else if (irManagedType(self, bindingType)) {
+                } else if (self.managedValues.isManaged(
+                        self.resolveBodyType(bindingType))) {
                     self.borrowedLocalBindings.put(
                         sourceName, true);
                 }
@@ -3507,7 +3452,7 @@ class IRGen {
                     "__btrc_scope_released");
                 string ownerCName = mv.cName;
                 out.push(irVarDecl(
-                    irManagedRuntimeCType(mv.cls),
+                    self.managedValues.runtimeCType(mv.cls),
                     valueName, irVar(ownerCName)));
                 out.push(irAssign(
                     irVar(ownerCName), irLiteral("NULL")));
@@ -3576,7 +3521,10 @@ class IRGen {
          * slots.  A substituted generic may instead be raw storage (for
          * example Vector<T>.data becomes Item**); classify the resolved shape
          * before generating object-header accesses. */
-        if (!irManagedType(self, ft)) { return null; }
+        if (!self.managedValues.isManaged(
+                self.resolveBodyType(ft))) {
+            return null;
+        }
 
         /* Evaluate receiver and RHS exactly once, then make lowerExpr's final
          * assignment reuse those temps. This also lets us retain an aliasing
@@ -3609,7 +3557,8 @@ class IRGen {
         sequence.push(irBinOp(
             obj, "=", self.lowerExpr(tgt.obj, varTypes)));
         sequence.push(irBinOp(newValue, "=", valueExpr));
-        if (irManagedArcType(self, ft)) {
+        if (self.managedValues.isArc(
+                self.resolveBodyType(ft))) {
             sequence.push(irManagedReplaceEdge(
                 self, field, newValue, ft, obj, owned));
         } else {
@@ -3634,9 +3583,10 @@ class IRGen {
                 self, oldValue, ft, newValue));
         }
 
-        string runtimeType = irManagedRuntimeType(self, ft);
-        bool releaseCanEnqueue = irManagedRuntimeCanCycle(
-            self, runtimeType);
+        string runtimeType = self.managedValues.runtimeType(
+            self.resolveBodyType(ft));
+        bool releaseCanEnqueue =
+            self.cycles.runtimeTypeMayCycle(runtimeType);
         if (releaseCanEnqueue) {
             sequence.push(managedArcPoll(self));
         }
@@ -3797,7 +3747,11 @@ class IRGen {
         while (idx < node.args.len) {
             Node arg = node.args.get(idx);
             Node? at = self.resolvedExpressionType(arg, varTypes);
-            if (!irManagedType(self, at)) { idx = idx + 1; continue; }
+            if (!self.managedValues.isManaged(
+                    self.resolveBodyType(at))) {
+                idx = idx + 1;
+                continue;
+            }
             bool isKeep = keepSet.has(idx);
             bool isOwning = self.isOwningTempArg(arg);
             if (!isKeep && !isOwning) { idx = idx + 1; continue; }
@@ -3818,12 +3772,14 @@ class IRGen {
                     self, target, at)));
                 if (!isOwning && arg.kind == NK_IDENTIFIER) {
                     self.registerManagedVar(arg.name,
-                        irManagedRuntimeType(self, at));
+                        self.managedValues.runtimeType(
+                            self.resolveBodyType(at)));
                 }
             }
             if (isOwning) {
                 post.push(self.releaseVarStmt2(
-                    target, irManagedRuntimeType(self, at)));
+                    target, self.managedValues.runtimeType(
+                        self.resolveBodyType(at))));
             }
             idx = idx + 1;
         }
@@ -3841,7 +3797,7 @@ class IRGen {
         Vector<IRNode> statements = [];
         statements.push(irExprStmt(irManagedReleaseRuntime(
             self, target, runtimeType)));
-        if (irManagedRuntimeCanCycle(self, runtimeType)) {
+        if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
             statements.push(irExprStmt(managedArcPoll(self)));
         }
         return irBlock(statements);
@@ -4013,7 +3969,8 @@ class IRGen {
                 }
             }
             if (init == null && declType != null
-                    && irManagedType(self, declType)
+                    && self.managedValues.isManaged(
+                        self.resolveBodyType(declType))
                     && !externalDeclaration) {
                 /* Empty managed declarations are owned lexical slots too.
                  * Initialize them before registering cleanup so a later
@@ -4111,18 +4068,23 @@ class IRGen {
              * Preserve the prepared initializer's effective domain so lexical
              * cleanup and return transfer remain exact. */
             Node? managedSlotType = null;
-            if (declType != null && irManagedType(self, declType)) {
+            if (declType != null
+                    && self.managedValues.isManaged(
+                        self.resolveBodyType(declType))) {
                 managedSlotType = declType;
             } else if (initializerEffectiveType != null
-                    && irManagedType(self, initializerEffectiveType)) {
+                    && self.managedValues.isManaged(
+                        self.resolveBodyType(
+                            initializerEffectiveType))) {
                 managedSlotType = initializerEffectiveType;
             }
             /* Every concrete managed local owns its lexical slot, including an
              * empty declaration assigned later. A borrowed initializer is
              * retained; a source +1 transfers directly. */
             if (managedSlotType != null) {
-                string runtimeType = irManagedRuntimeType(
-                    self, managedSlotType);
+                string runtimeType =
+                    self.managedValues.runtimeType(
+                        self.resolveBodyType(managedSlotType));
                 if (node.initializer != null
                         && !initializerOwned) {
                     out.push(irExprStmt(
@@ -4189,7 +4151,8 @@ class IRGen {
                     && e.callee.field == "destroy") {
                 Node? receiverType = self.resolvedExpressionType(
                     e.callee.obj, varTypes);
-                if (irManagedMutexType(self, receiverType)) {
+                if (self.managedValues.isMutex(
+                        self.resolveBodyType(receiverType))) {
                     self.lowerReleaseExpression(
                         e.callee.obj, varTypes, out);
                     return;
@@ -4214,7 +4177,8 @@ class IRGen {
                 freeArgs.push(irVar(discardedName));
                 out.push(irExprStmt(irCall(
                     "__btrc_thread_free", freeArgs)));
-            } else if (irManagedType(self, discardedType)
+            } else if (self.managedValues.isManaged(
+                        self.resolveBodyType(discardedType))
                     && irExpressionOwnsResult(self, e, varTypes)) {
                 string discardedName = self.freshTemp(
                     "__btrc_discarded");
@@ -4224,7 +4188,8 @@ class IRGen {
                 self.funcVarDecls.push(discardedDeclaration);
                 out.push(discardedDeclaration);
                 out.push(self.releaseVarStmt2(irVar(discardedName),
-                    irManagedRuntimeType(self, discardedType)));
+                    self.managedValues.runtimeType(
+                        self.resolveBodyType(discardedType))));
             } else {
                 out.push(irExprStmt(loweredExpression));
             }
@@ -4291,7 +4256,8 @@ class IRGen {
                 kt = resolveGenericType(
                     kt, self.activeTypeMap, self.analyzed);
             }
-            if (irManagedType(self, kt)) {
+            if (self.managedValues.isManaged(
+                    self.resolveBodyType(kt))) {
                 string valueName = self.freshTemp("__btrc_keep_value");
                 out.push(irVarDecl(typeToC(kt, self.analyzed), valueName,
                     self.lowerExpr(node.expr, varTypes)));
@@ -4463,7 +4429,11 @@ class IRGen {
     public IRNode maybeLaunderReturn(IRNode value) {
         if (self.inTrycatchDepth <= 0) { return value; }
         if (self.currentReturnTypeNode == null) { return value; }
-        if (!irManagedType(self, self.currentReturnTypeNode)) { return value; }
+        if (!self.managedValues.isManaged(
+                self.resolveBodyType(
+                    self.currentReturnTypeNode))) {
+            return value;
+        }
         self.useHelper("__btrc_launder");
         Vector<IRNode> largs = [];
         largs.push(value);
@@ -4518,7 +4488,8 @@ class IRGen {
         }
         /* Primitive values have no ownership unit. Managed strings and class
          * references both dispatch through the shared ownership domain. */
-        if (!irManagedType(self, et)) {
+        if (!self.managedValues.isManaged(
+                self.resolveBodyType(et))) {
             if (self.inGenericMethod) { return; }
             print("internal compiler error: non-managed release reached IR generation");
             abortGen();
@@ -4531,9 +4502,11 @@ class IRGen {
         out.push(irVarDecl(typeToC(et, self.analyzed) + " volatile*", slotName,
             irAddressOf(target)));
         IRNode slot = irDeref(irVar(slotName));
-        string runtimeType = irManagedRuntimeType(self, et);
+        string runtimeType = self.managedValues.runtimeType(
+            self.resolveBodyType(et));
         bool persistentSlot = releaseSlot.persistent;
-        if (persistentSlot && irManagedArcType(self, et)) {
+        if (persistentSlot && self.managedValues.isArc(
+                self.resolveBodyType(et))) {
             out.push(irExprStmt(irManagedReplaceEdge(
                 self, slot, irLiteral("NULL"), et,
                 releaseSlot.owner, false)));
@@ -4554,7 +4527,7 @@ class IRGen {
                     self, irVar(valueName), runtimeType)));
             }
         }
-        if (irManagedRuntimeCanCycle(self, runtimeType)) {
+        if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
             if (self.batchExplicitReleases) {
                 out.push(irExprStmt(managedArcPoll(self)));
             } else {
@@ -5807,9 +5780,11 @@ class IRGen {
             if (isStringType(resolved)) {
                 self.useHelper("__btrc_thread_string_dispose");
                 callback = irFunctionRef("__btrc_thread_string_dispose");
-            } else if (irManagedType(self, resolved)) {
+            } else if (self.managedValues.isManaged(
+                    self.resolveBodyType(resolved))) {
                 context = managedArcDescriptor(
-                    self, irManagedRuntimeType(self, resolved));
+                    self, self.managedValues.runtimeType(
+                        self.resolveBodyType(resolved)));
                 contextSize = irSizeofType("__btrc_arc_type");
                 self.useHelper("__btrc_thread_arc_dispose");
                 self.useHelper("__btrc_throw");
@@ -6033,7 +6008,8 @@ class IRGen {
             /* ARC: keep captured class instances alive until the thread finishes
              * (paired with the release in the wrapper cleanup). */
             Node? ct = varTypes.get(cn);
-            if (irManagedType(self, ct)) {
+            if (self.managedValues.isManaged(
+                    self.resolveBodyType(ct))) {
                 sequence.push(irManagedRetainValue(
                     self, irVar(HostedAbi.lexicalBindingCNameForAnalysis(
                         cn, self.analyzed)), ct));
@@ -6195,17 +6171,22 @@ class IRGen {
         IRNode access = irLiteral("NULL");
         IRNode slotAccess = irLiteral("NULL");
         if (isStringType(concreteType)) {
-            access = irFunctionRef(ensureMutexValueAdapter(self, valueC));
+            access = irFunctionRef(
+                self.cleanupSlots.ensureMutexValueAdapter(valueC));
             self.useHelper("__btrc_mutex_string_retain");
             self.useHelper("__btrc_mutex_string_release");
             retain = irFunctionRef("__btrc_mutex_string_retain");
             releaseCallback = irFunctionRef(
                 "__btrc_mutex_string_release");
-        } else if (irManagedType(self, concreteType)) {
-            access = irFunctionRef(ensureMutexValueAdapter(self, valueC));
-            slotAccess = irFunctionRef(ensureArcSlotAdapter(self, valueC));
+        } else if (self.managedValues.isManaged(
+                self.resolveBodyType(concreteType))) {
+            access = irFunctionRef(
+                self.cleanupSlots.ensureMutexValueAdapter(valueC));
+            slotAccess = irFunctionRef(
+                self.cleanupSlots.ensureArcSlotAdapter(valueC));
             descriptor = managedArcDescriptor(
-                self, irManagedRuntimeType(self, concreteType));
+                self, self.managedValues.runtimeType(
+                    self.resolveBodyType(concreteType)));
             descriptorSize = irSizeofType("__btrc_arc_type");
             self.useHelper("__btrc_mutex_arc_retain");
             self.useHelper("__btrc_mutex_arc_release");
@@ -7019,14 +7000,16 @@ class IRGen {
         Node? falseType = self.resolvedExpressionType(node.false_expr, varTypes);
         if (irExpressionOwnsResult(self, node, varTypes)) {
             if (node.true_expr.kind != NK_NULL_LITERAL
-                    && irManagedType(self, trueType)
+                    && self.managedValues.isManaged(
+                        self.resolveBodyType(trueType))
                     && !irExpressionOwnsResult(
                         self, node.true_expr, varTypes)) {
                 trueValue = irPromoteBorrowedValue(
                     self, trueValue, trueType);
             }
             if (node.false_expr.kind != NK_NULL_LITERAL
-                    && irManagedType(self, falseType)
+                    && self.managedValues.isManaged(
+                        self.resolveBodyType(falseType))
                     && !irExpressionOwnsResult(
                         self, node.false_expr, varTypes)) {
                 falseValue = irPromoteBorrowedValue(
@@ -7055,13 +7038,15 @@ class IRGen {
         if (op == "??" && irExpressionOwnsResult(
                 self, node, varTypes)) {
             if (node.left.kind != NK_NULL_LITERAL
-                    && irManagedType(self, leftType)
+                    && self.managedValues.isManaged(
+                        self.resolveBodyType(leftType))
                     && !irExpressionOwnsResult(
                         self, node.left, varTypes)) {
                 left = irPromoteBorrowedValue(self, left, leftType);
             }
             if (node.right.kind != NK_NULL_LITERAL
-                    && irManagedType(self, rightType)
+                    && self.managedValues.isManaged(
+                        self.resolveBodyType(rightType))
                     && !irExpressionOwnsResult(
                         self, node.right, varTypes)) {
                 right = irPromoteBorrowedValue(self, right, rightType);
@@ -7766,7 +7751,8 @@ class IRGen {
     }
 
     public string optionalManagedRuntimeType(Node typeNode) {
-        return irManagedRuntimeType(self, typeNode);
+        return self.managedValues.runtimeType(
+            self.resolveBodyType(typeNode));
     }
 
     /* Expression-form ARC release used inside an optional call's true arm.
@@ -7776,7 +7762,7 @@ class IRGen {
         Vector<IRNode> sequence = [];
         sequence.push(irManagedReleaseRuntime(
             self, target, runtimeType));
-        if (irManagedRuntimeCanCycle(self, runtimeType)) {
+        if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
             sequence.push(managedArcPoll(self));
         }
         if (sequence.len == 1) { return sequence.get(0); }
@@ -8504,7 +8490,8 @@ class IRGen {
                     laterPartIndex = laterPartIndex + 1;
                 }
                 bool pinBorrowed = laterEffect && !owns && !converts
-                    && irManagedType(self, sourceType);
+                    && self.managedValues.isManaged(
+                        self.resolveBodyType(sourceType));
                 if (owns || converts || pinBorrowed) {
                     PreparedValue prepared = prepareCallTargetValue(
                         self, interpolation, targetType, varTypes);

@@ -40,7 +40,8 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
         generator, operands, varTypes);
     Node? declaration = ownershipCallableForCall(
         generator, call, varTypes);
-    bool receiverPinned = irManagedType(generator, receiverType)
+    bool receiverPinned = generator.managedValues.isManaged(
+            generator.resolveBodyType(receiverType))
         && !receiverOwned
         && receiverExpression.kind != NK_SELF_EXPR
         && receiverExpression.kind != NK_SUPER_EXPR
@@ -49,9 +50,11 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
     string receiverRuntimeType = "";
     IRNode receiverSaved = irLiteral("NULL");
     if ((receiverOwned || receiverPinned)
-            && irManagedType(generator, receiverType)) {
-        receiverRuntimeType = irManagedRuntimeType(
-            generator, receiverType);
+            && generator.managedValues.isManaged(
+                generator.resolveBodyType(receiverType))) {
+        receiverRuntimeType =
+            generator.managedValues.runtimeType(
+                generator.resolveBodyType(receiverType));
         if (receiverPinned) {
             sequence.push(irRetainExpression(
                 generator, receiver, receiverType));
@@ -113,9 +116,11 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
                     operand.expression, effectiveType,
                     lowerDefaultArgumentCall(generator, call,
                         params, operands, operand, varTypes),
-                    irManagedType(generator, effectiveType),
+                    generator.managedValues.isManaged(
+                        generator.resolveBodyType(effectiveType)),
                     operand.keepValue,
-                    irManagedType(generator, effectiveType)
+                    generator.managedValues.isManaged(
+                        generator.resolveBodyType(effectiveType))
                         && operand.transferred);
             } else {
                 PreparedValue prepared = prepareCallTargetValue(
@@ -186,11 +191,13 @@ IRNode lowerOptionalCallWithOwnership(IRGen generator, Node call,
         irVar(resultName), "=", lowered));
     bool protectResult = generator.programHasExceptions
         && resultType != null
-        && irManagedType(generator, resultType)
+        && generator.managedValues.isManaged(
+            generator.resolveBodyType(resultType))
         && irExpressionOwnsResult(generator, call, varTypes);
     if (protectResult) {
-        string runtimeType = irManagedRuntimeType(
-            generator, resultType);
+        string runtimeType =
+            generator.managedValues.runtimeType(
+                generator.resolveBodyType(resultType));
         OwnershipBoundary resultCleanup = OwnershipBoundary();
         resultCleanup.registerCleanup(
             generator, resultDeclaration, resultName, runtimeType);

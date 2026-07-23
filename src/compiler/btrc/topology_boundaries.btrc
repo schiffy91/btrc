@@ -91,7 +91,8 @@ Vector<IRNode> irTopologyPrologue(
         irCall("__btrc_arc_topology_begin", beginArguments));
     output.push(tokenDeclaration);
     if (cleanupEnabled) {
-        output.push(irExprStmt(registerCleanupSlot(generator,
+        output.push(irExprStmt(generator.cleanupSlots.registerSlot(
+            generator,
             tokenDeclaration,
             irFunctionRef("__btrc_arc_topology_cleanup"),
             null, true)));

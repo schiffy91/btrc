@@ -25,6 +25,7 @@ import ../parser/stage.btrc;
 #include "../string_method_semantics.btrc"
 #include "../ownership_transfer_semantics.btrc"
 #include "../mutex_type_semantics.btrc"
+#include "../managed_value_semantics.btrc"
 #include "../cycle_semantics.btrc"
 #include "../source_runtime_symbols.btrc"
 #include "../generated/hosted_abi/tables.btrc"

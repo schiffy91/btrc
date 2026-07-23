@@ -78,7 +78,9 @@ IRNode? lowerManagedStaticFieldStore(IRGen generator, Node assignment,
     if (field == null) { return null; }
     Node? targetType = generator.resolvedExpressionType(
         assignment.target, varTypes);
-    if (targetType == null || !irManagedType(generator, targetType)) {
+    if (targetType == null
+            || !generator.managedValues.isManaged(
+                generator.resolveBodyType(targetType))) {
         return null;
     }
     return lowerManagedSlotStore(

@@ -37,8 +37,10 @@ void collectOwnedAssignmentTargetOperands(IRGen generator, Node? target,
          * Stabilize the produced value before a later index operand. */
         operands.push(target);
         owned.push(false);
-        kept.push(irManagedType(generator,
-                generator.resolvedExpressionType(target, varTypes))
+        kept.push(generator.managedValues.isManaged(
+                generator.resolveBodyType(
+                    generator.resolvedExpressionType(
+                        target, varTypes)))
             && !generator.owningTempOverrides.has(
                 astNodeKey(target)));
         return;
@@ -60,7 +62,8 @@ void collectOwnedAssignmentTargetOperands(IRGen generator, Node? target,
             object, varTypes);
         bool objectOverridden = generator.owningTempOverrides.has(
             astNodeKey(object));
-        bool objectManaged = irManagedType(generator, objectType)
+        bool objectManaged = generator.managedValues.isManaged(
+                generator.resolveBodyType(objectType))
             && object.kind != NK_SELF_EXPR
             && object.kind != NK_SUPER_EXPR
             && !objectOverridden;
@@ -84,7 +87,8 @@ void collectOwnedAssignmentTargetOperands(IRGen generator, Node? target,
     Node? indexType = generator.resolvedExpressionType(
         index, varTypes);
     owned.push(indexOwned);
-    kept.push(irManagedType(generator, indexType)
+    kept.push(generator.managedValues.isManaged(
+            generator.resolveBodyType(indexType))
         && !indexOwned
         && !generator.owningTempOverrides.has(astNodeKey(index)));
 }
@@ -178,7 +182,9 @@ IRNode? lowerOwnedAssignment(IRGen generator, Node expression,
             generator, expression, virtualType);
     boundary.resultOwned = rhsSuppliesResult;
     return boundary.finish(generator, lowered, resultType,
-        irManagedType(generator, resultType) && !rhsSuppliesResult);
+        generator.managedValues.isManaged(
+            generator.resolveBodyType(resultType))
+            && !rhsSuppliesResult);
 }
 
 /* Prefix/postfix updates need the same target lifetime transaction as an
@@ -226,5 +232,7 @@ IRNode? lowerOwnedUnaryUpdate(IRGen generator, Node expression,
         generator, expression, varTypes);
     boundary.resultOwned = resultOwned;
     return boundary.finish(generator, lowered, resultType,
-        irManagedType(generator, resultType) && !resultOwned);
+        generator.managedValues.isManaged(
+            generator.resolveBodyType(resultType))
+            && !resultOwned);
 }

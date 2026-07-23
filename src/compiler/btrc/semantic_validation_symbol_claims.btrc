@@ -41,38 +41,6 @@ Vector<MethodEntry> semanticMergedClassMethods(
     return output;
 }
 
-bool semanticClassNeedsVisitorSeen(string className, Analyzed analyzed,
-        Map<string, bool> visited) {
-    if (!analyzed.isClass(className) || visited.has(className)) {
-        return false;
-    }
-    visited.put(className, true);
-    Node declaration = analyzed.classTable.get(className);
-    string parent = parentName(declaration);
-    if (parent != "" && semanticClassNeedsVisitorSeen(
-            parent, analyzed, visited)) {
-        return true;
-    }
-    int memberIndex = 0;
-    while (memberIndex < declaration.members.len) {
-        Node member = declaration.members.get(memberIndex);
-        if (instanceStorageName(member) != "" && member.type != null
-                && member.type.pointer_depth <= 1
-                && (analyzed.isClass(member.type.base)
-                    || (member.type.generic_args.len > 0
-                        && analyzed.isGenericClass(member.type.base)))) {
-            return true;
-        }
-        memberIndex = memberIndex + 1;
-    }
-    return false;
-}
-
-bool semanticClassNeedsVisitor(string className, Analyzed analyzed) {
-    Map<string, bool> visited = {};
-    return semanticClassNeedsVisitorSeen(className, analyzed, visited);
-}
-
 void semanticClaimClassSymbols(Node declaration,
         SemanticValidationState state, Map<string, string> symbols) {
     string name = declaration.name;
@@ -88,8 +56,9 @@ void semanticClaimClassSymbols(Node declaration,
             destructorHookName(name),
             "destructor hook for class '" + name + "'", destructor);
     }
-    if (semanticClassNeedsVisitor(name, state.analyzed)) {
-        semanticClaimGeneratedSymbol(state, symbols, cycleVisitorName(name),
+    if (state.cycles.classNeedsVisitor(name)) {
+        semanticClaimGeneratedSymbol(
+            state, symbols, state.cycles.visitorName(name),
             "class '" + name + "' cycle visitor", declaration);
     }
     Vector<MethodEntry> methods = semanticMergedClassMethods(
@@ -203,9 +172,9 @@ void semanticClaimGenericInstanceSymbols(SemanticValidationState state,
                     destructorHookName(instance.mangled),
                     "destructor hook for " + owner, destructor);
             }
-            if (genericInstanceNeedsVisitor(state.analyzed, instance)) {
+            if (state.cycles.genericInstanceNeedsVisitor(instance)) {
                 semanticClaimGeneratedSymbol(state, symbols,
-                    cycleVisitorName(instance.mangled),
+                    state.cycles.visitorName(instance.mangled),
                     owner + " cycle visitor", declaration);
             }
             int memberIndex = 0;

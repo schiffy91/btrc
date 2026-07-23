@@ -3,7 +3,8 @@
 bool irManagedIdentifierSlot(IRGen generator, string name, Node targetType) {
     if (generator.borrowedLocalBindings.has(name)) { return false; }
     if (irManagedLocalType(generator, name) != "") { return true; }
-    return irManagedType(generator, targetType)
+    return generator.managedValues.isManaged(
+            generator.resolveBodyType(targetType))
         && generator.analyzed.globalHasDefinition.has(name);
 }
 
@@ -15,7 +16,10 @@ IRNode? lowerManagedLocalStore(IRGen generator, Node assignment,
     }
     Node? targetType = generator.resolvedExpressionType(
         assignment.target, varTypes);
-    if (!irManagedType(generator, targetType)) { return null; }
+    if (!generator.managedValues.isManaged(
+            generator.resolveBodyType(targetType))) {
+        return null;
+    }
     Node concreteTargetType = targetType;
     if (!irManagedIdentifierSlot(generator,
             assignment.target.name, concreteTargetType)) { return null; }
@@ -55,8 +59,8 @@ IRNode lowerManagedSlotStore(IRGen generator, Node assignment,
     declarations.push(oldDeclaration);
     OwnershipBoundary boundary = OwnershipBoundary();
     boundary.declarations = declarations;
-    string runtimeType = irManagedRuntimeType(
-        generator, concreteTargetType);
+    string runtimeType = generator.managedValues.runtimeType(
+        generator.resolveBodyType(concreteTargetType));
     boundary.registerCleanup(
         generator, newDeclaration, newName, runtimeType);
 
@@ -72,7 +76,7 @@ IRNode lowerManagedSlotStore(IRGen generator, Node assignment,
     sequence.push(irBinOp(target, "=", newValue));
     sequence.push(irBinOp(newValue, "=", irLiteral("NULL")));
     sequence.push(generator.optionalReleaseExpr(oldValue, runtimeType));
-    if (irManagedRuntimeCanCycle(generator, runtimeType)) {
+    if (generator.cycles.runtimeTypeMayCycle(runtimeType)) {
         sequence.push(managedArcPoll(generator));
     }
     sequence.push(target);

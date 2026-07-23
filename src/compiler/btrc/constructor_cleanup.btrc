@@ -16,10 +16,11 @@ string beginConstructorCleanup(IRGen generator, string selfName,
     output.push(irVarDecl("int", marker,
         irCall("__btrc_cleanup_mark", markArguments)));
 
-    IRNode declaration = requireCleanupSlotDeclaration(
+    IRNode declaration = generator.cleanupSlots.requireDeclaration(
         output, selfName);
     generator.useHelper("__btrc_arc_abandon");
-    output.push(irExprStmt(registerCleanupSlot(generator, declaration,
+    output.push(irExprStmt(generator.cleanupSlots.registerSlot(
+        generator, declaration,
         irFunctionRef("__btrc_arc_abandon"),
         irLiteral("NULL"), true)));
     return marker;

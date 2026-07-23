@@ -237,10 +237,12 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
                     targetType, argumentType) == "reject") {
             targetType = argumentType;
         }
-        bool managed = irManagedType(generator, argumentType);
+        bool managed = generator.managedValues.isManaged(
+            generator.resolveBodyType(argumentType));
         bool owned = managed && irContextualUnconsumedOwnedResult(
             generator, argument, argumentType, varTypes);
-        bool targetManaged = irManagedType(generator, targetType);
+        bool targetManaged = generator.managedValues.isManaged(
+            generator.resolveBodyType(targetType));
         result.push(OwnershipCallOperand(argument, argumentType,
             targetType, owned, targetManaged && keepValue,
             transferred,
@@ -258,7 +260,8 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
                 generator, call, parameter.type, varTypes);
             bool keepValue = parameter.keep_;
             bool transferred = transferredParams.has(parameterIndex);
-            bool managed = irManagedType(generator, targetType);
+            bool managed = generator.managedValues.isManaged(
+                generator.resolveBodyType(targetType));
             result.push(OwnershipCallOperand(argument, targetType,
                 targetType, managed, managed && keepValue,
                 transferred,
@@ -282,7 +285,8 @@ Vector<OwnershipCallOperand> ownershipCallOperands(IRGen generator,
             laterIndex = laterIndex + 1;
         }
         if (laterEffect && !operand.owned
-                && irManagedType(generator, operand.typeExpr)) {
+                && generator.managedValues.isManaged(
+                    generator.resolveBodyType(operand.typeExpr))) {
             operand.keepValue = true;
         }
         pinIndex = pinIndex + 1;
@@ -446,13 +450,15 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
     if (receiver != null) {
         receiverType = generator.resolvedExpressionType(
             receiver, varTypes);
-        receiverOwned = irManagedType(generator, receiverType)
+        receiverOwned = generator.managedValues.isManaged(
+                generator.resolveBodyType(receiverType))
             && irUnconsumedOwnedResult(generator, receiver, varTypes);
     }
     bool operandEffect = ownershipOperandsHaveEffect(
         generator, operands, varTypes);
     bool receiverPinned = receiver != null
-        && irManagedType(generator, receiverType)
+        && generator.managedValues.isManaged(
+            generator.resolveBodyType(receiverType))
         && !receiverOwned
         && receiver.kind != NK_SELF_EXPR
         && receiver.kind != NK_SUPER_EXPR
@@ -462,7 +468,8 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
     bool orderedFieldCall = call.callee != null
         && call.callee.kind == NK_FIELD_ACCESS_EXPR
         && ((receiverType != null
-                && irManagedMutexType(generator, receiverType))
+                && generator.managedValues.isMutex(
+                    generator.resolveBodyType(receiverType)))
             || (call.callee.obj != null
                 && call.callee.obj.kind == NK_IDENTIFIER
                 && generator.analyzed.isRichEnum(
@@ -529,9 +536,11 @@ IRNode lowerCallWithOwnership(IRGen generator, Node call,
                     operand.expression, effectiveType,
                     lowerDefaultArgumentCall(generator, call,
                         params, operands, operand, varTypes),
-                    irManagedType(generator, effectiveType),
+                    generator.managedValues.isManaged(
+                        generator.resolveBodyType(effectiveType)),
                     operand.keepValue,
-                    irManagedType(generator, effectiveType)
+                    generator.managedValues.isManaged(
+                        generator.resolveBodyType(effectiveType))
                         && operand.transferred);
             } else {
                 PreparedValue prepared = prepareCallTargetValue(
@@ -592,9 +601,11 @@ IRNode lowerNewWithOwnership(IRGen generator, Node expression,
                 operand.expression, effectiveType,
                 lowerDefaultArgumentCall(generator, expression,
                     params, operands, operand, varTypes),
-                irManagedType(generator, effectiveType),
+                generator.managedValues.isManaged(
+                    generator.resolveBodyType(effectiveType)),
                 operand.keepValue,
-                irManagedType(generator, effectiveType)
+                generator.managedValues.isManaged(
+                    generator.resolveBodyType(effectiveType))
                     && operand.transferred);
         } else {
             PreparedValue prepared = prepareCallTargetValue(
@@ -611,8 +622,10 @@ IRNode lowerNewWithOwnership(IRGen generator, Node expression,
         index = index + 1;
     }
     IRNode lowered = generator.lowerNewCore(expression, varTypes);
-    boundary.resultOwned = irManagedType(generator,
-        generator.resolvedExpressionType(expression, varTypes));
+    boundary.resultOwned = generator.managedValues.isManaged(
+        generator.resolveBodyType(
+            generator.resolvedExpressionType(
+                expression, varTypes)));
     boundary.restore(generator);
     return boundary.finish(generator, lowered,
         generator.resolvedExpressionType(expression, varTypes), false);

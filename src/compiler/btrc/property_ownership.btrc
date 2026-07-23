@@ -2,17 +2,19 @@
 
 void emitAutoPropertyStore(IRGen generator, Node propertyType,
         IRNode target, IRNode value, Vector<IRNode> body) {
-    if (!irManagedType(generator, propertyType)) {
+    if (!generator.managedValues.isManaged(
+            generator.resolveBodyType(propertyType))) {
         body.push(irAssign(target, value));
         return;
     }
-    if (irManagedArcType(generator, propertyType)) {
+    if (generator.managedValues.isArc(
+            generator.resolveBodyType(propertyType))) {
         body.push(irExprStmt(irManagedReplaceEdge(
             generator, target, value, propertyType,
             irVar("self"), false)));
-        string runtimeType = irManagedRuntimeType(
-            generator, propertyType);
-        if (irManagedRuntimeCanCycle(generator, runtimeType)) {
+        string runtimeType = generator.managedValues.runtimeType(
+            generator.resolveBodyType(propertyType));
+        if (generator.cycles.runtimeTypeMayCycle(runtimeType)) {
             body.push(irExprStmt(managedArcPoll(generator)));
         }
         return;
@@ -28,10 +30,11 @@ void emitAutoPropertyStore(IRGen generator, Node propertyType,
     body.push(irExprStmt(irManagedRetainEdge(
         generator, value, propertyType, irVar("self"))));
     body.push(irAssign(target, value));
-    string runtimeType = irManagedRuntimeType(generator, propertyType);
+    string runtimeType = generator.managedValues.runtimeType(
+        generator.resolveBodyType(propertyType));
     body.push(irExprStmt(irManagedReleaseEdge(
         generator, irVar(oldName), propertyType, value)));
-    if (irManagedRuntimeCanCycle(generator, runtimeType)) {
+    if (generator.cycles.runtimeTypeMayCycle(runtimeType)) {
         body.push(irExprStmt(managedArcPoll(generator)));
     }
 }
@@ -93,7 +96,8 @@ IRNode lowerPropertyStoreWithOwnership(IRGen generator, Node assignment,
         assignment.value_node, varTypes);
     bool valueConverted = requiresTargetStringConversion(
         generator, propertyType, actualValueType);
-    bool managedResult = irManagedType(generator, propertyType);
+    bool managedResult = generator.managedValues.isManaged(
+        generator.resolveBodyType(propertyType));
     if (!receiverOwned && !managedResult && !valueConverted) {
         return lowerPropertyStoreCore(generator, assignment,
             receiverType, property, propertyType, varTypes);

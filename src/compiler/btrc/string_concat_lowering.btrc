@@ -3,12 +3,18 @@
 bool irIsScalarStringConcat(IRGen generator, Node node,
         Map<string, Node> varTypes) {
     if (node.kind != NK_BINARY_EXPR || node.op != "+") { return false; }
-    return irManagedStringType(generator,
-            generator.resolvedExpressionType(node, varTypes))
-        && irManagedStringType(generator,
-            generator.resolvedExpressionType(node.left, varTypes))
-        && irManagedStringType(generator,
-            generator.resolvedExpressionType(node.right, varTypes));
+    return generator.managedValues.isString(
+            generator.resolveBodyType(
+                generator.resolvedExpressionType(
+                    node, varTypes)))
+        && generator.managedValues.isString(
+            generator.resolveBodyType(
+                generator.resolvedExpressionType(
+                    node.left, varTypes)))
+        && generator.managedValues.isString(
+            generator.resolveBodyType(
+                generator.resolvedExpressionType(
+                    node.right, varTypes)));
 }
 
 Vector<Node> irLeftStringConcatLeaves(IRGen generator, Node node,
@@ -72,7 +78,8 @@ void irEvaluateConcatPart(IRGen generator, Node expression,
     }
     if (owned || pinBorrowed) {
         irRegisterConcatCleanup(generator, declaration, value.name,
-            irManagedRuntimeType(generator, typeExpr), sequence);
+            generator.managedValues.runtimeType(
+                generator.resolveBodyType(typeExpr)), sequence);
     }
 }
 
@@ -147,7 +154,8 @@ IRNode? lowerLongStringConcat(IRGen generator, Node node,
     sequence.push(irBinOp(accumulator, "=",
         irTrackedStringConcat(generator, values.get(0), values.get(1))));
     irRegisterConcatCleanup(generator, accumulatorDeclaration,
-        accumulatorName, irManagedRuntimeType(generator, resultType), sequence);
+        accumulatorName, generator.managedValues.runtimeType(
+            generator.resolveBodyType(resultType)), sequence);
     irReleaseConcatPart(generator, values.get(0),
         types.get(0), owned.get(0) || pinned.get(0), sequence);
     irReleaseConcatPart(generator, values.get(1),

@@ -29,7 +29,8 @@ IRNode? lowerIndexedAssignmentWithOwnership(IRGen generator, Node expression,
     Node? actualType = generator.resolvedExpressionType(
         expression.value_node, varTypes);
     if (actualType == null) { actualType = valueType; }
-    bool targetManaged = irManagedType(generator, valueType);
+    bool targetManaged = generator.managedValues.isManaged(
+        generator.resolveBodyType(valueType));
     bool keepValue = targetManaged
         && concreteSetter.params.get(1).keep_;
     bool converted = requiresTargetStringConversion(

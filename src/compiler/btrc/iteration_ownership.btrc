@@ -12,14 +12,16 @@
 string beginOwnedIteration(IRGen generator, Node expression,
         Node typeExpr, Map<string, Node> varTypes, string name,
         Vector<IRNode> prefix) {
-    if (!irManagedType(generator, typeExpr)) {
+    if (!generator.managedValues.isManaged(
+            generator.resolveBodyType(typeExpr))) {
         return "";
     }
     if (!irUnconsumedOwnedResult(generator, expression, varTypes)) {
         prefix.push(irExprStmt(irManagedRetainValue(
             generator, irVar(name), typeExpr)));
     }
-    string runtimeType = irManagedRuntimeType(generator, typeExpr);
+    string runtimeType = generator.managedValues.runtimeType(
+        generator.resolveBodyType(typeExpr));
     generator.registerManagedVar(name, runtimeType);
     generator.maybeRegisterCleanup(name,
         irManagedCleanupSymbol(generator, runtimeType),

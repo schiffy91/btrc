@@ -56,7 +56,8 @@ string emitSpawnCaptureDisposer(IRGen generator,
     while (index < capNames.len) {
         string captureName = capNames.get(index);
         Node? captureType = varTypes.get(captureName);
-        if (irManagedType(generator, captureType)) {
+        if (generator.managedValues.isManaged(
+                generator.resolveBodyType(captureType))) {
             string adapter = "__btrc_spawn_capture_release_"
                 + Strings.fromInt(spawnId) + "_" + captureName;
             generator.curModule.functions.push(

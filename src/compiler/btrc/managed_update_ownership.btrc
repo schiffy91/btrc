@@ -42,8 +42,8 @@ class ManagedUpdateOperands {
             self.boundary.prefix.push(irRetainExpression(
                 generator, self.oldValue, targetType));
         }
-        string runtimeType = irManagedRuntimeType(
-            generator, targetType);
+        string runtimeType = generator.managedValues.runtimeType(
+            generator.resolveBodyType(targetType));
         self.boundary.registerCleanup(
             generator, oldDeclaration, oldName, runtimeType);
         self.boundary.appendReleaseAndClear(
@@ -73,7 +73,8 @@ class ManagedUpdateOperands {
         ownershipRequireType(
             prepared.effectiveType, assignment.value_node);
         self.rightType = prepared.effectiveType;
-        bool managedRight = irManagedType(generator, self.rightType);
+        bool managedRight = generator.managedValues.isManaged(
+            generator.resolveBodyType(self.rightType));
         bool rightOwned = managedRight && prepared.owned;
         bool rightKeep = managedRight && irManagedCompoundKeepsRhs(
             generator, targetType, assignment.op.substring(
@@ -106,7 +107,8 @@ class ManagedUpdateOperands {
         generator.funcVarDecls.push(replacementDeclaration);
         self.replacement = irVar(replacementName);
         self.boundary.registerCleanup(generator, replacementDeclaration,
-            replacementName, irManagedRuntimeType(generator, targetType));
+            replacementName, generator.managedValues.runtimeType(
+                generator.resolveBodyType(targetType)));
     }
 
     public IRNode computed(IRGen generator, Node assignment) {
@@ -182,7 +184,8 @@ IRNode lowerManagedLocalCompoundStore(IRGen generator, Node assignment,
     sequence.push(irBinOp(
         operands.replacement, "=", irLiteral("NULL")));
     sequence.push(generator.optionalReleaseExpr(current,
-        irManagedRuntimeType(generator, targetType)));
+        generator.managedValues.runtimeType(
+            generator.resolveBodyType(targetType))));
     sequence.push(target);
     operands.restore(generator);
     return operands.boundary.finish(
@@ -197,8 +200,10 @@ IRNode lowerManagedFieldCompoundStore(IRGen generator, Node assignment,
     Vector<IRNode> sequence = [];
     sequence.push(irBinOp(operands.replacement, "=",
         operands.computed(generator, assignment)));
-    string runtimeType = irManagedRuntimeType(generator, targetType);
-    if (irManagedArcType(generator, targetType)) {
+    string runtimeType = generator.managedValues.runtimeType(
+        generator.resolveBodyType(targetType));
+    if (generator.managedValues.isArc(
+            generator.resolveBodyType(targetType))) {
         string transferName = generator.freshTemp(
             "__btrc_update_transfer");
         IRNode transferDeclaration = irVarDecl(
@@ -212,7 +217,7 @@ IRNode lowerManagedFieldCompoundStore(IRGen generator, Node assignment,
             operands.replacement, "=", irLiteral("NULL")));
         sequence.push(irManagedReplaceEdge(generator,
             target, transfer, targetType, receiver, true));
-        if (irManagedRuntimeCanCycle(generator, runtimeType)) {
+        if (generator.cycles.runtimeTypeMayCycle(runtimeType)) {
             sequence.push(managedArcPoll(generator));
         }
     } else {

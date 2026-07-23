@@ -64,7 +64,8 @@ IRNode lowerOwnedEffectCall(IRGen generator, string callee,
             }
             bool pinBorrowed = laterEffect
                 && !prepared.owned
-                && irManagedType(generator, effectiveType);
+                && generator.managedValues.isManaged(
+                    generator.resolveBodyType(effectiveType));
             boundary.addLoweredOperand(generator, operand,
                 effectiveType, prepared.value,
                 prepared.owned, pinBorrowed);

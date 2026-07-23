@@ -246,9 +246,9 @@ void semanticValidateRichEnumDefaults(Node declaration,
 }
 
 void semanticValidateProgram(Node program, Analyzed analyzed,
-        OperatorSemantics operators) {
+        OperatorSemantics operators, CycleMetadata cycles) {
     SemanticValidationState state =
-        SemanticValidationState(analyzed, operators);
+        SemanticValidationState(analyzed, operators, cycles);
     semanticCollectSourceMacros(program, state);
     semanticValidateTypedefs(program, state);
     semanticValidateInterfaceDeclarations(program, state);

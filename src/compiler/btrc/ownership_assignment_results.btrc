@@ -79,5 +79,6 @@ bool irCustomPropertyGetterProjection(IRGen generator, Node? expression,
 bool irVirtualAssignmentRhsOwnsResult(IRGen generator, Node assignment,
         Node? targetType) {
     if (assignment.op != "=" || targetType == null) { return false; }
-    return irManagedType(generator, targetType);
+    return generator.managedValues.isManaged(
+        generator.resolveBodyType(targetType));
 }

@@ -1,64 +1,21 @@
-/* ARC cycle metadata and visitor lowering for monomorphized classes. */
-
-bool classNeedsCycleVisitor(IRGen generator, string className) {
-    if (!generator.analyzed.isClass(className)) { return false; }
-    Vector<Node> fields = [];
-    genericCycleCollectClassFields(
-        generator.analyzed, className, fields);
-    int field = 0;
-    while (field < fields.len) {
-        Node fieldType = fields.get(field).type;
-        if (genericCycleManagedType(
-                generator.analyzed, fieldType)) {
-            return true;
-        }
-        field = field + 1;
-    }
-    return false;
-}
-
-bool managedClassIsCyclable(IRGen generator, string emittedName) {
-    if (emittedName == irManagedMutexRuntimeType()) { return true; }
-    if (generator.analyzed.isClass(emittedName)) {
-        Vector<string> runtimeClasses =
-            generator.analyzed.classTable.keys();
-        int runtimeIndex = 0;
-        while (runtimeIndex < runtimeClasses.len) {
-            string runtimeClass = runtimeClasses.get(runtimeIndex);
-            if (generator.analyzed.isSubclass(runtimeClass, emittedName)
-                    && generator.isCyclable(runtimeClass)) {
-                return true;
-            }
-            runtimeIndex = runtimeIndex + 1;
-        }
-        return false;
-    }
-    int index = 0;
-    while (index < generator.analyzed.genericInstances.len) {
-        GenInstance instance =
-            generator.analyzed.genericInstances.get(index);
-        if (instance.mangled == emittedName) {
-            return genericInstanceIsCyclable(generator.analyzed, instance);
-        }
-        index = index + 1;
-    }
-    return false;
-}
+/* ARC visitor IR lowering for monomorphized classes. */
 
 void emitGenericCycleVisitor(IRGen generator, GenInstance instance,
         Node declaration, Map<string, Node> substitutions, IRModule module) {
-    if (!genericInstanceNeedsVisitor(generator.analyzed, instance)) { return; }
+    if (!generator.cycles.genericInstanceNeedsVisitor(instance)) {
+        return;
+    }
     generator.useHelper("__btrc_arc_callback_types");
 
     IRFunctionDecl visitorDeclaration = IRFunctionDecl(
-        cycleVisitorName(instance.mangled), "void", true);
+        generator.cycles.visitorName(instance.mangled), "void", true);
     visitorDeclaration.params.push(IRParam("void*", "object"));
     visitorDeclaration.params.push(IRParam("__btrc_field_visit_fn", "fn"));
     visitorDeclaration.params.push(IRParam("void*", "context"));
     module.function_decls.push(visitorDeclaration);
 
     IRFunction visitorFn = IRFunction();
-    visitorFn.name = cycleVisitorName(instance.mangled);
+    visitorFn.name = generator.cycles.visitorName(instance.mangled);
     visitorFn.return_type = "void";
     visitorFn.is_static = true;
     visitorFn.archive_export = true;
@@ -79,7 +36,7 @@ void emitGenericCycleVisitor(IRGen generator, GenInstance instance,
             if (storageName != "") {
                 Node resolved = resolveGenericType(
                     member.type, substitutions, generator.analyzed);
-                if (genericCycleManagedType(generator.analyzed, resolved)) {
+                if (generator.cycles.isGraphManaged(resolved)) {
                     IRNode field = irFieldAccess(
                         irVar("self"), storageName, true);
                     if (appendGenericCycleFieldVisit(generator, resolved,

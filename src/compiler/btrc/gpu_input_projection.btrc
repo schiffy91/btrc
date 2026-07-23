@@ -30,7 +30,10 @@ Node? gpuManagedProjectionRoot(IRGen gen, Node? expression,
     if (!gen.owningTempOverrides.has(key)) {
         Node? receiverType = gen.resolvedExpressionType(
             receiver, varTypes);
-        if (irManagedType(gen, receiverType)) { return receiver; }
+        if (gen.managedValues.isManaged(
+                gen.resolveBodyType(receiverType))) {
+            return receiver;
+        }
     }
     return gpuManagedProjectionRoot(gen, receiver, varTypes);
 }

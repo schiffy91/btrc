@@ -1,38 +1,12 @@
 /* Typed cycle traversal for managed slots inside built-in collections. */
 
-bool genericTypeHasCycleVisitor(IRGen generator, Node typeExpr) {
-    if (typeExpr == null || typeExpr.generic_args.len == 0
-            || typeExpr.pointer_depth > 1 || typeExpr.is_array) {
-        return false;
-    }
-    string mangled = TypeIdentity.mangleGenericType(
-        typeExpr.base, typeExpr.generic_args);
-    int index = 0;
-    while (index < generator.analyzed.genericInstances.len) {
-        GenInstance instance =
-            generator.analyzed.genericInstances.get(index);
-        if (instance.mangled == mangled) {
-            return genericInstanceNeedsVisitor(
-                generator.analyzed, instance);
-        }
-        index = index + 1;
-    }
-    return false;
-}
-
-string cycleEdgeEmittedName(Node typeExpr) {
-    if (typeExpr.generic_args.len > 0) {
-        return TypeIdentity.mangleGenericType(typeExpr.base, typeExpr.generic_args);
-    }
-    return typeExpr.base;
-}
-
 IRNode cycleEdgeDescriptor(IRGen generator, Node typeExpr) {
-    if (irManagedMutexType(generator, typeExpr)) {
+    if (generator.managedValues.isMutex(
+            generator.resolveBodyType(typeExpr))) {
         return managedArcDescriptor(
-            generator, irManagedMutexRuntimeType());
+            generator, generator.managedValues.mutexRuntimeType());
     }
-    string emitted = cycleEdgeEmittedName(typeExpr);
+    string emitted = generator.cycles.edgeEmittedName(typeExpr);
     Vector<string> fields = [];
     fields.push("visit");
     fields.push("destroy");
@@ -41,10 +15,11 @@ IRNode cycleEdgeDescriptor(IRGen generator, Node typeExpr) {
     fields.push("raise");
     Vector<IRNode> values = [];
     if ((typeExpr.generic_args.len > 0
-                && genericTypeHasCycleVisitor(generator, typeExpr))
+                && generator.cycles.genericTypeNeedsVisitor(typeExpr))
             || (typeExpr.generic_args.len == 0
-                && classNeedsCycleVisitor(generator, typeExpr.base))) {
-        values.push(irFunctionRef(cycleVisitorName(emitted)));
+                && generator.cycles.classNeedsVisitor(typeExpr.base))) {
+        values.push(irFunctionRef(
+            generator.cycles.visitorName(emitted)));
     } else {
         values.push(irLiteral("NULL"));
     }
@@ -62,8 +37,8 @@ void appendCycleCallback(IRGen generator, Node typeExpr, IRNode slot,
         typeExpr, generator.analyzed.typedefTable);
     if (canonical == null) { return; }
     Node resolved = canonical;
-    string access = ensureArcSlotAdapter(
-        generator, typeToC(resolved, generator.analyzed));
+    string access = generator.cleanupSlots.ensureArcSlotAdapter(
+        typeToC(resolved, generator.analyzed));
     Vector<IRNode> arguments = [];
     arguments.push(irCast("volatile void*", irAddressOf(slot)));
     arguments.push(irFunctionRef(access));
@@ -80,7 +55,7 @@ bool appendClassCycleFieldVisit(IRGen generator, Node typeExpr,
             || typeExpr.is_array) {
         return false;
     }
-    if (genericCycleManagedType(generator.analyzed, typeExpr)) {
+    if (generator.cycles.isGraphManaged(typeExpr)) {
         appendCycleCallback(generator, typeExpr, slot, output);
         return true;
     }
@@ -93,7 +68,7 @@ bool appendGenericCycleFieldVisit(IRGen generator, Node typeExpr,
             || typeExpr.is_array) {
         return false;
     }
-    if (!genericCycleManagedType(generator.analyzed, typeExpr)) { return false; }
+    if (!generator.cycles.isGraphManaged(typeExpr)) { return false; }
     appendCycleCallback(generator, typeExpr, slot, output);
     return true;
 }
@@ -104,7 +79,7 @@ void appendCollectionSlotVisit(IRGen generator, Node typeExpr,
             || typeExpr.is_array) {
         return;
     }
-    if (genericCycleManagedType(generator.analyzed, typeExpr)) {
+    if (generator.cycles.isGraphManaged(typeExpr)) {
         appendCycleCallback(generator, typeExpr, slot, output);
     }
 }
@@ -149,7 +124,9 @@ void appendListCycleBody(IRGen generator, Node element,
 
 bool appendBuiltinCollectionCycleBody(IRGen generator,
         GenInstance instance, Vector<IRNode> body) {
-    if (!isCycleCollection(instance.base)) { return false; }
+    if (!generator.cycles.isCollection(instance.base)) {
+        return false;
+    }
     if ((instance.base == "Map" && instance.args.len != 2)
             || (instance.base != "Map" && instance.args.len != 1)) {
         fprintf(stderr, "error: cannot safely traverse malformed %s instance\n",

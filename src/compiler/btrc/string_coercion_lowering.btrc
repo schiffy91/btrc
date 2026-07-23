@@ -121,7 +121,8 @@ PreparedValue prepareLoweredTargetValue(IRGen generator,
     Node concreteSource = source;
     OwnershipBoundary boundary = OwnershipBoundary();
     bool pinBorrowedReceiver = !sourceOwned
-        && irManagedType(generator, concreteSource)
+        && generator.managedValues.isManaged(
+            generator.resolveBodyType(concreteSource))
         && expression.kind != NK_SELF_EXPR
         && expression.kind != NK_SUPER_EXPR;
     boundary.addLoweredOperand(generator, expression,

@@ -73,6 +73,7 @@ class CompilerPipeline {
 
         IRGen lowerer = IRGen(
             analyzed, analyzer.operatorSemantics(),
+            analyzer.managedValueSemantics(), analyzer.cycleMetadata(),
             sourcePath, resolved.stdlibLineCount, resolved.userLines);
         lowerer.dceEnabled = options.runDce;
         IRModule module = lowerer.generate(program);
