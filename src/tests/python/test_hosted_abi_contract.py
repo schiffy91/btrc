@@ -7,7 +7,7 @@ import pytest
 
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.ast_nodes import FunctionDecl
-from src.compiler.python.cli_archive import _stamp_stdlib_declarations
+from src.compiler.python.cli_archive import StdlibArchiveBuilder
 from src.compiler.python.gen_hosted_abi_btrc import HostedAbiBtrcGenerator
 from src.compiler.python.hosted_abi import (
     HOSTED_FUNCTIONS,
@@ -283,7 +283,7 @@ def test_stdlib_cannot_take_hosted_lifetime_value_through_user_shadow() -> None:
 def test_archive_stamps_nested_stdlib_declaration_provenance() -> None:
     source = "class Wrapper { public void inspect(void* value) { (void)value; } }"
     program = Parser(Lexer(source, "<archive-provenance>").tokenize()).parse()
-    _stamp_stdlib_declarations(program)
+    StdlibArchiveBuilder()._stamp_declarations(program)
     declaration = program.declarations[0]
     assert is_compiler_stdlib_source(declaration.source_file)
     assert is_compiler_stdlib_source(declaration.members[0].source_file)

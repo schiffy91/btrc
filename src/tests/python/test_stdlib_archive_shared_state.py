@@ -14,21 +14,11 @@ from src.compiler.python.ir.helpers.cycles import CYCLES
 from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
 from src.compiler.python.ir.helpers.trycatch import TRYCATCH
 from src.compiler.python.ir.nodes import IRModule
-from src.compiler.python.stdlib_archive_helpers import (
-    ARCHIVE_HELPER_API_GROUPS,
-    ARCHIVE_HELPER_API_NAMES,
-)
-from src.compiler.python.stdlib_shared_state import (
-    SHARED_STATE_API_ROOTS,
-    SHARED_STATE_HELPER_GROUPS,
-    SHARED_STATE_HELPER_NAMES,
-    _function_definition_prototype,
-    _split_toplevel_units,
-    derive_shared_decls,
-    derive_shared_impl,
-    inline_toplevel_functions,
-)
+from src.compiler.python.stdlib_shared_state import SharedStateArchivePolicy
 from src.tests.python.stdlib_archive_state_fixture import PROGRAM_SOURCE
+
+ARCHIVE = archive.StdlibArchive()
+SHARED = SharedStateArchivePolicy()
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 AR = shutil.which("ar")
@@ -208,14 +198,14 @@ def test_mutable_helper_groups_have_complete_ownership():
             }
         ),
     }
-    expected_names = frozenset().union(*SHARED_STATE_HELPER_GROUPS.values())
-    assert expected_groups == SHARED_STATE_HELPER_GROUPS
-    assert expected_names == SHARED_STATE_HELPER_NAMES
-    assert set(SHARED_STATE_API_ROOTS) == set(expected_groups)
-    assert "__btrc_suspect" in SHARED_STATE_API_ROOTS["arc_runtime"]
-    assert "__btrc_cycle_state_cleanup" in SHARED_STATE_API_ROOTS["arc_runtime"]
-    assert "__btrc_arc_thread_state_cleanup" in SHARED_STATE_API_ROOTS["arc_runtime"]
-    assert "__btrc_try_state_cleanup" in SHARED_STATE_API_ROOTS["try_stack"]
+    expected_names = frozenset().union(*SHARED.HELPER_GROUPS.values())
+    assert expected_groups == SHARED.HELPER_GROUPS
+    assert expected_names == SHARED.HELPER_NAMES
+    assert set(SHARED.API_ROOTS) == set(expected_groups)
+    assert "__btrc_suspect" in SHARED.API_ROOTS["arc_runtime"]
+    assert "__btrc_cycle_state_cleanup" in SHARED.API_ROOTS["arc_runtime"]
+    assert "__btrc_arc_thread_state_cleanup" in SHARED.API_ROOTS["arc_runtime"]
+    assert "__btrc_try_state_cleanup" in SHARED.API_ROOTS["try_stack"]
 
     state_contracts = (
         (
@@ -270,26 +260,26 @@ def test_all_cross_tu_runtime_storage_has_one_explicit_owner_group():
     mutable_helpers = set()
     for helpers in runtime_families:
         for name, helper in helpers.items():
-            for unit in _split_toplevel_units(helper.c_source):
+            for unit in SHARED.split_toplevel_units(helper.c_source):
                 declaration = unit.lstrip()
                 if declaration.startswith("typedef"):
                     continue
-                if _function_definition_prototype(unit) is not None:
+                if SHARED.function_definition_prototype(unit) is not None:
                     continue
                 if declaration.startswith("static ") and not declaration.startswith("static const "):
                     mutable_helpers.add(name)
 
-    assert mutable_helpers <= SHARED_STATE_HELPER_NAMES
+    assert mutable_helpers <= SHARED.HELPER_NAMES
     assert {
         name
         for name, helper in CYCLES.items()
         if any(
             unit.lstrip().startswith("static ")
             and not unit.lstrip().startswith("static const ")
-            and _function_definition_prototype(unit) is None
-            for unit in _split_toplevel_units(helper.c_source)
+            and SHARED.function_definition_prototype(unit) is None
+            for unit in SHARED.split_toplevel_units(helper.c_source)
         )
-    } == SHARED_STATE_HELPER_GROUPS["arc_runtime"]
+    } == SHARED.HELPER_GROUPS["arc_runtime"]
 
 
 @pytest.mark.parametrize(
@@ -302,11 +292,11 @@ def test_all_cross_tu_runtime_storage_has_one_explicit_owner_group():
 def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expected_groups):
     module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({root}))
 
-    archive_owned, declarations = archive.transform_archive_module(module)
+    archive_owned, declarations = ARCHIVE.transform_module(module)
     expected = set()
     for group_name in expected_groups:
-        expected.update(SHARED_STATE_HELPER_GROUPS[group_name])
-        expected.update(SHARED_STATE_API_ROOTS[group_name])
+        expected.update(SHARED.HELPER_GROUPS[group_name])
+        expected.update(SHARED.API_ROOTS[group_name])
 
     assert expected <= set(archive_owned)
     assert expected <= {helper.name for helper in module.helper_decls}
@@ -319,7 +309,7 @@ def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expect
 def test_worker_arc_state_finalizer_has_cross_tu_linkage():
     module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({"__btrc_thread_spawn"}))
 
-    archive_owned, declarations = archive.transform_archive_module(module)
+    archive_owned, declarations = ARCHIVE.transform_module(module)
     cleanup_name = "__btrc_arc_thread_state_cleanup"
     assert cleanup_name in archive_owned
     assert "void __btrc_arc_thread_state_finalize(void);" in declarations[cleanup_name]
@@ -333,12 +323,12 @@ def test_worker_arc_state_finalizer_has_cross_tu_linkage():
 def test_archive_completes_the_thread_handle_lifecycle_api():
     module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({"__btrc_thread_spawn"}))
 
-    archive_owned, declarations = archive.transform_archive_module(module)
+    archive_owned, declarations = ARCHIVE.transform_module(module)
     helpers = {helper.name for helper in module.helper_decls}
-    lifecycle = ARCHIVE_HELPER_API_GROUPS["thread_handle"]
+    lifecycle = SHARED.ARCHIVE_API_GROUPS["thread_handle"]
 
     assert lifecycle <= helpers
-    assert lifecycle == ARCHIVE_HELPER_API_NAMES
+    assert lifecycle == SHARED.ARCHIVE_API_NAMES
     assert lifecycle <= set(archive_owned)
     assert "__btrc_thread_t* __btrc_thread_spawn(" in declarations["__btrc_thread_spawn"]
     assert "void* __btrc_thread_join(" in declarations["__btrc_thread_join"]
@@ -355,9 +345,9 @@ def test_archive_completes_the_thread_handle_lifecycle_api():
 
 
 def test_string_registry_declarations_are_derived_without_initializers():
-    source = "\n".join(STRING_OWNERSHIP[name].c_source for name in SHARED_STATE_HELPER_GROUPS["string_registry"])
-    declarations = derive_shared_decls(source)
-    implementation = derive_shared_impl(source)
+    source = "\n".join(STRING_OWNERSHIP[name].c_source for name in SHARED.HELPER_GROUPS["string_registry"])
+    declarations = SHARED.derive_shared_declarations(source)
+    implementation = SHARED.derive_shared_implementation(source)
 
     assert "typedef struct __btrc_string_entry {" in declarations
     assert "extern atomic_flag __btrc_string_lock;" in declarations
@@ -381,7 +371,7 @@ def test_archive_header_inlines_private_noninline_helpers():
         )
     )
 
-    header_source = inline_toplevel_functions(source)
+    header_source = SHARED.inline_toplevel_functions(source)
 
     assert "static int state = 0;" in header_source
     assert "static inline void cleanup(void)" in header_source
@@ -398,7 +388,7 @@ def test_archive_header_inlines_helpers_after_preprocessor_prefixes():
         )
     )
 
-    header_source = inline_toplevel_functions(source)
+    header_source = SHARED.inline_toplevel_functions(source)
 
     assert "static inline int platform_bound(void)" in header_source
 

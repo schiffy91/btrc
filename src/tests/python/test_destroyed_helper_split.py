@@ -20,7 +20,7 @@ from src.compiler.python.ir.nodes import (
 from src.compiler.python.ir.optimizer import optimize
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.stdlib_shared_state import SHARED_STATE_HELPER_NAMES
+from src.compiler.python.stdlib_shared_state import SharedStateArchivePolicy
 
 
 def _emit_c(source: str) -> str:
@@ -77,8 +77,9 @@ def test_destroyed_query_is_separate_from_shared_state():
         "__btrc_destroyed_tracking",
         "__btrc_arc_mutation_lock",
     ]
-    assert "__btrc_destroyed_tracking" in SHARED_STATE_HELPER_NAMES
-    assert "__btrc_is_destroyed" not in SHARED_STATE_HELPER_NAMES
+    shared_helpers = SharedStateArchivePolicy.HELPER_NAMES
+    assert "__btrc_destroyed_tracking" in shared_helpers
+    assert "__btrc_is_destroyed" not in shared_helpers
     assert "__btrc_is_destroyed" not in CYCLES["__btrc_mark_destroyed"].depends_on
     assert "__btrc_is_destroyed" not in CYCLES["__btrc_collect_cycles"].depends_on
     assert "__btrc_is_destroyed" in TRYCATCH["__btrc_run_cleanups"].depends_on

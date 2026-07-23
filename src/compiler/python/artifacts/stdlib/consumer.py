@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ...frontend.stdlib import StdlibRepository
-from ...stdlib_archive import load_manifest, partition_for_archive, reject_user_overrides
+from ...stdlib_archive import StdlibArchive
 from ..cache.compiler_cache import ToolchainFingerprint
 from ..publication.publisher import ArtifactPublisher
 from ..publication.storage import ArtifactStorage
@@ -18,20 +18,25 @@ class StdlibArchiveConsumer:
         stdlib: StdlibRepository | None = None,
         publisher: StdlibArchivePublisher | None = None,
         fingerprint: ToolchainFingerprint | None = None,
+        archive: StdlibArchive | None = None,
     ) -> None:
+        if archive is not None and publisher is not None and archive.publisher is not publisher:
+            raise ValueError("archive consumer and archive service must share one publisher")
+        if archive is not None and fingerprint is not None and archive.fingerprint is not fingerprint:
+            raise ValueError("archive consumer and archive service must share one fingerprint")
         self._stdlib = stdlib or StdlibRepository()
-        self._publisher = publisher or StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
-        self._fingerprint = fingerprint or ToolchainFingerprint()
+        if archive is None:
+            publisher = publisher or StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
+            archive = StdlibArchive(
+                publisher,
+                fingerprint or ToolchainFingerprint(),
+            )
+        self._archive = archive
 
     def manifest(self, archive_dir: str) -> dict:
-        return load_manifest(
-            archive_dir,
-            self._stdlib.source(""),
-            self._publisher,
-            self._fingerprint,
-        )
+        return self._archive.load(archive_dir, self._stdlib.source(""))
 
     def partition(self, module, program, archive_dir: str) -> None:
         manifest = self.manifest(archive_dir)
-        reject_user_overrides(program, manifest)
-        partition_for_archive(module, manifest)
+        self._archive.reject_user_overrides(program, manifest)
+        self._archive.partition(module, manifest)

@@ -20,6 +20,7 @@ from .source_provenance import (
     compiler_stdlib_source,
     stamp_nested_declaration_sources,
 )
+from .stdlib_archive import StdlibArchive
 
 
 class StdlibArchiveBuilder:
@@ -29,19 +30,23 @@ class StdlibArchiveBuilder:
         self,
         stdlib: StdlibRepository | None = None,
         publisher: StdlibArchivePublisher | None = None,
+        archive: StdlibArchive | None = None,
         *,
         analyzer_factory: Callable[[], SemanticAnalyzer] = SemanticAnalyzer,
         lowerer_factory: Callable[..., IRLowerer] = IRLowerer,
     ) -> None:
+        if archive is not None and publisher is not None and archive.publisher is not publisher:
+            raise ValueError("archive builder and archive service must share one publisher")
         self._stdlib = stdlib or StdlibRepository()
-        self._publisher = publisher or StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
+        if archive is None:
+            publisher = publisher or StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
+            archive = StdlibArchive(publisher)
+        self._archive = archive
         self._analyzer_factory = analyzer_factory
         self._lowerer_factory = lowerer_factory
 
     def build(self, out_dir: str) -> None:
         """Compile the entire stdlib into a linkable archive in ``out_dir``."""
-
-        from .stdlib_archive import build_archive
 
         stdlib_source = self._stdlib.source("")
         if not stdlib_source.strip():
@@ -61,12 +66,7 @@ class StdlibArchiveBuilder:
                 debug=False,
                 source_file="<stdlib>",
             ).lower()
-            build_archive(
-                out_dir,
-                ir_module,
-                stdlib_source,
-                self._publisher,
-            )
+            self._archive.build(out_dir, ir_module, stdlib_source)
         except CodegenError as error:
             from .cli_diagnostics import codegen_error_exit
 

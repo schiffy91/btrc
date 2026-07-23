@@ -79,7 +79,7 @@ def test_archive_exports_structured_callbacks_with_their_signatures():
         function_defs=[callback],
     )
 
-    archive.transform_archive_module(module)
+    archive.StdlibArchive().transform_module(module)
 
     assert not callback.is_static
     assert not module.function_decls[0].is_static

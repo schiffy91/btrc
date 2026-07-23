@@ -33,11 +33,17 @@ def run_main(monkeypatch, argv):
 
 def test_archive_build_workflow_is_instance_owned():
     import src.compiler.python.cli_archive as cli_archive
+    import src.compiler.python.stdlib_archive_validation as archive_validation
+    import src.compiler.python.stdlib_shared_state as shared_state
 
-    module = ast.parse(Path(cli_archive.__file__).read_text())
-    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    for owner_module in (cli_archive, sa, archive_validation, shared_state):
+        module = ast.parse(Path(owner_module.__file__).read_text())
+        loose_behavior = [
+            node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
+        assert loose_behavior == []
 
-    assert loose_behavior == []
+    assert not Path(sa.__file__).with_name("stdlib_archive_helpers.py").exists()
     assert callable(StdlibArchiveBuilder().build)
 
 
@@ -97,7 +103,7 @@ int main() {
 
 def test_externize_toplevel_strips_only_leading_static():
     src = "static int g = 0;\nstatic inline int f(void) {\n    static int local = 1;\n    return local;\n}"
-    out = sa._externize_toplevel(src)
+    out = sa.StdlibArchive(_archive_publisher()).shared_state.externize_toplevel(src)
     assert out.startswith("int g = 0;")
     assert "\nint f(void) {" in out
     # An indented `static` inside the body must be preserved.
@@ -150,7 +156,8 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
             )
         ],
     )
-    manifest = sa._build_manifest(archive_module, [], "stdlib source")
+    archive = sa.StdlibArchive(_archive_publisher())
+    manifest = archive.create_manifest(archive_module, [], "stdlib source")
     assert manifest["schema"] == sa.MANIFEST_SCHEMA == 5
     assert set(manifest["artifacts"]) == {sa.HEADER_NAME, sa.IMPL_NAME}
 
@@ -196,7 +203,7 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
             ),
         ],
     )
-    sa.partition_for_archive(mod, manifest, "btrc_stdlib.h")
+    archive.partition(mod, manifest, "btrc_stdlib.h")
 
     assert [s.name for s in mod.struct_defs] == ["Usr"]
     assert [f.name for f in mod.function_defs] == ["Usr_m"]
@@ -275,11 +282,12 @@ def test_archive_override_check_distinguishes_imports_from_user_code(tmp_path):
         name="CliArgs",
         source_file=str(Path(sa.__file__).parents[2] / "stdlib" / "cli.btrc"),
     )
-    sa.reject_user_overrides(SimpleNamespace(declarations=[stdlib_decl]), manifest)
+    archive = sa.StdlibArchive(_archive_publisher())
+    archive.reject_user_overrides(SimpleNamespace(declarations=[stdlib_decl]), manifest)
 
     user_decl = SimpleNamespace(name="CliArgs", source_file=str(tmp_path / "program.btrc"))
     with pytest.raises(sa.ArchiveVersionError, match=r"overrides.*CliArgs"):
-        sa.reject_user_overrides(SimpleNamespace(declarations=[user_decl]), manifest)
+        archive.reject_user_overrides(SimpleNamespace(declarations=[user_decl]), manifest)
 
 
 # --------------------------------------------------------------------------
@@ -293,11 +301,7 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     assert "Built stdlib archive" in capsys.readouterr().out
     for name in (sa.HEADER_NAME, sa.IMPL_NAME, sa.MANIFEST_NAME):
         assert (out / name).exists(), name
-    manifest = sa.load_manifest(
-        str(out),
-        StdlibRepository().source(""),
-        _archive_publisher(),
-    )
+    manifest = sa.StdlibArchive(_archive_publisher()).load(str(out), StdlibRepository().source(""))
     # The archive must provide a substantial, real interface.
     assert len(manifest["functions"]) > 100
     assert {macro["name"] for macro in manifest["macros"]} >= {

@@ -24,7 +24,7 @@ from src.compiler.python.stdlib_archive import (
     MANIFEST_NAME,
     MANIFEST_SCHEMA,
     ArchiveVersionError,
-    load_manifest,
+    StdlibArchive,
 )
 
 
@@ -215,7 +215,7 @@ def test_concurrent_stdlib_writers_leave_one_valid_generation(tmp_path: Path) ->
 
     reader_publication = ArtifactPublisher(ArtifactStorage())
     reader = StdlibArchivePublisher(reader_publication)
-    load_manifest(str(output), source, reader)
+    StdlibArchive(reader).load(str(output), source)
     header = (output / HEADER_NAME).read_text(encoding="utf-8")
     impl = (output / IMPL_NAME).read_text(encoding="utf-8")
     assert any(f" {generation} " in header and f" {generation} " in impl for generation in ("alpha", "beta", "gamma"))
@@ -255,12 +255,12 @@ def test_stdlib_reader_gets_retryable_mismatch_during_publication(
     try:
         assert payload_published.wait(10)
         with pytest.raises(ArchiveVersionError, match=r"being updated.*retry"):
-            load_manifest(str(output), source, publisher)
+            StdlibArchive(publisher).load(str(output), source)
     finally:
         release_writer.set()
         writer.join(10)
 
     assert errors == []
-    load_manifest(str(output), source, publisher)
+    StdlibArchive(publisher).load(str(output), source)
     assert " new " in (output / HEADER_NAME).read_text(encoding="utf-8")
     assert " new " in (output / IMPL_NAME).read_text(encoding="utf-8")
