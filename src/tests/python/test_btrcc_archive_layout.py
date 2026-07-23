@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import gzip
 import struct
 import tarfile
@@ -10,10 +11,30 @@ from pathlib import Path
 
 import pytest
 
+import src.compiler.python.btrcc_bundle_validation_archive as archive_validation_module
 from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
 from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
 from src.compiler.python.btrcc_bundle_archive import write_checksum
 from src.tests.python.test_btrcc_bundle import _fixture
+
+
+def test_bundle_archive_validation_behavior_has_one_explicit_owner() -> None:
+    module = ast.parse(Path(archive_validation_module.__file__).read_text())
+    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    owner = next(
+        node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "BundleArchiveValidator"
+    )
+    operations = {node.name for node in owner.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    assert loose_behavior == []
+    assert {
+        "validate",
+        "_validate_tar",
+        "_validate_zip",
+        "_canonical_member",
+        "_hash_bounded",
+        "_validate_names",
+    } <= operations
 
 
 def _bundle(tmp_path: Path, target: str):

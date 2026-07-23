@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import BinaryIO
 
-from ... import btrcc_bundle_validation_archive
 from ...btrcc_archive_metadata import canonical_epoch
+from ...btrcc_bundle_validation_archive import BundleArchiveValidator
 from ...btrcc_target_binary import target_spec, validate_target_binary_stream
 from ...bundle_archive_source import BundleArchiveSource, ContentSnapshot
 from ..publication.storage import ArtifactStorage
@@ -61,15 +61,15 @@ class BundleValidator:
             raise ValueError(
                 "bundle archive checksum does not match the staged archive",
             )
+        archive_validator = BundleArchiveValidator(
+            archive_name,
+            expected_files,
+            expected_dirs,
+            expected_modes,
+            snapshot.modified_time,
+        )
         with self._stable_file(archive, _MAX_ARCHIVE_BYTES) as stream:
-            btrcc_bundle_validation_archive.validate_archive(
-                stream,
-                archive_name,
-                expected_files,
-                expected_dirs,
-                expected_modes,
-                snapshot.modified_time,
-            )
+            archive_validator.validate(stream)
         if self._hash_artifact(archive) != digest_before or self._checksum_text(checksum) != checksum_before:
             raise ValueError("bundle archive changed while being validated")
         try:
