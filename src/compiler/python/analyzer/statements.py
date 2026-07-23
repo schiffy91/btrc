@@ -148,7 +148,7 @@ class StatementsMixin:
             previous_root = self._standalone_expression_root
             self._standalone_expression_root = stmt.expr
             try:
-                self._analyze_gpu_result_statement(stmt.expr)
+                self.gpu_dispatch.analyze_result_statement(stmt.expr, self.scope)
             finally:
                 self._standalone_expression_root = previous_root
             self._validate_thread_expression_discard(stmt.expr)

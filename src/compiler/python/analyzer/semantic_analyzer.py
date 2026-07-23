@@ -33,8 +33,7 @@ from .generated_symbols import GeneratedSymbolContractsMixin
 from .generic_intrinsics import GenericIntrinsicValidationMixin
 from .generic_methods import GenericMethodsMixin
 from .generic_validation import GenericValidationMixin
-from .gpu_array_contracts import GpuArrayContractsMixin
-from .gpu_result_contexts import GpuResultContextContractsMixin
+from .gpu_dispatch import GpuDispatchValidator
 from .hierarchy_validator import HierarchyValidator
 from .hosted_abi_contracts import HostedAbiContractsMixin
 from .hosted_result_contracts import HostedResultContractsMixin
@@ -82,8 +81,6 @@ class SemanticAnalyzer(
     AggregateContractsMixin,
     AggregateLayoutContractsMixin,
     ArrayContractsMixin,
-    GpuArrayContractsMixin,
-    GpuResultContextContractsMixin,
     CastContractsMixin,
     TypeDomainContractsMixin,
     StorageContractsMixin,
@@ -156,6 +153,12 @@ class SemanticAnalyzer(
             seed=seed,
         )
         self.declaration_policy = self.declarations.policy
+        self.gpu_dispatch = GpuDispatchValidator(
+            context,
+            self.declarations,
+            canonical_type=self._canonical_type,
+            analyze_expression=self._analyze_expr,
+        )
         self.initializers = InitializerAnalyzer(
             context,
             self.declarations,

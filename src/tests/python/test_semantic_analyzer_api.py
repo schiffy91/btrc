@@ -5,6 +5,7 @@ import importlib.util
 from src.compiler.python.analyzer.analysis_context import AnalysisContext
 from src.compiler.python.analyzer.declarations.policy import DeclarationPolicy
 from src.compiler.python.analyzer.declarations.registry import DeclarationRegistry
+from src.compiler.python.analyzer.gpu_dispatch import GpuDispatchValidator
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
@@ -64,6 +65,24 @@ def test_registration_mixins_are_absent_from_semantic_analyzer_mro():
     assert "DeclarationContractsMixin" not in owners
     assert "FunctionParameterContractsMixin" not in owners
     assert "HostedAbiDeclarationContractsMixin" not in owners
+
+
+def test_gpu_dispatch_validation_is_a_composed_owner_not_analyzer_mro():
+    analyzer, _ = analyze("int main() { return 0; }")
+    owners = {owner.__name__ for owner in SemanticAnalyzer.__mro__}
+
+    assert isinstance(analyzer.gpu_dispatch, GpuDispatchValidator)
+    assert analyzer.gpu_dispatch._context is analyzer.context
+    assert analyzer.gpu_dispatch._declarations is analyzer.declarations
+    assert not hasattr(analyzer.gpu_dispatch, "analyzer")
+    assert "GpuArrayContractsMixin" not in owners
+    assert "GpuResultContextContractsMixin" not in owners
+    assert not hasattr(analyzer, "_gpu_array_result_boundary")
+
+
+def test_legacy_gpu_dispatch_mixins_are_removed():
+    for module in ("gpu_array_contracts", "gpu_result_contexts"):
+        assert importlib.util.find_spec(f"src.compiler.python.analyzer.{module}") is None
 
 
 def test_legacy_analyzer_module_is_removed():

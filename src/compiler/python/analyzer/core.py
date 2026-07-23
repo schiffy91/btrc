@@ -34,9 +34,6 @@ class AnalyzerBase:
         # Only the root expression of an ExprStmt may consume a physical
         # Mutex slot through `.destroy()`.
         self._standalone_expression_root = None
-        # The one array-returning GPU call currently permitted to materialize
-        # directly into declaration or assignment storage.
-        self._gpu_array_result_boundary = None
         self.in_virtual_setter: bool = False
         self.current_return_type: TypeExpr | None = None
         self.in_gpu_function: bool = False

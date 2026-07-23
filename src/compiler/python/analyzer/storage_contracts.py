@@ -1,6 +1,6 @@
 """Storage-duration, array-bound, and class-field contracts."""
 
-from ..ast_nodes import BraceInitializer, CallExpr, Identifier, ListLiteral
+from ..ast_nodes import BraceInitializer, ListLiteral
 from ..type_composition import strip_outer_storage
 from ..type_identity import is_semantic_scalar_void
 from .initializer_analyzer import (
@@ -195,7 +195,7 @@ class StorageContractsMixin:
             type_expr.is_array
             and type_expr.array_size is not None
             and declaration.initializer is not None
-            and not self._is_gpu_array_initializer(declaration.initializer)
+            and not self.gpu_dispatch.is_array_result(declaration.initializer, self.scope)
         ):
             constant_bound, _ = self._integer_constant_expression(type_expr.array_size)
             if not constant_bound:
@@ -219,16 +219,6 @@ class StorageContractsMixin:
                 declaration.line,
                 declaration.col,
             )
-
-    def _is_gpu_array_initializer(self, expression) -> bool:
-        if not isinstance(expression, CallExpr) or not isinstance(expression.callee, Identifier):
-            return False
-        name = expression.callee.name
-        symbol = self.scope.lookup(name)
-        if symbol is not None and symbol.kind != "function":
-            return False
-        function = self.declarations.function_table.get(name)
-        return bool(function and function.is_gpu and function.return_type.is_array)
 
     def _validate_array_bound(self, type_expr, subject, context) -> None:
         if type_expr is None:

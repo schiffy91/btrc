@@ -101,7 +101,7 @@ class CallSignatureContractsMixin:
                         argument_line,
                         argument_col,
                     )
-                elif not self._gpu_input_has_compatible_storage(argument, expected, actual):
+                elif not self.gpu_dispatch.input_has_compatible_storage(expected, actual):
                     self.context.error(
                         f"Argument '{params[param_index].name}' to '{name}()' "
                         "does not have an ABI-compatible GPU buffer element type",

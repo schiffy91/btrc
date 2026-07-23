@@ -31,7 +31,7 @@ class UpdateContractsMixin:
         self._validate_property_update(
             expression.target,
             require_getter=expression.op != "=",
-            allow_getter_storage=self._is_gpu_output_assignment(expression),
+            allow_getter_storage=self.gpu_dispatch.is_output_assignment(expression, self.scope),
             line=expression.line,
             col=expression.col,
         )
@@ -118,11 +118,11 @@ class UpdateContractsMixin:
                     expression.col,
                 )
                 return
-            if self._is_gpu_output_assignment(expression) and self._array_target_has_capacity(
+            if self.gpu_dispatch.is_output_assignment(expression, self.scope) and self._array_target_has_capacity(
                 expression.target,
                 target,
             ):
-                if self._gpu_output_element_compatible(target, source):
+                if self.gpu_dispatch.output_element_compatible(target, source):
                     return
                 self.context.error(
                     "Array-returning @gpu output element type is not compatible with the target storage",

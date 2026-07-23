@@ -30,7 +30,7 @@ class VariableDeclarationAnalysisMixin:
                 if define_binding:
                     self.scope.define(stmt.name, self._var_symbol(stmt))
                 return
-            self._analyze_gpu_array_initializer(stmt.initializer, stmt.type)
+            self.gpu_dispatch.analyze_array_initializer(stmt.initializer, stmt.type, self.scope)
             inferred = self._infer_type(stmt.initializer)
             if inferred is None:
                 self.context.error(f"Cannot infer type for 'var' declaration of '{stmt.name}'", stmt.line, stmt.col)
@@ -89,7 +89,7 @@ class VariableDeclarationAnalysisMixin:
         stmt.type = self._upgrade_class_type(stmt.type)
         self._collect_generic_instances(stmt.type)
         if stmt.initializer:
-            self._analyze_gpu_array_initializer(stmt.initializer, stmt.type)
+            self.gpu_dispatch.analyze_array_initializer(stmt.initializer, stmt.type, self.scope)
             self._validate_array_object_initializer(
                 stmt.type,
                 stmt.initializer,

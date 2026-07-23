@@ -2,7 +2,6 @@
 
 from ..ast_nodes import (
     BraceInitializer,
-    CallExpr,
     FieldAccessExpr,
     Identifier,
     IntLiteral,
@@ -44,7 +43,7 @@ class ArrayContractsMixin:
         """Reject array-object rebinding while preserving pointer-valued slots."""
         target = self._array_target_value_type(expression.target, target)
         canonical = self._canonical_type(target)
-        if self._is_gpu_output_assignment(expression):
+        if self.gpu_dispatch.is_output_assignment(expression, self.scope):
             if self._array_target_has_capacity(expression.target, target):
                 return False
             self.context.error(
@@ -77,7 +76,7 @@ class ArrayContractsMixin:
         canonical = self._canonical_type(inferred)
         if canonical is None or not canonical.is_array or isinstance(initializer, (BraceInitializer, ListLiteral)):
             return inferred
-        if self._is_gpu_array_initializer(initializer):
+        if self.gpu_dispatch.is_array_result(initializer, self.scope):
             return canonical
         return add_outer_pointer(canonical, clear_array=True)
 
@@ -158,7 +157,7 @@ class ArrayContractsMixin:
         represented = self._canonical_type(self._array_value_type(expected))
         aggregate = isinstance(initializer, (BraceInitializer, ListLiteral))
         if canonical is not None and canonical.is_array and represented is not None and not represented.is_array:
-            if self._is_gpu_array_initializer(initializer):
+            if self.gpu_dispatch.is_array_result(initializer, self.scope):
                 self.context.error(
                     f"{subject} cannot materialize an array-returning @gpu result through a pointer-valued array alias",
                     line,
@@ -175,7 +174,7 @@ class ArrayContractsMixin:
             canonical is not None
             and canonical.is_array
             and not aggregate
-            and not self._is_gpu_array_initializer(initializer)
+            and not self.gpu_dispatch.is_array_result(initializer, self.scope)
         ):
             self.context.error(f"{subject} requires an array initializer", line, col)
 
@@ -277,19 +276,6 @@ class ArrayContractsMixin:
             if member is not None:
                 return member, "struct-field"
         return None, None
-
-    def _is_gpu_output_assignment(self, expression) -> bool:
-        """Recognize the GPU dispatch lowering that writes into a host buffer."""
-        if expression.op != "=" or not isinstance(expression.value, CallExpr):
-            return False
-        callee = expression.value.callee
-        if not isinstance(callee, Identifier):
-            return False
-        symbol = self.scope.lookup(callee.name)
-        if symbol is not None and symbol.kind != "function":
-            return False
-        declaration = self.declarations.function_table.get(callee.name)
-        return bool(declaration and declaration.is_gpu and declaration.return_type and declaration.return_type.is_array)
 
 
 __all__ = ["ArrayContractsMixin"]
