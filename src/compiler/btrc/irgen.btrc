@@ -197,45 +197,6 @@ class Managed {
     }
 }
 
-/* Abstract ownership ABI state for lexical __fn_ptr bindings.  Missing from
- * both vectors means a borrowed C callback; owned means a btrc source callable
- * returning +1; ambiguous is the conservative join of different paths. */
-class CallableFlowSnapshot {
-    public Vector<string> owned;
-    public Vector<string> ambiguous;
-
-    public CallableFlowSnapshot() {
-        self.owned = [];
-        self.ambiguous = [];
-    }
-}
-
-/* Callback ABI states reachable through a throw edge from one lexical try.
- * `names` fixes the outer bindings visible when the try begins so declarations
- * local to the try cannot leak into catch analysis. */
-class CallableExceptionalCapture {
-    public Vector<string> names;
-    public Vector<CallableFlowSnapshot> states;
-
-    public CallableExceptionalCapture() {
-        self.names = [];
-        self.states = [];
-    }
-}
-
-/* Callable states reaching an explicit edge out of one loop body.  A
- * do-while has no zero-iteration path, so its post-loop state is the join of
- * these edges and the body's normal completion only. */
-class CallableLoopCapture {
-    public Vector<CallableFlowSnapshot> breaks;
-    public Vector<CallableFlowSnapshot> continues;
-
-    public CallableLoopCapture() {
-        self.breaks = [];
-        self.continues = [];
-    }
-}
-
 /* Snapshot of the ARC managed-scope + return context, taken before lowering an
  * isolated body (a lambda / thread wrapper, a separate C function). Holds COPIES
  * of the managed stack + scope starts so the live IRGen fields can be cleared
@@ -258,12 +219,7 @@ class ScopeSnapshot {
     public Vector<string> closureNames;
     public Vector<string> closureFunctions;
     public Vector<string> closureEnvironments;
-    public Vector<string> ownedCallableNames;
-    public Vector<string> ambiguousCallableNames;
-    public Vector<string> callableDeclarations;
-    public Vector<int> callableScopeStarts;
-    public Vector<CallableExceptionalCapture> callableExceptionCaptures;
-    public Vector<CallableLoopCapture> callableLoopCaptures;
+    public CallableFlowStateSnapshot callableFlow;
     public Vector<string> borrowedLocalBindings;
     public Vector<string> sourceLexicalBindings;
     /* COPIES of the func-var-decl accumulator (the IRNode handles), so a lambda
@@ -288,12 +244,7 @@ class ScopeSnapshot {
         self.closureNames = [];
         self.closureFunctions = [];
         self.closureEnvironments = [];
-        self.ownedCallableNames = [];
-        self.ambiguousCallableNames = [];
-        self.callableDeclarations = [];
-        self.callableScopeStarts = [];
-        self.callableExceptionCaptures = [];
-        self.callableLoopCaptures = [];
+        self.callableFlow = CallableFlowStateSnapshot();
         self.borrowedLocalBindings = [];
         self.sourceLexicalBindings = [];
         self.funcVarDecls = [];
@@ -459,15 +410,8 @@ class IRGen {
     public int lastLambdaId;
     public Map<string, string> fnPtrEnvFn;
     public Map<string, string> fnPtrEnvVar;
-    /* Function-pointer locals proven to target lifted lambdas or source
-     * functions. These callables use btrc's caller-owned managed-return ABI;
-     * arbitrary C function pointers deliberately do not enter this map. */
-    public Map<string, bool> ownedCallableBindings;
-    public Map<string, bool> ambiguousCallableBindings;
-    public Vector<string> callableScopeDeclarations;
-    public Vector<int> callableScopeStarts;
-    public Vector<CallableExceptionalCapture> callableExceptionCaptures;
-    public Vector<CallableLoopCapture> callableLoopCaptures;
+    /* Compilation-local callback ABI provenance and control-flow joins. */
+    public CallableFlowState callableFlow;
 
     /* Every local IRVarDecl produced in the function/method body currently being
      * lowered. A try/catch marks ALL of them `volatile`, since any local modified
@@ -557,12 +501,7 @@ class IRGen {
         self.lastLambdaId = 0;
         self.fnPtrEnvFn = {};
         self.fnPtrEnvVar = {};
-        self.ownedCallableBindings = {};
-        self.ambiguousCallableBindings = {};
-        self.callableScopeDeclarations = [];
-        self.callableScopeStarts = [];
-        self.callableExceptionCaptures = [];
-        self.callableLoopCaptures = [];
+        self.callableFlow = CallableFlowState();
         self.funcVarDecls = [];
         self.cleanupTakeAdapters = {};
         self.arcSlotAdapters = {};
@@ -601,309 +540,6 @@ class IRGen {
 
     public bool hasClosureEnv(string name) {
         return self.fnPtrEnvFn.has(name) && self.fnPtrEnvFn.get(name) != "";
-    }
-
-    public bool hasOwnedCallableBinding(string name) {
-        return self.ownedCallableBindings.has(name)
-            && self.ownedCallableBindings.get(name);
-    }
-
-    public bool hasAmbiguousCallableBinding(string name) {
-        return self.ambiguousCallableBindings.has(name)
-            && self.ambiguousCallableBindings.get(name);
-    }
-
-    /* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
-    public int callableBindingAbi(string name) {
-        if (self.hasAmbiguousCallableBinding(name)) { return 2; }
-        if (self.hasOwnedCallableBinding(name)) { return 1; }
-        return 0;
-    }
-
-    public void setCallableBindingAbi(string name, int abi) {
-        self.ownedCallableBindings.remove(name);
-        self.ambiguousCallableBindings.remove(name);
-        if (abi == 1) {
-            self.ownedCallableBindings.put(name, true);
-        } else if (abi == 2) {
-            self.ambiguousCallableBindings.put(name, true);
-        }
-    }
-
-    public CallableBoundaryContext callableBoundaryContext(
-            Map<string, Node> variableTypes) {
-        return CallableBoundaryContext(
-            variableTypes,
-            self.activeTypeMap,
-            self.inGenericMethod || self.callDefaultTypeDepth > 0,
-            self.ownedCallableBindings,
-            self.ambiguousCallableBindings,
-            self.callableScopeDeclarations);
-    }
-
-    public void snapshotOwnedCallableBindings(Vector<string> names) {
-        Vector<string> keys = self.ownedCallableBindings.keys();
-        int i = 0;
-        while (i < keys.len) {
-            string name = keys.get(i);
-            if (self.ownedCallableBindings.get(name)) { names.push(name); }
-            i = i + 1;
-        }
-    }
-
-    public void snapshotAmbiguousCallableBindings(Vector<string> names) {
-        Vector<string> keys = self.ambiguousCallableBindings.keys();
-        int i = 0;
-        while (i < keys.len) {
-            string name = keys.get(i);
-            if (self.ambiguousCallableBindings.get(name)) {
-                names.push(name);
-            }
-            i = i + 1;
-        }
-    }
-
-    public void restoreOwnedCallableBindings(Vector<string> names) {
-        Vector<string> keys = self.ownedCallableBindings.keys();
-        int i = 0;
-        while (i < keys.len) {
-            self.ownedCallableBindings.remove(keys.get(i));
-            i = i + 1;
-        }
-        i = 0;
-        while (i < names.len) {
-            self.ownedCallableBindings.put(names.get(i), true);
-            i = i + 1;
-        }
-    }
-
-    public void restoreAmbiguousCallableBindings(Vector<string> names) {
-        Vector<string> keys = self.ambiguousCallableBindings.keys();
-        int i = 0;
-        while (i < keys.len) {
-            self.ambiguousCallableBindings.remove(keys.get(i));
-            i = i + 1;
-        }
-        i = 0;
-        while (i < names.len) {
-            self.ambiguousCallableBindings.put(names.get(i), true);
-            i = i + 1;
-        }
-    }
-
-    public CallableFlowSnapshot snapshotCallableFlow() {
-        CallableFlowSnapshot flow = CallableFlowSnapshot();
-        self.snapshotOwnedCallableBindings(flow.owned);
-        self.snapshotAmbiguousCallableBindings(flow.ambiguous);
-        return flow;
-    }
-
-    public void restoreCallableFlow(CallableFlowSnapshot flow) {
-        self.restoreOwnedCallableBindings(flow.owned);
-        self.restoreAmbiguousCallableBindings(flow.ambiguous);
-    }
-
-    public bool callableFlowHas(Vector<string> names, string name) {
-        int i = 0;
-        while (i < names.len) {
-            if (names.get(i) == name) { return true; }
-            i = i + 1;
-        }
-        return false;
-    }
-
-    public int callableFlowAbi(CallableFlowSnapshot flow, string name) {
-        if (self.callableFlowHas(flow.ambiguous, name)) { return 2; }
-        if (self.callableFlowHas(flow.owned, name)) { return 1; }
-        return 0;
-    }
-
-    public void appendCallableFlowKeys(
-            CallableFlowSnapshot flow, Vector<string> keys) {
-        int i = 0;
-        while (i < flow.owned.len) {
-            string name = flow.owned.get(i);
-            if (!self.callableFlowHas(keys, name)) { keys.push(name); }
-            i = i + 1;
-        }
-        i = 0;
-        while (i < flow.ambiguous.len) {
-            string name = flow.ambiguous.get(i);
-            if (!self.callableFlowHas(keys, name)) { keys.push(name); }
-            i = i + 1;
-        }
-    }
-
-    public void joinCallableFlows(Vector<CallableFlowSnapshot> flows) {
-        if (flows.len == 0) { return; }
-        Vector<string> keys = [];
-        int i = 0;
-        while (i < flows.len) {
-            self.appendCallableFlowKeys(flows.get(i), keys);
-            i = i + 1;
-        }
-        CallableFlowSnapshot joined = CallableFlowSnapshot();
-        i = 0;
-        while (i < keys.len) {
-            string name = keys.get(i);
-            int abi = self.callableFlowAbi(flows.get(0), name);
-            int path = 1;
-            while (path < flows.len) {
-                if (self.callableFlowAbi(flows.get(path), name) != abi) {
-                    abi = 2;
-                }
-                path = path + 1;
-            }
-            if (abi == 1) { joined.owned.push(name); }
-            else if (abi == 2) { joined.ambiguous.push(name); }
-            i = i + 1;
-        }
-        self.restoreCallableFlow(joined);
-    }
-
-    public CallableFlowSnapshot callableFlowForNames(
-            Vector<string> names) {
-        CallableFlowSnapshot flow = CallableFlowSnapshot();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            int abi = self.callableBindingAbi(name);
-            if (abi == 1) { flow.owned.push(name); }
-            else if (abi == 2) { flow.ambiguous.push(name); }
-            index = index + 1;
-        }
-        return flow;
-    }
-
-    public CallableExceptionalCapture beginExceptionalCallableCapture(
-            Map<string, Node> varTypes) {
-        CallableExceptionalCapture capture =
-            CallableExceptionalCapture();
-        Vector<string> names = varTypes.keys();
-        int index = 0;
-        while (index < names.len) {
-            string name = names.get(index);
-            Node? type = resolveTypedefType(
-                varTypes.get(name), self.analyzed.typedefTable);
-            if (type != null && type.base == "__fn_ptr") {
-                capture.names.push(name);
-            }
-            index = index + 1;
-        }
-        self.callableExceptionCaptures.push(capture);
-        self.recordExceptionalCallableFlow();
-        return capture;
-    }
-
-    public void finishExceptionalCallableCapture(
-            CallableExceptionalCapture capture) {
-        if (self.callableExceptionCaptures.len == 0) {
-            print("internal compiler error: unmatched callable exception capture");
-            abortGen();
-        }
-        CallableExceptionalCapture active =
-            self.callableExceptionCaptures.pop();
-        if (active != capture) {
-            print("internal compiler error: callable exception captures must be nested");
-            abortGen();
-        }
-    }
-
-    public void recordExceptionalCallableFlow() {
-        int index = 0;
-        while (index < self.callableExceptionCaptures.len) {
-            CallableExceptionalCapture capture =
-                self.callableExceptionCaptures.get(index);
-            capture.states.push(
-                self.callableFlowForNames(capture.names));
-            index = index + 1;
-        }
-    }
-
-    public CallableLoopCapture beginCallableLoopCapture() {
-        CallableLoopCapture capture = CallableLoopCapture();
-        self.callableLoopCaptures.push(capture);
-        return capture;
-    }
-
-    public void finishCallableLoopCapture(CallableLoopCapture capture) {
-        if (self.callableLoopCaptures.len == 0) {
-            print("internal compiler error: unmatched callable loop capture");
-            abortGen();
-        }
-        CallableLoopCapture active = self.callableLoopCaptures.pop();
-        if (active != capture) {
-            print("internal compiler error: callable loop captures must be nested");
-            abortGen();
-        }
-    }
-
-    public void recordCallableLoopExit(bool isBreak) {
-        if (self.callableLoopCaptures.len == 0) { return; }
-        int context = self.controlContext.len - 1;
-        while (context >= 0) {
-            string target = self.controlContext.get(context);
-            if (target == "loop") { break; }
-            if (isBreak && target == "switch") { return; }
-            context = context - 1;
-        }
-        if (context < 0) { return; }
-        CallableLoopCapture capture = self.callableLoopCaptures.get(
-            self.callableLoopCaptures.len - 1);
-        if (isBreak) {
-            capture.breaks.push(self.snapshotCallableFlow());
-        } else {
-            capture.continues.push(self.snapshotCallableFlow());
-        }
-    }
-
-    public CallableFlowSnapshot beginCallableScope() {
-        CallableFlowSnapshot enclosing = self.snapshotCallableFlow();
-        self.callableScopeStarts.push(
-            self.callableScopeDeclarations.len);
-        return enclosing;
-    }
-
-    public void recordCallableDeclaration(string name) {
-        if (self.callableScopeStarts.len > 0) {
-            self.callableScopeDeclarations.push(name);
-        }
-        self.setCallableBindingAbi(name, 0);
-    }
-
-    public bool callableDeclaredSince(int start, string name) {
-        int i = start;
-        while (i < self.callableScopeDeclarations.len) {
-            if (self.callableScopeDeclarations.get(i) == name) {
-                return true;
-            }
-            i = i + 1;
-        }
-        return false;
-    }
-
-    public void finishCallableScope(CallableFlowSnapshot enclosing) {
-        int start = self.callableScopeDeclarations.len;
-        if (self.callableScopeStarts.len > 0) {
-            start = self.callableScopeStarts.pop();
-        }
-        CallableFlowSnapshot current = self.snapshotCallableFlow();
-        Vector<string> keys = [];
-        self.appendCallableFlowKeys(enclosing, keys);
-        self.appendCallableFlowKeys(current, keys);
-        self.restoreCallableFlow(enclosing);
-        int i = 0;
-        while (i < keys.len) {
-            string name = keys.get(i);
-            if (!self.callableDeclaredSince(start, name)) {
-                self.setCallableBindingAbi(
-                    name, self.callableFlowAbi(current, name));
-            }
-            i = i + 1;
-        }
-        while (self.callableScopeDeclarations.len > start) {
-            self.callableScopeDeclarations.pop();
-        }
     }
 
     public void snapshotClosureEnvs(
@@ -1289,37 +925,7 @@ class IRGen {
             snap.closureNames,
             snap.closureFunctions,
             snap.closureEnvironments);
-        self.snapshotOwnedCallableBindings(snap.ownedCallableNames);
-        self.snapshotAmbiguousCallableBindings(
-            snap.ambiguousCallableNames);
-        int callableDeclaration = 0;
-        while (callableDeclaration
-                < self.callableScopeDeclarations.len) {
-            snap.callableDeclarations.push(
-                self.callableScopeDeclarations.get(
-                    callableDeclaration));
-            callableDeclaration = callableDeclaration + 1;
-        }
-        int callableStart = 0;
-        while (callableStart < self.callableScopeStarts.len) {
-            snap.callableScopeStarts.push(
-                self.callableScopeStarts.get(callableStart));
-            callableStart = callableStart + 1;
-        }
-        int callableCapture = 0;
-        while (callableCapture
-                < self.callableExceptionCaptures.len) {
-            snap.callableExceptionCaptures.push(
-                self.callableExceptionCaptures.get(
-                    callableCapture));
-            callableCapture = callableCapture + 1;
-        }
-        int callableLoopCapture = 0;
-        while (callableLoopCapture < self.callableLoopCaptures.len) {
-            snap.callableLoopCaptures.push(
-                self.callableLoopCaptures.get(callableLoopCapture));
-            callableLoopCapture = callableLoopCapture + 1;
-        }
+        self.callableFlow.isolateInto(snap.callableFlow);
         Vector<string> borrowed = self.snapshotBorrowedLocalBindings();
         int borrowedIndex = 0;
         while (borrowedIndex < borrowed.len) {
@@ -1345,23 +951,6 @@ class IRGen {
         while (self.controlCleanupStarts.len > 0) { self.controlCleanupStarts.pop(); }
         while (self.funcVarDecls.len > 0) { self.funcVarDecls.pop(); }
         self.clearClosureEnvs();
-        Vector<string> noOwnedCallables = [];
-        self.restoreOwnedCallableBindings(noOwnedCallables);
-        Vector<string> noAmbiguousCallables = [];
-        self.restoreAmbiguousCallableBindings(
-            noAmbiguousCallables);
-        while (self.callableScopeDeclarations.len > 0) {
-            self.callableScopeDeclarations.pop();
-        }
-        while (self.callableScopeStarts.len > 0) {
-            self.callableScopeStarts.pop();
-        }
-        while (self.callableExceptionCaptures.len > 0) {
-            self.callableExceptionCaptures.pop();
-        }
-        while (self.callableLoopCaptures.len > 0) {
-            self.callableLoopCaptures.pop();
-        }
         Vector<string> noBorrowedBindings = [];
         self.restoreBorrowedLocalBindings(noBorrowedBindings);
         Vector<string> noSourceBindings = [];
@@ -1425,47 +1014,7 @@ class IRGen {
             snap.closureNames,
             snap.closureFunctions,
             snap.closureEnvironments);
-        self.restoreOwnedCallableBindings(snap.ownedCallableNames);
-        self.restoreAmbiguousCallableBindings(
-            snap.ambiguousCallableNames);
-        while (self.callableScopeDeclarations.len > 0) {
-            self.callableScopeDeclarations.pop();
-        }
-        int callableDeclaration = 0;
-        while (callableDeclaration < snap.callableDeclarations.len) {
-            self.callableScopeDeclarations.push(
-                snap.callableDeclarations.get(callableDeclaration));
-            callableDeclaration = callableDeclaration + 1;
-        }
-        while (self.callableScopeStarts.len > 0) {
-            self.callableScopeStarts.pop();
-        }
-        int callableStart = 0;
-        while (callableStart < snap.callableScopeStarts.len) {
-            self.callableScopeStarts.push(
-                snap.callableScopeStarts.get(callableStart));
-            callableStart = callableStart + 1;
-        }
-        while (self.callableExceptionCaptures.len > 0) {
-            self.callableExceptionCaptures.pop();
-        }
-        int callableCapture = 0;
-        while (callableCapture
-                < snap.callableExceptionCaptures.len) {
-            self.callableExceptionCaptures.push(
-                snap.callableExceptionCaptures.get(
-                    callableCapture));
-            callableCapture = callableCapture + 1;
-        }
-        while (self.callableLoopCaptures.len > 0) {
-            self.callableLoopCaptures.pop();
-        }
-        int callableLoopCapture = 0;
-        while (callableLoopCapture < snap.callableLoopCaptures.len) {
-            self.callableLoopCaptures.push(
-                snap.callableLoopCaptures.get(callableLoopCapture));
-            callableLoopCapture = callableLoopCapture + 1;
-        }
+        self.callableFlow.restoreIsolated(snap.callableFlow);
         self.restoreBorrowedLocalBindings(
             snap.borrowedLocalBindings);
         self.restoreSourceLexicalBindings(
@@ -1955,7 +1504,10 @@ class IRGen {
             Map<string, Node> globalTypes = {};
             self.callableBoundaries.rejectPersistentStorage(
                 d.type, d.initializer,
-                self.callableBoundaryContext(globalTypes),
+                self.callableFlow.boundaryContext(
+                    globalTypes, self.activeTypeMap,
+                    self.inGenericMethod
+                        || self.callDefaultTypeDepth > 0),
                 "global storage");
         }
         bool inferredArray = d.initializer != null
@@ -3715,13 +3267,13 @@ class IRGen {
             Vector<string> sourceBindings =
                 self.replaceSourceLexicalParameters(d.params);
             CallableFlowSnapshot functionCallables =
-                self.snapshotCallableFlow();
+                self.callableFlow.snapshot();
             /* Hoist to a local: btrcpy's ARC double-evaluates `field = call()`
              * (see gotchas), which would lower the body twice and desync the
              * fresh-temp counter. */
             IRNode b = self.lowerBlock(d.body_node, varTypes);
             fn.body = b;
-            self.restoreCallableFlow(functionCallables);
+            self.callableFlow.restore(functionCallables);
             self.restoreSourceLexicalBindings(sourceBindings);
         }
         return fn;
@@ -3754,7 +3306,7 @@ class IRGen {
         self.snapshotClosureEnvs(
             closureNames, closureFunctions, closureEnvironments);
         CallableFlowSnapshot enclosingCallables =
-            self.beginCallableScope();
+            self.callableFlow.beginScope();
         Vector<string> borrowedBindings =
             self.snapshotBorrowedLocalBindings();
         Vector<string> sourceBindings =
@@ -3781,7 +3333,7 @@ class IRGen {
                  * unused. */
                 stmts.push(irExprStmt(irVar(declaration.name)));
                 scopedVarTypes.put(sourceName, bindingType);
-                self.recordCallableDeclaration(sourceName);
+                self.callableFlow.declare(sourceName);
                 self.funcVarDecls.push(declaration);
                 if (owned.get(binding)
                         && irManagedType(self, bindingType)) {
@@ -3831,7 +3383,7 @@ class IRGen {
         self.popCleanupScope();
         self.restoreClosureEnvs(
             closureNames, closureFunctions, closureEnvironments);
-        self.finishCallableScope(enclosingCallables);
+        self.callableFlow.finishScope(enclosingCallables);
         self.restoreBorrowedLocalBindings(borrowedBindings);
         self.restoreSourceLexicalBindings(sourceBindings);
         self.gpuHost.restore(gpuHostSnapshot);
@@ -3865,15 +3417,16 @@ class IRGen {
 
     public IRNode lowerLoopBodyFlow(
             Node block, Map<string, Node> varTypes, bool maySkip) {
-        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
-        CallableLoopCapture capture = self.beginCallableLoopCapture();
+        CallableFlowSnapshot incoming = self.callableFlow.snapshot();
+        CallableLoopCapture capture =
+            self.callableFlow.beginLoopCapture();
         self.pushLoopScope();
         self.pushControlContext("loop");
         IRNode b = self.lowerBlock(block, varTypes);
         self.popControlContext();
         self.popLoopScope();
-        CallableFlowSnapshot bodyFlow = self.snapshotCallableFlow();
-        self.restoreCallableFlow(incoming);
+        CallableFlowSnapshot bodyFlow = self.callableFlow.snapshot();
+        self.callableFlow.restore(incoming);
         Vector<CallableFlowSnapshot> flows = [];
         int breakIndex = 0;
         while (breakIndex < capture.breaks.len) {
@@ -3887,8 +3440,8 @@ class IRGen {
         }
         if (irSequenceMayFallThrough(b.stmts)) { flows.push(bodyFlow); }
         if (maySkip) { flows.push(incoming); }
-        self.finishCallableLoopCapture(capture);
-        self.joinCallableFlows(flows);
+        self.callableFlow.finishLoopCapture(capture);
+        self.callableFlow.join(flows);
         return b;
     }
 
@@ -3896,16 +3449,17 @@ class IRGen {
             Map<string, Node> varTypes, Vector<IRNode> declarations,
             Vector<string> sourceNames, Vector<Node> types,
             Vector<bool> owned) {
-        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
-        CallableLoopCapture capture = self.beginCallableLoopCapture();
+        CallableFlowSnapshot incoming = self.callableFlow.snapshot();
+        CallableLoopCapture capture =
+            self.callableFlow.beginLoopCapture();
         self.pushLoopScope();
         self.pushControlContext("loop");
         IRNode body = self.lowerBlockWithBindings(
             block, varTypes, declarations, sourceNames, types, owned);
         self.popControlContext();
         self.popLoopScope();
-        CallableFlowSnapshot bodyFlow = self.snapshotCallableFlow();
-        self.restoreCallableFlow(incoming);
+        CallableFlowSnapshot bodyFlow = self.callableFlow.snapshot();
+        self.callableFlow.restore(incoming);
         Vector<CallableFlowSnapshot> flows = [];
         int breakIndex = 0;
         while (breakIndex < capture.breaks.len) {
@@ -3919,8 +3473,8 @@ class IRGen {
         }
         flows.push(incoming);
         if (irSequenceMayFallThrough(body.stmts)) { flows.push(bodyFlow); }
-        self.finishCallableLoopCapture(capture);
-        self.joinCallableFlows(flows);
+        self.callableFlow.finishLoopCapture(capture);
+        self.callableFlow.join(flows);
         return body;
     }
 
@@ -4295,7 +3849,10 @@ class IRGen {
             if (node.type != null && node.type.is_array) {
                 self.callableBoundaries.rejectAggregateInitializer(
                     node.type, node.initializer,
-                    self.callableBoundaryContext(varTypes));
+                    self.callableFlow.boundaryContext(
+                        varTypes, self.activeTypeMap,
+                        self.inGenericMethod
+                            || self.callDefaultTypeDepth > 0));
                 Node baseType = typeWithoutOuterArray(node.type);
                 string baseC = typeToC(baseType, self.analyzed);
                 if (self.inGenericMethod || self.callDefaultTypeDepth > 0) {
@@ -4366,7 +3923,10 @@ class IRGen {
             }
             self.callableBoundaries.rejectAggregateInitializer(
                 declType, node.initializer,
-                self.callableBoundaryContext(varTypes));
+                self.callableFlow.boundaryContext(
+                    varTypes, self.activeTypeMap,
+                    self.inGenericMethod
+                        || self.callDefaultTypeDepth > 0));
             bool directInferredClosure = node.type == null
                 && node.initializer != null
                 && node.initializer.kind == NK_LAMBDA_EXPR;
@@ -4375,7 +3935,10 @@ class IRGen {
                 callableInitializerAbi =
                     self.callableBoundaries.expressionAbi(
                         node.initializer,
-                        self.callableBoundaryContext(varTypes));
+                        self.callableFlow.boundaryContext(
+                            varTypes, self.activeTypeMap,
+                            self.inGenericMethod
+                                || self.callDefaultTypeDepth > 0));
             }
             if (!directInferredClosure && self.callableValueEscapes(
                     declType, node.initializer, varTypes)) {
@@ -4472,7 +4035,7 @@ class IRGen {
             }
             self.funcVarDecls.push(vdecl);
             out.push(vdecl);
-            self.recordCallableDeclaration(node.name);
+            self.callableFlow.declare(node.name);
             /* A same-named ordinary local shadows an enclosing captured-lambda
              * binding for this lexical block. The block snapshot restores the
              * outer binding on exit. */
@@ -4494,7 +4057,7 @@ class IRGen {
                 declType, self.analyzed.typedefTable);
             if (callableDeclType != null
                     && callableDeclType.base == "__fn_ptr") {
-                self.setCallableBindingAbi(
+                self.callableFlow.setBindingAbi(
                     node.name, callableInitializerAbi);
             }
             /* Capturing lambda assigned to a var: allocate the capture-env struct
@@ -4694,7 +4257,8 @@ class IRGen {
             return;
         }
         if (node.kind == NK_BREAK_STMT) {
-            self.recordCallableLoopExit(true);
+            self.callableFlow.recordLoopExit(
+                true, self.controlContext);
             self.emitScopeRelease(self.getControlManagedVars(true), out);
             self.emitControlCleanupExit(true, out);
             self.emitTryPopDepth(self.exitedTryDepth(true), out);
@@ -4702,7 +4266,8 @@ class IRGen {
             return;
         }
         if (node.kind == NK_CONTINUE_STMT) {
-            self.recordCallableLoopExit(false);
+            self.callableFlow.recordLoopExit(
+                false, self.controlContext);
             self.emitScopeRelease(self.getControlManagedVars(false), out);
             self.emitControlCleanupExit(false, out);
             self.emitTryPopDepth(self.exitedTryDepth(false), out);
@@ -4899,7 +4464,10 @@ class IRGen {
             self.callableBoundaries.rejectPersistentStorage(
                 self.currentReturnTypeNode,
                 node.value_node,
-                self.callableBoundaryContext(varTypes),
+                self.callableFlow.boundaryContext(
+                    varTypes, self.activeTypeMap,
+                    self.inGenericMethod
+                        || self.callDefaultTypeDepth > 0),
                 "a function return");
         }
         lowerOwnedReturn(self, node, varTypes, out);
@@ -5018,7 +4586,7 @@ class IRGen {
             }
             errorName = self.freshTemp("__btrc_finally_error");
         }
-        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
+        CallableFlowSnapshot incoming = self.callableFlow.snapshot();
 
         Vector<IRNode> pushTryArgs = [];
         out.push(irExprStmt(irCall("__btrc_push_try", pushTryArgs)));
@@ -5027,12 +4595,13 @@ class IRGen {
         self.inTryDepth = self.inTryDepth + 1;
         self.pushControlContext("try");
         CallableExceptionalCapture exceptionalCapture =
-            self.beginExceptionalCallableCapture(varTypes);
+            self.callableFlow.beginExceptionalCapture(
+                varTypes, self.analyzed.typedefTable);
         IRNode tryBody = self.lowerBlock(node.try_block, varTypes);
-        CallableFlowSnapshot tryFlow = self.snapshotCallableFlow();
-        self.finishExceptionalCallableCapture(
+        CallableFlowSnapshot tryFlow = self.callableFlow.snapshot();
+        self.callableFlow.finishExceptionalCapture(
             exceptionalCapture);
-        self.restoreCallableFlow(incoming);
+        self.callableFlow.restore(incoming);
         self.popControlContext();
         self.inTryDepth = self.inTryDepth - 1;
         /* Normal exit: discard the cleanup registrations (scope release already
@@ -5061,9 +4630,9 @@ class IRGen {
             exceptionalFlow = exceptionalFlow + 1;
         }
         exceptionalFlows.push(tryFlow);
-        self.joinCallableFlows(exceptionalFlows);
+        self.callableFlow.join(exceptionalFlows);
         CallableFlowSnapshot exceptionalEntry =
-            self.snapshotCallableFlow();
+            self.callableFlow.snapshot();
 
         /* Pending-exception flag + message buffer, declared before the if. */
         if (finallyOnly) {
@@ -5132,8 +4701,8 @@ class IRGen {
             catchBody = self.lowerBlockWithBindings(
                 node.catch_block, catchVarTypes,
                 catchBindings, catchSourceNames, catchTypes, catchOwned);
-            catchFlow = self.snapshotCallableFlow();
-            self.restoreCallableFlow(incoming);
+            catchFlow = self.callableFlow.snapshot();
+            self.callableFlow.restore(incoming);
             if (node.catch_var != "") {
                 /* A catch binding may be intentionally ignored. Keep the C
                  * warning contract explicit without textual statement escapes. */
@@ -5155,7 +4724,7 @@ class IRGen {
         Vector<CallableFlowSnapshot> tryFlows = [];
         tryFlows.push(tryFlow);
         tryFlows.push(catchFlow);
-        self.joinCallableFlows(tryFlows);
+        self.callableFlow.join(tryFlows);
 
         IRNode frame = irIndex(
             irVar("__btrc_try_stack"), irVar("__btrc_try_top"));
@@ -5193,7 +4762,7 @@ class IRGen {
      * control_flow._lower_switch). A case with no value is the `default:` clause. */
     public IRNode lowerSwitch(Node node, Map<string, Node> varTypes) {
         IRNode val = self.lowerExpr(node.value_node, varTypes);
-        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
+        CallableFlowSnapshot incoming = self.callableFlow.snapshot();
         Vector<CallableFlowSnapshot> caseFlows = [];
         bool hasDefault = false;
         Vector<IRNode> cases = [];
@@ -5203,15 +4772,15 @@ class IRGen {
         int i = 0;
         while (i < node.cases.len) {
             Node c = node.cases.get(i);
-            self.restoreCallableFlow(incoming);
+            self.callableFlow.restore(incoming);
             if (hasFallthroughFlow) {
                 Vector<CallableFlowSnapshot> entries = [];
                 entries.push(incoming);
                 entries.push(fallthroughFlow);
-                self.joinCallableFlows(entries);
+                self.callableFlow.join(entries);
             }
             CallableFlowSnapshot enclosingCase =
-                self.beginCallableScope();
+                self.callableFlow.beginScope();
             Map<string, Node> caseTypes = semanticCloneTypes(varTypes);
             Vector<string> caseBorrowedBindings =
                 self.snapshotBorrowedLocalBindings();
@@ -5251,9 +4820,9 @@ class IRGen {
                 caseBorrowedBindings);
             self.restoreSourceLexicalBindings(
                 caseSourceBindings);
-            self.finishCallableScope(enclosingCase);
+            self.callableFlow.finishScope(enclosingCase);
             CallableFlowSnapshot caseFlow =
-                self.snapshotCallableFlow();
+                self.callableFlow.snapshot();
             caseFlows.push(caseFlow);
             hasFallthroughFlow = fallsThrough;
             if (hasFallthroughFlow) { fallthroughFlow = caseFlow; }
@@ -5261,29 +4830,29 @@ class IRGen {
             i = i + 1;
         }
         self.popControlContext();
-        self.restoreCallableFlow(incoming);
+        self.callableFlow.restore(incoming);
         if (!hasDefault) { caseFlows.push(incoming); }
-        self.joinCallableFlows(caseFlows);
+        self.callableFlow.join(caseFlows);
         return irSwitch(val, cases);
     }
 
     public IRNode lowerIf(Node node, Map<string, Node> varTypes) {
         IRNode cond = self.lowerExpr(node.condition, varTypes);
-        CallableFlowSnapshot incoming = self.snapshotCallableFlow();
+        CallableFlowSnapshot incoming = self.callableFlow.snapshot();
         IRNode then_b = self.lowerBlock(node.then_block, varTypes);
-        CallableFlowSnapshot thenFlow = self.snapshotCallableFlow();
-        self.restoreCallableFlow(incoming);
+        CallableFlowSnapshot thenFlow = self.callableFlow.snapshot();
+        self.callableFlow.restore(incoming);
         IRNode? else_b = null;
         CallableFlowSnapshot elseFlow = incoming;
         if (node.else_block != null) {
             else_b = self.lowerElse(node.else_block, varTypes);
-            elseFlow = self.snapshotCallableFlow();
-            self.restoreCallableFlow(incoming);
+            elseFlow = self.callableFlow.snapshot();
+            self.callableFlow.restore(incoming);
         }
         Vector<CallableFlowSnapshot> flows = [];
         flows.push(thenFlow);
         flows.push(elseFlow);
-        self.joinCallableFlows(flows);
+        self.callableFlow.join(flows);
         return irIf(cond, then_b, else_b);
     }
 
@@ -5303,7 +4872,7 @@ class IRGen {
 
     public IRNode lowerCFor(Node node, Map<string, Node> varTypes) {
         CallableFlowSnapshot enclosingCallables =
-            self.beginCallableScope();
+            self.callableFlow.beginScope();
         Vector<string> closureNames = [];
         Vector<string> closureFunctions = [];
         Vector<string> closureEnvironments = [];
@@ -5342,15 +4911,15 @@ class IRGen {
         IRNode? update = null;
         if (node.update != null) {
             CallableFlowSnapshot beforeUpdate =
-                self.snapshotCallableFlow();
+                self.callableFlow.snapshot();
             update = self.lowerExpr(node.update, loopTypes);
             CallableFlowSnapshot updateFlow =
-                self.snapshotCallableFlow();
-            self.restoreCallableFlow(beforeUpdate);
+                self.callableFlow.snapshot();
+            self.callableFlow.restore(beforeUpdate);
             Vector<CallableFlowSnapshot> updateFlows = [];
             updateFlows.push(beforeUpdate);
             updateFlows.push(updateFlow);
-            self.joinCallableFlows(updateFlows);
+            self.callableFlow.join(updateFlows);
         }
         IRNode lowered = irFor(init, cond, update, body);
         if (declarationScope) {
@@ -5382,7 +4951,7 @@ class IRGen {
             closureNames, closureFunctions, closureEnvironments);
         self.restoreBorrowedLocalBindings(borrowedBindings);
         self.restoreSourceLexicalBindings(sourceBindings);
-        self.finishCallableScope(enclosingCallables);
+        self.callableFlow.finishScope(enclosingCallables);
         return lowered;
     }
 
@@ -8150,7 +7719,10 @@ class IRGen {
             i = i + 1;
         }
         self.callableBoundaries.rejectUnsafeArguments(
-            call, params, self.callableBoundaryContext(varTypes));
+            call, params, self.callableFlow.boundaryContext(
+                varTypes, self.activeTypeMap,
+                self.inGenericMethod
+                    || self.callDefaultTypeDepth > 0));
     }
 
     public IRNode lowerMethodCall(Node node, Map<string, Node> varTypes) {

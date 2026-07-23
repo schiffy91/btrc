@@ -3,7 +3,10 @@
 int irCallableReturnAbi(IRGen generator, Node? expression,
         Map<string, Node> varTypes) {
     return generator.callableBoundaries.expressionAbi(
-        expression, generator.callableBoundaryContext(varTypes));
+        expression, generator.callableFlow.boundaryContext(
+            varTypes, generator.activeTypeMap,
+            generator.inGenericMethod
+                || generator.callDefaultTypeDepth > 0));
 }
 
 bool irCallableHasOwnedReturnAbi(IRGen generator, Node? expression,

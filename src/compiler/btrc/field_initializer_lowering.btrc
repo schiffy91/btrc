@@ -53,7 +53,10 @@ void appendInstanceFieldInitializers(IRGen generator, Node declaration,
             rejectInstanceArrayDefaultAtCodegen(field, fieldType);
             generator.callableBoundaries.rejectPersistentStorage(
                 fieldType, field.initializer,
-                generator.callableBoundaryContext(variables),
+                generator.callableFlow.boundaryContext(
+                    variables, generator.activeTypeMap,
+                    generator.inGenericMethod
+                        || generator.callDefaultTypeDepth > 0),
                 "instance field storage");
             PreparedValue prepared = prepareTargetValue(
                 generator, field.initializer, fieldType, variables);

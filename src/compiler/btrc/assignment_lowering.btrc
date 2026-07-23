@@ -3,7 +3,10 @@
 IRNode lowerAssignmentExpression(IRGen generator, Node node,
         Map<string, Node> varTypes) {
     CallableBoundaryContext callableContext =
-        generator.callableBoundaryContext(varTypes);
+        generator.callableFlow.boundaryContext(
+            varTypes, generator.activeTypeMap,
+            generator.inGenericMethod
+                || generator.callDefaultTypeDepth > 0);
     Node? callableStorageType = generator.resolvedExpressionType(
         node.target, varTypes);
     generator.callableBoundaries.rejectAssignment(
@@ -20,7 +23,10 @@ IRNode lowerAssignmentExpression(IRGen generator, Node node,
 IRNode lowerPlainAssignment(IRGen generator, Node node,
         Map<string, Node> varTypes) {
     CallableBoundaryContext callableContext =
-        generator.callableBoundaryContext(varTypes);
+        generator.callableFlow.boundaryContext(
+            varTypes, generator.activeTypeMap,
+            generator.inGenericMethod
+                || generator.callDefaultTypeDepth > 0);
     int callableAssignmentAbi = 0;
     bool callableAssignment = node.op == "="
         && node.target != null
@@ -150,9 +156,9 @@ IRNode lowerPlainAssignment(IRGen generator, Node node,
                 && callableTargetType != null
                 && callableTargetType.base == "__fn_ptr"
                 && lexicalCallableTarget) {
-            generator.setCallableBindingAbi(
+            generator.callableFlow.setBindingAbi(
                 node.target.name, callableAssignmentAbi);
-            generator.recordExceptionalCallableFlow();
+            generator.callableFlow.recordExceptional();
         }
         if (targetType != null
                 && node.target.kind != NK_IDENTIFIER) {

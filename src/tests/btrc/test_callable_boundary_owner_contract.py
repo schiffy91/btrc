@@ -51,17 +51,25 @@ def test_callable_boundary_behavior_has_one_domain_owner() -> None:
 
 def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() -> None:
     policy = _source("callable_boundary_policy.btrc")
+    flow = _source("callable_flow_state.btrc")
+    stage = _source("ir/stage.btrc")
     irgen = _source("irgen.btrc")
     context = policy.split("class CallableBoundaryContext {", 1)[1].split("class CallableBoundaryPolicy {", 1)[0]
     owner = policy.split("class CallableBoundaryPolicy {", 1)[1]
 
     assert "public CallableBoundaryPolicy callableBoundaries;" in irgen
     assert irgen.count("self.callableBoundaries = CallableBoundaryPolicy(analyzed);") == 1
-    assert "public CallableBoundaryContext callableBoundaryContext(" in irgen
-    assert "self.activeTypeMap," in irgen
-    assert "self.ownedCallableBindings," in irgen
-    assert "self.ambiguousCallableBindings," in irgen
-    assert "self.callableScopeDeclarations);" in irgen
+    assert "public CallableFlowState callableFlow;" in irgen
+    assert irgen.count("self.callableFlow = CallableFlowState();") == 1
+    assert "public CallableBoundaryContext callableBoundaryContext(" not in irgen
+    assert "public CallableBoundaryContext boundaryContext(" in flow
+    assert "self.ownedBindings," in flow
+    assert "self.ambiguousBindings," in flow
+    assert "self.declarations);" in flow
+    assert stage.index('#include "../callable_boundary_policy.btrc"') < stage.index(
+        '#include "../callable_flow_state.btrc"'
+    )
+    assert stage.index('#include "../callable_flow_state.btrc"') < stage.index('#include "../irgen.btrc"')
 
     for operation_evidence in (
         "private Map<string, Node> variableTypes;",
@@ -89,3 +97,71 @@ def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() 
     ]
     assert private_state == ["private Analyzed analysis;"]
     assert "private Map<" not in owner
+
+
+def test_callable_flow_state_exclusively_owns_mutable_provenance() -> None:
+    flow = _source("callable_flow_state.btrc")
+    irgen = _source("irgen.btrc")
+
+    for state in (
+        "private Map<string, bool> ownedBindings;",
+        "private Map<string, bool> ambiguousBindings;",
+        "private Vector<string> declarations;",
+        "private Vector<int> scopeStarts;",
+        "private Vector<CallableExceptionalCapture> exceptionCaptures;",
+        "private Vector<CallableLoopCapture> loopCaptures;",
+    ):
+        assert state in flow
+
+    for operation in (
+        "public CallableFlowSnapshot snapshot()",
+        "public void restore(CallableFlowSnapshot flow)",
+        "public void join(Vector<CallableFlowSnapshot> flows)",
+        "public CallableExceptionalCapture beginExceptionalCapture(",
+        "public void recordExceptional()",
+        "public CallableLoopCapture beginLoopCapture()",
+        "public void recordLoopExit(",
+        "public CallableFlowSnapshot beginScope()",
+        "public void declare(string name)",
+        "public void finishScope(CallableFlowSnapshot enclosing)",
+    ):
+        assert operation in flow
+
+    for obsolete_irgen_state in (
+        "ownedCallableBindings",
+        "ambiguousCallableBindings",
+        "callableScopeDeclarations",
+        "callableScopeStarts",
+        "callableExceptionCaptures",
+        "callableLoopCaptures",
+    ):
+        assert obsolete_irgen_state not in irgen
+
+    for obsolete_irgen_behavior in (
+        "snapshotCallableFlow(",
+        "restoreCallableFlow(",
+        "joinCallableFlows(",
+        "beginExceptionalCallableCapture(",
+        "recordExceptionalCallableFlow(",
+        "beginCallableLoopCapture(",
+        "recordCallableLoopExit(",
+        "beginCallableScope(",
+        "recordCallableDeclaration(",
+        "finishCallableScope(",
+    ):
+        assert obsolete_irgen_behavior not in irgen
+
+
+def test_callable_flow_isolation_is_owner_local_and_reentrant() -> None:
+    flow = _source("callable_flow_state.btrc")
+    irgen = _source("irgen.btrc")
+
+    assert "class CallableFlowStateSnapshot {" in flow
+    assert "public void isolateInto(CallableFlowStateSnapshot snapshot)" in flow
+    assert "public void restoreIsolated(CallableFlowStateSnapshot snapshot)" in flow
+    assert "self.callableFlow.isolateInto(snap.callableFlow);" in irgen
+    assert "self.callableFlow.restoreIsolated(snap.callableFlow);" in irgen
+
+    owner = flow.split("class CallableFlowState {", 1)[1]
+    assert not any(line.startswith(("Map<", "Vector<", "CallableFlow")) for line in owner.splitlines())
+    assert "IRGen" not in flow

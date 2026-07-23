@@ -1,0 +1,446 @@
+/* Compilation-local callable ABI provenance and control-flow joins.
+ *
+ * A CallableFlowState belongs to exactly one lowerer. It owns every mutable
+ * fact about lexical __fn_ptr bindings; callers supply only the active semantic
+ * or control context needed by an operation. */
+
+class CallableFlowSnapshot {
+    public Vector<string> owned;
+    public Vector<string> ambiguous;
+
+    public CallableFlowSnapshot() {
+        self.owned = [];
+        self.ambiguous = [];
+    }
+}
+
+class CallableExceptionalCapture {
+    public Vector<string> names;
+    public Vector<CallableFlowSnapshot> states;
+
+    public CallableExceptionalCapture() {
+        self.names = [];
+        self.states = [];
+    }
+}
+
+class CallableLoopCapture {
+    public Vector<CallableFlowSnapshot> breaks;
+    public Vector<CallableFlowSnapshot> continues;
+
+    public CallableLoopCapture() {
+        self.breaks = [];
+        self.continues = [];
+    }
+}
+
+/* Complete owner state saved while an isolated lambda/thread/function body is
+ * lowered. Collections are copied into this object: self-hosted lowering must
+ * not keep unretained aliases to collection fields while clearing them. */
+class CallableFlowStateSnapshot {
+    public Vector<string> owned;
+    public Vector<string> ambiguous;
+    public Vector<string> declarations;
+    public Vector<int> scopeStarts;
+    public Vector<CallableExceptionalCapture> exceptionCaptures;
+    public Vector<CallableLoopCapture> loopCaptures;
+
+    public CallableFlowStateSnapshot() {
+        self.owned = [];
+        self.ambiguous = [];
+        self.declarations = [];
+        self.scopeStarts = [];
+        self.exceptionCaptures = [];
+        self.loopCaptures = [];
+    }
+}
+
+class CallableFlowState {
+    private Map<string, bool> ownedBindings;
+    private Map<string, bool> ambiguousBindings;
+    private Vector<string> declarations;
+    private Vector<int> scopeStarts;
+    private Vector<CallableExceptionalCapture> exceptionCaptures;
+    private Vector<CallableLoopCapture> loopCaptures;
+
+    public CallableFlowState() {
+        self.ownedBindings = {};
+        self.ambiguousBindings = {};
+        self.declarations = [];
+        self.scopeStarts = [];
+        self.exceptionCaptures = [];
+        self.loopCaptures = [];
+    }
+
+    public CallableBoundaryContext boundaryContext(
+            Map<string, Node> variableTypes,
+            Map<string, Node> typeParameters,
+            bool resolvesTypeParameters) {
+        return CallableBoundaryContext(
+            variableTypes,
+            typeParameters,
+            resolvesTypeParameters,
+            self.ownedBindings,
+            self.ambiguousBindings,
+            self.declarations);
+    }
+
+    public bool hasOwnedBinding(string name) {
+        return self.ownedBindings.has(name)
+            && self.ownedBindings.get(name);
+    }
+
+    public bool hasAmbiguousBinding(string name) {
+        return self.ambiguousBindings.has(name)
+            && self.ambiguousBindings.get(name);
+    }
+
+    /* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
+    public int bindingAbi(string name) {
+        if (self.hasAmbiguousBinding(name)) { return 2; }
+        if (self.hasOwnedBinding(name)) { return 1; }
+        return 0;
+    }
+
+    public void setBindingAbi(string name, int abi) {
+        self.ownedBindings.remove(name);
+        self.ambiguousBindings.remove(name);
+        if (abi == 1) {
+            self.ownedBindings.put(name, true);
+        } else if (abi == 2) {
+            self.ambiguousBindings.put(name, true);
+        }
+    }
+
+    private void appendOwnedBindings(Vector<string> names) {
+        Vector<string> keys = self.ownedBindings.keys();
+        int index = 0;
+        while (index < keys.len) {
+            string name = keys.get(index);
+            if (self.ownedBindings.get(name)) { names.push(name); }
+            index = index + 1;
+        }
+    }
+
+    private void appendAmbiguousBindings(Vector<string> names) {
+        Vector<string> keys = self.ambiguousBindings.keys();
+        int index = 0;
+        while (index < keys.len) {
+            string name = keys.get(index);
+            if (self.ambiguousBindings.get(name)) { names.push(name); }
+            index = index + 1;
+        }
+    }
+
+    private void restoreOwnedBindings(Vector<string> names) {
+        Vector<string> keys = self.ownedBindings.keys();
+        int index = 0;
+        while (index < keys.len) {
+            self.ownedBindings.remove(keys.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < names.len) {
+            self.ownedBindings.put(names.get(index), true);
+            index = index + 1;
+        }
+    }
+
+    private void restoreAmbiguousBindings(Vector<string> names) {
+        Vector<string> keys = self.ambiguousBindings.keys();
+        int index = 0;
+        while (index < keys.len) {
+            self.ambiguousBindings.remove(keys.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < names.len) {
+            self.ambiguousBindings.put(names.get(index), true);
+            index = index + 1;
+        }
+    }
+
+    public CallableFlowSnapshot snapshot() {
+        CallableFlowSnapshot flow = CallableFlowSnapshot();
+        self.appendOwnedBindings(flow.owned);
+        self.appendAmbiguousBindings(flow.ambiguous);
+        return flow;
+    }
+
+    public void restore(CallableFlowSnapshot flow) {
+        self.restoreOwnedBindings(flow.owned);
+        self.restoreAmbiguousBindings(flow.ambiguous);
+    }
+
+    private bool contains(Vector<string> names, string name) {
+        int index = 0;
+        while (index < names.len) {
+            if (names.get(index) == name) { return true; }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    private int snapshotAbi(
+            CallableFlowSnapshot flow, string name) {
+        if (self.contains(flow.ambiguous, name)) { return 2; }
+        if (self.contains(flow.owned, name)) { return 1; }
+        return 0;
+    }
+
+    private void appendSnapshotNames(
+            CallableFlowSnapshot flow, Vector<string> names) {
+        int index = 0;
+        while (index < flow.owned.len) {
+            string name = flow.owned.get(index);
+            if (!self.contains(names, name)) { names.push(name); }
+            index = index + 1;
+        }
+        index = 0;
+        while (index < flow.ambiguous.len) {
+            string name = flow.ambiguous.get(index);
+            if (!self.contains(names, name)) { names.push(name); }
+            index = index + 1;
+        }
+    }
+
+    public void join(Vector<CallableFlowSnapshot> flows) {
+        if (flows.len == 0) { return; }
+        Vector<string> names = [];
+        int index = 0;
+        while (index < flows.len) {
+            self.appendSnapshotNames(flows.get(index), names);
+            index = index + 1;
+        }
+
+        CallableFlowSnapshot joined = CallableFlowSnapshot();
+        index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            int abi = self.snapshotAbi(flows.get(0), name);
+            int path = 1;
+            while (path < flows.len) {
+                if (self.snapshotAbi(flows.get(path), name) != abi) {
+                    abi = 2;
+                }
+                path = path + 1;
+            }
+            if (abi == 1) { joined.owned.push(name); }
+            else if (abi == 2) { joined.ambiguous.push(name); }
+            index = index + 1;
+        }
+        self.restore(joined);
+    }
+
+    private CallableFlowSnapshot snapshotForNames(
+            Vector<string> names) {
+        CallableFlowSnapshot flow = CallableFlowSnapshot();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            int abi = self.bindingAbi(name);
+            if (abi == 1) { flow.owned.push(name); }
+            else if (abi == 2) { flow.ambiguous.push(name); }
+            index = index + 1;
+        }
+        return flow;
+    }
+
+    public CallableExceptionalCapture beginExceptionalCapture(
+            Map<string, Node> variableTypes,
+            Map<string, Node> typedefTable) {
+        CallableExceptionalCapture capture =
+            CallableExceptionalCapture();
+        Vector<string> names = variableTypes.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            Node? type = resolveTypedefType(
+                variableTypes.get(name), typedefTable);
+            if (type != null && type.base == "__fn_ptr") {
+                capture.names.push(name);
+            }
+            index = index + 1;
+        }
+        self.exceptionCaptures.push(capture);
+        self.recordExceptional();
+        return capture;
+    }
+
+    public void finishExceptionalCapture(
+            CallableExceptionalCapture capture) {
+        if (self.exceptionCaptures.len == 0) {
+            print("internal compiler error: unmatched callable exception capture");
+            abortGen();
+        }
+        CallableExceptionalCapture active =
+            self.exceptionCaptures.pop();
+        if (active != capture) {
+            print("internal compiler error: callable exception captures must be nested");
+            abortGen();
+        }
+    }
+
+    public void recordExceptional() {
+        int index = 0;
+        while (index < self.exceptionCaptures.len) {
+            CallableExceptionalCapture capture =
+                self.exceptionCaptures.get(index);
+            capture.states.push(self.snapshotForNames(capture.names));
+            index = index + 1;
+        }
+    }
+
+    public CallableLoopCapture beginLoopCapture() {
+        CallableLoopCapture capture = CallableLoopCapture();
+        self.loopCaptures.push(capture);
+        return capture;
+    }
+
+    public void finishLoopCapture(CallableLoopCapture capture) {
+        if (self.loopCaptures.len == 0) {
+            print("internal compiler error: unmatched callable loop capture");
+            abortGen();
+        }
+        CallableLoopCapture active = self.loopCaptures.pop();
+        if (active != capture) {
+            print("internal compiler error: callable loop captures must be nested");
+            abortGen();
+        }
+    }
+
+    public void recordLoopExit(
+            bool isBreak, Vector<string> controlContext) {
+        if (self.loopCaptures.len == 0) { return; }
+        int context = controlContext.len - 1;
+        while (context >= 0) {
+            string target = controlContext.get(context);
+            if (target == "loop") { break; }
+            if (isBreak && target == "switch") { return; }
+            context = context - 1;
+        }
+        if (context < 0) { return; }
+        CallableLoopCapture capture =
+            self.loopCaptures.get(self.loopCaptures.len - 1);
+        if (isBreak) {
+            capture.breaks.push(self.snapshot());
+        } else {
+            capture.continues.push(self.snapshot());
+        }
+    }
+
+    public CallableFlowSnapshot beginScope() {
+        CallableFlowSnapshot enclosing = self.snapshot();
+        self.scopeStarts.push(self.declarations.len);
+        return enclosing;
+    }
+
+    public void declare(string name) {
+        if (self.scopeStarts.len > 0) {
+            self.declarations.push(name);
+        }
+        self.setBindingAbi(name, 0);
+    }
+
+    private bool declaredSince(int start, string name) {
+        int index = start;
+        while (index < self.declarations.len) {
+            if (self.declarations.get(index) == name) { return true; }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public void finishScope(CallableFlowSnapshot enclosing) {
+        int start = self.declarations.len;
+        if (self.scopeStarts.len > 0) {
+            start = self.scopeStarts.pop();
+        }
+        CallableFlowSnapshot current = self.snapshot();
+        Vector<string> names = [];
+        self.appendSnapshotNames(enclosing, names);
+        self.appendSnapshotNames(current, names);
+        self.restore(enclosing);
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            if (!self.declaredSince(start, name)) {
+                self.setBindingAbi(
+                    name, self.snapshotAbi(current, name));
+            }
+            index = index + 1;
+        }
+        while (self.declarations.len > start) {
+            self.declarations.pop();
+        }
+    }
+
+    /* Save and clear all callable-flow state before lowering an isolated body. */
+    public void isolateInto(CallableFlowStateSnapshot snapshot) {
+        self.appendOwnedBindings(snapshot.owned);
+        self.appendAmbiguousBindings(snapshot.ambiguous);
+        int index = 0;
+        while (index < self.declarations.len) {
+            snapshot.declarations.push(self.declarations.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < self.scopeStarts.len) {
+            snapshot.scopeStarts.push(self.scopeStarts.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < self.exceptionCaptures.len) {
+            snapshot.exceptionCaptures.push(
+                self.exceptionCaptures.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < self.loopCaptures.len) {
+            snapshot.loopCaptures.push(self.loopCaptures.get(index));
+            index = index + 1;
+        }
+        self.clear();
+    }
+
+    public void restoreIsolated(CallableFlowStateSnapshot snapshot) {
+        self.clear();
+        self.restoreOwnedBindings(snapshot.owned);
+        self.restoreAmbiguousBindings(snapshot.ambiguous);
+        int index = 0;
+        while (index < snapshot.declarations.len) {
+            self.declarations.push(snapshot.declarations.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < snapshot.scopeStarts.len) {
+            self.scopeStarts.push(snapshot.scopeStarts.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < snapshot.exceptionCaptures.len) {
+            self.exceptionCaptures.push(
+                snapshot.exceptionCaptures.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < snapshot.loopCaptures.len) {
+            self.loopCaptures.push(snapshot.loopCaptures.get(index));
+            index = index + 1;
+        }
+    }
+
+    private void clear() {
+        Vector<string> noNames = [];
+        self.restoreOwnedBindings(noNames);
+        self.restoreAmbiguousBindings(noNames);
+        while (self.declarations.len > 0) { self.declarations.pop(); }
+        while (self.scopeStarts.len > 0) { self.scopeStarts.pop(); }
+        while (self.exceptionCaptures.len > 0) {
+            self.exceptionCaptures.pop();
+        }
+        while (self.loopCaptures.len > 0) {
+            self.loopCaptures.pop();
+        }
+    }
+}

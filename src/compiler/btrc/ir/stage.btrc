@@ -24,6 +24,7 @@ import ../analyzer/stage.btrc;
 #include "../function_symbols.btrc"
 #include "../default_argument_literals.btrc"
 #include "../callable_boundary_policy.btrc"
+#include "../callable_flow_state.btrc"
 #include "../irgen.btrc"
 #include "../generic_type_lowering.btrc"
 #include "../source_parameter_lowering.btrc"
