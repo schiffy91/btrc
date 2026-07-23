@@ -1,5 +1,6 @@
 """Semantic-analysis composition root."""
 
+from ..numeric_literals import NumericLiteralSemantics
 from .aggregate_contracts import AggregateContractsMixin
 from .aggregate_layout import AggregateLayoutContractsMixin
 from .analysis_context import AnalysisContext
@@ -144,9 +145,11 @@ class SemanticAnalyzer(
         *,
         record_occurrences: bool = False,
         seed: AnalyzedProgram | None = None,
+        numeric_literals: NumericLiteralSemantics | None = None,
     ) -> None:
         context = AnalysisContext()
-        super().__init__(context)
+        literal_semantics = numeric_literals if numeric_literals is not None else NumericLiteralSemantics()
+        super().__init__(context, literal_semantics)
         self.record_occurrences = record_occurrences
         self.declarations = DeclarationRegistry(
             context,
@@ -164,6 +167,7 @@ class SemanticAnalyzer(
             context,
             self.declarations,
             self.node_types,
+            literal_semantics,
         )
         self.initializers = InitializerAnalyzer(
             context,

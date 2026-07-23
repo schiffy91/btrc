@@ -26,7 +26,7 @@ from ..gpu_builtins import (
     WGSL_FLOAT_UNARY_BUILTINS,
     WGSL_SAME_TYPE_BUILTINS,
 )
-from ..numeric_literals import float32_literal_problem
+from ..numeric_literals import NumericLiteralSemantics
 from .declarations.type_resolution import canonical_declaration_type
 from .gpu_type_contracts import GpuIntrinsicResolver
 
@@ -134,8 +134,13 @@ class GpuKernelValidation:
 class GpuExpressionValidator:
     """Own the recursive WGSL expression contract."""
 
-    def __init__(self, intrinsics: GpuIntrinsicResolver) -> None:
+    def __init__(
+        self,
+        intrinsics: GpuIntrinsicResolver,
+        numeric_literals: NumericLiteralSemantics,
+    ) -> None:
         self._intrinsics = intrinsics
+        self._numeric_literals = numeric_literals
 
     def validate(
         self,
@@ -153,7 +158,10 @@ class GpuExpressionValidator:
                 validation.error("integer literal is outside the WGSL i32 range", expression)
             return
         if isinstance(expression, FloatLiteral):
-            if float32_literal_problem(expression.raw, expression.value):
+            if self._numeric_literals.float32_problem(
+                expression.raw,
+                expression.value,
+            ):
                 validation.error("floating literal is outside the WGSL f32 range", expression)
             validation.record_type(expression, "float")
             return

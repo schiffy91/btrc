@@ -13,10 +13,6 @@ from ..ast_nodes import (
     TernaryExpr,
     UnaryExpr,
 )
-from ..numeric_literals import (
-    convert_integral_constant,
-    decode_character_constant,
-)
 
 
 class ConstantExpressionMixin:
@@ -50,7 +46,7 @@ class ConstantExpressionMixin:
             if target is None:
                 return False, None
             if isinstance(expression.expr, FloatLiteral):
-                return True, convert_integral_constant(
+                return True, self.numeric_literals.convert_integral(
                     expression.expr.value,
                     target.base,
                 )
@@ -61,7 +57,10 @@ class ConstantExpressionMixin:
             )
             if not valid or value is None:
                 return valid, value
-            return True, convert_integral_constant(value, target.base)
+            return True, self.numeric_literals.convert_integral(
+                value,
+                target.base,
+            )
         if isinstance(expression, UnaryExpr) and expression.op in {"+", "-", "~", "!"}:
             valid, value = self._integer_constant_node(expression.operand, enum_owner, allowed)
             if not valid or value is None:
@@ -158,9 +157,8 @@ class ConstantExpressionMixin:
     def _is_constant_macro_name(self, name) -> bool:
         return name in self.declarations.source_macro_names or (name.isupper() and name != "NULL")
 
-    @staticmethod
-    def _character_constant_value(raw):
-        return decode_character_constant(raw)
+    def _character_constant_value(self, raw):
+        return self.numeric_literals.decode_character(raw)
 
     @staticmethod
     def _apply_constant_unary(operator, value):

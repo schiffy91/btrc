@@ -101,7 +101,10 @@ class LambdasMixin:
                 # Late import to avoid circular dependency
                 from .parser import Parser
 
-                sub_parser = Parser(sub_tokens)
+                sub_parser = Parser(
+                    sub_tokens,
+                    self.numeric_literals,
+                )
                 expr_node = sub_parser._parse_expr()
                 sub_parser._expect(TokenType.SEMICOLON)
                 parts.append(FStringExpr(expression=expr_node))

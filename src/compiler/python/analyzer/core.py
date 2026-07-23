@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ..ast_nodes import MethodDecl, Program, RichEnumDecl, TypeExpr
+from ..numeric_literals import NumericLiteralSemantics
 from .analysis_context import AnalysisContext
 from .core_models import (
     AnalyzedProgram,
@@ -17,8 +18,13 @@ from .core_models import (
 
 
 class AnalyzerBase:
-    def __init__(self, context: AnalysisContext):
+    def __init__(
+        self,
+        context: AnalysisContext,
+        numeric_literals: NumericLiteralSemantics,
+    ):
         self.context = context
+        self.numeric_literals = numeric_literals
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
         self.generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = {}
         self.generic_method_call_args: dict[int, tuple] = {}

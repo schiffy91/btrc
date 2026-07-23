@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.numeric_literals import integer_literal_type
+from src.compiler.python.numeric_literals import NumericLiteralSemantics
 from src.tests.btrc.test_semantic_validation import (
     _compile_source,
     _strict_build_and_run,
@@ -101,7 +101,10 @@ def test_sizeof_infers_its_strict_c_size_type(semantic_btrcc: Path, tmp_path: Pa
 
 
 def test_integer_literal_inference_uses_c_candidate_order(semantic_btrcc: Path, tmp_path: Path) -> None:
-    decimal_type = integer_literal_type("2147483648", 2147483648)
+    decimal_type = NumericLiteralSemantics().integer_type(
+        "2147483648",
+        2147483648,
+    )
     source = """
         int main() {
             var decimal = 2147483648;

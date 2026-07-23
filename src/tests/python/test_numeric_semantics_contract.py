@@ -2,20 +2,49 @@
 
 from __future__ import annotations
 
+import ast
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
+import src.compiler.python.numeric_literals as numeric_literals_module
 from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
 from src.compiler.python.lexer import Lexer
-from src.compiler.python.numeric_literals import integer_literal_type
+from src.compiler.python.numeric_literals import (
+    CIntegerWidths,
+    NumericLiteralSemantics,
+)
 from src.compiler.python.parser.core import ParseError
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.pipeline.pipeline import CompilerPipeline
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+
+
+def test_numeric_literal_semantics_has_one_owner_and_pipeline_instance():
+    module = ast.parse(Path(numeric_literals_module.__file__).read_text())
+    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    semantics = NumericLiteralSemantics(
+        CIntegerWidths(
+            char=8,
+            short=16,
+            int_=16,
+            long=32,
+            long_long=64,
+        ),
+    )
+    pipeline = CompilerPipeline(numeric_literals=semantics)
+
+    assert loose_behavior == []
+    assert semantics.integer_type("32768", 32768) == "long"
+    assert semantics.integer_type("0xffff", 0xFFFF) == "unsigned int"
+    assert pipeline.numeric_literals is semantics
+    assert pipeline.parser.numeric_literals is semantics
+    assert pipeline.resolver.stdlib.numeric_literals is semantics
+    assert pipeline._new_analyzer().numeric_literals is semantics
 
 
 def _analyze(source: str):
@@ -127,7 +156,10 @@ def test_fixed_and_least_width_typedef_mix_is_deterministic():
 
 
 def test_integer_literal_inference_uses_value_radix_and_suffix():
-    decimal = integer_literal_type("2147483648", 2147483648)
+    decimal = NumericLiteralSemantics().integer_type(
+        "2147483648",
+        2147483648,
+    )
     c_source = emit_c("""
         int main() {
             var decimal = 2147483648;

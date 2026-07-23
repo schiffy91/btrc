@@ -24,6 +24,7 @@ from ..ast_nodes import (
     VarDeclStmt,
     WhileStmt,
 )
+from ..numeric_literals import NumericLiteralSemantics
 from ..type_identity import is_semantic_scalar_void
 from .declarations.type_resolution import canonical_declaration_type
 from .gpu_exprs import GpuExpressionValidator, GpuKernelValidation
@@ -47,12 +48,16 @@ class GpuKernelValidator:
         context: AnalysisContext,
         declarations: DeclarationRegistry,
         node_types: dict[int, TypeExpr],
+        numeric_literals: NumericLiteralSemantics,
     ) -> None:
         self._context = context
         self._declarations = declarations
         self._node_types = node_types
         self._intrinsics = GpuIntrinsicResolver(context, declarations)
-        self._expressions = GpuExpressionValidator(self._intrinsics)
+        self._expressions = GpuExpressionValidator(
+            self._intrinsics,
+            numeric_literals,
+        )
 
     def validate(
         self,

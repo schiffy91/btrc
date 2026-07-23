@@ -8,6 +8,7 @@ from collections.abc import Callable
 
 from ..ast_nodes import Program
 from ..lexer import Lexer
+from ..numeric_literals import NumericLiteralSemantics
 from ..parser.parser import Parser
 from ..pipeline.models import FrontendParseResult
 from ..source_provenance import compiler_stdlib_source, stamp_nested_declaration_sources
@@ -24,11 +25,23 @@ class FrontendParser:
         stdlib: StdlibRepository | None = None,
         *,
         lexer_factory: Callable[[str, str], Lexer] = Lexer,
-        parser_factory: Callable[[list], Parser] = Parser,
+        parser_factory: Callable[[list], Parser] | None = None,
+        numeric_literals: NumericLiteralSemantics | None = None,
     ) -> None:
-        self.stdlib = stdlib or StdlibRepository()
+        literal_semantics = (
+            numeric_literals
+            if numeric_literals is not None
+            else (stdlib.numeric_literals if stdlib is not None else NumericLiteralSemantics())
+        )
+        self.stdlib = stdlib if stdlib is not None else StdlibRepository(numeric_literals=literal_semantics)
+        self.numeric_literals = literal_semantics
         self._lexer_factory = lexer_factory
         self._parser_factory = parser_factory
+
+    def _new_parser(self, tokens: list) -> Parser:
+        if self._parser_factory is not None:
+            return self._parser_factory(tokens)
+        return Parser(tokens, self.numeric_literals)
 
     @staticmethod
     def _timed(profile: dict[str, float] | None, label: str, start: float) -> None:
@@ -74,9 +87,7 @@ class FrontendParser:
         for declaration in declarations:
             position = source.map_line(getattr(declaration, "line", 0), space)
             compiler_stdlib = space == "stdlib" or (
-                space == "combined"
-                and stdlib_line_count
-                and getattr(declaration, "line", 0) <= stdlib_line_count
+                space == "combined" and stdlib_line_count and getattr(declaration, "line", 0) <= stdlib_line_count
             )
             if position is not None and self._compiler_resolved_stdlib_import(source, position[0]):
                 compiler_stdlib = True
@@ -115,7 +126,7 @@ class FrontendParser:
             self._timed(profile, "lex", start)
 
             start = time.perf_counter()
-            user_program = self._parser_factory(tokens).parse()
+            user_program = self._new_parser(tokens).parse()
             stdlib_declarations = self.stdlib.cached_declarations(source.stdlib_source)
             self._stamp_declaration_files(user_program.declarations, source, "user")
             self._stamp_declaration_files(stdlib_declarations, source, "stdlib")
@@ -129,7 +140,7 @@ class FrontendParser:
                 return FrontendParseResult(tokens=tuple(tokens))
 
             start = time.perf_counter()
-            program = self._parser_factory(tokens).parse()
+            program = self._new_parser(tokens).parse()
             user_program = program if not source.stdlib_source else None
             self._stamp_declaration_files(program.declarations, source, "combined")
             self._timed(profile, "parse", start)

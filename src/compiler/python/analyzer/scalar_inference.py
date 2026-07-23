@@ -3,7 +3,6 @@
 from dataclasses import replace
 
 from ..ast_nodes import TypeExpr
-from ..numeric_literals import integer_literal_type
 from ..numeric_semantics import numeric_result_type
 
 
@@ -66,7 +65,7 @@ class ScalarInferenceMixin:
         return true_type
 
     def _infer_integer_literal_type(self, raw: str, value: int) -> TypeExpr:
-        return TypeExpr(base=integer_literal_type(raw, value))
+        return TypeExpr(base=self.numeric_literals.integer_type(raw, value))
 
     def _collection_literal_type(self, base, generic_args):
         return TypeExpr(

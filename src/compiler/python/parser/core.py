@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from ..numeric_literals import NumericLiteralSemantics
 from ..tokens import Token, TokenType
 
 
@@ -13,9 +14,14 @@ class ParseError(Exception):
 
 
 class ParserBase:
-    def __init__(self, tokens: list[Token]):
+    def __init__(
+        self,
+        tokens: list[Token],
+        numeric_literals: NumericLiteralSemantics | None = None,
+    ):
         self.tokens = tokens
         self.pos = 0
+        self.numeric_literals = numeric_literals if numeric_literals is not None else NumericLiteralSemantics()
 
     def parse(self):
         from ..ast_nodes import Program

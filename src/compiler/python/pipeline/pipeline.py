@@ -20,6 +20,7 @@ from ..ir.gen.errors import CodegenError
 from ..ir.gen.lowerer import IRLowerer
 from ..ir.optimizer import optimize
 from ..lexer import LexerError
+from ..numeric_literals import NumericLiteralSemantics
 from ..parser.core import ParseError
 from ..source_provenance import make_ir_source_maps
 from ..stdlib_archive import ArchiveVersionError
@@ -40,17 +41,34 @@ class CompilerPipeline:
         *,
         resolver: SourceResolver | None = None,
         parser: FrontendParser | None = None,
-        analyzer_factory: Callable[[], SemanticAnalyzer] = SemanticAnalyzer,
+        analyzer_factory: Callable[[], SemanticAnalyzer] | None = None,
         lowerer_factory: Callable[..., IRLowerer] = IRLowerer,
         optimizer: Callable = optimize,
         emitter_factory: Callable[[], CEmitter] = CEmitter,
         archive_consumer: StdlibArchiveConsumer | None = None,
         fingerprint: ToolchainFingerprint | None = None,
+        numeric_literals: NumericLiteralSemantics | None = None,
     ) -> None:
         fingerprint = fingerprint or ToolchainFingerprint()
-        stdlib = resolver.stdlib if resolver is not None else StdlibRepository(fingerprint=fingerprint)
+        literal_semantics = (
+            numeric_literals
+            if numeric_literals is not None
+            else (resolver.stdlib.numeric_literals if resolver is not None else NumericLiteralSemantics())
+        )
+        stdlib = (
+            resolver.stdlib
+            if resolver is not None
+            else StdlibRepository(
+                fingerprint=fingerprint,
+                numeric_literals=literal_semantics,
+            )
+        )
+        self.numeric_literals = literal_semantics
         self.resolver = resolver or SourceResolver(stdlib)
-        self.parser = parser or FrontendParser(stdlib)
+        self.parser = parser or FrontendParser(
+            stdlib,
+            numeric_literals=literal_semantics,
+        )
         self._analyzer_factory = analyzer_factory
         self._lowerer_factory = lowerer_factory
         self._optimizer = optimizer
@@ -64,6 +82,11 @@ class CompilerPipeline:
     def _timed(profile: dict[str, float] | None, label: str, start: float) -> None:
         if profile is not None:
             profile[label] = time.perf_counter() - start
+
+    def _new_analyzer(self) -> SemanticAnalyzer:
+        if self._analyzer_factory is not None:
+            return self._analyzer_factory()
+        return SemanticAnalyzer(numeric_literals=self.numeric_literals)
 
     def resolve(
         self,
@@ -102,7 +125,7 @@ class CompilerPipeline:
 
     def analyze(self, program: Program, profile: dict[str, float] | None = None):
         start = time.perf_counter()
-        analyzed = self._analyzer_factory().analyze(program)
+        analyzed = self._new_analyzer().analyze(program)
         self._timed(profile, "analyze", start)
         return analyzed
 

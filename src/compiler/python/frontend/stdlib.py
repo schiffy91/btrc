@@ -10,6 +10,7 @@ from .. import ast_nodes as ast
 from ..artifacts.cache.compiler_cache import CacheDirectory, ToolchainFingerprint
 from ..frontend_limits import SourceResolutionPolicy
 from ..lexer import Lexer
+from ..numeric_literals import NumericLiteralSemantics
 from ..parser.parser import Parser
 from ..pipeline.models import StdlibSource
 from ..pkg import IncludeResolutionError
@@ -55,6 +56,7 @@ class StdlibRepository:
         *,
         directory: str | None = None,
         resolution_policy: SourceResolutionPolicy | None = None,
+        numeric_literals: NumericLiteralSemantics | None = None,
     ) -> None:
         self.resolution_policy = resolution_policy or SourceResolutionPolicy()
         self.ast_cache = ast_cache or StdlibAstCache()
@@ -64,6 +66,7 @@ class StdlibRepository:
         self._directives = directive_scanner or SourceDirectiveScanner()
         self._directory = os.path.abspath(directory or _DEFAULT_STDLIB_DIRECTORY)
         self._symbol_files: dict[str, frozenset[str]] | None = None
+        self.numeric_literals = numeric_literals if numeric_literals is not None else NumericLiteralSemantics()
 
     @property
     def ast_version(self) -> str:
@@ -153,10 +156,16 @@ class StdlibRepository:
             self.ast_cache.store(path, content_hash, declarations)
         return declarations
 
-    @staticmethod
-    def _parse_declarations(stdlib_source: str) -> list:
+    def _parse_declarations(self, stdlib_source: str) -> list:
         tokens = Lexer(stdlib_source, "<stdlib>").tokenize()
-        return Parser(tokens).parse().declarations
+        return (
+            Parser(
+                tokens,
+                self.numeric_literals,
+            )
+            .parse()
+            .declarations
+        )
 
     def _source_without_imports(
         self,
@@ -226,7 +235,10 @@ class StdlibRepository:
                 source = self._source_reader.read(path)
             except SourceReadError as error:
                 raise IncludeResolutionError(str(error)) from error
-            program = Parser(Lexer(source, path).tokenize()).parse()
+            program = Parser(
+                Lexer(source, path).tokenize(),
+                self.numeric_literals,
+            ).parse()
             canonical = SourceDependencyGraph.canonical_file(path)
             for declaration in program.declarations:
                 for name in self._declaration_names(declaration):

@@ -33,7 +33,6 @@ from ..ast_nodes import (
     TypeExpr,
     UnaryExpr,
 )
-from ..numeric_literals import float_literal_type
 from ..qualifier_provenance import strip_outer_storage_through_typedef
 from .c_call_types import (
     c_integer_identifier,
@@ -59,7 +58,7 @@ class TypeInferenceMixin(_IndexTypeInferenceMixin, _IterationInferenceMixin):
         if isinstance(expr, IntLiteral):
             return self._infer_integer_literal_type(expr.raw, expr.value)
         elif isinstance(expr, FloatLiteral):
-            return TypeExpr(base=float_literal_type(expr.raw))
+            return TypeExpr(base=self.numeric_literals.float_type(expr.raw))
         elif isinstance(expr, StringLiteral):
             return TypeExpr(base="string")
         elif isinstance(expr, CharLiteral):
