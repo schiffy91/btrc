@@ -140,12 +140,46 @@ def test_frontend_scanning_and_recursive_resolution_are_instance_owned() -> None
     assert "resolver.resolve(src, path)" in frontend_main
 
 
+def test_frontend_source_text_and_directory_policy_have_real_owners() -> None:
+    frontend = _source("frontend.btrc")
+
+    assert "class FeSourceText {" in frontend
+    assert "private string content;" in frontend
+    for text_operation in (
+        "public Vector<string> lines()",
+        "public int lineCount()",
+        "public bool startsWithAt(",
+        "class string joinLines(",
+    ):
+        assert text_operation in frontend
+
+    assert "class FeSourceDirectoryScanner {" in frontend
+    assert "private int maximumEntries;" in frontend
+    assert "private void sort(Vector<string> entries)" in frontend
+    assert "public Vector<string> sortedEntries(string path)" in frontend
+    assert "public Vector<string> sortedEntriesWithinBudget(" in frontend
+    assert "private FeSourceDirectoryScanner sourceDirectories;" in frontend
+    assert frontend.count("self.sourceDirectories = FeSourceDirectoryScanner();") == 2
+    assert "stdlib, emptySnapshot, self.sourceDirectories" in frontend
+    assert "self.stdlib, currentSnapshot, self.sourceDirectories" in frontend
+
+    for obsolete_loose_behavior in (
+        "feSplitLines(",
+        "feJoinLines(",
+        "feSortedListDir(",
+        "feSortedListDirBudget(",
+        "feRawStartsWith(",
+    ):
+        assert obsolete_loose_behavior not in frontend
+
+
 def test_import_resolution_has_one_compilation_local_owner() -> None:
     frontend = _source("frontend.btrc")
     owner = frontend.split("class FeImportResolver {", 1)[1].split("/* ----- top-level entry:", 1)[0]
 
     assert "private FeStdlibRepository stdlib;" in owner
     assert "private FeStdlibRootSnapshot stdlibSnapshot;" in owner
+    assert "private FeSourceDirectoryScanner sourceDirectories;" in owner
     for public_operation in (
         "public string resolveIncludePath(",
         "public Vector<string> resolveSpec(",
@@ -181,8 +215,8 @@ def test_import_resolution_has_one_compilation_local_owner() -> None:
         assert obsolete_loose_behavior not in frontend
 
     assert "private FeImportResolver importResolver;" in frontend
-    assert "FeImportResolver(stdlib, emptySnapshot)" in frontend
-    assert "FeImportResolver(self.stdlib, currentSnapshot)" in frontend
+    assert "FeImportResolver(\n            stdlib, emptySnapshot, self.sourceDirectories)" in frontend
+    assert "FeImportResolver(\n            self.stdlib, currentSnapshot, self.sourceDirectories)" in frontend
     assert "self.importResolver.resolveIncludePath(" in frontend
     assert "self.importResolver.resolveSpec(" in frontend
     assert "self.importResolver.renderCInclude(" in frontend

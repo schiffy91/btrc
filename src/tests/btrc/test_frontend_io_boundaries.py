@@ -267,7 +267,7 @@ def test_frontend_scan_limits_are_wired_before_materialization() -> None:
     source_io = (REPO / "src/compiler/btrc/frontend_source_io.btrc").read_text()
     filesystem = (REPO / "src/stdlib/fs.btrc").read_text()
 
-    assert "feReadRequiredDirectory(path, budget.remainingEntries())" in frontend
+    assert "path, budget.remainingEntries())" in frontend
     assert "directory.entriesBounded(maxEntries)" in source_io
     assert "budget.addEntries(entries.len)" in frontend
     assert "budget.addFile()" in frontend
@@ -390,19 +390,44 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
         f"    GrammarInfo grammar = parseGrammar(feReadRequiredSource({json.dumps(str(grammar_path))}));\n"
         f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar);\n"
         "    FeStdlibRootSnapshot snapshot = stdlib.rootSnapshot();\n"
-        "    FeImportResolver resolver = FeImportResolver(stdlib, snapshot);\n"
+        "    FeSourceDirectoryScanner directories = FeSourceDirectoryScanner();\n"
+        "    FeImportResolver resolver = FeImportResolver(stdlib, snapshot, directories);\n"
         f"    string sourceDirectory = {json.dumps(str(tmp_path))};\n"
+        f"    string importsDirectory = {json.dumps(str(imports))};\n"
+        "    FeDirectoryScanBudget firstBudget = FeDirectoryScanBudget(importsDirectory);\n"
+        "    FeDirectoryScanBudget secondBudget = FeDirectoryScanBudget(importsDirectory);\n"
+        "    Vector<string> firstEntries = directories.sortedEntriesWithinBudget(\n"
+        "        importsDirectory, firstBudget);\n"
+        "    Vector<string> secondEntries = directories.sortedEntriesWithinBudget(\n"
+        "        importsDirectory, secondBudget);\n"
+        "    if (firstEntries.len != secondEntries.len\n"
+        "            || firstBudget.entries != firstEntries.len\n"
+        "            || secondBudget.entries != secondEntries.len\n"
+        "            || firstEntries.len != 5) { return 1; }\n"
+        "    int entryIndex = 0;\n"
+        "    while (entryIndex < firstEntries.len) {\n"
+        "        if (!firstEntries.get(entryIndex).equals(secondEntries.get(entryIndex))) { return 2; }\n"
+        "        entryIndex++;\n"
+        "    }\n"
+        '    FeSourceText firstText = FeSourceText("alpha\\nbeta\\n");\n'
+        '    FeSourceText secondText = FeSourceText("std.vector");\n'
+        "    Vector<string> firstLines = firstText.lines();\n"
+        "    if (firstLines.len != 3 || firstText.lineCount() != 3\n"
+        '            || !firstText.startsWithAt(6, "beta")\n'
+        '            || firstText.startsWithAt(-1, "alpha")\n'
+        '            || !secondText.startsWithAt(0, "std.")\n'
+        '            || !FeSourceText.joinLines(firstLines).equals("alpha\\nbeta\\n")) { return 3; }\n'
         '    Vector<string> direct = resolver.resolveSpec("./imports/*", sourceDirectory);\n'
         "    if (direct.len != 2\n"
         '            || !PathTools.basename(direct.get(0)).equals("a.btrc")\n'
-        '            || !PathTools.basename(direct.get(1)).equals("z.c")) { return 1; }\n'
+        '            || !PathTools.basename(direct.get(1)).equals("z.c")) { return 4; }\n'
         '    Vector<string> recursive = resolver.resolveSpec("./imports/**", sourceDirectory);\n'
         "    if (recursive.len != 3\n"
         '            || !PathTools.basename(recursive.get(0)).equals("a.btrc")\n'
         '            || !recursive.get(1).endsWith("/nested/b.btrc")\n'
-        '            || !PathTools.basename(recursive.get(2)).equals("z.c")) { return 2; }\n'
+        '            || !PathTools.basename(recursive.get(2)).equals("z.c")) { return 5; }\n'
         '    if (!resolver.renderCInclude("safe path.c").equals(\n'
-        '            "#include \\"safe path.c\\"")) { return 3; }\n'
+        '            "#include \\"safe path.c\\"")) { return 6; }\n'
         "    return 0;\n"
         "}\n",
         encoding="utf-8",
