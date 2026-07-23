@@ -254,7 +254,7 @@ def test_prune_unit_cache_removes_legacy_pickles_and_only_expired_json(tmp_path)
     stale = time.time() - 40 * 24 * 3600
     os.utime(old, (stale, stale))
     os.utime(other, (stale, stale))
-    unit_cache.prune_unit_cache(str(cache))
+    assert unit_cache.UnitCache(str(cache)).prune() is True
     assert not legacy.exists()  # unsafe legacy format is invalidated immediately
     assert not old.exists()
     assert new.exists()

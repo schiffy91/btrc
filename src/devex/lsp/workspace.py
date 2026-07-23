@@ -12,11 +12,9 @@ import hashlib
 import os
 import threading
 from collections import OrderedDict
-from contextlib import suppress
 from dataclasses import dataclass
 
 from src.compiler.python.ast_nodes import Program
-from src.compiler.python.cache_keys import resolve_cache_dir
 from src.compiler.python.frontend.dependencies import SourceDependencyGraph
 from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.stdlib import StdlibRepository
@@ -24,17 +22,8 @@ from src.compiler.python.frontend_limits import ResolutionBudget
 from src.compiler.python.pkg import IncludeResolutionError, ResolvedPackages
 from src.compiler.python.source_io import MAX_SOURCE_BYTES, SourceReadError, read_source
 from src.devex.lsp.package_resolution import PackageResolutionCache
-from src.devex.lsp.unit_cache import (
-    cache_path,
-    load_unit,
-    prune_unit_cache,
-    store_unit,
-)
-from src.devex.lsp.units import (
-    _UNIT_CACHE_VERSION,
-    FileDependencies,
-    FileUnit,
-)
+from src.devex.lsp.unit_cache import UnitCache
+from src.devex.lsp.units import FileUnit
 from src.devex.lsp.workspace_cache import WorkspaceCacheMixin, path_identity
 
 
@@ -83,10 +72,12 @@ class Workspace(WorkspaceCacheMixin):
         *,
         package_cache: PackageResolutionCache | None = None,
         stdlib: StdlibRepository | None = None,
+        unit_cache: UnitCache | None = None,
     ):
         self._init_caches()
         self._package_cache = package_cache or PackageResolutionCache()
         self._stdlib = stdlib or StdlibRepository()
+        self._unit_cache = unit_cache or UnitCache.from_environment()
         self._imports = ImportResolver(self._stdlib)
         self._stdlib_units: list[FileUnit] | None = None
         self._stdlib_lock = threading.Lock()  # one stdlib build/analysis at a time
@@ -97,7 +88,7 @@ class Workspace(WorkspaceCacheMixin):
     def parse_active(self, path: str, source: str) -> FileUnit:
         """Parse the active document's live buffer (cached by content hash)."""
         path = os.path.abspath(path)
-        sig = ("active", _live_source_digest(source))
+        sig = ("active", self._live_source_digest(source))
         key = path_identity(path)
         cached = self._cached_file(key)
         if cached and cached[0] == sig:
@@ -112,7 +103,7 @@ class Workspace(WorkspaceCacheMixin):
         overlay = self.overlay_provider(path) if self.overlay_provider else None
         if overlay is not None:
             try:
-                sig = ("overlay", _live_source_digest(overlay))
+                sig = ("overlay", self._live_source_digest(overlay))
             except ValueError:
                 return None
             cached = self._cached_file(key)
@@ -154,24 +145,14 @@ class Workspace(WorkspaceCacheMixin):
             source = read_source(path)
         except SourceReadError:
             return None
-        content_hash = hashlib.sha256(source.encode()).hexdigest()
-        cache_dir = None
-        with suppress(OSError):
-            cache_dir = _cache_dir()
-        cached_path = None
-        if cache_dir is not None:
-            prune_unit_cache(cache_dir)
-            cached_path = cache_path(cache_dir, _UNIT_CACHE_VERSION, source)
-            cached = load_unit(cached_path, path, content_hash)
-            if cached is not None:
-                return cached
+        cached = self._unit_cache.load(path, source)
+        if cached is not None:
+            return cached
         unit = FileUnit.parse(path, source, stdlib=self._stdlib)
-        if unit.error is None and cached_path is not None:
-            with suppress(OSError, TypeError, ValueError):
-                store_unit(cached_path, unit)
+        if unit.error is None:
+            self._unit_cache.store(source, unit)
         unit.source = ""
         unit.tokens = []
-        unit.dependencies = FileDependencies()
         return unit
 
     def compose(self, active: FileUnit) -> Composition:
@@ -319,19 +300,14 @@ class Workspace(WorkspaceCacheMixin):
                 self._stdlib_base_cache.popitem(last=False)
             return base
 
+    @staticmethod
+    def _live_source_digest(source: str) -> str:
+        """Hash one editor buffer after enforcing the compiler's source limit."""
 
-def _cache_dir() -> str:
-    """Shared btrc cache dir ($BTRC_CACHE_DIR > project root > user cache);
-    never the bare cwd, so the server doesn't litter its launch directory."""
-    return resolve_cache_dir()
-
-
-def _live_source_digest(source: str) -> str:
-    """Hash one editor buffer after enforcing the compiler's source limit."""
-    try:
-        encoded = source.encode("utf-8")
-    except UnicodeEncodeError as error:
-        raise ValueError("document contains invalid Unicode") from error
-    if len(encoded) > MAX_SOURCE_BYTES:
-        raise ValueError(f"document exceeds the {MAX_SOURCE_BYTES}-byte source limit")
-    return hashlib.sha256(encoded).hexdigest()
+        try:
+            encoded = source.encode("utf-8")
+        except UnicodeEncodeError as error:
+            raise ValueError("document contains invalid Unicode") from error
+        if len(encoded) > MAX_SOURCE_BYTES:
+            raise ValueError(f"document exceeds the {MAX_SOURCE_BYTES}-byte source limit")
+        return hashlib.sha256(encoded).hexdigest()
