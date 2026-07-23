@@ -8,15 +8,20 @@ objects and packages.
 
 ## Why this refactor exists
 
-The old hard file-size rule produced discoverability without encapsulation:
+The old hard file-size rule produced discoverability without encapsulation.
+The ownership audit at commit `4c15ee1` (production sources only; generated
+ASTs, tests, vendored code, and entry-point adapters excluded) found:
 
-- the Python compiler has 516 source files and 1,501 module-level functions;
+- the Python compiler and developer tooling have 569 source files, with 1,575
+  loose behavior functions that still need owners;
 - its analyzer is an 80-class mixin assembly with a 78-module strongly
   connected method graph;
-- IR lowering has 457 free functions across 129 modules, mostly coupled
-  through a mutable `gen` service-locator;
-- the self-hosted compiler has 291 source files, 238 of them at one directory
-  level, plus 1,513 top-level functions and 13 mutable globals;
+- Python IR generation alone has 800 loose functions, 411 of which accept a
+  mutable `gen`/`generator` service-locator;
+- the self-hosted compiler has 260 production source files, with 1,282 loose
+  behavior definitions that still need owners;
+- 20 ambient mutable bindings remain: 13 in the LSP, four in Python IR
+  contexts, two compiler metadata caches, and one dead self-hosted binding;
 - the self-hosted core is still concentrated in very large parser, analyzer,
   and IR-generator files despite the surrounding microfile sprawl.
 
