@@ -2,7 +2,8 @@
 /* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
 int irCallableReturnAbi(IRGen generator, Node? expression,
         Map<string, Node> varTypes) {
-    return generator.callableExpressionAbi(expression, varTypes);
+    return generator.callableBoundaries.expressionAbi(
+        expression, generator.callableBoundaryContext(varTypes));
 }
 
 bool irCallableHasOwnedReturnAbi(IRGen generator, Node? expression,

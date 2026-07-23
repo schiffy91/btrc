@@ -302,6 +302,7 @@ class ScopeSnapshot {
 
 class IRGen {
     public Analyzed analyzed;
+    public CallableBoundaryPolicy callableBoundaries;
     public GpuRegistry gpu;
     public GpuCpuContext gpuCpu;
     public GpuHostContext gpuHost;
@@ -494,6 +495,7 @@ class IRGen {
     public IRGen(Analyzed analyzed, string sourceFile,
             int stdlibLineCount, Vector<FeLine> userLines) {
         self.analyzed = analyzed;
+        self.callableBoundaries = CallableBoundaryPolicy(analyzed);
         self.gpu = GpuRegistry();
         self.gpuCpu = GpuCpuContext();
         self.gpuHost = GpuHostContext();
@@ -628,89 +630,15 @@ class IRGen {
         }
     }
 
-    public int callableExpressionAbi(
-            Node? expression, Map<string, Node> varTypes) {
-        if (expression == null) { return 0; }
-        if (expression.kind == NK_LAMBDA_EXPR) { return 1; }
-        if (expression.kind == NK_IDENTIFIER) {
-            int lexicalAbi = self.callableBindingAbi(expression.name);
-            if (lexicalAbi != 0) { return lexicalAbi; }
-            if (varTypes.has(expression.name)) {
-                Node? lexicalType = resolveTypedefType(
-                    varTypes.get(expression.name),
-                    self.analyzed.typedefTable);
-                if (lexicalType != null
-                        && lexicalType.base == "__fn_ptr") {
-                    return 0;
-                }
-            }
-            if (!self.analyzed.funcTable.has(expression.name)) {
-                return 0;
-            }
-            Node declaration = self.analyzed.funcTable.get(
-                expression.name);
-            if (declaration.body_node != null) { return 1; }
-            return 0;
-        }
-        if (expression.kind == NK_FIELD_ACCESS_EXPR
-                && expression.obj != null
-                && expression.obj.kind == NK_IDENTIFIER
-                && !varTypes.has(expression.obj.name)
-                && self.analyzed.isClass(expression.obj.name)) {
-            Node? method = self.analyzed.classMethod(
-                expression.obj.name, expression.field);
-            if (method != null
-                    && method.kind == NK_METHOD_DECL
-                    && method.access == "class"
-                    && method.body_node != null) {
-                return 1;
-            }
-        }
-        if (expression.kind == NK_CAST_EXPR) {
-            return self.callableExpressionAbi(
-                expression.expr, varTypes);
-        }
-        if (expression.kind == NK_UNARY_EXPR
-                && expression.op == "&") {
-            return self.callableExpressionAbi(
-                expression.operand, varTypes);
-        }
-        if (expression.kind == NK_TERNARY_EXPR) {
-            int trueAbi = self.callableExpressionAbi(
-                expression.true_expr, varTypes);
-            int falseAbi = self.callableExpressionAbi(
-                expression.false_expr, varTypes);
-            if (trueAbi == falseAbi) { return trueAbi; }
-            return 2;
-        }
-        return 0;
-    }
-
-    public bool callableTypeHasManagedReturn(Node? type) {
-        return callableBoundaryManagedType(self, type);
-    }
-
-    public bool callableDeclaredInActiveScope(string name) {
-        int index = 0;
-        while (index < self.callableScopeDeclarations.len) {
-            if (self.callableScopeDeclarations.get(index) == name) {
-                return true;
-            }
-            index = index + 1;
-        }
-        return false;
-    }
-
-    public bool callableIdentifierIsLexicalLocal(string name) {
-        return self.callableDeclaredInActiveScope(name)
-            || !self.analyzed.globalVarTypes.has(name);
-    }
-
-    public void rejectPersistentCallableEscape(
-            Node? expectedType, Node? value,
-            Map<string, Node> varTypes, string boundary) {
-        rejectPersistentCallableBoundary(
-            self, expectedType, value, varTypes, boundary);
+    public CallableBoundaryContext callableBoundaryContext(
+            Map<string, Node> variableTypes) {
+        return CallableBoundaryContext(
+            variableTypes,
+            self.activeTypeMap,
+            self.inGenericMethod || self.callDefaultTypeDepth > 0,
+            self.ownedCallableBindings,
+            self.ambiguousCallableBindings,
+            self.callableScopeDeclarations);
     }
 
     public void snapshotOwnedCallableBindings(Vector<string> names) {
@@ -2025,8 +1953,10 @@ class IRGen {
     public void emitGlobalVar(Node d, IRModule m, bool forceExternal) {
         if (d.initializer != null) {
             Map<string, Node> globalTypes = {};
-            self.rejectPersistentCallableEscape(
-                d.type, d.initializer, globalTypes, "global storage");
+            self.callableBoundaries.rejectPersistentStorage(
+                d.type, d.initializer,
+                self.callableBoundaryContext(globalTypes),
+                "global storage");
         }
         bool inferredArray = d.initializer != null
             && (d.initializer.kind == NK_LIST_LITERAL
@@ -4196,7 +4126,7 @@ class IRGen {
                 self.resolvedExpressionType(
                     callee, self.callParamVarTypes), self.analyzed);
             if (fieldCallable != null) {
-                return callableBoundaryFunctionPointerParameters(
+                return self.callableBoundaries.functionPointerParameters(
                     fieldCallable);
             }
             Node objN = callee.obj;
@@ -4240,7 +4170,7 @@ class IRGen {
                 Node? lexicalCallable = directFunctionPointerType(
                     self.callParamVarTypes.get(name), self.analyzed);
                 if (lexicalCallable != null) {
-                    return callableBoundaryFunctionPointerParameters(
+                    return self.callableBoundaries.functionPointerParameters(
                         lexicalCallable);
                 }
                 return empty;
@@ -4263,7 +4193,8 @@ class IRGen {
             self.resolvedExpressionType(
                 callee, self.callParamVarTypes), self.analyzed);
         if (callable != null) {
-            return callableBoundaryFunctionPointerParameters(callable);
+            return self.callableBoundaries.functionPointerParameters(
+                callable);
         }
         return empty;
     }
@@ -4362,8 +4293,9 @@ class IRGen {
              * suffix, and a list literal becomes a structured IR initializer
              * list (mirrors variables._lower_var_decl's is_array branch). */
             if (node.type != null && node.type.is_array) {
-                rejectAggregateCallableInitializerBoundary(
-                    self, node.type, node.initializer, varTypes);
+                self.callableBoundaries.rejectAggregateInitializer(
+                    node.type, node.initializer,
+                    self.callableBoundaryContext(varTypes));
                 Node baseType = typeWithoutOuterArray(node.type);
                 string baseC = typeToC(baseType, self.analyzed);
                 if (self.inGenericMethod || self.callDefaultTypeDepth > 0) {
@@ -4432,15 +4364,18 @@ class IRGen {
                 declType = self.resolvedExpressionType(
                     node.initializer, varTypes);
             }
-            rejectAggregateCallableInitializerBoundary(
-                self, declType, node.initializer, varTypes);
+            self.callableBoundaries.rejectAggregateInitializer(
+                declType, node.initializer,
+                self.callableBoundaryContext(varTypes));
             bool directInferredClosure = node.type == null
                 && node.initializer != null
                 && node.initializer.kind == NK_LAMBDA_EXPR;
             int callableInitializerAbi = 0;
             if (node.initializer != null) {
-                callableInitializerAbi = self.callableExpressionAbi(
-                    node.initializer, varTypes);
+                callableInitializerAbi =
+                    self.callableBoundaries.expressionAbi(
+                        node.initializer,
+                        self.callableBoundaryContext(varTypes));
             }
             if (!directInferredClosure && self.callableValueEscapes(
                     declType, node.initializer, varTypes)) {
@@ -4961,10 +4896,10 @@ class IRGen {
 
     public void lowerReturn(Node node, Map<string, Node> varTypes, Vector<IRNode> out) {
         if (node.value_node != null) {
-            self.rejectPersistentCallableEscape(
+            self.callableBoundaries.rejectPersistentStorage(
                 self.currentReturnTypeNode,
                 node.value_node,
-                varTypes,
+                self.callableBoundaryContext(varTypes),
                 "a function return");
         }
         lowerOwnedReturn(self, node, varTypes, out);
@@ -8214,8 +8149,8 @@ class IRGen {
             }
             i = i + 1;
         }
-        rejectUnsafeManagedCallbackArgumentsBoundary(
-            self, call, params, varTypes);
+        self.callableBoundaries.rejectUnsafeArguments(
+            call, params, self.callableBoundaryContext(varTypes));
     }
 
     public IRNode lowerMethodCall(Node node, Map<string, Node> varTypes) {

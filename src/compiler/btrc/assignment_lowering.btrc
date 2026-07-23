@@ -2,10 +2,12 @@
 
 IRNode lowerAssignmentExpression(IRGen generator, Node node,
         Map<string, Node> varTypes) {
+    CallableBoundaryContext callableContext =
+        generator.callableBoundaryContext(varTypes);
     Node? callableStorageType = generator.resolvedExpressionType(
         node.target, varTypes);
-    rejectErasingCallableAssignmentBoundary(
-        generator, node, callableStorageType, varTypes);
+    generator.callableBoundaries.rejectAssignment(
+        node, callableStorageType, callableContext);
     IRNode? ownedTarget = lowerOwnedAssignment(
         generator, node, varTypes);
     if (ownedTarget != null) { return ownedTarget; }
@@ -17,18 +19,20 @@ IRNode lowerAssignmentExpression(IRGen generator, Node node,
  * rediscover the same target and nest a second result-retaining boundary. */
 IRNode lowerPlainAssignment(IRGen generator, Node node,
         Map<string, Node> varTypes) {
+    CallableBoundaryContext callableContext =
+        generator.callableBoundaryContext(varTypes);
     int callableAssignmentAbi = 0;
     bool callableAssignment = node.op == "="
         && node.target != null
         && node.target.kind == NK_IDENTIFIER;
     if (callableAssignment) {
-        callableAssignmentAbi = generator.callableExpressionAbi(
-            node.value_node, varTypes);
+        callableAssignmentAbi = generator.callableBoundaries.expressionAbi(
+            node.value_node, callableContext);
     }
     bool lexicalCallableTarget = node.target != null
         && node.target.kind == NK_IDENTIFIER
-        && generator.callableIdentifierIsLexicalLocal(
-            node.target.name);
+        && generator.callableBoundaries.lexicalIdentifier(
+            node.target.name, callableContext);
     Node? closureTargetType = generator.resolvedExpressionType(
         node.target, varTypes);
     if (generator.callableValueEscapes(
