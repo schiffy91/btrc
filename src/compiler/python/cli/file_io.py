@@ -8,15 +8,21 @@ import secrets
 import stat
 import sys
 
-from ..cache_io import fsync_parent_directory
+from ..cache_io import AtomicFileStore
 from ..frontend.source_io import SourceFileReader, SourceReadError
 
 
 class CompilerFileIO:
     """Own source reads and transactional artifact writes for one CLI."""
 
-    def __init__(self, source_reader: SourceFileReader | None = None) -> None:
+    def __init__(
+        self,
+        source_reader: SourceFileReader | None = None,
+        *,
+        file_store: AtomicFileStore | None = None,
+    ) -> None:
         self._source_reader = source_reader or SourceFileReader()
+        self._files = file_store or AtomicFileStore()
 
     def read_input(self, path: str) -> str:
         try:
@@ -100,7 +106,7 @@ class CompilerFileIO:
                 return
             temporary_path = self._stage_output(target, content)
             os.replace(temporary_path, target)
-            fsync_parent_directory(target)
+            self._files.sync_parent(target)
         except (OSError, UnicodeError) as error:
             print(
                 f"error: cannot write output file {path!r}: {error}",
@@ -137,7 +143,7 @@ class CompilerFileIO:
                 with contextlib.suppress(FileNotFoundError):
                     os.remove(temporary_path)
         if published:
-            fsync_parent_directory(path)
+            self._files.sync_parent(path)
         return True
 
 

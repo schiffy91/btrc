@@ -6,7 +6,7 @@ import argparse
 import math
 from pathlib import Path
 
-from .cache_io import atomic_write_text
+from .cache_io import AtomicFileStore
 from .hosted_abi import (
     HOSTED_FUNCTION_OWNED_NAMES,
     HOSTED_FUNCTIONS,
@@ -42,12 +42,14 @@ class GeneratedSourcePublication:
         legacy_root: Path,
         legacy_globs: tuple[str, ...],
         mode: int,
+        file_store: AtomicFileStore | None = None,
     ) -> None:
         self.generated = generated
         self.dispatcher = dispatcher
         self.legacy_root = legacy_root
         self.legacy_globs = legacy_globs
         self.mode = mode
+        self._files = file_store or AtomicFileStore()
 
     def check(self, files: dict[Path, str]) -> int:
         stale = [str(path) for path, content in files.items() if not path.exists() or path.read_text() != content]
@@ -69,7 +71,11 @@ class GeneratedSourcePublication:
         for path in ordered:
             content = files[path]
             if not path.exists() or path.read_text() != content or path.stat().st_mode & 0o777 != self.mode:
-                atomic_write_text(str(path), content, file_mode=self.mode)
+                self._files.write_text(
+                    str(path),
+                    content,
+                    file_mode=self.mode,
+                )
         for path in self.generated.glob("*.btrc"):
             if path not in expected:
                 path.unlink()

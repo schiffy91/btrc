@@ -1,5 +1,6 @@
 """Security and crash-consistency contracts for compiler caches."""
 
+import ast
 import json
 import os
 import stat
@@ -22,6 +23,13 @@ def _declarations(source: str):
 
 def _schema_marker_declarations():
     return _declarations("struct Opaque; class CacheBox { public CacheBox() {} public int value() { return 1; } }\n")
+
+
+def test_cache_file_behavior_has_one_explicit_owner() -> None:
+    module = ast.parse(Path(cache_io.__file__).read_text())
+    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+    assert loose_behavior == []
 
 
 def test_ast_codec_roundtrip_preserves_schema_markers():
@@ -51,12 +59,12 @@ def test_stdlib_cache_rejects_nodes_missing_current_marker_fields(tmp_path):
 
     stale_struct = json.loads(json.dumps(current))
     stale_struct["declarations"][0]["fields"].pop("is_forward")
-    cache_io.atomic_write_json(path, stale_struct)
+    cache_io.AtomicFileStore().write_json(path, stale_struct)
     assert cache.load(path, content_hash) is None
 
     stale_method = json.loads(json.dumps(current))
     stale_method["declarations"][1]["fields"]["members"][0]["fields"].pop("is_constructor")
-    cache_io.atomic_write_json(path, stale_method)
+    cache_io.AtomicFileStore().write_json(path, stale_method)
     assert cache.load(path, content_hash) is None
 
 
@@ -74,17 +82,17 @@ def test_stdlib_json_cache_rejects_schema_hash_and_node_tampering(tmp_path):
         valid = json.load(cache_file)
 
     valid["schema"] += 1
-    cache_io.atomic_write_json(path, valid)
+    cache_io.AtomicFileStore().write_json(path, valid)
     assert cache.load(path, content_hash) is None
 
     valid["schema"] = SCHEMA_VERSION
     valid["content_hash"] = "0" * 64
-    cache_io.atomic_write_json(path, valid)
+    cache_io.AtomicFileStore().write_json(path, valid)
     assert cache.load(path, content_hash) is None
 
     valid["content_hash"] = content_hash
     valid["declarations"] = [{"fields": {}, "type": "ArbitraryPythonClass"}]
-    cache_io.atomic_write_json(path, valid)
+    cache_io.AtomicFileStore().write_json(path, valid)
     assert cache.load(path, content_hash) is None
 
 
@@ -154,7 +162,7 @@ def test_atomic_text_writes_disable_platform_newline_translation(tmp_path, monke
 
     monkeypatch.setattr(cache_io.os, "fdopen", recording_fdopen)
     target = tmp_path / "deterministic.txt"
-    cache_io.atomic_write_text(str(target), "left\nright\n")
+    cache_io.AtomicFileStore().write_text(str(target), "left\nright\n")
 
     assert observed["newline"] == "\n"
     assert target.read_bytes() == b"left\nright\n"
@@ -170,13 +178,14 @@ def test_atomic_text_fsyncs_parent_after_replacement(tmp_path, monkeypatch):
         real_replace(source, destination)
 
     monkeypatch.setattr(cache_io.os, "replace", recording_replace)
+    file_store = cache_io.AtomicFileStore()
     monkeypatch.setattr(
-        cache_io,
-        "fsync_parent_directory",
+        file_store,
+        "sync_parent",
         lambda path: events.append(("fsync-parent", path)),
     )
 
-    cache_io.atomic_write_text(str(target), "durable")
+    file_store.write_text(str(target), "durable")
 
     assert events == [("replace", str(target)), ("fsync-parent", str(target))]
 
@@ -193,7 +202,7 @@ def test_parent_directory_fsync_uses_bounded_best_effort_syscalls(tmp_path, monk
     monkeypatch.setattr(cache_io.os, "fsync", lambda descriptor: events.append(("fsync", descriptor)))
     monkeypatch.setattr(cache_io.os, "close", lambda descriptor: events.append(("close", descriptor)))
 
-    cache_io.fsync_parent_directory(str(target))
+    cache_io.AtomicFileStore().sync_parent(str(target))
 
     assert events[0][0:2] == ("open", str(tmp_path))
     assert events[1:] == [("fsync", 73), ("close", 73)]
@@ -205,14 +214,18 @@ def test_parent_directory_fsync_tolerates_unsupported_platform(tmp_path, monkeyp
 
     monkeypatch.setattr(cache_io.os, "open", unsupported)
 
-    cache_io.fsync_parent_directory(str(tmp_path / "cache.json"))
+    cache_io.AtomicFileStore().sync_parent(str(tmp_path / "cache.json"))
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX permission contract")
 def test_atomic_text_can_publish_a_public_artifact_mode(tmp_path):
     target = tmp_path / "artifact.txt"
 
-    cache_io.atomic_write_text(str(target), "artifact\n", file_mode=0o644)
+    cache_io.AtomicFileStore().write_text(
+        str(target),
+        "artifact\n",
+        file_mode=0o644,
+    )
 
     assert stat.S_IMODE(target.stat().st_mode) == 0o644
 
@@ -223,7 +236,11 @@ def test_atomic_text_explicit_mode_replaces_unsafe_existing_mode(tmp_path):
     target.write_text("old\n")
     target.chmod(0o777)
 
-    cache_io.atomic_write_text(str(target), "replacement\n", file_mode=0o644)
+    cache_io.AtomicFileStore().write_text(
+        str(target),
+        "replacement\n",
+        file_mode=0o644,
+    )
 
     assert target.read_text() == "replacement\n"
     assert stat.S_IMODE(target.stat().st_mode) == 0o644
@@ -264,7 +281,7 @@ def test_cache_reads_do_not_follow_final_symlinks(tmp_path):
     link = tmp_path / "cache.json"
     link.symlink_to(target.name)
 
-    assert cache_io.load_json(str(link)) is None
+    assert cache_io.AtomicFileStore().read_json(str(link)) is None
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes are unavailable")
@@ -274,13 +291,13 @@ def test_cache_and_archive_validation_reject_fifos_without_blocking(tmp_path):
     repo_root = Path(__file__).resolve().parents[3]
     script = """
 import sys
-from src.compiler.python.cache_io import load_json
+from src.compiler.python.cache_io import AtomicFileStore
 from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
 from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
 from src.compiler.python.stdlib_archive_validation import StdlibArchiveManifest
 
 path = sys.argv[1]
-assert load_json(path) is None
+assert AtomicFileStore().read_json(path) is None
 manifest = StdlibArchiveManifest(StdlibArchivePublisher(ArtifactPublisher()))
 assert manifest._artifact_hash(path) is None
 """

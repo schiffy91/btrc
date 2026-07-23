@@ -34,6 +34,8 @@ def test_package_resolver_owns_manifest_reads(tmp_path):
     resolver = pkg.PackageResolver(manifest_reader=reader)
 
     assert resolver.manifest_reader is reader
+    assert resolver.file_store is reader.file_store
+    assert resolver.git_dependencies.file_store is reader.file_store
     assert not (pathlib.Path(pkg.__file__).with_name("manifest_io.py")).exists()
 
 

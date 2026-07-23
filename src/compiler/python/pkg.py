@@ -18,7 +18,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
-from .cache_io import atomic_write_json, load_json, open_regular_binary
+from .cache_io import AtomicFileStore
 from .pkg_git import GitDependencyCache
 
 
@@ -80,14 +80,23 @@ class PackageManifestReader:
 
     DEFAULT_MAX_BYTES = 1024 * 1024
 
-    def __init__(self, max_bytes: int = DEFAULT_MAX_BYTES) -> None:
+    def __init__(
+        self,
+        max_bytes: int = DEFAULT_MAX_BYTES,
+        *,
+        file_store: AtomicFileStore | None = None,
+    ) -> None:
         if max_bytes <= 0:
             raise ValueError("package manifest byte limit must be positive")
         self.max_bytes = max_bytes
+        self.file_store = file_store or AtomicFileStore()
 
     def read(self, path: str) -> dict:
         """Load one regular manifest without unbounded input allocation."""
-        manifest_file = open_regular_binary(path, follow_symlinks=True)
+        manifest_file = self.file_store.open_regular_binary(
+            path,
+            follow_symlinks=True,
+        )
         if manifest_file is None:
             raise ValueError(f"package manifest '{path}' is not a regular file")
         with manifest_file:
@@ -117,9 +126,20 @@ class PackageResolver:
         git_dependencies: GitDependencyCache | None = None,
         *,
         manifest_reader: PackageManifestReader | None = None,
+        file_store: AtomicFileStore | None = None,
     ) -> None:
-        self.git_dependencies = git_dependencies or GitDependencyCache()
-        self.manifest_reader = manifest_reader or PackageManifestReader()
+        owned_store = file_store
+        if owned_store is None and git_dependencies is not None:
+            owned_store = git_dependencies.file_store
+        if owned_store is None and manifest_reader is not None:
+            owned_store = manifest_reader.file_store
+        self.file_store = owned_store or AtomicFileStore()
+        if git_dependencies is not None and git_dependencies.file_store is not self.file_store:
+            raise ValueError("PackageResolver and Git cache must share one file store")
+        if manifest_reader is not None and manifest_reader.file_store is not self.file_store:
+            raise ValueError("PackageResolver and manifest reader must share one file store")
+        self.git_dependencies = git_dependencies or GitDependencyCache(file_store=self.file_store)
+        self.manifest_reader = manifest_reader or PackageManifestReader(file_store=self.file_store)
 
     @staticmethod
     def find_manifest(start_directory: str) -> str | None:
@@ -253,7 +273,7 @@ class PackageResolver:
     ) -> dict[str, dict[str, str]] | None:
         """Return a schema-v2 resolution, or ``None`` for stale data."""
 
-        lock = load_json(lock_path, max_bytes=MAX_LOCK_BYTES)
+        lock = self.file_store.read_json(lock_path, max_bytes=MAX_LOCK_BYTES)
         if lock is None:
             if not os.path.exists(lock_path):
                 return None
@@ -322,8 +342,8 @@ class PackageResolver:
             elif not (set(entry) == {"path"} and isinstance(entry["path"], str) and bool(entry["path"])):
                 raise LockfileError(f"invalid locked path dependency '{name}' in '{lock_path}'")
 
-    @staticmethod
     def _write_lock(
+        self,
         lock_path: str,
         dependencies_hash: str,
         resolved: Mapping[str, Mapping[str, str]],
@@ -341,7 +361,7 @@ class PackageResolver:
                 }
             else:
                 packages[name] = {"path": os.path.relpath(entry["path"], manifest_directory)}
-        atomic_write_json(
+        self.file_store.write_json(
             lock_path,
             {
                 "manifest_hash": dependencies_hash,

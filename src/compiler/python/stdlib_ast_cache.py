@@ -7,7 +7,7 @@ import os
 import time
 
 from .ast_codec import decode_ast, encode_ast
-from .cache_io import atomic_write_json, load_json
+from .cache_io import AtomicFileStore
 
 SCHEMA_VERSION = 1
 _PREFIX = "stdlib-"
@@ -24,9 +24,11 @@ class StdlibAstCache:
         *,
         schema_version: int = SCHEMA_VERSION,
         max_age_seconds: int = _MAX_AGE,
+        file_store: AtomicFileStore | None = None,
     ) -> None:
         self.schema_version = schema_version
         self.max_age_seconds = max_age_seconds
+        self.file_store = file_store or AtomicFileStore()
         self._pruned_dirs: set[str] = set()
 
     def path(self, cache_dir: str, frontend_version: str, source: str) -> str:
@@ -43,13 +45,11 @@ class StdlibAstCache:
 
     def load(self, path: str, content_hash: str) -> list | None:
         """Load validated declarations, or return ``None`` to request a reparse."""
-        payload = load_json(path)
+        payload = self.file_store.read_json(path)
         if not self._valid_payload(payload, content_hash):
             return None
         try:
-            declarations = [
-                decode_ast(value) for value in payload["declarations"]
-            ]
+            declarations = [decode_ast(value) for value in payload["declarations"]]
         except (ValueError, TypeError, RecursionError):
             return None
         if not all(hasattr(declaration, "source_file") for declaration in declarations):
@@ -63,13 +63,11 @@ class StdlibAstCache:
         declarations: list,
     ) -> None:
         """Atomically store declarations in the deterministic JSON schema."""
-        atomic_write_json(
+        self.file_store.write_json(
             path,
             {
                 "content_hash": content_hash,
-                "declarations": [
-                    encode_ast(declaration) for declaration in declarations
-                ],
+                "declarations": [encode_ast(declaration) for declaration in declarations],
                 "schema": self.schema_version,
             },
         )
@@ -89,10 +87,7 @@ class StdlibAstCache:
                 continue
             path = os.path.join(cache_dir, name)
             try:
-                expired_json = (
-                    name.endswith(_SUFFIX)
-                    and os.path.getmtime(path) < cutoff
-                )
+                expired_json = name.endswith(_SUFFIX) and os.path.getmtime(path) < cutoff
                 if name.endswith(_LEGACY_SUFFIX) or expired_json:
                     os.remove(path)
             except OSError:

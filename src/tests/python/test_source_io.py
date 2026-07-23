@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.cache_io import AtomicFileStore
 from src.compiler.python.cli import file_io
 from src.compiler.python.cli.file_io import CompilerFileIO
 from src.compiler.python.frontend.source_io import SourceFileReader, SourceReadError
@@ -66,9 +67,13 @@ def test_write_if_missing_publishes_complete_content_without_temp_files(tmp_path
 def test_write_if_missing_fsyncs_parent_after_temp_cleanup(tmp_path, monkeypatch):
     path = tmp_path / "btrc_rt.h"
     observed = []
-    monkeypatch.setattr(file_io, "fsync_parent_directory", lambda target: observed.append(target))
+    file_store = AtomicFileStore()
+    monkeypatch.setattr(file_store, "sync_parent", lambda target: observed.append(target))
 
-    assert CompilerFileIO().write_output_if_missing(str(path), "generated")
+    assert CompilerFileIO(file_store=file_store).write_output_if_missing(
+        str(path),
+        "generated",
+    )
 
     assert observed == [str(path)]
     assert not list(tmp_path.glob(".btrc-output-*"))
@@ -105,9 +110,10 @@ def test_atomic_output_uses_normal_umask_permissions(tmp_path):
 def test_atomic_output_fsyncs_parent_after_replacement(tmp_path, monkeypatch):
     output = tmp_path / "program.c"
     observed = []
-    monkeypatch.setattr(file_io, "fsync_parent_directory", lambda target: observed.append(target))
+    file_store = AtomicFileStore()
+    monkeypatch.setattr(file_store, "sync_parent", lambda target: observed.append(target))
 
-    CompilerFileIO().write_output(str(output), "generated")
+    CompilerFileIO(file_store=file_store).write_output(str(output), "generated")
 
     assert observed == [str(output)]
 

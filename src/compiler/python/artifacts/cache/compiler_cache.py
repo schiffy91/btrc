@@ -7,7 +7,7 @@ import os
 import sys
 import threading
 
-from ...cache_io import atomic_write_text, open_regular_binary
+from ...cache_io import AtomicFileStore
 from ...frontend.dependencies import ResolvedSource
 from ...pkg import PackageResolver
 
@@ -154,12 +154,14 @@ class CompilationCache:
         directory: CacheDirectory | None = None,
         *,
         max_entry_bytes: int = MAX_ENTRY_BYTES,
+        file_store: AtomicFileStore | None = None,
     ) -> None:
         if max_entry_bytes <= 0:
             raise ValueError("compiled cache entry limit must be positive")
         self._fingerprint = fingerprint or ToolchainFingerprint()
         self._directory = directory or CacheDirectory()
         self._max_entry_bytes = max_entry_bytes
+        self._files = file_store or AtomicFileStore()
 
     @staticmethod
     def cache_source(source: ResolvedSource) -> str:
@@ -192,7 +194,7 @@ class CompilationCache:
         try:
             key = self.key_for(resolved_source, source_identity)
             path = os.path.join(self._directory.resolve(input_path), f"{key}.c")
-            cache_file = open_regular_binary(path)
+            cache_file = self._files.open_regular_binary(path)
             if cache_file is None:
                 return None
             with cache_file:
@@ -217,7 +219,7 @@ class CompilationCache:
 
         key = self.key_for(resolved_source, source_identity)
         path = os.path.join(self._directory.resolve(input_path), f"{key}.c")
-        atomic_write_text(path, c_output)
+        self._files.write_text(path, c_output)
 
     def load(self, source: ResolvedSource, input_path: str) -> str | None:
         return self.load_text(

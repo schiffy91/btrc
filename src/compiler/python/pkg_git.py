@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import tempfile
 
-from .cache_io import atomic_write_json, load_json
+from .cache_io import AtomicFileStore
 
 
 class GitDependencyCache:
@@ -18,8 +18,14 @@ class GitDependencyCache:
     MAX_REF_RECORD_BYTES = 16 * 1024
     GIT_TIMEOUT_SECONDS = 300
 
-    def __init__(self, cache_directory: str | None = None) -> None:
+    def __init__(
+        self,
+        cache_directory: str | None = None,
+        *,
+        file_store: AtomicFileStore | None = None,
+    ) -> None:
         self._configured_cache_directory = cache_directory
+        self.file_store = file_store or AtomicFileStore()
 
     def resolve(
         self,
@@ -49,7 +55,7 @@ class GitDependencyCache:
 
         record_path = self._ref_record_path(name, url, revision)
         if not refresh:
-            record = load_json(
+            record = self.file_store.read_json(
                 record_path,
                 max_bytes=self.MAX_REF_RECORD_BYTES,
             )
@@ -157,7 +163,7 @@ class GitDependencyCache:
         revision: str,
         commit: str,
     ) -> None:
-        atomic_write_json(
+        self.file_store.write_json(
             path,
             {
                 "commit": commit,

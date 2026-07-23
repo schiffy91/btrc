@@ -7,7 +7,7 @@ import os
 
 from .artifacts.cache.compiler_cache import ToolchainFingerprint
 from .artifacts.stdlib.publisher import StdlibArchivePublisher
-from .cache_io import load_json, open_regular_binary
+from .cache_io import AtomicFileStore
 from .ir.nodes import IRMacroDef
 
 
@@ -49,10 +49,12 @@ class StdlibArchiveManifest:
         *,
         manifest_name: str = "btrc_stdlib.manifest",
         stdlib_root: str | None = None,
+        file_store: AtomicFileStore | None = None,
     ) -> None:
         self.publisher = publisher
         self.fingerprint = fingerprint or ToolchainFingerprint()
         self.manifest_name = manifest_name
+        self.file_store = file_store or AtomicFileStore()
         self.stdlib_root = os.path.realpath(
             stdlib_root or os.path.join(os.path.dirname(__file__), "..", "..", "stdlib")
         )
@@ -85,7 +87,7 @@ class StdlibArchiveManifest:
             raise ArchiveVersionError(
                 f"stdlib archive in '{stdlib_dir}' is being updated; retry after the publication completes"
             )
-        manifest = load_json(
+        manifest = self.file_store.read_json(
             os.path.join(stdlib_dir, self.manifest_name),
             max_bytes=self.MAX_BYTES,
             follow_symlinks=True,
@@ -176,7 +178,10 @@ class StdlibArchiveManifest:
         """Hash one bounded regular archive artifact, or reject it."""
 
         digest = hashlib.sha256()
-        artifact_file = open_regular_binary(path, follow_symlinks=True)
+        artifact_file = self.file_store.open_regular_binary(
+            path,
+            follow_symlinks=True,
+        )
         if artifact_file is None:
             return None
         with artifact_file:
