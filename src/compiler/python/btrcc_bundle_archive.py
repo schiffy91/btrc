@@ -11,15 +11,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-from . import bundle_archive_source as _archive_source
 from .btrcc_archive_metadata import canonical_tar_info, canonical_zip_timestamp
-
-_ArchiveEntry = _archive_source.ArchiveEntry
-_bundle_entries = _archive_source.bundle_entries
-_open_regular = _archive_source.open_regular
-_validate_directory = _archive_source.validate_directory
-_validate_payload = _archive_source.validate_payload
-_validate_bundle_snapshot = _archive_source.validate_bundle_snapshot
+from .bundle_archive_source import ArchiveEntry, BundleArchiveSource
 
 
 def _reject_destination_in_bundle(bundle: Path, destination: Path) -> None:
@@ -33,7 +26,7 @@ def _reject_destination_in_bundle(bundle: Path, destination: Path) -> None:
         raise ValueError(f"archive destination must be outside its source bundle: {destination}")
 
 
-def _portable_mode(entry: _ArchiveEntry, bundle: Path) -> int:
+def _portable_mode(entry: ArchiveEntry, bundle: Path) -> int:
     if entry.is_directory:
         return 0o755
     relative = entry.path.relative_to(bundle)
@@ -42,7 +35,7 @@ def _portable_mode(entry: _ArchiveEntry, bundle: Path) -> int:
     return 0o644
 
 
-def _tar_info(entry: _ArchiveEntry, bundle: Path, epoch: int) -> tarfile.TarInfo:
+def _tar_info(entry: ArchiveEntry, bundle: Path, epoch: int) -> tarfile.TarInfo:
     relative = entry.path.relative_to(bundle.parent).as_posix()
     name = relative + ("/" if entry.is_directory else "")
     return canonical_tar_info(
@@ -58,6 +51,7 @@ def write_tar_gz(bundle: Path, destination: Path, epoch: int) -> None:
     """Write a byte-reproducible gzip-compressed POSIX tar archive."""
 
     _reject_destination_in_bundle(bundle, destination)
+    source = BundleArchiveSource(bundle)
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -75,16 +69,16 @@ def write_tar_gz(bundle: Path, destination: Path, epoch: int) -> None:
                     format=tarfile.PAX_FORMAT,
                 ) as archive,
             ):
-                entries = _bundle_entries(bundle)
+                entries = source.discover()
                 for entry in entries:
                     info = _tar_info(entry, bundle, epoch)
                     if not entry.is_directory:
-                        with _open_regular(entry) as source:
-                            archive.addfile(info, source)
+                        with source.open_regular(entry) as payload:
+                            archive.addfile(info, payload)
                     else:
-                        _validate_directory(entry)
+                        source.validate_directory(entry)
                         archive.addfile(info)
-                _validate_bundle_snapshot(bundle, entries)
+                source.validate_snapshot(entries)
         os.replace(temporary, destination)
         destination.chmod(0o644)
     finally:
@@ -96,6 +90,7 @@ def write_zip(bundle: Path, destination: Path, epoch: int) -> None:
     """Write a deterministic ZIP archive with portable Unix mode metadata."""
 
     _reject_destination_in_bundle(bundle, destination)
+    source = BundleArchiveSource(bundle)
     temporary: Path | None = None
     try:
         with tempfile.NamedTemporaryFile(
@@ -111,27 +106,27 @@ def write_zip(bundle: Path, destination: Path, epoch: int) -> None:
                 compression=zipfile.ZIP_DEFLATED,
                 compresslevel=9,
             ) as archive:
-                entries = _bundle_entries(bundle)
+                entries = source.discover()
                 for entry in entries:
                     relative = entry.path.relative_to(bundle.parent).as_posix()
                     name = relative + ("/" if entry.is_directory else "")
                     info = zipfile.ZipInfo(name, canonical_zip_timestamp(epoch))
                     info.create_system = 3
                     if entry.is_directory:
-                        _validate_directory(entry)
+                        source.validate_directory(entry)
                         mode = stat.S_IFDIR | _portable_mode(entry, bundle)
                         dos_attributes = 0x10
                         payload = b""
                     else:
                         mode = stat.S_IFREG | _portable_mode(entry, bundle)
                         dos_attributes = 0
-                        with _open_regular(entry) as source:
-                            payload = source.read()
-                        _validate_payload(entry, payload)
+                        with source.open_regular(entry) as payload_stream:
+                            payload = payload_stream.read()
+                        source.validate_payload(entry, payload)
                     info.external_attr = (mode & 0xFFFF) << 16 | dos_attributes
                     info.compress_type = zipfile.ZIP_DEFLATED
                     archive.writestr(info, payload)
-                _validate_bundle_snapshot(bundle, entries)
+                source.validate_snapshot(entries)
         os.replace(temporary, destination)
         destination.chmod(0o644)
     finally:

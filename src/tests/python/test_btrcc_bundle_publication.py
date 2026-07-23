@@ -456,13 +456,17 @@ def test_generation_validator_bounds_unexpected_sparse_file_before_hashing(
     with unexpected.open("wb") as stream:
         stream.truncate(1024 * 1024 * 1024 + 1)
     discovered = []
-    discover = archive_source_module._discover_regular
+    discover = archive_source_module.BundleArchiveSource._discover_regular
 
-    def observe_discovery(path: Path, metadata, expected_size=None):
+    def observe_discovery(self, path: Path, metadata, expected_size=None):
         discovered.append(path)
-        return discover(path, metadata, expected_size)
+        return discover(self, path, metadata, expected_size)
 
-    monkeypatch.setattr(archive_source_module, "_discover_regular", observe_discovery)
+    monkeypatch.setattr(
+        archive_source_module.BundleArchiveSource,
+        "_discover_regular",
+        observe_discovery,
+    )
     with pytest.raises(ValueError, match="unexpected entries"):
         BundleValidator().validate_generation(
             result.bundle,

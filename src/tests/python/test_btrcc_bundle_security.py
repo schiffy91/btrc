@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import os
 import tarfile
@@ -15,12 +16,12 @@ import pytest
 import src.compiler.python.artifacts.selfhost_bundle.builder as builder_module
 import src.compiler.python.artifacts.selfhost_bundle.copier as copier_module
 import src.compiler.python.artifacts.selfhost_bundle.validator as validation_module
-import src.compiler.python.btrcc_bundle_archive as archive_module
 import src.compiler.python.bundle_archive_source as archive_source_module
 from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
 from src.compiler.python.artifacts.selfhost_bundle.copier import BundleCopier
 from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
 from src.compiler.python.btrcc_bundle_archive import write_tar_gz, write_zip
+from src.compiler.python.bundle_archive_source import BundleArchiveSource
 from src.tests.python.test_btrcc_bundle import _fixture, _manifest
 
 
@@ -49,6 +50,23 @@ class _MutatingReader:
 
     def seek(self, offset: int, whence: int = os.SEEK_SET) -> int:
         return self._stream.seek(offset, whence)
+
+
+def test_bundle_archive_source_behavior_has_one_explicit_owner() -> None:
+    module = ast.parse(Path(archive_source_module.__file__).read_text())
+    loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
+    owner = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "BundleArchiveSource")
+    operations = {node.name for node in owner.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+
+    assert loose_behavior == []
+    assert {
+        "discover",
+        "discover_bounded",
+        "open_regular",
+        "validate_directory",
+        "validate_payload",
+        "validate_snapshot",
+    } <= operations
 
 
 def _replace_contents_in_place(path: Path, payload: bytes, previous_mtime_ns: int) -> None:
@@ -158,11 +176,12 @@ def test_archive_reader_revalidates_same_inode_same_size_source_after_read(
     payload = bundle / "payload"
     payload.write_bytes(b"a" * 4096)
     initial = payload.stat()
-    entry = next(item for item in archive_module._bundle_entries(bundle) if item.path == payload)
+    source = BundleArchiveSource(bundle)
+    entry = next(item for item in source.discover() if item.path == payload)
 
     with (
         pytest.raises(ValueError, match="changed while packaging"),
-        archive_module._open_regular(entry) as stream,
+        source.open_regular(entry) as stream,
     ):
         assert stream.read(1)
         _replace_contents_in_place(payload, b"b" * initial.st_size, initial.st_mtime_ns)
@@ -242,14 +261,14 @@ def test_archive_writers_reject_tree_changes_after_entry_emission(
     late = bundle / "late"
     early.write_bytes(b"early-old")
     late.write_bytes(b"late")
-    open_regular = archive_module._open_regular
+    open_regular = BundleArchiveSource.open_regular
     changed = False
 
     @contextmanager
-    def change_after_last_emission(entry):
+    def change_after_last_emission(source: BundleArchiveSource, entry):
         nonlocal changed
-        with open_regular(entry) as source:
-            yield source
+        with open_regular(source, entry) as payload_stream:
+            yield payload_stream
         if entry.path == late and not changed:
             changed = True
             if change == "modify":
@@ -259,7 +278,11 @@ def test_archive_writers_reject_tree_changes_after_entry_emission(
             else:
                 (bundle / "added").write_bytes(b"added")
 
-    monkeypatch.setattr(archive_module, "_open_regular", change_after_last_emission)
+    monkeypatch.setattr(
+        BundleArchiveSource,
+        "open_regular",
+        change_after_last_emission,
+    )
     destination = tmp_path / "archive"
     with pytest.raises(ValueError, match="changed while packaging"):
         writer(bundle, destination, 0)
@@ -278,6 +301,29 @@ def test_archive_writers_reject_symlinked_payloads(
     (bundle / "linked").symlink_to(outside)
 
     with pytest.raises(ValueError, match="link or reparse point"):
+        writer(bundle, tmp_path / "archive", 0)
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="named pipes are unavailable")
+@pytest.mark.parametrize("writer", [write_tar_gz, write_zip])
+def test_archive_writers_reject_fifos_before_opening_them(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    writer: Callable[[Path, Path, int], None],
+) -> None:
+    bundle = tmp_path / "btrcc-test"
+    bundle.mkdir()
+    fifo = bundle / "payload"
+    os.mkfifo(fifo)
+    os_open = archive_source_module.os.open
+
+    def reject_fifo_open(path, flags, *args, **kwargs):
+        if Path(path) == fifo:
+            raise AssertionError("archive source attempted to open a FIFO")
+        return os_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(archive_source_module.os, "open", reject_fifo_open)
+    with pytest.raises(ValueError, match="regular file or directory"):
         writer(bundle, tmp_path / "archive", 0)
 
 

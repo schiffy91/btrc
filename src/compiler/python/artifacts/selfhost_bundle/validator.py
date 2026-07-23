@@ -14,12 +14,7 @@ from typing import BinaryIO
 from ... import btrcc_bundle_validation_archive
 from ...btrcc_archive_metadata import canonical_epoch
 from ...btrcc_target_binary import target_spec, validate_target_binary_stream
-from ...bundle_archive_source import (
-    ContentSnapshot,
-    bounded_bundle_entries,
-    validate_bundle_snapshot,
-)
-from ...bundle_archive_source import open_regular as open_archive_entry
+from ...bundle_archive_source import BundleArchiveSource, ContentSnapshot
 from ..publication.storage import ArtifactStorage
 
 _MANIFEST_PATH = "share/btrc/manifest.json"
@@ -202,7 +197,8 @@ class BundleValidator:
         directories = self._expected_directories(expected_files)
         sizes = {path: content[1] for path, content in records.items()}
         sizes[_MANIFEST_PATH] = len(encoded)
-        entries = bounded_bundle_entries(bundle, sizes, directories)
+        archive_source = BundleArchiveSource(bundle, self._storage)
+        entries = archive_source.discover_bounded(sizes, directories)
         actual_files = {entry.path.relative_to(bundle).as_posix(): entry for entry in entries if not entry.is_directory}
         expected_content = dict(records)
         expected_content[_MANIFEST_PATH] = (
@@ -213,7 +209,7 @@ class BundleValidator:
             actual = actual_files.get(path)
             if actual is None or actual.content != expected:
                 raise ValueError(f"bundle file does not match its manifest: {path}")
-        with open_archive_entry(actual_files[executable]) as stream:
+        with archive_source.open_regular(actual_files[executable]) as stream:
             validate_target_binary_stream(stream, target)
         state = []
         modified_time = canonical_epoch(entry.modified_time_ns for entry in entries)
@@ -238,8 +234,7 @@ class BundleValidator:
                     entry.is_directory,
                 ),
             )
-        validate_bundle_snapshot(
-            bundle,
+        archive_source.validate_snapshot(
             entries,
             files=sizes,
             directories=directories,
