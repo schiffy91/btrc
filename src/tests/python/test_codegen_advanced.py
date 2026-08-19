@@ -7,7 +7,7 @@ from src.tests.python.test_codegen import emit_c
 
 
 def test_trycatch_nested_in_every_control_structure():
-    # generator's _stmt_uses_trycatch walks if/while/for/do-while/switch/finally;
+    # TranslationUnitLowerer.uses_trycatch walks every nested control-flow shape;
     # a try nested in each forces the setjmp/longjmp volatile machinery on.
     src = """
     int main() {

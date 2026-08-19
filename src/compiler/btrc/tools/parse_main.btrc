@@ -1,0 +1,51 @@
+import ../parser/stage.btrc;
+import ../syntax/identity.btrc;
+import ../frontend/models.btrc;
+import ../frontend/source_io.btrc;
+import ../cli/driver.btrc;
+
+class ParserInspectionCommand {
+    private AstCanonicalRenderer astRenderer;
+    private BtrccOutput output;
+    private FeSourceFileReader sourceFiles;
+
+    public ParserInspectionCommand(
+            BtrccOutput output,
+            FeSourceResolutionPolicy resolutionPolicy) {
+        self.astRenderer = AstCanonicalRenderer();
+        self.output = output;
+        self.sourceFiles = FeSourceFileReader(resolutionPolicy);
+    }
+
+    public int run(int argc, char** argv) {
+        if (argc < 2) {
+            print("usage: parse <file.btrc>");
+            return 1;
+        }
+        string grammarText = self.sourceFiles.readRequired(
+            "src/language/grammar.ebnf");
+        GrammarInfo grammar = EbnfGrammarParser(grammarText).parse();
+        string source = self.sourceFiles.readRequired(
+            Strings.copy(argv[1]));
+        Lexer lexer = Lexer(source, grammar);
+        Vector<Token> tokens = lexer.tokenize();
+        if (lexer.failed) {
+            fprintf(stderr, "error: %s\n", lexer.diagnostic);
+            return 1;
+        }
+        Parser parser = Parser(tokens, grammar);
+        Node program = parser.parseProgram();
+        if (parser.failed) {
+            fprintf(stderr, "error: %s\n", parser.diagnostic);
+            return 1;
+        }
+        if (self.output.writeLine(self.astRenderer.render(program))) { return 0; }
+        fprintf(stderr, "parse: error: cannot write standard output\n");
+        return 1;
+    }
+}
+
+int main(int argc, char** argv) {
+    return ParserInspectionCommand(
+        BtrccOutput(stdout), FeSourceResolutionPolicy()).run(argc, argv);
+}

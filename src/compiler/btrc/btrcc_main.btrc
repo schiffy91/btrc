@@ -1,6 +1,6 @@
 /* Production self-hosted compiler process entry point. */
 
-import ./compiler.btrc;
+import ./cli/driver.btrc;
 
 int main(int argc, char** argv) {
     BtrccDriver driver = BtrccDriver(argc, argv);

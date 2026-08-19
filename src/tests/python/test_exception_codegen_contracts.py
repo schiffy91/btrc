@@ -4,9 +4,9 @@ import re
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.setjmp_volatility import apply_setjmp_volatility
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.ir.lowering.types import CodegenError
+from src.compiler.python.ir.lowering.exceptions import ExceptionLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRAssign,
@@ -24,7 +24,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
@@ -64,7 +64,7 @@ def test_setjmp_functions_qualify_params_loops_and_capture_locals():
 
     assert "int mutate(volatile int value)" in emitted
     assert "volatile int i = 0;" in emitted
-    assert "for (; (i < 1); (i++))" in emitted
+    assert "for (; (i < 1); ((void)(i++)))" in emitted
     assert re.search(r"static int __btrc_lambda_\d+\(void\* __btrc_env\)", emitted)
     assert re.search(r"static void\* __btrc_spawn_wrapper_\d+\(void\* __arg\)", emitted)
     assert "volatile int captured = __env->captured;" in emitted
@@ -141,7 +141,7 @@ def test_setjmp_volatility_follows_lexical_visibility():
         ]
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert parameter.is_volatile
     assert outer.is_volatile
@@ -340,6 +340,62 @@ def test_volatile_storage_aliases_fail_at_the_owning_stage(source):
     with pytest.raises(
         CodegenError,
         match=r"unsupported layered pointer qualifiers|escapes into unmodelled storage",
+    ):
+        emit_c(source)
+
+
+@pytest.mark.parametrize(
+    ("source", "storage_root"),
+    (
+        (
+            """
+            int indexCalls = 0;
+            int nextIndex() { indexCalls++; return 0; }
+            int main() {
+                int values[1] = {0};
+                try {
+                    values[nextIndex()] = 1;
+                    throw "done";
+                } catch (string error) {}
+                return values[0] + indexCalls;
+            }
+            """,
+            "values",
+        ),
+        (
+            """
+            int indexCalls = 0;
+            int nextIndex() { indexCalls++; return 0; }
+            struct Probe { int values[1]; };
+            class Exercise<T> {
+                public int run() {
+                    struct Probe probe = {{0}};
+                    try {
+                        probe.values[nextIndex()] = 1;
+                        throw "done";
+                    } catch (string error) {}
+                    return probe.values[0] + indexCalls;
+                }
+            }
+            int main() {
+                Exercise<int> exercise = new Exercise<int>();
+                return exercise.run();
+            }
+            """,
+            "probe",
+        ),
+    ),
+    ids=("ordinary-array", "generic-struct-array-field"),
+)
+def test_effectful_index_keeps_source_storage_provenance_across_try_throw(
+    source: str,
+    storage_root: str,
+) -> None:
+    analyzed = analyze_source(source)
+    assert not analyzed.errors
+    with pytest.raises(
+        CodegenError,
+        match=rf"storage object '{storage_root}'.*unsupported layered pointer qualifiers",
     ):
         emit_c(source)
 

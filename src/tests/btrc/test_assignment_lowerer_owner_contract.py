@@ -12,10 +12,9 @@ def _source(relative: str) -> str:
 
 
 def test_assignment_behavior_has_one_real_owner_and_no_free_api() -> None:
-    assignment = _source("assignment_lowering.btrc")
-    irgen = _source("irgen.btrc")
-    boundary = _source("ownership_assignment_boundary.btrc")
-    stage = _source("ir/stage.btrc")
+    assignment = _source("ir/lowering/assignments.btrc")
+    expressions = _source("ir/lowering/expressions.btrc")
+    composition = _source("ir/lowering/lowerer.btrc")
 
     assert "class AssignmentLowerer {" in assignment
     assert not re.search(
@@ -23,65 +22,28 @@ def test_assignment_behavior_has_one_real_owner_and_no_free_api() -> None:
         assignment,
         re.MULTILINE,
     )
-    assert "lowerAssignmentExpression(" not in assignment
-    assert "lowerPlainAssignment(" not in assignment
-
-    assert "class IRGen {" in irgen
-    assert "public AssignmentLowerer assignments;" in irgen
-    assert irgen.count("self.assignments = AssignmentLowerer(") == 1
-    assert "return self.assignments.lower(self, node, varTypes);" in irgen
-    assert "generator.assignments.lowerPlain(" in boundary
-    assert "lowerPlainAssignment(" not in boundary
-    assert stage.count('#include "../assignment_lowering.btrc"') == 1
-    assert stage.index('#include "../assignment_lowering.btrc"') < stage.index('#include "../irgen.btrc"')
+    assert "public AssignmentPlan plan(" in assignment
+    assert "public IRNode materializePlain(" in assignment
+    assert "private AssignmentLowerer assignments;" in expressions
+    assert "self.assignments.plan(" in expressions
+    assert "self.assignments.materializePlain(" in expressions
+    assert composition.count("AssignmentLowerer(") == 1
+    assert "IRGen" not in assignment + expressions + composition
 
 
 def test_assignment_owner_keeps_only_durable_domain_collaborators() -> None:
-    assignment = _source("assignment_lowering.btrc")
+    assignment = _source("ir/lowering/assignments.btrc")
     owner = assignment.split("class AssignmentLowerer {", 1)[1]
     private_state = [
         line.strip() for line in owner.splitlines() if line.startswith("    private ") and line.rstrip().endswith(";")
     ]
     assert private_state == [
-        "private Analyzed analysis;",
+        "private ExpressionTypeResolver expressionTypes;",
+        "private CallableValueSemantics callableValues;",
         "private CallableBoundaryPolicy callableBoundaries;",
-        "private CallableFlowState callableFlow;",
     ]
-    assert "private IRGen" not in owner
-    assert "self.generator" not in owner
-    assert "class IRNode lower(" not in owner
-    assert "public IRNode lower(" in owner
-    assert "public IRNode lowerPlain(" in owner
-
-
-def test_assignment_recursion_host_dependency_surface_is_assignment_scoped() -> None:
-    assignment = _source("assignment_lowering.btrc")
-    dependencies = set(re.findall(r"\bgenerator\.([A-Za-z_]\w*)", assignment))
-    assert dependencies == {
-        "assignmentCallableContext",
-        "callableValueEscapes",
-        "directGenericTargetC",
-        "inGenericMethod",
-        "lowerAssignedValue",
-        "lowerBraceInit",
-        "lowerDirectCompound",
-        "lowerDirectStore",
-        "lowerExpr",
-        "lowerIndirectAssignment",
-        "lowerListLiteral",
-        "lowerManagedFieldAssignment",
-        "lowerMapLiteral",
-        "rejectClosureEscape",
-        "resolvedExpressionType",
-        "upcastClassPointer",
-    }
-
-    for unrelated_state in (
-        "managedStack",
-        "scopeStarts",
-        "currentReturn",
-        "gpuHost",
-        "runtimeHelpers",
-        "curModule",
-    ):
-        assert unrelated_state not in assignment
+    assert "CallableFlowState callableFlow" in owner
+    assert "IRLowerer" not in owner
+    assert "ExpressionLowerer" not in owner
+    assert "generator" not in owner
+    assert "lowerExpr" not in owner

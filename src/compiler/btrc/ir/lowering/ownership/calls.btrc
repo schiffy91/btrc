@@ -1,0 +1,612 @@
+import std.map;
+import std.strings;
+import std.vector;
+import ../../../analyzer/declarations.btrc;
+import ../../../analyzer/models.btrc;
+import ../../../analyzer/ownership/values.btrc;
+import ../../../analyzer/types.btrc;
+import ../../../analyzer/validation/calls.btrc;
+import ../../../generated/ast/node.btrc;
+import ../../../syntax/identity.btrc;
+import ../../../syntax/types.btrc;
+import ../../model.btrc;
+import ../callable_flow.btrc;
+import ../callables.btrc;
+import ../calls.btrc;
+import ../context.btrc;
+import ../types.btrc;
+import ./lifetime.btrc;
+import ./operands.btrc;
+import ./semantics.btrc;
+
+/* Typed ownership plans and transactions for calls and expression boundaries. */
+
+class OwnershipBoundary {
+    public Vector<IRNode> declarations;
+    public Vector<IRNode> prefix;
+    public Vector<IRNode> handoffs;
+    public Vector<IRNode> suffix;
+    public bool resultOwned;
+    private Vector<string> overrideKeys;
+    private Vector<int> overrideHadValues;
+    private Vector<IRNode> overridePreviousValues;
+    private LoweringContext context;
+    private ManagedValueSemantics managedValues;
+    private ManagedLifetimeLowerer lifetime;
+    private OwnershipOperandPlanner operandPlanner;
+    private OwnershipSemantics semantics;
+    private Analyzed analyzed;
+    private CTypeLowerer cTypes;
+
+    public OwnershipBoundary(Analyzed analyzed, LoweringContext context,
+            ManagedValueSemantics managedValues,
+            ManagedLifetimeLowerer lifetime,
+            OwnershipOperandPlanner operandPlanner,
+            OwnershipSemantics semantics,
+            CTypeLowerer cTypes) {
+        self.declarations = [];
+        self.prefix = [];
+        self.handoffs = [];
+        self.suffix = [];
+        self.resultOwned = false;
+        self.overrideKeys = [];
+        self.overrideHadValues = [];
+        self.overridePreviousValues = [];
+        self.context = context;
+        self.managedValues = managedValues;
+        self.lifetime = lifetime;
+        self.operandPlanner = operandPlanner;
+        self.semantics = semantics;
+        self.analyzed = analyzed;
+        self.cTypes = cTypes;
+    }
+
+    public void rememberOverride(Node expression, IRNode value) {
+        string key = AstIdentity.key(expression);
+        self.overrideKeys.push(key);
+        if (self.context.hasExpressionOverrideKey(key)) {
+            self.overrideHadValues.push(1);
+            self.overridePreviousValues.push(
+                self.context.expressionOverrideForKey(key));
+        } else {
+            self.overrideHadValues.push(0);
+            self.overridePreviousValues.push(IRNode.literal("0"));
+        }
+        self.context.setExpressionOverrideKey(key, value);
+    }
+
+    public void registerCleanup(IRNode declaration,
+            string name, string runtimeType) {
+        if (!self.context.exceptionsAreEnabled()) { return; }
+        if (declaration.name != name) {
+            fprintf(stderr,
+                "internal compiler error: cleanup declaration/name mismatch: %s\n",
+                name);
+            exit(1);
+        }
+        self.prefix.push(
+            self.lifetime.registerCleanupSlot(
+                declaration, runtimeType));
+    }
+
+    public void addLoweredOperand(Node expression, Node resolvedType,
+            IRNode lowered, bool owned, bool keepValue) {
+        self.addLoweredCallOperand(expression, resolvedType,
+            lowered, owned, keepValue, false);
+    }
+
+    public void addLoweredCallOperand(Node expression, Node resolvedType,
+            IRNode lowered, bool owned, bool keepValue,
+            bool transferred) {
+        string runtimeType = "";
+        if (self.managedValues.isManaged(resolvedType)) {
+            runtimeType = self.managedValues.runtimeType(resolvedType);
+        }
+        string name = self.context.freshTemporary("__btrc_operand");
+        IRNode declaration = IRNode.variableDeclaration(
+            self.operandPlanner.operandCType(expression, resolvedType), name, null);
+        self.declarations.push(declaration);
+        self.context.recordLocal(declaration);
+        IRNode value = IRNode.variable(name);
+        self.prefix.push(IRNode.binary(value, "=", lowered));
+        IRNode callValue = value;
+
+        if (owned && runtimeType != "") {
+            self.registerCleanup(declaration, name, runtimeType);
+            if (!transferred) {
+                self.appendReleaseAndClear(
+                    value, resolvedType, runtimeType);
+            } else {
+                string handoffName = self.context.freshTemporary(
+                    "__btrc_transferred_operand");
+                IRNode handoffDeclaration = IRNode.variableDeclaration(
+                    self.cTypes.lower(resolvedType),
+                    handoffName, IRNode.literal("NULL"));
+                self.declarations.push(handoffDeclaration);
+                self.context.recordLocal(handoffDeclaration);
+                callValue = IRNode.variable(handoffName);
+                self.handoffs.push(IRNode.binary(callValue, "=", value));
+                self.handoffs.push(IRNode.binary(
+                    value, "=", IRNode.literal("NULL")));
+            }
+        }
+        if (keepValue && runtimeType != "") {
+            string keptName = self.context.freshTemporary(
+                "__btrc_kept_operand");
+            IRNode keptDeclaration = IRNode.variableDeclaration(
+                self.cTypes.lower(resolvedType),
+                keptName, null);
+            self.declarations.push(keptDeclaration);
+            self.context.recordLocal(keptDeclaration);
+            IRNode kept = IRNode.variable(keptName);
+            self.prefix.push(self.lifetime.retainValue(
+                value, resolvedType));
+            self.prefix.push(IRNode.binary(kept, "=", value));
+            self.registerCleanup(
+                keptDeclaration, keptName, runtimeType);
+            self.appendReleaseAndClear(
+                kept, resolvedType, runtimeType);
+        }
+        self.rememberOverride(expression, callValue);
+    }
+
+    public void appendReleaseAndClear(IRNode value,
+            Node resolvedType, string runtimeType) {
+        string savedName = self.context.freshTemporary(
+            "__btrc_released_operand");
+        IRNode savedDeclaration = IRNode.variableDeclaration(
+            self.cTypes.lower(resolvedType),
+            savedName, IRNode.literal("NULL"));
+        self.declarations.push(savedDeclaration);
+        self.context.recordLocal(savedDeclaration);
+        IRNode saved = IRNode.variable(savedName);
+        self.suffix.push(IRNode.binary(saved, "=", value));
+        self.suffix.push(IRNode.binary(
+            value, "=", IRNode.literal("NULL")));
+        self.suffix.push(self.lifetime.optionalRelease(
+            saved, runtimeType));
+    }
+
+    public void restore() {
+        int index = self.overrideKeys.len - 1;
+        while (index >= 0) {
+            string key = self.overrideKeys.get(index);
+            if (self.overrideHadValues.get(index) != 0) {
+                self.context.setExpressionOverrideKey(
+                    key, self.overridePreviousValues.get(index));
+            } else {
+                self.context.removeExpressionOverrideKey(key);
+            }
+            index = index - 1;
+        }
+    }
+
+    public IRNode finish(IRNode expression, Node? resolvedResultType,
+            bool promoteResult, bool opaqueResult = false,
+            Node? opaqueResultSite = null) {
+        Vector<IRNode> sequence = self.prefix;
+        int handoffIndex = 0;
+        while (handoffIndex < self.handoffs.len) {
+            sequence.push(self.handoffs.get(handoffIndex));
+            handoffIndex = handoffIndex + 1;
+        }
+        if (opaqueResult) {
+            if (resolvedResultType != null) {
+                print("internal compiler error: opaque call result has a concrete type");
+                exit(1);
+            }
+            if (opaqueResultSite == null) {
+                print("internal compiler error: opaque call result has no source site");
+                exit(1);
+            }
+            if (self.suffix.len > 0) {
+                self.semantics.failOpaqueCallCleanup(opaqueResultSite);
+            }
+            sequence.push(expression);
+            return IRNode.statementExpression(
+                self.declarations, IRNode.commaExpression(sequence));
+        }
+        bool isVoid = resolvedResultType == null
+            || (resolvedResultType.base == "void"
+                && resolvedResultType.pointer_depth == 0);
+        if (isVoid) {
+            sequence.push(expression);
+            self.appendSuffix(sequence);
+            sequence.push(IRNode.cast("void", IRNode.literal("0")));
+            return IRNode.statementExpression(
+                self.declarations, IRNode.commaExpression(sequence));
+        }
+        Node resultType = resolvedResultType;
+        string resultC = self.cTypes.lower(resultType);
+        string resultName = self.context.freshTemporary(
+            "__btrc_boundary_result");
+        IRNode resultDeclaration = IRNode.variableDeclaration(
+            resultC, resultName, null);
+        resultDeclaration.is_volatile = true;
+        self.declarations.push(resultDeclaration);
+        self.context.recordLocal(resultDeclaration);
+        IRNode result = IRNode.variable(resultName);
+        sequence.push(IRNode.binary(result, "=", expression));
+        if (promoteResult
+                && self.managedValues.isManaged(resultType)) {
+            sequence.push(self.lifetime.retainValue(result, resultType));
+        }
+        bool protectResult = self.context.exceptionsAreEnabled()
+            && self.managedValues.isManaged(resultType)
+            && (self.resultOwned || promoteResult);
+        if (protectResult) {
+            sequence.push(self.lifetime.registerCleanupSlot(
+                resultDeclaration,
+                self.managedValues.runtimeType(resultType)));
+        }
+        self.appendSuffix(sequence);
+        if (protectResult) {
+            string handoffName = self.context.freshTemporary(
+                "__btrc_boundary_result_handoff");
+            IRNode handoffDeclaration = IRNode.variableDeclaration(
+                resultC, handoffName, IRNode.literal("NULL"));
+            self.declarations.push(handoffDeclaration);
+            self.context.recordLocal(handoffDeclaration);
+            IRNode handoff = IRNode.variable(handoffName);
+            sequence.push(IRNode.binary(handoff, "=", result));
+            sequence.push(IRNode.binary(
+                result, "=", IRNode.literal("NULL")));
+            sequence.push(handoff);
+        } else {
+            sequence.push(result);
+        }
+        return IRNode.statementExpression(
+            self.declarations, IRNode.commaExpression(sequence));
+    }
+
+    private void appendSuffix(Vector<IRNode> sequence) {
+        int suffixIndex = 0;
+        while (suffixIndex < self.suffix.len) {
+            sequence.push(self.suffix.get(suffixIndex));
+            suffixIndex = suffixIndex + 1;
+        }
+    }
+}
+
+class OwnershipCallOperand {
+    public Node expression;
+    public Node? typeExpr;
+    public Node? targetType;
+    public bool owned;
+    public bool keepValue;
+    public bool transferred;
+    public bool needsConversion;
+    public bool defaultArgument;
+    public int parameterIndex;
+    public CallableFlowSnapshot flowEntry;
+
+    public OwnershipCallOperand(Node expression, Node? typeExpr,
+            Node? targetType, bool owned, bool keepValue,
+            bool transferred, bool needsConversion,
+            bool defaultArgument, int parameterIndex,
+            CallableFlowSnapshot flowEntry) {
+        self.expression = expression;
+        self.typeExpr = typeExpr;
+        self.targetType = targetType;
+        self.owned = owned;
+        self.keepValue = keepValue;
+        self.transferred = transferred;
+        self.needsConversion = needsConversion;
+        self.defaultArgument = defaultArgument;
+        self.parameterIndex = parameterIndex;
+        self.flowEntry = flowEntry;
+    }
+}
+
+class OwnershipCallPlan {
+    public Node call;
+    public CallTarget target;
+    public Vector<Node> parameters;
+    public Vector<OwnershipCallOperand> operands;
+    public Node? declaration;
+    public Node? receiver;
+    public Node? receiverType;
+    public bool receiverOwned;
+    public bool receiverPinned;
+    public bool forceOrder;
+    public bool resultOwned;
+
+    public OwnershipCallPlan(Node call) {
+        self.call = call;
+        self.target = CallTarget(call);
+        self.parameters = [];
+        self.operands = [];
+        self.declaration = null;
+        self.receiver = null;
+        self.receiverType = null;
+        self.receiverOwned = false;
+        self.receiverPinned = false;
+        self.forceOrder = false;
+        self.resultOwned = false;
+    }
+
+    public bool requiresBoundary() {
+        if (self.receiverOwned || self.receiverPinned
+                || self.forceOrder) {
+            return true;
+        }
+        int index = 0;
+        while (index < self.operands.len) {
+            OwnershipCallOperand operand = self.operands.get(index);
+            if (operand.defaultArgument || operand.owned
+                    || operand.keepValue || operand.needsConversion) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+}
+
+class CallOwnershipLowerer {
+    private Analyzed analyzed;
+    private ManagedValueSemantics managedValues;
+    private OwnershipSemantics semantics;
+    private OwnershipOperandPlanner operandPlanner;
+    private CallableValueSemantics callableValues;
+    private LoweringContext context;
+    private ManagedLifetimeLowerer lifetime;
+    private CTypeLowerer cTypes;
+    private CallTargetResolver targets;
+
+    public CallOwnershipLowerer(Analyzed analyzed,
+            ManagedValueSemantics managedValues,
+            OwnershipSemantics semantics,
+            OwnershipOperandPlanner operandPlanner,
+            CallableValueSemantics callableValues,
+            LoweringContext context,
+            ManagedLifetimeLowerer lifetime,
+            CTypeLowerer cTypes,
+            CallTargetResolver targets) {
+        self.analyzed = analyzed;
+        self.managedValues = managedValues;
+        self.semantics = semantics;
+        self.operandPlanner = operandPlanner;
+        self.callableValues = callableValues;
+        self.context = context;
+        self.lifetime = lifetime;
+        self.cTypes = cTypes;
+        self.targets = targets;
+    }
+
+    public OwnershipBoundary boundary() {
+        return OwnershipBoundary(self.analyzed, self.context, self.managedValues,
+            self.lifetime, self.operandPlanner, self.semantics, self.cTypes);
+    }
+
+    private CallableBoundaryContext callableContext(
+            OwnershipOperandEnvironment environment,
+            CallableFlowState callableFlow) {
+        return callableFlow.boundaryContext(
+            environment.variables(), environment.typeArguments(),
+            environment.specializationActive());
+    }
+
+    private int namedParameterIndex(
+            Vector<Node> parameters, string name) {
+        int index = 0;
+        while (index < parameters.len) {
+            if (parameters.get(index).name == name) { return index; }
+            index = index + 1;
+        }
+        return -1;
+    }
+
+    private Vector<OwnershipCallOperand> planOperands(Node call,
+            CallTarget target,
+            OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+        Vector<OwnershipCallOperand> result = [];
+        Vector<Node> parameters = target.signature.parameters;
+        CallableBoundaryContext callableContext =
+            callableFlow.boundaryContext(
+                environment.variables(), environment.typeArguments(),
+                environment.specializationActive());
+        CallableFlowSnapshot incoming = callableFlow.snapshot();
+        if (call.kind == NK_CALL_EXPR) {
+            callableFlow.applyEvaluation(
+                call.callee, self.callableValues, callableContext);
+        }
+        Map<int, bool> transferredParameters =
+            DeclarationRegistry.ownedTransferParameters(
+                target.declaration);
+        Map<int, bool> bound = {};
+        int positional = 0;
+        int index = 0;
+        while (index < call.args.len) {
+            Node argument = call.args.get(index);
+            CallableFlowSnapshot flowEntry = callableFlow.snapshot();
+            int parameterIndex = positional;
+            string argumentName = "";
+            if (index < call.arg_names.len) {
+                argumentName = call.arg_names.get(index);
+            }
+            if (argumentName != "") {
+                parameterIndex = self.namedParameterIndex(
+                    parameters, argumentName);
+            } else {
+                positional = positional + 1;
+            }
+            Node? argumentType = self.semantics.expressionType(
+                argument, environment);
+            Node? targetType = argumentType;
+            bool keepValue = false;
+            if (parameterIndex >= 0
+                    && parameterIndex < parameters.len) {
+                bound.put(parameterIndex, true);
+                Node parameter = parameters.get(parameterIndex);
+                targetType = self.semantics.resolveType(
+                    parameter.type, environment);
+                if (argumentType == null) { argumentType = targetType; }
+                keepValue = parameter.keep_;
+            }
+            bool transferred = transferredParameters.has(parameterIndex);
+            bool managed = self.semantics.isManaged(
+                argumentType, environment);
+            bool owned = managed
+                && self.semantics.contextualUnconsumedOwnedResult(
+                    argument, argumentType, environment,
+                    callableFlow);
+            bool targetManaged = self.semantics.isManaged(
+                targetType, environment);
+            result.push(OwnershipCallOperand(argument, argumentType,
+                targetType, owned, targetManaged && keepValue,
+                transferred, false, false, parameterIndex, flowEntry));
+            callableFlow.applyEvaluation(
+                argument, self.callableValues, callableContext);
+            index = index + 1;
+        }
+        int parameterIndex = 0;
+        while (parameterIndex < parameters.len) {
+            Node parameter = parameters.get(parameterIndex);
+            if (!bound.has(parameterIndex)
+                    && parameter.default_ != null) {
+                Node argument = parameter.default_;
+                CallableFlowSnapshot flowEntry =
+                    callableFlow.snapshot();
+                Node targetType = self.semantics.resolveType(
+                    parameter.type, environment);
+                bool managed = self.semantics.isManaged(
+                    targetType, environment);
+                result.push(OwnershipCallOperand(argument, targetType,
+                    targetType, managed, managed && parameter.keep_,
+                    transferredParameters.has(parameterIndex),
+                    false, true, parameterIndex, flowEntry));
+                callableFlow.applyEvaluation(
+                    argument, self.callableValues, callableContext);
+            }
+            parameterIndex = parameterIndex + 1;
+        }
+        callableFlow.restore(incoming);
+        int pinIndex = 0;
+        while (pinIndex + 1 < result.len) {
+            OwnershipCallOperand operand = result.get(pinIndex);
+            bool laterEffect = false;
+            int laterIndex = pinIndex + 1;
+            while (laterIndex < result.len) {
+                OwnershipCallOperand later = result.get(laterIndex);
+                if (later.defaultArgument || later.needsConversion
+                        || self.operandPlanner.hasEffect(
+                            later.expression, environment)) {
+                    laterEffect = true;
+                }
+                laterIndex = laterIndex + 1;
+            }
+            if (laterEffect && !operand.owned
+                    && self.semantics.isManaged(
+                        operand.typeExpr, environment)) {
+                operand.keepValue = true;
+            }
+            pinIndex = pinIndex + 1;
+        }
+        return result;
+    }
+
+
+    public bool operandsHaveConcreteTypes(
+            Vector<OwnershipCallOperand> operands) {
+        int index = 0;
+        while (index < operands.len) {
+            if (operands.get(index).typeExpr == null) { return false; }
+            index = index + 1;
+        }
+        return true;
+    }
+
+    public bool operandsHaveEffect(
+            Vector<OwnershipCallOperand> operands,
+            OwnershipOperandEnvironment environment) {
+        int index = 0;
+        while (index < operands.len) {
+            OwnershipCallOperand operand = operands.get(index);
+            if (operand.defaultArgument || self.operandPlanner.hasEffect(
+                    operand.expression, environment)) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public bool requiresOrder(Node? receiver,
+            Vector<OwnershipCallOperand> operands,
+            OwnershipOperandEnvironment environment) {
+        Vector<Node> expressions = [];
+        if (receiver != null) { expressions.push(receiver); }
+        int index = 0;
+        while (index < operands.len) {
+            expressions.push(operands.get(index).expression);
+            index = index + 1;
+        }
+        return self.operandPlanner.requiresOrder(expressions, environment);
+    }
+
+    public OwnershipCallPlan plan(Node call,
+            OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+        OwnershipCallPlan result = OwnershipCallPlan(call);
+        result.target = self.targets.resolve(
+            call, environment.variables(),
+            self.callableContext(environment, callableFlow));
+        result.resultOwned = self.semantics.expressionOwnsResult(
+            call, environment, callableFlow);
+        result.declaration = result.target.declaration;
+        result.parameters = result.target.signature.parameters;
+        result.operands = self.planOperands(
+            call, result.target, environment, callableFlow);
+        result.receiver = result.target.receiver;
+        if (result.receiver != null) {
+            result.receiverType = self.semantics.expressionType(
+                result.receiver, environment);
+            result.receiverOwned = self.semantics.isManaged(
+                    result.receiverType, environment)
+                && self.semantics.unconsumedOwnedResult(
+                    result.receiver, environment, callableFlow);
+        }
+        bool operandEffect = self.operandsHaveEffect(
+            result.operands, environment);
+        result.receiverPinned = result.receiver != null
+            && self.semantics.isManaged(
+                result.receiverType, environment)
+            && !result.receiverOwned
+            && result.receiver.kind != NK_SELF_EXPR
+            && result.receiver.kind != NK_SUPER_EXPR
+            && (operandEffect || result.declaration != null);
+        bool forceCandidate = result.target.resolved()
+            || result.parameters.len > 0;
+        result.forceOrder = forceCandidate
+            && self.requiresOrder(
+                result.receiver, result.operands, environment)
+            && result.operands.len
+                + (result.receiver == null ? 0 : 1) > 1;
+        return result;
+    }
+
+    public OwnershipCallOperand? boundDefaultOperand(
+            Vector<OwnershipCallOperand> operands,
+            int parameterIndex) {
+        int index = 0;
+        while (index < operands.len) {
+            OwnershipCallOperand operand = operands.get(index);
+            if (operand.parameterIndex == parameterIndex) {
+                return operand;
+            }
+            index = index + 1;
+        }
+        return null;
+    }
+
+    public IRNode evaluatedDefaultValue(
+            Node expression, string dependency) {
+        if (!self.context.hasExpressionOverride(expression)) {
+            fprintf(stderr,
+                "error: default argument dependency '%s' was not evaluated before use\n",
+                dependency);
+            exit(1);
+        }
+        return self.context.expressionOverride(expression);
+    }
+}

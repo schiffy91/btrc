@@ -1055,6 +1055,16 @@ string helpers, threading wrappers, and exception handling via
 `setjmp`/`longjmp`. GPU, GUI, tray, and similar native features link their
 documented backend runtimes.
 
+Runtime helper source has one shared home. `src/runtime/c/manifest.toml`
+describes names, dependencies, headers, features, source markers, and stable
+catalog order for the pre-authored `core.c`, `collections.c`, `cycles.c`,
+`mutex.c`, `process.c`, `strings.c`, `threads.c`, `trycatch.c`, and `gpu.c`
+assets plus `btrc_rt.h`. The unified generator emits immutable metadata to
+`src/compiler/python/runtime/generated.py` and
+`src/compiler/btrc/generated/runtime/catalog.btrc`; retained catalog owners in
+the two compilers select and materialize those assets. Lowering and emission do
+not construct runtime C source.
+
 ---
 
 ## Self-Hosting
@@ -1069,7 +1079,7 @@ explicit `--relaxed-imports` compatibility mode. The compiler is bootstrapped
 by transpiling its own source with the reference compiler (a C compiler does
 the rest); from then on `btrcc` compiles btrc programs on its own.
 
-Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The checked-in btrc AST node layer is generated from the same [`ast.asdl`](src/language/ast.asdl) contract by [`gen_btrc_ast.py`](src/compiler/python/ast/gen_btrc_ast.py); `make ast-generate-btrc` is the canonical regeneration command. The self-hosted AST tooling consumes the same schema and is verified against that generated contract.
+Because btrc has no dynamic dispatch, the AST and IR are *fat tagged nodes* -- one struct per layer carrying a `kind` tag and the union of every field, dispatched with `if (n.kind == ...)`. The checked-in Python and btrc AST layers are generated from the same [`ast.asdl`](src/language/ast.asdl) contract by the unified [`AstCatalogGenerator`](tools/compiler_codegen/ast.py); `make ast-generate-btrc` delegates to that canonical generator. The self-hosted AST tooling consumes the same schema and is verified against that generated contract.
 
 The self-hosted compiler is held to a strict bar: across the entire language test suite, the C it emits must compile under `gcc -std=c11` (and `clang`) **and** produce byte-identical program output to the reference compiler. It also reaches a **bootstrap fixed point** -- the self-built `btrcc` compiles its own source, and that output, recompiled, is byte-identical (the compiler reproduces itself bit-for-bit). Run the bootstrap-parity suite and the fixed-point check with:
 
@@ -1082,59 +1092,109 @@ make bootstrap               # prove btrcc reproduces itself bit-for-bit (fixed 
 
 ## Project Structure
 
+The production compiler inventories are exact: 81 Python files and 88
+self-hosted `.btrc` files (82 compiler/generated files plus six explicit tool
+entry files). The complete file-by-file contract is in
+[Compiler Structure](docs/design/compiler-structure.md); the package view is:
+
 ```
 src/
   language/
     grammar.ebnf               # Formal EBNF grammar (lexical + syntactic rules)
     ast.asdl                   # Algebraic AST spec (Zephyr ASDL) -- single source of truth
+    hosted_abi.toml            # Shared hosted signatures, effects, and provenance
+
+  runtime/c/                   # Shared pre-authored runtime assets
+    manifest.toml              # Helper metadata and deterministic catalog order
+    btrc_rt.h                  # Retargetable runtime seam
+    core.c                     # Core allocation/printing support
+    collections.c              # Collection support
+    cycles.c                   # Cycle collection support
+    mutex.c                    # Mutex support
+    process.c                  # Process support
+    strings.c                  # String support
+    threads.c                  # Thread support
+    trycatch.c                 # Exception support
+    gpu.c                      # GPU support
 
   compiler/
-    python/                    # Reference compiler (Python)
+    python/                    # Exact 81-file reference compiler
       __init__.py              # Stable Compiler/Options/Result API
-      compiler.py              # Compiler application object
       main.py                  # Thin process entry point
-      cli/                     # CLI parsing, diagnostics, and output
-      pipeline/                # Ordered six-stage orchestration + result models
-      frontend/                # Resolution, provenance, strict visibility, stdlib
-      ast/                     # ASDL parser/generators and LSP builtin generator
-      parser/                  # Recursive-descent source parser
+      application/             # Compiler, CompilationPipeline, immutable results
+      cli/                     # Compiler and bundle process adapters
+      frontend/                # Stage, sources, imports/visibility, packages
+      syntax/                  # Grammar, tokens, generated AST, canonical codec
+      lexer/                   # Grammar-driven Lexer and LiteralScanner
+      parser/                  # One stateful recursive-descent Parser
       analyzer/
-        semantic_analyzer.py   # SemanticAnalyzer composition root
-        analysis_context.py    # Per-analysis diagnostics and provenance state
-        declarations/          # Declaration registry and owned policies
+        analyzer.py            # SemanticAnalyzer composition root
+        program.py             # Analysis state, results, scopes, and indexes
+        declarations.py        # Declaration registry, policy, and hierarchy
+        types.py               # TypeSystem and inference
+        aggregates.py          # Aggregate and initializer semantics
+        expressions.py         # Expression analysis
+        calls.py               # Call and callable-flow analysis
+        statements.py          # Statement/update analysis
+        flow.py                # Control and nullable-flow analysis
+        storage.py             # Storage and qualifier provenance
+        ownership.py           # Ownership, borrow, and cycle analysis
+        generics.py            # Generic analysis and instance closure
+        gpu.py                 # GPU semantic validation
+        macros.py              # Source macro semantics
+        generated_symbols.py   # Generated-symbol registry
       ir/
-        nodes.py               # Compatibility import surface for typed IR nodes
-        module.py              # IRModule and top-level declarations
-        optimizer.py           # Optimization composition root
-        reachability.py        # Program/runtime/declaration reachability owners
-        optimizer_walk.py      # IRTree and identifier-reference owners
-        emitter.py             # C emission composition root
-        gen/
+        __init__.py            # Package marker; no dependency facade
+        nodes.py               # Complete typed IR model and IRModule
+        verifier.py            # IR schema and invariant verification
+        optimizer.py           # Complete IROptimizer pass owner
+        lowering/
           lowerer.py           # IRLowerer composition root
-          lowering_context.py  # Per-lowering mutable state
-          managed_values.py    # Managed classification and runtime identity
-          cycle_metadata.py    # Cycle graph and visitor metadata owner
-          cleanup_slots.py     # Typed cleanup/access adapter registry
-          ownership_lifetime.py # Context-bound retain/release/cleanup owner
-          arc.py               # Explicit release-statement lowering owner
-          generics/            # User/builtin monomorphization lowering
-        helpers/               # Authored runtime-helper definitions and registry
-      artifacts/               # Cache, stdlib, self-host bundle, publication
+          session.py           # Per-lowering mutable data only
+          translation_unit.py  # Translation-unit orchestration/finalization
+          declarations.py      # DeclarationLowerer
+          classes.py           # ClassLowerer
+          functions.py         # FunctionLowerer
+          types.py             # CTypeLowerer
+          expressions.py       # ExpressionLowerer
+          calls.py             # Typed call planning/materialization
+          storage.py           # Typed storage planning/materialization
+          ownership.py         # OwnershipLowerer and lifetime policy
+          statements.py        # StatementLowerer
+          control_flow.py      # ControlFlowLowerer
+          collections.py       # CollectionLowerer
+          iteration.py         # IterationLowerer
+          exceptions.py        # ExceptionLowerer/setjmp analysis
+          concurrency.py       # ConcurrencyLowerer
+          generics.py          # Immutable specialization views only
+          gpu.py               # GpuLowerer
+      backend/
+        c_emitter.py           # CEmitter structured IR formatter
+        wgsl_emitter.py        # WgslEmitter GPU shader formatter
+      abi/                     # Generated declarations, hosted/freestanding owners
+      runtime/                 # Generated helper data and RuntimeHelperCatalog
+      artifacts/               # Archive, cache, publication, stdlib, selfhost
 
-    btrc/                      # Self-hosted compiler (written in btrc)
+    btrc/                      # Exact 88-file self-hosted compiler
       btrcc_main.btrc          # Thin process entry point
-      compiler.btrc            # Compiler and BtrccDriver application objects
+      compiler.btrc            # Public Compiler application object
+      cli/driver.btrc          # BtrccDriver command/process boundary
       pipeline/                # CompilerPipeline, options, and result models
-      lexer/stage.btrc         # Ordered lexer stage manifest
-      frontend/stage.btrc      # Resolution + strict visibility stage manifest
-      parser/stage.btrc        # Parser stage manifest
-      analyzer/stage.btrc      # Semantic stage manifest
-      ir/stage.btrc            # Structured IR/optimization/emission manifest
-      generated/hosted_abi/    # Generated hosted ABI tables under one owner
-      ast/
-        asdl.btrc              # ASDL parser (btrc-native, zero-dependency)
-        gen_node.btrc          # ASDL --> node.btrc generator
-        node.btrc              # GENERATED fat-node AST
+      syntax/                  # Grammar, token, identity, type, literal owners
+      lexer/                   # Lexer and imports-only stage manifest
+      frontend/                # Sources, stdlib, resolution, strict visibility
+      parser/                  # Parser, source macros, stage manifest
+      analyzer/                # Semantic owners and stage manifest
+        ownership/            # Managed-value and cycle semantics
+        validation/           # Validator composition plus ten domain validators
+      ir/                      # Structured model, CEmitter, stage manifest
+        runtime/              # Runtime catalog and reference collection
+        lowering/             # IRLowerer, context, and domain lowerers
+          ownership/          # Six focused ownership lowerers
+        gpu/                   # GpuWgslEmitter and GpuPipeline
+        optimization/         # IROptimizer, cleanup, setjmp analysis/safety
+      generated/               # Data-only AST, hosted-ABI, runtime catalogs
+      tools/                   # Five entry points plus the ASDL schema owner
 
   stdlib/                      # Standard-library modules (explicit in strict mode)
     vector.btrc                # Vector<T> (dynamic array)
@@ -1182,8 +1242,9 @@ src/
     algorithms/                # Quicksort, BST, hash table, linked list
 
   devex/
-    ext/                       # VS Code extension (syntax highlighting + LSP client)
-    lsp/                       # Language server (completions, diagnostics, hover, go-to-def)
+    lsp/                       # Protocol, analysis, catalog, workspace, features
+    debug/                     # Protocol, toolchain, LLDB backend, runtime bootstrap
+    vscode/                    # Extension source, config, assets, packaging owners
 
 examples/
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
@@ -1195,6 +1256,13 @@ examples/
 ```
 
 ## Build & Test
+
+The ownership refactor currently uses an architecture-first gate: exact-tree,
+stale-path, generated-source, parse/import, dependency/SCC, loose-behavior, and
+diff checks establish each structural slice. Behavior, parity, bootstrap, and
+broad corpus runs resume after the destination tree is mechanically complete,
+first as focused hill-climb checks and then as the full completion matrix. The
+commands below remain mandatory final gates.
 
 ```bash
 make all                    # Build and verify the complete developer tree
@@ -1212,12 +1280,12 @@ make test-btrc-selfhost     # Language corpus through the self-hosted compiler (
 make bootstrap              # Prove the self-hosted compiler's byte-stable fixed point
 make test-c11               # Strict, warning-free C11: gcc + clang at -O0 through -O3
 make generated-check        # Verify every committed generated source is current
-make hosted-abi-check       # Verify generated hosted-ABI policy tables
+make compiler-codegen-check # Verify shared-spec generated compiler sources
 make lint                   # Run ruff linter
 make format                 # Format with ruff
 make format-check           # Check formatting without modifying files
 make test-generate-goldens  # Regenerate golden .stdout files
-make stubs-generate         # Regenerate built-in type stubs
+make compiler-codegen-generate # Regenerate compiler/devex data from shared specs
 make extension              # Package VS Code extension (.vsix)
 make extension-install      # Install VS Code extension (dev)
 make examples               # Build and run examples
@@ -1332,7 +1400,7 @@ runtime cases.
 
 ## Editor Support
 
-btrc ships with a VS Code extension ([`src/devex/ext/`](src/devex/ext/)) and a Language Server Protocol implementation ([`src/devex/lsp/`](src/devex/lsp/)) that reuses the compiler's own lexer, parser, and analyzer. Diagnostics match exactly what the compiler reports -- there is no separate linting pass.
+btrc ships with a VS Code extension ([`src/devex/vscode/`](src/devex/vscode/)) and a Language Server Protocol implementation ([`src/devex/lsp/`](src/devex/lsp/)) that reuses the compiler's own lexer, parser, and analyzer. Diagnostics match exactly what the compiler reports -- there is no separate linting pass.
 
 The packaged extension vendors the LSP's pure-Python dependencies. Its bundled
 server/compiler fallback still requires Python 3.13 or newer; the launcher

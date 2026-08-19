@@ -1,15 +1,8 @@
-"""Durable API and ownership contracts for semantic analysis."""
+"""Public behavior contracts for semantic analysis."""
 
-import importlib.util
-
-from src.compiler.python.analyzer.analysis_context import AnalysisContext
-from src.compiler.python.analyzer.declarations.policy import DeclarationPolicy
-from src.compiler.python.analyzer.declarations.registry import DeclarationRegistry
-from src.compiler.python.analyzer.gpu import GpuKernelValidator
-from src.compiler.python.analyzer.gpu_dispatch import GpuDispatchValidator
-from src.compiler.python.analyzer.gpu_type_contracts import GpuIntrinsicResolver
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.analyzer.program import AnalysisContext
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
@@ -19,29 +12,39 @@ def analyze(source: str, **options):
     return analyzer, analyzer.analyze(program)
 
 
-def test_semantic_analyzer_owns_real_declaration_registry():
-    analyzer, result = analyze("class Item {} int main() { return 0; }")
+def test_semantic_analyzer_returns_registered_declarations():
+    _, result = analyze("class Item {} int main() { return 0; }")
 
-    assert isinstance(analyzer.declarations, DeclarationRegistry)
-    assert set(analyzer.declarations.class_table) == {"Item"}
-    assert set(analyzer.declarations.function_table) == {"main"}
-    assert not hasattr(analyzer, "class_table")
-    assert result.class_table is analyzer.declarations.class_table
+    assert set(result.class_table) == {"Item"}
+    assert set(result.function_table) == {"main"}
 
 
-def test_analysis_context_and_declaration_policy_own_their_state():
-    analyzer, result = analyze("int main() { int __bad = 0; return __bad; }")
+def test_semantic_analyzer_returns_diagnostics_on_the_result():
+    _, result = analyze("int main() { int __bad = 0; return __bad; }")
 
-    assert isinstance(analyzer.context, AnalysisContext)
-    assert isinstance(analyzer.declaration_policy, DeclarationPolicy)
-    assert analyzer.declarations.context is analyzer.context
-    assert analyzer.declarations.policy is analyzer.declaration_policy
-    assert result.errors is analyzer.context.errors
-    assert result.warnings is analyzer.context.warnings
-    assert result.diags is analyzer.context.diagnostics
-    assert not hasattr(analyzer, "errors")
-    assert not hasattr(analyzer, "current_source_file")
-    assert not hasattr(analyzer.declarations, "services")
+    assert result.errors
+    assert result.diags
+
+
+def test_callable_value_analysis_tracks_the_active_lexical_scope():
+    program = Parser(
+        Lexer(
+            """
+            void accept(__fn_ptr<int> callback) {}
+            void run() {
+                int offset = 1;
+                var callback = () => offset;
+                accept(callback);
+            }
+            """,
+            "<test>",
+        ).tokenize()
+    ).parse()
+    analyzer = SemanticAnalyzer()
+
+    result = analyzer.analyze(program)
+
+    assert any("environment-requiring callable value" in error for error in result.errors)
 
 
 def test_analysis_context_restores_nested_source_provenance():
@@ -57,95 +60,6 @@ def test_analysis_context_restores_nested_source_provenance():
     assert context.current_source_file is None
 
 
-def test_registration_mixins_are_absent_from_semantic_analyzer_mro():
-    owners = {owner.__name__ for owner in SemanticAnalyzer.__mro__}
-
-    assert "RegistrationMixin" not in owners
-    assert "DeclarationRegistrationMixin" not in owners
-    assert "InheritanceRegistrationMixin" not in owners
-    assert "DeclarationNamesMixin" not in owners
-    assert "DeclarationContractsMixin" not in owners
-    assert "FunctionParameterContractsMixin" not in owners
-    assert "HostedAbiDeclarationContractsMixin" not in owners
-
-
-def test_gpu_dispatch_validation_is_a_composed_owner_not_analyzer_mro():
-    analyzer, _ = analyze("int main() { return 0; }")
-    owners = {owner.__name__ for owner in SemanticAnalyzer.__mro__}
-
-    assert isinstance(analyzer.gpu_dispatch, GpuDispatchValidator)
-    assert analyzer.gpu_dispatch._context is analyzer.context
-    assert analyzer.gpu_dispatch._declarations is analyzer.declarations
-    assert not hasattr(analyzer.gpu_dispatch, "analyzer")
-    assert "GpuArrayContractsMixin" not in owners
-    assert "GpuResultContextContractsMixin" not in owners
-    assert not hasattr(analyzer, "_gpu_array_result_boundary")
-
-
-def test_gpu_kernel_validation_is_a_composed_owner_not_analyzer_mro():
-    analyzer, _ = analyze("int main() { return 0; }")
-    owners = {owner.__name__ for owner in SemanticAnalyzer.__mro__}
-
-    assert isinstance(analyzer.gpu_kernels, GpuKernelValidator)
-    assert analyzer.gpu_kernels._context is analyzer.context
-    assert analyzer.gpu_kernels._declarations is analyzer.declarations
-    assert analyzer.gpu_kernels._node_types is analyzer.node_types
-    assert isinstance(analyzer.gpu_kernels._intrinsics, GpuIntrinsicResolver)
-    assert not hasattr(analyzer.gpu_kernels, "analyzer")
-    assert not hasattr(analyzer.gpu_kernels._intrinsics, "analyzer")
-    assert "GpuValidationMixin" not in owners
-
-
-def test_gpu_kernel_validator_is_reentrant_across_function_sessions():
-    analyzer, analyzed = analyze(
-        "extern int defaults[]; "
-        "@gpu void outer(int[] values = defaults) { int index = gpu_id(); } "
-        "@gpu void inner(int[] values) { int index = gpu_id(); }"
-    )
-    outer = analyzed.program.declarations[1]
-    inner = analyzed.program.declarations[2]
-    reentered: list[str] = []
-
-    def reenter(_target, _actual):
-        reentered.append(inner.name)
-        analyzer.gpu_kernels.validate(
-            inner,
-            analyzer.global_scope,
-            array_target_has_capacity=lambda _nested_target, _nested_actual: True,
-        )
-        return True
-
-    analyzer.gpu_kernels.validate(
-        outer,
-        analyzer.global_scope,
-        array_target_has_capacity=reenter,
-    )
-
-    assert reentered == ["inner"]
-    assert not hasattr(analyzer.gpu_kernels, "function_name")
-    assert not hasattr(analyzer.gpu_kernels, "scopes")
-
-
-def test_legacy_gpu_dispatch_mixins_are_removed():
-    for module in ("gpu_array_contracts", "gpu_result_contexts"):
-        assert importlib.util.find_spec(f"src.compiler.python.analyzer.{module}") is None
-
-
-def test_legacy_gpu_validation_function_modules_are_removed():
-    assert importlib.util.find_spec("src.compiler.python.analyzer.gpu_result_types") is None
-
-
-def test_legacy_analyzer_module_is_removed():
-    assert importlib.util.find_spec("src.compiler.python.analyzer.analyzer") is None
-    for module in (
-        "declaration_contracts",
-        "declaration_names",
-        "function_parameters",
-        "hosted_abi_declarations",
-    ):
-        assert importlib.util.find_spec(f"src.compiler.python.analyzer.{module}") is None
-
-
 def test_seeded_analyzer_uses_constructor_contract_and_records_occurrences():
     _, base = analyze("class Base { public int value; }")
     analyzer, result = analyze(
@@ -155,6 +69,6 @@ def test_seeded_analyzer_uses_constructor_contract_and_records_occurrences():
     )
 
     assert not result.errors
-    assert "Base" in analyzer.declarations.class_table
-    assert "Child" in analyzer.declarations.class_table
+    assert "Base" in analyzer.index.class_table
+    assert "Child" in analyzer.index.class_table
     assert result.occurrences

@@ -2,17 +2,16 @@
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import TypeExpr
-from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.generics.core import _resolve_type
-from src.compiler.python.ir.gen.types import CTypeRenderer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.syntax.ast.generated import TypeExpr
+from src.compiler.python.ir.lowering.types import CodegenError
+from src.compiler.python.ir.lowering.generics import TypeSubstitution
+from src.compiler.python.ir.lowering.session import LoweringSession
+from src.compiler.python.ir.lowering.types import CTypeLowerer
+from src.compiler.python.ir.nodes import IRModule
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.type_identity import (
-    TypeIdentity,
-    TypeShapeError,
-)
+from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError
 from src.tests.python.test_codegen import emit_c
 
 
@@ -139,12 +138,11 @@ def test_nested_array_composition_is_analyzer_error_and_codegen_guard():
 
     assert any("nested array composition" in error.lower() for error in result.errors)
     with pytest.raises(CodegenError, match="nested array composition"):
-        _resolve_type(
-            _type("T", is_array=True),
-            {"T": _type("int", is_array=True)},
-            {},
-            IDENTITY,
-        )
+        TypeSubstitution(
+            arguments={"T": _type("int", is_array=True)},
+            typedefs={},
+            identity=IDENTITY,
+        ).resolve(_type("T", is_array=True))
 
 
 @pytest.mark.parametrize("qualifier", ("const", "static", "extern", "volatile"))
@@ -202,7 +200,11 @@ def test_qualified_structural_type_arguments_remain_supported():
 
     assert result.errors == []
     assert result.generic_instances == {}
-    renderer = CTypeRenderer(type_identity=IDENTITY)
+    renderer = CTypeLowerer(
+        LoweringSession(module=IRModule(), node_types=result.node_types),
+        result,
+        type_identity=IDENTITY,
+    )
     assert renderer.render(fn_ptr).startswith("__btrc_fn_ZQf")
     assert IDENTITY.generic_symbol("Tuple", tuple_type.generic_args).startswith("btrc_ZQg")
     assert len(renderer.consume_function_pointer_typedefs()) == 1

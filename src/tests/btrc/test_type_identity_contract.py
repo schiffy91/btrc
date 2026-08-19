@@ -98,25 +98,27 @@ def selfhost_compiler(tmp_path_factory) -> Path:
 
 
 def test_identity_contract_has_one_shared_implementation() -> None:
-    lexer_stage = (SELFHOST / "lexer/stage.btrc").read_text()
-    parser_stage = (SELFHOST / "parser/stage.btrc").read_text()
+    identity = (SELFHOST / "syntax/identity.btrc").read_text()
+    composition = (SELFHOST / "syntax/types.btrc").read_text()
     analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
-    identity = (SELFHOST / "type_identity.btrc").read_text()
-    analyzer = (SELFHOST / "analyzer.btrc").read_text()
-    generator = (SELFHOST / "irgen.btrc").read_text()
+    generics = (SELFHOST / "analyzer/generics.btrc").read_text()
+    semantic_types = (SELFHOST / "analyzer/types.btrc").read_text()
+    c_types = (SELFHOST / "ir/lowering/types.btrc").read_text()
+    lowering = "\n".join(path.read_text() for path in (SELFHOST / "ir/lowering").rglob("*.btrc"))
 
-    assert '#include "../type_identity.btrc"' in lexer_stage
-    assert "import ../frontend/stage.btrc;" in parser_stage
-    assert "import ../parser/stage.btrc;" in analyzer_stage
-    assert "TypeIdentity.mangleGenericType(" in generator
-    assert "mangleGenericType(" not in generator.replace(
+    assert "import ../syntax/identity.btrc;" in analyzer_stage
+    assert "import ../syntax/types.btrc;" in analyzer_stage
+    assert "import ../syntax/identity.btrc;" in generics
+    assert "import ../../syntax/identity.btrc;" in c_types
+    assert "TypeIdentity.mangleGenericType(" in lowering
+    assert "mangleGenericType(" not in lowering.replace(
         "TypeIdentity.mangleGenericType(",
         "",
     )
-    assert "string mangleTypeName(" not in generator
+    assert "string mangleTypeName(" not in lowering
     assert "class TypeIdentity {" in identity
-    assert "class TypeComposition {" in identity
-    for contract in (
+    assert "class TypeComposition {" in composition
+    for identity_contract in (
         "class string shapeKey(",
         "class string genericInstanceKey(",
         "class bool referencesNames(",
@@ -125,25 +127,27 @@ def test_identity_contract_has_one_shared_implementation() -> None:
         'return "btrc_ZQm" + payload;',
         'return "__btrc_fn_ZQf" + TypeIdentity.encodeTypes(args);',
         "class int qualifierBits(",
+    ):
+        assert identity_contract in identity
+    for composition_contract in (
         "class bool resolvedReferenceShape(",
         "class int appliedSubstitutionPointerDepth(",
         "class int substitutionPointerDepth(",
         "class Node compose(",
         "class bool isSemanticScalarString(",
     ):
-        assert contract in identity
+        assert composition_contract in composition
     pointer = identity.index('component = component + "_p"')
     nullable = identity.index('component = component + "_n"')
     array = identity.index('component = component + "_a"')
     assert pointer < nullable < array
-    assert "TypeIdentity.genericInstanceKey(base, t.generic_args)" in analyzer
-    assert "TypeIdentity.methodInstanceKey(" in analyzer
-    assert "TypeIdentity.referencesNames(t, unresolved)" in analyzer
-    assert "isConcreteType" not in analyzer
-    assert "nested array composition for type parameter" in analyzer
-    assert "resolved, analyzed.typedefTable" in analyzer
-    assert "genericSubstitutionReferenceShape" in analyzer
-    assert "return TypeComposition.compose(t, resolved," in analyzer
+    assert "TypeIdentity.genericInstanceKey(base, t.generic_args)" in generics
+    assert "TypeIdentity.methodInstanceKey(" in generics
+    assert "TypeIdentity.referencesNames(t, unresolved)" in generics
+    assert "isConcreteType" not in generics + semantic_types
+    assert "nested array composition for type parameter" in semantic_types
+    assert "genericSubstitutionReferenceShape" in semantic_types
+    assert "return TypeComposition.compose(" in semantic_types
 
 
 def test_identity_atoms_run_under_strict_c11(identity_driver) -> None:

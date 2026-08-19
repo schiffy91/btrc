@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRCommaExpr, IRStmtExpr
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.btrc.test_ownership_semantics_contract import (
     _compile_reference_source,
@@ -58,10 +58,11 @@ def test_eager_operands_are_structurally_sequenced() -> None:
     assert sum(isinstance(node, IRStmtExpr) for node in nodes) >= 2
     assert sum(isinstance(node, IRCommaExpr) for node in nodes) >= 2
 
-    selfhost = Path("src/compiler/btrc/ownership_boundary.btrc").read_text()
-    assert "boundary.addOperand(generator, expression.left" in selfhost
-    assert "return boundary.finish(generator, lowered" in selfhost
-    assert "irCommaExpr(sequence)" in selfhost
+    integration = Path("src/compiler/btrc/ir/lowering/expressions.btrc").read_text()
+    boundary = Path("src/compiler/btrc/ir/lowering/ownership/calls.btrc").read_text()
+    assert "boundary.addLoweredOperand(" in integration
+    assert "return boundary.finish(" in integration
+    assert "IRNode.commaExpression(sequence)" in boundary
 
 
 def test_calls_binary_constructors_and_generic_bodies_run_left_to_right(

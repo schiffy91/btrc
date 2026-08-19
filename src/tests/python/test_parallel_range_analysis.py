@@ -2,10 +2,10 @@
 
 import dataclasses
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import Identifier
-from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.syntax.ast.generated import Identifier
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 

@@ -68,6 +68,10 @@ def test_generic_cfor_initializer_owners_run_strictly(
     assert compile_result.returncode == 0, compile_result.stderr
 
     emitted = generated.read_text()
+    assert re.search(
+        r"for\s*\(\s*;\s*\(item->step < 3\)\s*;\s*\(\(void\)\(",
+        emitted,
+    )
     for method in (
         "zeroExit",
         "normalExit",

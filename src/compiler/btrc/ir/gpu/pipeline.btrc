@@ -1,0 +1,1183 @@
+import std.map;
+import std.strings;
+import std.vector;
+import ../../analyzer/gpu.btrc;
+import ../../analyzer/hosted_abi.btrc;
+import ../../analyzer/models.btrc;
+import ../../analyzer/ownership/values.btrc;
+import ../../analyzer/types.btrc;
+import ../../generated/ast/node.btrc;
+import ../lowering/ownership/operands.btrc;
+import ../lowering/types.btrc;
+import ../model.btrc;
+import ./wgsl.btrc;
+
+class GpuPreparedCall {
+    public Vector<IRNode> declarations;
+    public Vector<IRNode> sequence;
+    public Vector<IRNode> cleanup;
+    public Vector<IRNode> helper_args;
+    public IRNode dispatch_length;
+
+    public GpuPreparedCall() {
+        self.declarations = [];
+        self.sequence = [];
+        self.cleanup = [];
+        self.helper_args = [];
+        self.dispatch_length = IRNode.literal("1");
+    }
+}
+
+class GpuHostSnapshot {
+    public Map<string, IRNode> known;
+    public Map<string, bool> unknown;
+
+    public GpuHostSnapshot() {
+        self.known = {};
+        self.unknown = {};
+    }
+}
+
+class GpuCpuLoweringPlan {
+    public Node declaration;
+    public IRFunction worker;
+    public Map<string, Node> variableTypes;
+    public bool returnsArray;
+
+    public GpuCpuLoweringPlan(Node declaration) {
+        self.declaration = declaration;
+        self.worker = IRFunction();
+        self.variableTypes = {};
+        self.returnsArray = false;
+    }
+}
+
+class GpuCallInputs {
+    public Vector<IRNode> declarations;
+    public Vector<IRNode> sequence;
+    public Vector<IRNode> cleanup;
+    public Map<string, IRNode> values;
+    public Map<string, IRNode> lengths;
+
+    public GpuCallInputs() {
+        self.declarations = [];
+        self.sequence = [];
+        self.cleanup = [];
+        self.values = {};
+        self.lengths = {};
+    }
+}
+
+
+class GpuStatementPlan {
+    public bool handled;
+    public bool cpuReturn;
+    public Node statement;
+    public Node? call;
+    public Node? value;
+    public string kernelName;
+
+    public GpuStatementPlan(Node statement) {
+        self.handled = false;
+        self.cpuReturn = false;
+        self.statement = statement;
+        self.call = null;
+        self.value = null;
+        self.kernelName = "";
+    }
+}
+
+class GpuStatementOperands {
+    public GpuCallInputs callInputs;
+    public IRNode? cpuReturnValue;
+
+    public GpuStatementOperands() {
+        self.callInputs = GpuCallInputs();
+        self.cpuReturnValue = null;
+    }
+}
+
+class GpuStatementResult {
+    public bool handled;
+    public Vector<IRNode> statements;
+
+    public GpuStatementResult() {
+        self.handled = false;
+        self.statements = [];
+    }
+}
+
+
+
+/* Per-module GPU lowering and host-dispatch owner.  Recursive AST lowering is
+ * supplied through typed plans; the pipeline has no general lowering dependency. */
+
+class GpuPipeline {
+    private Analyzed analyzed;
+    private HostedAbiRepository hostedAbi;
+    private GpuSemantics semantics;
+    private ManagedValueSemantics managedValues;
+    private OwnershipOperandPlanner operandPlanner;
+    private CTypeLowerer cTypes;
+    private Map<string, IRGpuKernel> kernels;
+    private bool cpuActiveState;
+    private bool cpuReturnsArrayState;
+    private string cpuIndex;
+    private Map<string, string> cpuArrayLengths;
+    private Map<string, IRNode> hostArrayLengths;
+    private Map<string, bool> unknownHostArrayLengths;
+    private int helperCounter;
+
+    public GpuPipeline(Analyzed analyzed,
+            HostedAbiRepository hostedAbi, GpuSemantics semantics,
+            ManagedValueSemantics managedValues,
+            OwnershipOperandPlanner operandPlanner,
+            CTypeLowerer cTypes) {
+        self.analyzed = analyzed;
+        self.hostedAbi = hostedAbi;
+        self.semantics = semantics;
+        self.managedValues = managedValues;
+        self.operandPlanner = operandPlanner;
+        self.cTypes = cTypes;
+        self.kernels = {};
+        self.cpuActiveState = false;
+        self.cpuReturnsArrayState = false;
+        self.cpuIndex = "";
+        self.cpuArrayLengths = {};
+        self.hostArrayLengths = {};
+        self.unknownHostArrayLengths = {};
+        self.helperCounter = 0;
+    }
+
+    private string lexicalBindingCName(string name) {
+        return self.hostedAbi.lexicalBindingCName(
+            name, self.hostedAbi.typedefName(name)
+                || self.analyzed.lexicalBindingConflictsType(name));
+    }
+
+    public void reject(Node? at, string message) {
+        int line = 0;
+        int col = 0;
+        if (at != null) { line = at.line; col = at.col; }
+        fprintf(stderr, "error: @gpu lowering at %d:%d: %s\n",
+            line, col, message);
+        exit(1);
+    }
+
+    public string arrayLengthParameter(string parameter) {
+        return "__gpu_len_" + parameter;
+    }
+
+    public string outputElementCType(IRGpuKernel kernel) {
+        if (kernel.output_buffer != null
+                && kernel.output_buffer.elem_type == "f32") {
+            return "float";
+        }
+        return "int";
+    }
+
+
+    public IRNode bareArrayCapacity(IRNode target) {
+        return IRNode.binary(
+            IRNode.sizeofExpression(target), "/", IRNode.sizeofExpression(IRNode.indexAccess(target, IRNode.literal("0"))));
+    }
+
+    public bool hasKernel(string name) { return self.kernels.has(name); }
+
+    public IRGpuKernel kernel(string name) { return self.kernels.get(name); }
+
+    public GpuStatementPlan planStatement(
+            Node statement, Map<string, Node> variableTypes) {
+        GpuStatementPlan plan = GpuStatementPlan(statement);
+        if (self.cpuActiveState && self.cpuReturnsArrayState
+                && statement.kind == NK_RETURN_STMT) {
+            plan.handled = true;
+            plan.cpuReturn = true;
+            plan.value = statement.value_node;
+            return plan;
+        }
+        Node? expression = null;
+        if (statement.kind == NK_EXPR_STMT) {
+            expression = statement.expr;
+        } else if (statement.kind == NK_VAR_DECL_STMT) {
+            expression = statement.initializer;
+        }
+        if (expression != null && expression.kind == NK_ASSIGN_EXPR) {
+            expression = expression.value_node;
+        }
+        if (expression == null || expression.kind != NK_CALL_EXPR
+                || expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER
+                || variableTypes.has(expression.callee.name)
+                || !self.hasKernel(expression.callee.name)) {
+            return plan;
+        }
+        plan.handled = true;
+        plan.call = expression;
+        plan.kernelName = expression.callee.name;
+        return plan;
+    }
+
+    public GpuCallInputs loweredCallInputs(
+            GpuStatementPlan plan, Vector<IRNode> arguments) {
+        GpuCallInputs inputs = GpuCallInputs();
+        if (plan.call == null || plan.kernelName == "") {
+            return inputs;
+        }
+        IRGpuKernel target = self.kernel(plan.kernelName);
+        int index = 0;
+        while (index < arguments.len
+                && index < target.declaration.params.len) {
+            string key = Strings.fromInt(index);
+            IRNode value = arguments.get(index);
+            inputs.values.put(key, value);
+            if (target.declaration.params.get(index).type.is_array) {
+                inputs.lengths.put(key, self.bareArrayCapacity(value));
+            }
+            index = index + 1;
+        }
+        return inputs;
+    }
+
+    public GpuStatementResult materializeStatement(
+            GpuStatementPlan plan, GpuStatementOperands operands,
+            IRModule module) {
+        GpuStatementResult result = GpuStatementResult();
+        if (!plan.handled) { return result; }
+        result.handled = true;
+        if (plan.cpuReturn) {
+            if (plan.value == null) {
+                self.reject(plan.statement,
+                    "array-returning GPU invocation must return an element value");
+            }
+            Node value = plan.value;
+            Node? valueType = self.semantics.contextualExprType(
+                value, {});
+            if (valueType != null && valueType.is_array
+                    && value.kind == NK_IDENTIFIER
+                    && self.hasCpuArrayLength(value.name)) {
+                Vector<IRNode> checked = [];
+                checked.push(IRNode.variable(self.cpuIndexName()));
+                checked.push(IRNode.variable(
+                    self.cpuArrayLength(value.name)));
+                result.statements.push(IRNode.returnStatement(
+                    IRNode.indexAccess(IRNode.variable(
+                        self.lexicalBindingCName(value.name)),
+                        IRNode.call("__btrc_gpu_checked_index", checked))));
+            } else {
+                result.statements.push(IRNode.returnStatement(
+                    operands.cpuReturnValue));
+            }
+            return result;
+        }
+        IRGpuKernel target = self.kernel(plan.kernelName);
+        GpuPreparedCall prepared = self.prepareCall(
+            target, plan.call, operands.callInputs);
+        result.statements.push(IRNode.expressionStatement(
+            self.voidDispatch(target, prepared, module)));
+        return result;
+    }
+
+    public IRNode dispatchExpression(
+            string name, Node call, Vector<IRNode> arguments,
+            IRModule module) {
+        IRGpuKernel target = self.kernel(name);
+        if (target.output_buffer != null) {
+            self.reject(call,
+                "GPU array result requires a statement output target");
+        }
+        GpuStatementPlan plan = GpuStatementPlan(call);
+        plan.handled = true;
+        plan.call = call;
+        plan.kernelName = name;
+        GpuCallInputs inputs = self.loweredCallInputs(plan, arguments);
+        GpuPreparedCall prepared = self.prepareCall(
+            target, call, inputs);
+        return self.voidDispatch(target, prepared, module);
+    }
+
+    public IRNode cpuIndexExpression(
+            Node expression, IRNode array, IRNode index) {
+        if (expression.obj == null
+                || expression.obj.kind != NK_IDENTIFIER
+                || !self.hasCpuArrayLength(expression.obj.name)) {
+            self.reject(expression,
+                "CPU GPU fallback index must target an array parameter");
+        }
+        Vector<IRNode> checked = [];
+        checked.push(index);
+        checked.push(IRNode.variable(
+            self.cpuArrayLength(expression.obj.name)));
+        return IRNode.indexAccess(array,
+            IRNode.call("__btrc_gpu_checked_index", checked));
+    }
+
+    public IRNode? cpuBuiltin(
+            string name, Node call, Vector<IRNode> arguments,
+            string firstType) {
+        if (!self.cpuActiveState) { return null; }
+        if (name == "gpu_id") {
+            if (arguments.len != 0) {
+                self.reject(call, "gpu_id() takes no arguments");
+            }
+            return IRNode.variable(self.cpuIndexName());
+        }
+        if (!self.semantics.builtin(name)) { return null; }
+        if (arguments.len != self.semantics.builtinArity(name)) {
+            self.reject(call, name + "() has invalid arity");
+        }
+        if (name == "abs") {
+            return IRNode.call(
+                firstType == "float" ? "fabsf" : "abs", arguments);
+        }
+        if (name == "min" || name == "max") {
+            if (firstType == "float") {
+                return IRNode.call(
+                    name == "min" ? "fminf" : "fmaxf", arguments);
+            }
+            string op = name == "min" ? "<" : ">";
+            return IRNode.ternary(IRNode.binary(
+                arguments.get(0), op, arguments.get(1)),
+                arguments.get(0), arguments.get(1));
+        }
+        return IRNode.call(name + "f", arguments);
+    }
+
+    public void registerKernels(Node program, IRModule module) {
+        int declarationIndex = 0;
+        while (declarationIndex < program.declarations.len) {
+            Node owner = program.declarations.get(declarationIndex);
+            if (owner.kind == NK_CLASS_DECL || owner.kind == NK_INTERFACE_DECL) {
+                int memberIndex = 0;
+                while (memberIndex < owner.members.len) {
+                    Node member = owner.members.get(memberIndex);
+                    if (member.is_gpu) {
+                        self.reject(member,
+                            "@gpu methods are not supported; use a top-level kernel");
+                    }
+                    memberIndex = memberIndex + 1;
+                }
+            }
+            declarationIndex = declarationIndex + 1;
+        }
+        bool addedRuntime = false;
+        declarationIndex = 0;
+        while (declarationIndex < program.declarations.len) {
+            Node declaration = program.declarations.get(declarationIndex);
+            if (declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu) {
+                if (!addedRuntime) {
+                    module.preprocessor_decls.push(IRPreprocessorDecl.include("btrc_gpu.h", false));
+                    addedRuntime = true;
+                }
+                if (declaration.body_node == null) {
+                    self.reject(declaration, "@gpu kernel requires a body");
+                }
+                if (self.kernels.has(declaration.name)) {
+                    self.reject(declaration, "duplicate @gpu kernel '"
+                        + declaration.name + "'");
+                }
+                IRGpuKernel kernel = IRGpuKernel(
+                    declaration.name, declaration);
+                GpuWgslEmitter emitter = GpuWgslEmitter(
+                    self.semantics, kernel);
+                kernel.wgsl_source = emitter.emit();
+                self.kernels.put(declaration.name, kernel);
+                module.gpu_kernels.push(kernel);
+            }
+            declarationIndex = declarationIndex + 1;
+        }
+    }
+
+    public void resetHostCapacities() {
+        self.hostArrayLengths = {};
+        self.unknownHostArrayLengths = {};
+    }
+
+    public void recordHostCapacity(string name, IRNode capacity) {
+        self.hostArrayLengths.put(name, capacity);
+        self.unknownHostArrayLengths.remove(name);
+    }
+
+    public void recordUnknownHostCapacity(string name) {
+        self.hostArrayLengths.remove(name);
+        self.unknownHostArrayLengths.put(name, true);
+    }
+
+    public bool hasHostCapacity(string name) {
+        return self.hostArrayLengths.has(name);
+    }
+
+    public IRNode hostCapacity(string name) {
+        return self.hostArrayLengths.get(name);
+    }
+
+
+    public GpuHostSnapshot snapshotHostCapacities() {
+        GpuHostSnapshot result = GpuHostSnapshot();
+        Vector<string> known = self.hostArrayLengths.keys();
+        int index = 0;
+        while (index < known.len) {
+            string name = known.get(index);
+            result.known.put(name, self.hostArrayLengths.get(name));
+            index = index + 1;
+        }
+        Vector<string> unknown = self.unknownHostArrayLengths.keys();
+        index = 0;
+        while (index < unknown.len) {
+            result.unknown.put(unknown.get(index), true);
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public void restoreHostCapacities(GpuHostSnapshot snapshot) {
+        self.hostArrayLengths = snapshot.known;
+        self.unknownHostArrayLengths = snapshot.unknown;
+    }
+
+    public bool cpuActive() { return self.cpuActiveState; }
+    public string cpuIndexName() { return self.cpuIndex; }
+    public bool hasCpuArrayLength(string name) {
+        return self.cpuArrayLengths.has(name);
+    }
+    public string cpuArrayLength(string name) {
+        return self.cpuArrayLengths.get(name);
+    }
+
+    private void ensureCheckedIndexHelper(IRModule module) {
+        int index = 0;
+        while (index < module.functions.len) {
+            if (module.functions.get(index).name
+                    == "__btrc_gpu_checked_index") { return; }
+            index = index + 1;
+        }
+        IRFunction helper = IRFunction();
+        helper.name = "__btrc_gpu_checked_index";
+        helper.return_type = "int";
+        helper.is_static = true;
+        helper.params.push(IRParam("int", "index"));
+        helper.params.push(IRParam("int", "length"));
+        Vector<IRNode> invalid = [];
+        Vector<IRNode> message = [];
+        message.push(IRNode.literal("\"GPU array index out of bounds\\n\""));
+        message.push(IRNode.variable("stderr"));
+        invalid.push(IRNode.expressionStatement(IRNode.call("fputs", message)));
+        invalid.push(IRNode.expressionStatement(IRNode.call("exit", [IRNode.literal("1")])));
+        Vector<IRNode> body = [];
+        body.push(IRNode.ifStatement(IRNode.binary(
+            IRNode.binary(IRNode.variable("index"), "<", IRNode.literal("0")), "||",
+            IRNode.binary(IRNode.variable("index"), ">=", IRNode.variable("length"))),
+            IRNode.block(invalid), null));
+        body.push(IRNode.returnStatement(IRNode.variable("index")));
+        helper.body = IRNode.block(body);
+        module.functions.push(helper);
+    }
+
+    public GpuCpuLoweringPlan beginCpuFallback(
+            Node declaration, IRModule module,
+            Map<string, Node> seededTypes) {
+        self.ensureCheckedIndexHelper(module);
+        GpuCpuLoweringPlan plan = GpuCpuLoweringPlan(declaration);
+        plan.returnsArray = declaration.return_type != null
+            && declaration.return_type.is_array;
+        plan.worker.name = declaration.name + "__gpuitem";
+        plan.worker.return_type = plan.returnsArray
+            ? (declaration.return_type.base == "float" ? "float" : "int")
+            : "void";
+        plan.worker.is_static = true;
+        plan.variableTypes = seededTypes;
+        self.cpuArrayLengths = {};
+        int index = 0;
+        while (index < declaration.params.len) {
+            Node parameter = declaration.params.get(index);
+            plan.worker.params.push(self.cTypes.lowerParameter(parameter));
+            plan.variableTypes.put(parameter.name, parameter.type);
+            if (parameter.type.is_array) {
+                string length = self.arrayLengthParameter(parameter.name);
+                plan.worker.params.push(IRParam("int", length));
+                self.cpuArrayLengths.put(parameter.name, length);
+                plan.variableTypes.put(length, SemanticTypeSystem.primitive("int"));
+            }
+            index = index + 1;
+        }
+        plan.worker.params.push(IRParam("int", "__gid"));
+        plan.variableTypes.put("__gid", SemanticTypeSystem.primitive("int"));
+        self.cpuActiveState = true;
+        self.cpuReturnsArrayState = plan.returnsArray;
+        self.cpuIndex = "__gid";
+        return plan;
+    }
+
+    public void finishCpuFallback(
+            GpuCpuLoweringPlan plan, IRNode workerBody,
+            IRModule module) {
+        plan.worker.body = workerBody;
+        self.cpuActiveState = false;
+        self.cpuReturnsArrayState = false;
+        self.cpuIndex = "";
+        IRFunctionDecl workerPrototype = IRFunctionDecl(
+            plan.worker.name, plan.worker.return_type, true);
+        int parameterIndex = 0;
+        while (parameterIndex < plan.worker.params.len) {
+            workerPrototype.params.push(self.cTypes.copyParameter(plan.worker.params.get(parameterIndex)));
+            parameterIndex = parameterIndex + 1;
+        }
+        module.function_decls.push(workerPrototype);
+        module.functions.push(plan.worker);
+
+        Node declaration = plan.declaration;
+        IRFunction wrapper = IRFunction();
+        wrapper.name = declaration.name + "__gpucpu";
+        wrapper.return_type = "void";
+        wrapper.is_static = true;
+        Vector<IRNode> invocationArgs = [];
+        parameterIndex = 0;
+        while (parameterIndex < declaration.params.len) {
+            Node parameter = declaration.params.get(parameterIndex);
+            wrapper.params.push(self.cTypes.lowerParameter(parameter));
+            invocationArgs.push(IRNode.variable(
+                self.lexicalBindingCName(
+                    parameter.name)));
+            if (parameter.type.is_array) {
+                string length = self.arrayLengthParameter(parameter.name);
+                wrapper.params.push(IRParam("int", length));
+                invocationArgs.push(IRNode.variable(length));
+            }
+            parameterIndex = parameterIndex + 1;
+        }
+        if (plan.returnsArray) {
+            wrapper.params.push(IRParam(
+                plan.worker.return_type + "*", "__gpu_output"));
+            wrapper.params.push(IRParam("int", "__gpu_output_capacity"));
+        }
+        wrapper.params.push(IRParam("int", "__gpu_n"));
+        invocationArgs.push(IRNode.variable("__gid"));
+        IRNode invocation = IRNode.call(plan.worker.name, invocationArgs);
+        IRNode invocationStatement = IRNode.expressionStatement(invocation);
+        if (plan.returnsArray) {
+            invocationStatement = IRNode.assignment(
+                IRNode.indexAccess(IRNode.variable("__gpu_output"), IRNode.variable("__gid")), invocation);
+        }
+        IRNode loop = IRNode.forStatement(IRNode.variableDeclaration("int", "__gid", IRNode.literal("0")),
+            IRNode.binary(IRNode.variable("__gid"), "<", IRNode.variable("__gpu_n")),
+            IRNode.unary("++", IRNode.variable("__gid"), false),
+            IRNode.block([invocationStatement]));
+        Vector<IRNode> body = [];
+        if (plan.returnsArray) {
+            IRNode invalidOutput = IRNode.binary(
+                IRNode.binary(IRNode.variable("__gpu_n"), ">", IRNode.literal("0")), "&&",
+                IRNode.binary(
+                    IRNode.binary(IRNode.variable("__gpu_output"), "==", IRNode.variable("NULL")),
+                    "||", IRNode.binary(IRNode.variable("__gpu_output_capacity"), "<",
+                        IRNode.variable("__gpu_n"))));
+            Vector<IRNode> invalidBody = [];
+            invalidBody.push(self.gpuCallStatement("fputs", [
+                IRNode.literal("\"[btrc-gpu] output capacity is smaller than dispatch length\\n\""),
+                IRNode.variable("stderr")]));
+            invalidBody.push(self.gpuCallStatement("abort", self.gpuNoArgs()));
+            body.push(IRNode.ifStatement(invalidOutput, IRNode.block(invalidBody), null));
+        }
+        body.push(loop);
+        wrapper.body = IRNode.block(body);
+        IRFunctionDecl prototype = IRFunctionDecl(wrapper.name, "void", true);
+        parameterIndex = 0;
+        while (parameterIndex < wrapper.params.len) {
+            prototype.params.push(self.cTypes.copyParameter(wrapper.params.get(parameterIndex)));
+            parameterIndex = parameterIndex + 1;
+        }
+        module.function_decls.push(prototype);
+        module.functions.push(wrapper);
+    }
+
+    public GpuPreparedCall prepareCall(
+            IRGpuKernel kernel, Node call, GpuCallInputs inputs) {
+        GpuPreparedCall prepared = GpuPreparedCall();
+        prepared.declarations = inputs.declarations;
+        prepared.sequence = inputs.sequence;
+        prepared.cleanup = inputs.cleanup;
+        bool hasDispatchLength = false;
+        int parameterIndex = 0;
+        while (parameterIndex < kernel.declaration.params.len) {
+            string key = Strings.fromInt(parameterIndex);
+            Node parameter = kernel.declaration.params.get(parameterIndex);
+            if (!inputs.values.has(key)) {
+                self.reject(call, "missing GPU argument '" + parameter.name + "'");
+            }
+            prepared.helper_args.push(inputs.values.get(key));
+            if (parameter.type.is_array) {
+                if (!inputs.lengths.has(key)) {
+                    self.reject(call, "GPU array length is unavailable");
+                }
+                prepared.helper_args.push(inputs.lengths.get(key));
+                if (!hasDispatchLength) {
+                    prepared.dispatch_length = inputs.lengths.get(key);
+                    hasDispatchLength = true;
+                }
+            }
+            parameterIndex = parameterIndex + 1;
+        }
+        return prepared;
+    }
+
+
+    public string ensureDispatchHelper(
+            IRGpuKernel kernel, IRModule module) {
+        string prefix = "__btrc_gpu_" + kernel.name + "_"
+            + Strings.fromInt(self.helperCounter);
+        self.helperCounter = self.helperCounter + 1;
+        string helperName = prefix + "_run";
+        string uniformStruct = prefix + "_uniforms";
+        IRStructDef uniforms = IRStructDef();
+        uniforms.name = uniformStruct;
+        int parameterIndex = 0;
+        while (parameterIndex < kernel.declaration.params.len) {
+            Node parameter = kernel.declaration.params.get(parameterIndex);
+            if (!parameter.type.is_array) {
+                string cType = self.cTypes.lower(parameter.type);
+                if (parameter.type.base == "bool") { cType = "uint32_t"; }
+                uniforms.fields.push(IRStructField(cType,
+                    self.hostedAbi.lexicalBindingCName(
+                        parameter.name, false)));
+            }
+            parameterIndex = parameterIndex + 1;
+        }
+        int bufferIndex = 0;
+        while (bufferIndex < kernel.param_buffers.len) {
+            uniforms.fields.push(IRStructField("int",
+                self.arrayLengthParameter(
+                    kernel.param_buffers.get(bufferIndex).name)));
+            bufferIndex = bufferIndex + 1;
+        }
+        uniforms.fields.push(IRStructField("int", "__gpu_off"));
+        uniforms.fields.push(IRStructField("int", "__gpu_n"));
+        module.struct_defs.push(uniforms);
+        module.functions.push(self.buildGpuDispatchHelper(
+            kernel, helperName, uniformStruct));
+        return helperName;
+    }
+
+    public IRNode voidDispatch(
+            IRGpuKernel kernel, GpuPreparedCall prepared,
+            IRModule module) {
+        string helper = self.ensureDispatchHelper(kernel, module);
+        Vector<IRNode> sequence = prepared.sequence;
+        sequence.push(IRNode.call(helper, prepared.helper_args));
+        int index = 0;
+        while (index < prepared.cleanup.len) {
+            sequence.push(prepared.cleanup.get(index));
+            index = index + 1;
+        }
+        return IRNode.statementExpression(prepared.declarations, IRNode.commaExpression(sequence));
+    }
+
+
+    private IRNode gpuCallStatement(string name, Vector<IRNode> args) {
+        return IRNode.expressionStatement(IRNode.call(name, args));
+    }
+
+    private Vector<IRNode> gpuOneArg(IRNode value) {
+        Vector<IRNode> args = [];
+        args.push(value);
+        return args;
+    }
+
+    private Vector<IRNode> gpuNoArgs() {
+        Vector<IRNode> args = [];
+        return args;
+    }
+
+    private IRNode gpuUsage(bool uniform, bool readback) {
+        IRNode value = IRNode.variable(uniform ? "BTRC_GPU_UNIFORM" : "BTRC_GPU_STORAGE");
+        value = IRNode.binary(value, "|", IRNode.variable("BTRC_GPU_COPY_DST"));
+        if (readback) { value = IRNode.binary(value, "|", IRNode.variable("BTRC_GPU_COPY_SRC")); }
+        return value;
+    }
+
+    private void gpuAppendUnavailable(IRGpuKernel kernel,
+            Vector<IRNode> body, bool withReturn) {
+        Vector<IRNode> cpuArgs = [];
+        int p = 0;
+        while (p < kernel.declaration.params.len) {
+            Node parameter = kernel.declaration.params.get(p);
+            cpuArgs.push(IRNode.variable(
+                self.lexicalBindingCName(
+                    parameter.name)));
+            if (parameter.type.is_array) {
+                cpuArgs.push(IRNode.variable(self.arrayLengthParameter(parameter.name)));
+            }
+            p = p + 1;
+        }
+        if (kernel.output_buffer != null) {
+            cpuArgs.push(IRNode.variable("__gpu_output"));
+            cpuArgs.push(IRNode.variable("__gpu_output_capacity"));
+        }
+        cpuArgs.push(IRNode.variable("__gpu_n"));
+        body.push(self.gpuCallStatement(kernel.name + "__gpucpu", cpuArgs));
+        if (withReturn) { body.push(IRNode.returnStatement(null)); }
+    }
+
+    private void gpuAppendCleanup(Vector<IRNode> body, Vector<string> buffers,
+            string uniformBuffer, string statusBuffer, string bindGroup,
+            string pipeline, string shader) {
+        Vector<string> bufferDestroy = buffers;
+        bufferDestroy.push(uniformBuffer);
+        bufferDestroy.push(statusBuffer);
+        int b = 0;
+        while (b < bufferDestroy.len) {
+            string name = bufferDestroy.get(b);
+            Vector<IRNode> destroy = [];
+            destroy.push(self.gpuCallStatement("btrc_gpu_buffer_destroy",
+                self.gpuOneArg(IRNode.variable(name))));
+            body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(name), "!=", IRNode.variable("NULL")),
+                IRNode.block(destroy), null));
+            b = b + 1;
+        }
+        Vector<IRNode> bgDestroy = [];
+        bgDestroy.push(self.gpuCallStatement("btrc_gpu_bind_group_destroy",
+            self.gpuOneArg(IRNode.variable(bindGroup))));
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(bindGroup), "!=", IRNode.variable("NULL")),
+            IRNode.block(bgDestroy), null));
+        Vector<IRNode> pipelineDestroy = [];
+        pipelineDestroy.push(self.gpuCallStatement(
+            "btrc_gpu_compute_pipeline_destroy", self.gpuOneArg(IRNode.variable(pipeline))));
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(pipeline), "!=", IRNode.variable("NULL")),
+            IRNode.block(pipelineDestroy), null));
+        Vector<IRNode> shaderDestroy = [];
+        shaderDestroy.push(self.gpuCallStatement("btrc_gpu_shader_destroy",
+            self.gpuOneArg(IRNode.variable(shader))));
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(shader), "!=", IRNode.variable("NULL")),
+            IRNode.block(shaderDestroy), null));
+    }
+
+    private void gpuAppendStatusFailures(Vector<IRNode> body, string status) {
+        Vector<string> diagnostics = [
+            "GPU array index out of bounds\\n",
+            "Division by zero\\n",
+            "Modulo by zero\\n",
+            "Integer division overflow\\n"
+        ];
+        int code = 1;
+        while (code <= diagnostics.len) {
+            Vector<IRNode> failed = [];
+            Vector<IRNode> message = [];
+            message.push(IRNode.literal("\"" + diagnostics.get(code - 1) + "\""));
+            message.push(IRNode.variable("stderr"));
+            failed.push(self.gpuCallStatement("fputs", message));
+            failed.push(self.gpuCallStatement("exit", self.gpuOneArg(IRNode.literal("1"))));
+            body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(status), "==",
+                IRNode.literal(Strings.fromInt(code))), IRNode.block(failed), null));
+            code = code + 1;
+        }
+        Vector<IRNode> unknown = [];
+        Vector<IRNode> unknownMessage = [];
+        unknownMessage.push(IRNode.literal(
+            "\"[btrc-gpu] GPU kernel reported an unknown failure status\\n\""));
+        unknownMessage.push(IRNode.variable("stderr"));
+        unknown.push(self.gpuCallStatement("fputs", unknownMessage));
+        unknown.push(self.gpuCallStatement("exit", self.gpuOneArg(IRNode.literal("1"))));
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(status), "!=", IRNode.literal("0U")),
+            IRNode.block(unknown), null));
+    }
+
+    private void gpuAppendPostSubmitFailure(Vector<IRNode> body, string ok,
+            string started) {
+        Vector<IRNode> failed = [];
+        Vector<IRNode> message = [];
+        message.push(IRNode.literal(
+            "\"[btrc-gpu] GPU dispatch or result transfer failed after submission\\n\""));
+        message.push(IRNode.variable("stderr"));
+        failed.push(self.gpuCallStatement("fputs", message));
+        failed.push(self.gpuCallStatement("exit", self.gpuOneArg(IRNode.literal("1"))));
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.unary("!", IRNode.variable(ok), true),
+            "&&", IRNode.variable(started)), IRNode.block(failed), null));
+    }
+
+    private IRFunction buildGpuDispatchHelper(IRGpuKernel kernel,
+            string helperName, string uniformStruct) {
+        IRFunction fn = IRFunction();
+        fn.name = helperName;
+        fn.return_type = "void";
+        fn.is_static = true;
+        Node declaration = kernel.declaration;
+        int p = 0;
+        while (p < declaration.params.len) {
+            Node parameter = declaration.params.get(p);
+            fn.params.push(self.cTypes.lowerParameter(parameter));
+            if (parameter.type.is_array) {
+                fn.params.push(IRParam("int", self.arrayLengthParameter(parameter.name)));
+            }
+            p = p + 1;
+        }
+        if (kernel.output_buffer != null) {
+            fn.params.push(IRParam(self.outputElementCType(kernel) + "*", "__gpu_output"));
+            fn.params.push(IRParam("int", "__gpu_output_capacity"));
+        }
+        Vector<IRNode> body = [];
+        string gpu = helperName + "_gpu";
+        string ok = helperName + "_ok";
+        string started = helperName + "_dispatch_started";
+        string uniforms = helperName + "_uniforms";
+        string uniformBuffer = helperName + "_buf_uniforms";
+        string statusBuffer = helperName + "_buf_status";
+        string status = helperName + "_status";
+        string shader = helperName + "_shader";
+        string pipeline = helperName + "_pipeline";
+        string bindings = helperName + "_bindings";
+        string bindGroup = helperName + "_bind_group";
+        IRNode dispatchLength = IRNode.literal("1");
+        if (kernel.param_buffers.len > 0) {
+            dispatchLength = IRNode.variable(self.arrayLengthParameter(kernel.param_buffers.get(0).name));
+        }
+        body.push(IRNode.variableDeclaration("int", "__gpu_n", dispatchLength));
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable("__gpu_n"), "<=", IRNode.literal("0")),
+            IRNode.block([IRNode.returnStatement(null)]), null));
+        if (kernel.output_buffer != null) {
+            Vector<IRNode> badCapacity = [];
+            Vector<IRNode> message = [];
+            message.push(IRNode.literal(
+                "\"[btrc-gpu] output capacity is smaller than dispatch length\\n\""));
+            message.push(IRNode.variable("stderr"));
+            badCapacity.push(self.gpuCallStatement("fputs", message));
+            badCapacity.push(self.gpuCallStatement("abort", self.gpuNoArgs()));
+            IRNode invalidOutput = IRNode.binary(
+                IRNode.binary(IRNode.variable("__gpu_output"), "==", IRNode.variable("NULL")), "||",
+                IRNode.binary(IRNode.variable("__gpu_output_capacity"), "<", IRNode.variable("__gpu_n")));
+            body.push(IRNode.ifStatement(invalidOutput, IRNode.block(badCapacity), null));
+        }
+        body.push(IRNode.variableDeclaration("void*", gpu,
+            IRNode.call("btrc_gpu_acquire_compute", self.gpuNoArgs())));
+        Vector<IRNode> noGpu = [];
+        self.gpuAppendUnavailable(kernel, noGpu, true);
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(gpu), "==", IRNode.variable("NULL")),
+            IRNode.block(noGpu), null));
+        body.push(IRNode.variableDeclaration("bool", ok, IRNode.literal("true")));
+        body.push(IRNode.variableDeclaration("bool", started, IRNode.literal("false")));
+        Vector<string> bufferNames = [];
+        int b = 0;
+        while (b < kernel.param_buffers.len) {
+            IRGpuBuffer buffer = kernel.param_buffers.get(b);
+            string name = helperName + "_buf_" + buffer.name;
+            bufferNames.push(name);
+            Vector<IRNode> create = [];
+            create.push(IRNode.variable(gpu));
+            create.push(IRNode.binary(IRNode.variable(self.arrayLengthParameter(buffer.name)), "*",
+                IRNode.sizeofType(buffer.elem_type == "f32" ? "float" : "int")));
+            create.push(self.gpuUsage(false, true));
+            body.push(IRNode.variableDeclaration("void*", name,
+                IRNode.call("btrc_gpu_create_buffer", create)));
+            body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(name), "==", IRNode.variable("NULL")),
+                IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))]), null));
+            Vector<IRNode> write = [];
+            write.push(IRNode.variable(gpu)); write.push(IRNode.variable(name));
+            write.push(IRNode.cast("void*",
+                IRNode.variable(self.lexicalBindingCName(
+                    buffer.name))));
+            write.push(IRNode.binary(IRNode.variable(self.arrayLengthParameter(buffer.name)), "*",
+                IRNode.sizeofType(buffer.elem_type == "f32" ? "float" : "int")));
+            body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
+                self.gpuCallStatement("btrc_gpu_write_buffer", write)]), null));
+            b = b + 1;
+        }
+        self.gpuAppendDispatchPipeline(kernel, helperName, uniformStruct,
+            body, bufferNames, gpu, ok, uniforms, uniformBuffer, statusBuffer,
+            status, shader, pipeline, bindings, bindGroup, started);
+        fn.body = IRNode.block(body);
+        return fn;
+    }
+
+    private void gpuMarkNull(Vector<IRNode> body, string name, string ok) {
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.variable(name), "==", IRNode.variable("NULL")),
+            IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))]), null));
+    }
+
+    private void gpuAppendCheckedRead(Vector<IRNode> body, Vector<IRNode> args,
+            string ok) {
+        body.push(IRNode.ifStatement(IRNode.unary("!",
+            IRNode.call("btrc_gpu_read_buffer_checked", args), true),
+            IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))]), null));
+    }
+
+    private void gpuAppendDispatchPipeline(IRGpuKernel kernel,
+            string helperName, string uniformStruct, Vector<IRNode> body,
+            Vector<string> bufferNames, string gpu, string ok, string uniforms,
+            string uniformBuffer, string statusBuffer, string status,
+            string shader, string pipeline, string bindings, string bindGroup,
+            string started) {
+        string outputBuffer = helperName + "_buf_output";
+        if (kernel.output_buffer != null) {
+            Vector<IRNode> createOutput = [];
+            createOutput.push(IRNode.variable(gpu));
+            createOutput.push(IRNode.binary(IRNode.variable("__gpu_n"), "*",
+                IRNode.sizeofType(self.outputElementCType(kernel))));
+            createOutput.push(self.gpuUsage(false, true));
+            body.push(IRNode.variableDeclaration("void*", outputBuffer,
+                IRNode.call("btrc_gpu_create_buffer", createOutput)));
+            self.gpuMarkNull(body, outputBuffer, ok);
+            bufferNames.push(outputBuffer);
+        }
+        body.push(IRNode.variableDeclaration("struct " + uniformStruct, uniforms, null));
+        int p = 0;
+        while (p < kernel.declaration.params.len) {
+            Node parameter = kernel.declaration.params.get(p);
+            if (!parameter.type.is_array) {
+                IRNode value = IRNode.variable(
+                    self.lexicalBindingCName(
+                        parameter.name));
+                if (parameter.type.base == "bool") {
+                    value = IRNode.ternary(value, IRNode.literal("1U"), IRNode.literal("0U"));
+                }
+                body.push(IRNode.assignment(IRNode.fieldAccess(IRNode.variable(uniforms),
+                    self.hostedAbi.lexicalBindingCName(
+                        parameter.name, false), false), value));
+            }
+            p = p + 1;
+        }
+        int a = 0;
+        while (a < kernel.param_buffers.len) {
+            string source = kernel.param_buffers.get(a).name;
+            body.push(IRNode.assignment(IRNode.fieldAccess(IRNode.variable(uniforms),
+                self.arrayLengthParameter(source), false), IRNode.variable(self.arrayLengthParameter(source))));
+            a = a + 1;
+        }
+        body.push(IRNode.assignment(IRNode.fieldAccess(IRNode.variable(uniforms), "__gpu_off", false),
+            IRNode.literal("0")));
+        body.push(IRNode.assignment(IRNode.fieldAccess(IRNode.variable(uniforms), "__gpu_n", false),
+            IRNode.variable("__gpu_n")));
+        Vector<IRNode> createUniform = [];
+        createUniform.push(IRNode.variable(gpu));
+        createUniform.push(IRNode.sizeofType("struct " + uniformStruct));
+        createUniform.push(self.gpuUsage(true, false));
+        body.push(IRNode.variableDeclaration("void*", uniformBuffer,
+            IRNode.call("btrc_gpu_create_buffer", createUniform)));
+        self.gpuMarkNull(body, uniformBuffer, ok);
+        Vector<IRNode> writeUniform = [];
+        writeUniform.push(IRNode.variable(gpu)); writeUniform.push(IRNode.variable(uniformBuffer));
+        writeUniform.push(IRNode.cast("void*", IRNode.addressOf(IRNode.variable(uniforms))));
+        writeUniform.push(IRNode.sizeofType("struct " + uniformStruct));
+        body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
+            self.gpuCallStatement("btrc_gpu_write_buffer", writeUniform)]), null));
+        body.push(IRNode.variableDeclaration("uint32_t", status, IRNode.literal("0U")));
+        Vector<IRNode> createStatus = [];
+        createStatus.push(IRNode.variable(gpu));
+        createStatus.push(IRNode.sizeofType("uint32_t"));
+        createStatus.push(self.gpuUsage(false, true));
+        body.push(IRNode.variableDeclaration("void*", statusBuffer,
+            IRNode.call("btrc_gpu_create_buffer", createStatus)));
+        self.gpuMarkNull(body, statusBuffer, ok);
+        Vector<IRNode> writeStatus = [];
+        writeStatus.push(IRNode.variable(gpu)); writeStatus.push(IRNode.variable(statusBuffer));
+        writeStatus.push(IRNode.cast("void*", IRNode.addressOf(IRNode.variable(status))));
+        writeStatus.push(IRNode.sizeofType("uint32_t"));
+        body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
+            self.gpuCallStatement("btrc_gpu_write_buffer", writeStatus)]), null));
+        body.push(IRNode.variableDeclaration("void*", shader, IRNode.variable("NULL")));
+        body.push(IRNode.variableDeclaration("void*", pipeline, IRNode.variable("NULL")));
+        body.push(IRNode.variableDeclaration("void*", bindGroup, IRNode.variable("NULL")));
+        Vector<IRNode> createShader = [];
+        createShader.push(IRNode.variable(gpu));
+        createShader.push(IRNode.variable(kernel.name + "_wgsl"));
+        body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
+            IRNode.assignment(IRNode.variable(shader),
+                IRNode.call("btrc_gpu_create_shader", createShader))]), null));
+        self.gpuMarkNull(body, shader, ok);
+        Vector<IRNode> createPipeline = [];
+        createPipeline.push(IRNode.variable(gpu)); createPipeline.push(IRNode.variable(shader));
+        createPipeline.push(IRNode.literal("\"main\""));
+        body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
+            IRNode.assignment(IRNode.variable(pipeline),
+                IRNode.call("btrc_gpu_create_compute_pipeline", createPipeline))]), null));
+        self.gpuMarkNull(body, pipeline, ok);
+        int totalBindings = kernel.param_buffers.len
+            + (kernel.output_buffer != null ? 1 : 0) + 2;
+        body.push(IRNode.arrayDeclaration("void*", bindings,
+            IRNode.literal(Strings.fromInt(totalBindings)), null));
+        int binding = 0;
+        int b = 0;
+        while (b < kernel.param_buffers.len) {
+            body.push(IRNode.assignment(IRNode.indexAccess(IRNode.variable(bindings),
+                IRNode.literal(Strings.fromInt(binding))), IRNode.variable(bufferNames.get(b))));
+            binding = binding + 1;
+            b = b + 1;
+        }
+        if (kernel.output_buffer != null) {
+            body.push(IRNode.assignment(IRNode.indexAccess(IRNode.variable(bindings),
+                IRNode.literal(Strings.fromInt(binding))), IRNode.variable(outputBuffer)));
+            binding = binding + 1;
+        }
+        body.push(IRNode.assignment(IRNode.indexAccess(IRNode.variable(bindings),
+            IRNode.literal(Strings.fromInt(binding))), IRNode.variable(uniformBuffer)));
+        binding = binding + 1;
+        body.push(IRNode.assignment(IRNode.indexAccess(IRNode.variable(bindings),
+            IRNode.literal(Strings.fromInt(binding))), IRNode.variable(statusBuffer)));
+        Vector<IRNode> createBind = [];
+        createBind.push(IRNode.variable(gpu)); createBind.push(IRNode.variable(pipeline));
+        createBind.push(IRNode.variable(bindings));
+        createBind.push(IRNode.literal(Strings.fromInt(totalBindings)));
+        body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block([
+            IRNode.assignment(IRNode.variable(bindGroup),
+                IRNode.call("btrc_gpu_create_bind_group", createBind))]), null));
+        self.gpuMarkNull(body, bindGroup, ok);
+        self.gpuAppendDispatchExecution(kernel, uniformStruct, body, bufferNames,
+            gpu, ok, uniforms, uniformBuffer, statusBuffer, status,
+            pipeline, bindGroup, outputBuffer, started);
+        self.gpuAppendCleanup(body, bufferNames, uniformBuffer, statusBuffer,
+            bindGroup, pipeline, shader);
+        self.gpuAppendStatusFailures(body, status);
+        self.gpuAppendPostSubmitFailure(body, ok, started);
+        Vector<IRNode> failedSetup = [];
+        self.gpuAppendUnavailable(kernel, failedSetup, true);
+        body.push(IRNode.ifStatement(IRNode.binary(IRNode.unary("!", IRNode.variable(ok), true),
+            "&&", IRNode.unary("!", IRNode.variable(started), true)),
+            IRNode.block(failedSetup), null));
+    }
+
+    private void gpuAppendDispatchExecution(IRGpuKernel kernel,
+            string uniformStruct, Vector<IRNode> body,
+            Vector<string> bufferNames, string gpu,
+            string ok, string uniforms, string uniformBuffer,
+            string statusBuffer, string status, string pipeline,
+            string bindGroup, string outputBuffer, string started) {
+        string offset = "__gpu_offset";
+        string items = "__gpu_work_items";
+        string groups = "__gpu_workgroups";
+        Vector<IRNode> loop = [];
+        loop.push(IRNode.variableDeclaration("int", items, IRNode.ternary(
+            IRNode.binary(IRNode.binary(IRNode.variable("__gpu_n"), "-", IRNode.variable(offset)), ">",
+                IRNode.literal("4194240")), IRNode.literal("4194240"),
+            IRNode.binary(IRNode.variable("__gpu_n"), "-", IRNode.variable(offset)))));
+        loop.push(IRNode.assignment(IRNode.fieldAccess(IRNode.variable(uniforms), "__gpu_off", false),
+            IRNode.variable(offset)));
+        Vector<IRNode> writeUniform = [];
+        writeUniform.push(IRNode.variable(gpu)); writeUniform.push(IRNode.variable(uniformBuffer));
+        writeUniform.push(IRNode.cast("void*", IRNode.addressOf(IRNode.variable(uniforms))));
+        writeUniform.push(IRNode.sizeofType("struct " + uniformStruct));
+        loop.push(self.gpuCallStatement("btrc_gpu_write_buffer", writeUniform));
+        loop.push(IRNode.variableDeclaration("int", groups, IRNode.binary(
+            IRNode.binary(IRNode.variable(items), "+", IRNode.literal("63")), "/", IRNode.literal("64"))));
+        Vector<IRNode> dispatch = [];
+        dispatch.push(IRNode.variable(gpu)); dispatch.push(IRNode.variable(pipeline));
+        dispatch.push(IRNode.variable(bindGroup)); dispatch.push(IRNode.variable(groups));
+        loop.push(IRNode.ifStatement(IRNode.call("btrc_gpu_dispatch", dispatch),
+            IRNode.block([IRNode.assignment(IRNode.variable(started), IRNode.literal("true"))]),
+            IRNode.block([IRNode.assignment(IRNode.variable(ok), IRNode.literal("false"))])));
+        loop.push(IRNode.assignment(IRNode.variable(offset), IRNode.binary(IRNode.variable(offset), "+", IRNode.variable(items))));
+        Vector<IRNode> execute = [];
+        execute.push(IRNode.variableDeclaration("int", offset, IRNode.literal("0")));
+        execute.push(IRNode.whileStatement(IRNode.binary(IRNode.variable(ok), "&&",
+            IRNode.binary(IRNode.variable(offset), "<", IRNode.variable("__gpu_n"))),
+            IRNode.block(loop)));
+        Vector<IRNode> readStatus = [];
+        readStatus.push(IRNode.variable(gpu)); readStatus.push(IRNode.variable(statusBuffer));
+        readStatus.push(IRNode.cast("void*", IRNode.addressOf(IRNode.variable(status))));
+        readStatus.push(IRNode.sizeofType("uint32_t"));
+        Vector<IRNode> afterDispatch = [];
+        self.gpuAppendCheckedRead(afterDispatch, readStatus, ok);
+        Vector<IRNode> readUser = [];
+        if (kernel.output_buffer != null) {
+            Vector<IRNode> read = [];
+            read.push(IRNode.variable(gpu)); read.push(IRNode.variable(outputBuffer));
+            read.push(IRNode.cast("void*", IRNode.variable("__gpu_output")));
+            read.push(IRNode.binary(IRNode.variable("__gpu_n"), "*",
+                IRNode.sizeofType(self.outputElementCType(kernel))));
+            self.gpuAppendCheckedRead(readUser, read, ok);
+        } else {
+            int b = 0;
+            while (b < kernel.param_buffers.len) {
+                IRGpuBuffer buffer = kernel.param_buffers.get(b);
+                Vector<IRNode> read = [];
+                read.push(IRNode.variable(gpu)); read.push(IRNode.variable(bufferNames.get(b)));
+                read.push(IRNode.cast("void*",
+                    IRNode.variable(self.lexicalBindingCName(
+                        buffer.name))));
+                read.push(IRNode.binary(IRNode.variable(self.arrayLengthParameter(buffer.name)), "*",
+                    IRNode.sizeofType(buffer.elem_type == "f32" ? "float" : "int")));
+                self.gpuAppendCheckedRead(readUser, read, ok);
+                b = b + 1;
+            }
+        }
+        afterDispatch.push(IRNode.ifStatement(IRNode.binary(IRNode.binary(IRNode.variable(status), "==", IRNode.literal("0U")),
+            "&&", IRNode.variable(ok)),
+            IRNode.block(readUser), null));
+        execute.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block(afterDispatch), null));
+        body.push(IRNode.ifStatement(IRNode.variable(ok), IRNode.block(execute), null));
+    }
+
+
+    class void collectGpuRefs(IRNode? node,
+            Map<string, bool> shaderNames, Map<string, bool> used) {
+        if (node == null) { return; }
+        if (node.kind == IRK_VAR && shaderNames.has(node.name)) {
+            used.put(node.name, true);
+        }
+        GpuPipeline.collectGpuRefs(node.left, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.right, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.operand, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.expr, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.obj, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.index, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.condition, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.true_expr, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.false_expr, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.init, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.value, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.target, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.then_block, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.else_block, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.body, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.update, shaderNames, used);
+        GpuPipeline.collectGpuRefs(node.result, shaderNames, used);
+        int index = 0;
+        while (index < node.args.len) {
+            GpuPipeline.collectGpuRefs(
+                node.args.get(index), shaderNames, used);
+            index = index + 1;
+        }
+        index = 0;
+        while (index < node.stmts.len) {
+            GpuPipeline.collectGpuRefs(
+                node.stmts.get(index), shaderNames, used);
+            index = index + 1;
+        }
+    }
+
+    class void eliminateUnreachable(IRModule module) {
+        Map<string, bool> names = {};
+        int kernelIndex = 0;
+        while (kernelIndex < module.gpu_kernels.len) {
+            names.put(module.gpu_kernels.get(kernelIndex).name + "_wgsl", true);
+            kernelIndex = kernelIndex + 1;
+        }
+        Map<string, bool> used = {};
+        int functionIndex = 0;
+        while (functionIndex < module.functions.len) {
+            GpuPipeline.collectGpuRefs(
+                module.functions.get(functionIndex).body, names, used);
+            functionIndex = functionIndex + 1;
+        }
+        Vector<IRGpuKernel> kept = [];
+        kernelIndex = 0;
+        while (kernelIndex < module.gpu_kernels.len) {
+            IRGpuKernel kernel = module.gpu_kernels.get(kernelIndex);
+            if (used.has(kernel.name + "_wgsl")) { kept.push(kernel); }
+            kernelIndex = kernelIndex + 1;
+        }
+        module.gpu_kernels = kept;
+        if (kept.len == 0) {
+            Vector<IRPreprocessorDecl> preprocessor = [];
+            int index = 0;
+            while (index < module.preprocessor_decls.len) {
+                IRPreprocessorDecl declaration =
+                    module.preprocessor_decls.get(index);
+                if (!(declaration.kind == IR_PREPROCESSOR_INCLUDE
+                        && !declaration.is_system
+                        && declaration.header == "btrc_gpu.h")) {
+                    preprocessor.push(declaration);
+                }
+                index = index + 1;
+            }
+            module.preprocessor_decls = preprocessor;
+        }
+    }
+
+
+}

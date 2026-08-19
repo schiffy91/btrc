@@ -4,8 +4,8 @@ and malformed-switch parse errors."""
 
 import pytest
 
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser.core import ParseError
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import ParseError
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 

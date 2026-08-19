@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.artifacts.publication.storage as storage_module
-from src.compiler.python.artifacts.publication.storage import ArtifactStorage
+import src.compiler.python.artifacts.publication as storage_module
+from src.compiler.python.artifacts.publication import ArtifactStorage
 
 
 def _observe_close(monkeypatch: pytest.MonkeyPatch) -> list[int]:

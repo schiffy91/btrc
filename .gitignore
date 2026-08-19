@@ -43,17 +43,7 @@ src/devex/lsp/.venv/
 .claude/
 
 # VS Code extension build artifacts
-src/devex/ext/out/
-src/devex/ext/node_modules/
-src/devex/ext/server/
-src/devex/ext/debug/
-src/devex/ext/*.vsix
-
-# GPU runtime
-src/stdlib/gpu/build/
-
-# GUI runtime
-src/stdlib/gui/build/
+/build/devex/vscode/
 
 # Benchmark generated C + binaries
 bench/*.c
@@ -70,10 +60,12 @@ examples/gui/gui_font
 # Local build artifacts. The tracked `build/*.nix` files are authored policy,
 # so ignore only generated children; a new policy file must remain visible.
 /build/generated/
+/build/architecture/
 /build/out/
 /build/lib/
+/build/stdlib/
+/build/verification/
 /build/bdist.*/
 /build/btrcc/
 /build/temp.*/
-src/compiler/btrc/fe_debug*.btrc
 /dist/

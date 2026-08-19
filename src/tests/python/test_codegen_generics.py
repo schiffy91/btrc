@@ -1,7 +1,8 @@
-"""Codegen for monomorphized generic methods: the parallel AST→IR emitter in
-ir/gen/generics lowers a generic method's body once per instantiation. These
-drive a generic method containing every statement form through that emitter and
-assert the instantiation appears in the emitted C."""
+"""Codegen for generic methods through the ordinary AST→IR lowering stack.
+
+Immutable specialization views feed the same function, statement, expression,
+call, storage, and ownership owners used by non-generic declarations.
+"""
 
 import re
 

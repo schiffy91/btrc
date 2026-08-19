@@ -6,15 +6,21 @@ import stat
 import subprocess
 import sys
 from pathlib import Path
+from pathlib import PurePosixPath
 
-from src.compiler.python import check_generated
-from src.compiler.python.gen_hosted_abi_btrc import GeneratedSourcePublication
+import pytest
+
+from tools.compiler_codegen.verification import (
+    GeneratedArtifact,
+    GeneratedSourceError,
+    GeneratedSourceSet,
+)
 
 REPO = Path(__file__).resolve().parents[3]
 GENERATED_PATHS = (
-    REPO / "src/compiler/python/ast_nodes.py",
-    REPO / "src/compiler/btrc/ast/node.btrc",
-    REPO / "src/devex/lsp/builtins.py",
+    REPO / "src/compiler/python/syntax/ast/generated.py",
+    REPO / "src/compiler/btrc/generated/ast/node.btrc",
+    REPO / "src/devex/lsp/catalog/generated.py",
 )
 HOSTED_ABI = REPO / "src/compiler/btrc/generated/hosted_abi"
 
@@ -42,7 +48,7 @@ def _dry_run(target: str) -> str:
 def test_generated_checker_is_non_mutating() -> None:
     before = _snapshot()
     result = subprocess.run(
-        [sys.executable, "-m", "src.compiler.python.check_generated"],
+        [sys.executable, "-m", "tools.compiler_codegen.main", "check"],
         cwd=REPO,
         capture_output=True,
         text=True,
@@ -53,22 +59,27 @@ def test_generated_checker_is_non_mutating() -> None:
     assert _snapshot() == before
 
 
-def test_generated_checker_reports_drift_without_rewriting(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_generated_checker_reports_drift_without_rewriting(tmp_path: Path) -> None:
     generated = tmp_path / "generated.py"
     generated.write_bytes(b"old\n")
-    monkeypatch.setattr(check_generated, "REPO_ROOT", tmp_path)
+    publication = GeneratedSourceSet(
+        (GeneratedArtifact(PurePosixPath("generated.py"), b"new\n"),)
+    )
 
-    assert not check_generated._matches(generated, b"new\n", "make regenerate")
+    with pytest.raises(GeneratedSourceError, match="generated sources are stale"):
+        publication.check(tmp_path)
     assert generated.read_bytes() == b"old\n"
-    assert "generated source is stale: generated.py" in capsys.readouterr().err
 
 
-def test_generated_checker_accepts_windows_checkout_line_endings(tmp_path: Path, monkeypatch) -> None:
+def test_generated_checker_requires_canonical_lf_bytes(tmp_path: Path) -> None:
     generated = tmp_path / "generated.py"
     generated.write_bytes(b"first\r\nsecond\r\n")
-    monkeypatch.setattr(check_generated, "REPO_ROOT", tmp_path)
+    publication = GeneratedSourceSet(
+        (GeneratedArtifact(PurePosixPath("generated.py"), b"first\nsecond\n"),)
+    )
 
-    assert check_generated._matches(generated, b"first\nsecond\n", "make regenerate")
+    with pytest.raises(GeneratedSourceError, match="generated sources are stale"):
+        publication.check(tmp_path)
 
 
 def test_hosted_freshness_ignores_checkout_write_bits_but_generation_normalizes_them(tmp_path: Path) -> None:
@@ -77,18 +88,18 @@ def test_hosted_freshness_ignores_checkout_write_bits_but_generation_normalizes_
     source = generated / "table.btrc"
     source.write_text("current\n", encoding="utf-8")
     source.chmod(0o666)
-    files = {source: "current\n"}
-    publication = GeneratedSourcePublication(
-        generated=generated,
-        dispatcher=source,
-        legacy_root=tmp_path,
-        legacy_globs=(),
-        mode=0o644,
+    publication = GeneratedSourceSet(
+        (
+            GeneratedArtifact(
+                PurePosixPath("generated/table.btrc"),
+                b"current\n",
+            ),
+        )
     )
 
-    assert publication.check(files) == 0
+    publication.check(tmp_path)
 
-    publication.publish(files)
+    publication.publish(tmp_path)
     assert stat.S_IMODE(source.stat().st_mode) == 0o644
 
 
@@ -101,7 +112,7 @@ def test_release_artifacts_run_the_generated_gate_before_building() -> None:
     }
     for target, build_marker in markers.items():
         output = _dry_run(target)
-        gate = "python3 -m src.compiler.python.check_generated"
+        gate = "python3 -m tools.compiler_codegen.main check"
         assert gate in output, target
         assert output.index(gate) < output.index(build_marker), target
 
@@ -120,4 +131,4 @@ def test_ci_checks_drift_before_packaging_and_after_release_builds() -> None:
     assert ci.index("make NIX= generated-check") < ci.index("nix build .#btrc")
     assert "git diff --exit-code" in ci
     assert "git status --porcelain --untracked-files=all" in ci
-    assert "python -m src.compiler.python.check_generated" in windows
+    assert "python -m tools.compiler_codegen.main check" in windows

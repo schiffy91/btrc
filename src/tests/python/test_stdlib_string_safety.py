@@ -10,8 +10,8 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python import Compiler
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))

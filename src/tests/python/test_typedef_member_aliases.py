@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import Identifier
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.syntax.ast.generated import Identifier
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 

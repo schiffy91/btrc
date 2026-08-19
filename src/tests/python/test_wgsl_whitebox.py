@@ -2,17 +2,17 @@
 
 import re
 
-from src.compiler.python.ast_nodes import FunctionDecl, TypeExpr
-from src.compiler.python.ir.gen.gpu_wgsl import WgslEmitter, btrc_type_to_wgsl
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.syntax.ast.generated import FunctionDecl, TypeExpr
+from src.compiler.python.backend.wgsl_emitter import WgslEmitter
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
 def test_btrc_type_to_wgsl():
-    assert btrc_type_to_wgsl(None) == "void"
-    assert btrc_type_to_wgsl(TypeExpr(base="float")) == "f32"
+    assert WgslEmitter.type_name(None) == "void"
+    assert WgslEmitter.type_name(TypeExpr(base="float")) == "f32"
     arr = TypeExpr(base="float", is_array=True)
-    assert btrc_type_to_wgsl(arr) == "array<f32>"
+    assert WgslEmitter.type_name(arr) == "array<f32>"
 
 
 def test_emit_block_none_is_empty():

@@ -1,368 +1,579 @@
-"""Ownership and dependency contracts for the self-hosted compiler shell."""
+"""Durable ownership and package contracts for the self-hosted compiler."""
 
+from __future__ import annotations
+
+import re
+from collections import deque
+from functools import cache
 from pathlib import Path
+
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 
 REPO = Path(__file__).resolve().parents[3]
 SELFHOST = REPO / "src/compiler/btrc"
 
+EXPECTED_BTRC_FILES = frozenset(
+    """
+    analyzer/analyzer.btrc
+    analyzer/declarations.btrc
+    analyzer/expressions.btrc
+    analyzer/generics.btrc
+    analyzer/gpu.btrc
+    analyzer/hosted_abi.btrc
+    analyzer/models.btrc
+    analyzer/operators.btrc
+    analyzer/ownership/cycles.btrc
+    analyzer/ownership/values.btrc
+    analyzer/source_macros.btrc
+    analyzer/stage.btrc
+    analyzer/types.btrc
+    analyzer/validation/borrows.btrc
+    analyzer/validation/calls.btrc
+    analyzer/validation/constants.btrc
+    analyzer/validation/control_flow.btrc
+    analyzer/validation/declarations.btrc
+    analyzer/validation/expressions.btrc
+    analyzer/validation/names.btrc
+    analyzer/validation/ownership.btrc
+    analyzer/validation/storage.btrc
+    analyzer/validation/types.btrc
+    analyzer/validation/validator.btrc
+    btrcc_main.btrc
+    cli/driver.btrc
+    compiler.btrc
+    frontend/models.btrc
+    frontend/resolver.btrc
+    frontend/source_io.btrc
+    frontend/stage.btrc
+    frontend/stdlib.btrc
+    frontend/visibility.btrc
+    generated/ast/node.btrc
+    generated/hosted_abi/tables.btrc
+    generated/runtime/catalog.btrc
+    ir/emitter.btrc
+    ir/gpu/pipeline.btrc
+    ir/gpu/wgsl.btrc
+    ir/lowering/aggregates.btrc
+    ir/lowering/assignments.btrc
+    ir/lowering/callable_flow.btrc
+    ir/lowering/callables.btrc
+    ir/lowering/calls.btrc
+    ir/lowering/concurrency.btrc
+    ir/lowering/context.btrc
+    ir/lowering/control_flow.btrc
+    ir/lowering/declarations.btrc
+    ir/lowering/expressions.btrc
+    ir/lowering/functions.btrc
+    ir/lowering/generics.btrc
+    ir/lowering/lowerer.btrc
+    ir/lowering/ownership/calls.btrc
+    ir/lowering/ownership/cycle_boundaries.btrc
+    ir/lowering/ownership/lifetime.btrc
+    ir/lowering/ownership/managed_types.btrc
+    ir/lowering/ownership/operands.btrc
+    ir/lowering/ownership/semantics.btrc
+    ir/lowering/statements.btrc
+    ir/lowering/strings.btrc
+    ir/lowering/types.btrc
+    ir/model.btrc
+    ir/optimization/cleanup.btrc
+    ir/optimization/optimizer.btrc
+    ir/optimization/setjmp/analysis.btrc
+    ir/optimization/setjmp/safety.btrc
+    ir/runtime/catalog.btrc
+    ir/runtime/references.btrc
+    ir/stage.btrc
+    lexer/lexer.btrc
+    lexer/stage.btrc
+    parser/parser.btrc
+    parser/source_macros.btrc
+    parser/stage.btrc
+    pipeline/models.btrc
+    pipeline/pipeline.btrc
+    pipeline/stage.btrc
+    syntax/grammar.btrc
+    syntax/identity.btrc
+    syntax/literals.btrc
+    syntax/tokens.btrc
+    syntax/types.btrc
+    tools/ast/dump_main.btrc
+    tools/ast/generate_main.btrc
+    tools/ast/schema.btrc
+    tools/frontend_main.btrc
+    tools/lex_main.btrc
+    tools/parse_main.btrc
+    """.split()  # noqa: SIM905 - the normative tree is clearest as an indented block
+)
 
-def _source(relative: str) -> str:
-    return (SELFHOST / relative).read_text()
-
-
-def test_process_entry_point_is_only_a_driver_adapter() -> None:
-    entry = _source("btrcc_main.btrc")
-
-    assert "import ./compiler.btrc;" in entry
-    assert "#include" not in entry
-    assert "BtrccDriver driver = BtrccDriver(argc, argv);" in entry
-    assert "return driver.run();" in entry
-    for pipeline_detail in (
-        "FeFrontendResolver",
-        "Lexer(",
-        "Parser(",
-        "analyzeProgram",
-        "IRGen(",
-        "CEmitter(",
-    ):
-        assert pipeline_detail not in entry
-
-
-def test_stage_manifests_form_one_directed_dependency_chain() -> None:
-    manifests = {
-        "lexer": _source("lexer/stage.btrc"),
-        "frontend": _source("frontend/stage.btrc"),
-        "parser": _source("parser/stage.btrc"),
-        "analyzer": _source("analyzer/stage.btrc"),
-        "ir": _source("ir/stage.btrc"),
-        "pipeline": _source("pipeline/stage.btrc"),
+STAGE_MANIFESTS = frozenset(
+    {
+        "lexer/stage.btrc",
+        "frontend/stage.btrc",
+        "parser/stage.btrc",
+        "analyzer/stage.btrc",
+        "ir/stage.btrc",
+        "pipeline/stage.btrc",
     }
+)
 
-    assert "import ../lexer/stage.btrc;" in manifests["frontend"]
-    assert "import ../frontend/stage.btrc;" in manifests["parser"]
-    assert "import ../parser/stage.btrc;" in manifests["analyzer"]
-    assert "import ../analyzer/stage.btrc;" in manifests["ir"]
-    assert "import ../ir/stage.btrc;" in manifests["pipeline"]
+PUBLIC_ENTRY_POINTS = frozenset(
+    {
+        "btrcc_main.btrc",
+        "tools/frontend_main.btrc",
+        "tools/lex_main.btrc",
+        "tools/parse_main.btrc",
+        "tools/ast/dump_main.btrc",
+        "tools/ast/generate_main.btrc",
+    }
+)
 
-    for stage in manifests:
-        assert "import std.*;" not in manifests[stage]
-    assert "import ../ir/stage.btrc;" not in manifests["analyzer"]
-    assert '#include "pipeline.btrc"' in manifests["pipeline"]
+REQUIRED_OWNER_BY_PATH = {
+    "compiler.btrc": "Compiler",
+    "cli/driver.btrc": "BtrccDriver",
+    "pipeline/pipeline.btrc": "CompilerPipeline",
+    "lexer/lexer.btrc": "Lexer",
+    "parser/parser.btrc": "Parser",
+    "parser/source_macros.btrc": "SourceMacroDefinition",
+    "frontend/source_io.btrc": "FeSourceFileReader",
+    "frontend/stdlib.btrc": "FeStdlibRepository",
+    "frontend/resolver.btrc": "FeFrontendResolver",
+    "frontend/visibility.btrc": "FeImportVisibilityChecker",
+    "analyzer/analyzer.btrc": "SemanticAnalyzer",
+    "analyzer/declarations.btrc": "DeclarationRegistry",
+    "analyzer/types.btrc": "SemanticTypeSystem",
+    "analyzer/expressions.btrc": "ExpressionTypeResolver",
+    "analyzer/generics.btrc": "GenericSpecializer",
+    "analyzer/operators.btrc": "OperatorSemantics",
+    "analyzer/hosted_abi.btrc": "HostedAbiRepository",
+    "analyzer/source_macros.btrc": "SourceMacroNamespace",
+    "analyzer/gpu.btrc": "GpuSemantics",
+    "analyzer/ownership/values.btrc": "ManagedValueSemantics",
+    "analyzer/ownership/cycles.btrc": "CycleSemantics",
+    "analyzer/validation/validator.btrc": "SemanticValidator",
+    "analyzer/validation/types.btrc": "TypeValidator",
+    "analyzer/validation/constants.btrc": "ConstantValidator",
+    "analyzer/validation/names.btrc": "NameValidator",
+    "analyzer/validation/storage.btrc": "StorageValidator",
+    "analyzer/validation/ownership.btrc": "OwnershipValidator",
+    "analyzer/validation/borrows.btrc": "BorrowValidator",
+    "analyzer/validation/calls.btrc": "CallValidator",
+    "analyzer/validation/expressions.btrc": "ExpressionValidator",
+    "analyzer/validation/control_flow.btrc": "ControlFlowValidator",
+    "analyzer/validation/declarations.btrc": "DeclarationValidator",
+    "ir/runtime/catalog.btrc": "RuntimeHelperCatalog",
+    "ir/runtime/references.btrc": "RuntimeReferenceCollector",
+    "ir/lowering/context.btrc": "LoweringContext",
+    "ir/lowering/lowerer.btrc": "IRLowerer",
+    "ir/lowering/types.btrc": "CTypeLowerer",
+    "ir/lowering/declarations.btrc": "DeclarationLowerer",
+    "ir/lowering/generics.btrc": "GenericLowerer",
+    "ir/lowering/functions.btrc": "FunctionLowerer",
+    "ir/lowering/statements.btrc": "StatementLowerer",
+    "ir/lowering/control_flow.btrc": "ControlFlowLowerer",
+    "ir/lowering/expressions.btrc": "ExpressionLowerer",
+    "ir/lowering/calls.btrc": "CallLowerer",
+    "ir/lowering/callables.btrc": "CallableValueSemantics",
+    "ir/lowering/callable_flow.btrc": "CallableFlowState",
+    "ir/lowering/assignments.btrc": "AssignmentLowerer",
+    "ir/lowering/aggregates.btrc": "AggregateValueLowerer",
+    "ir/lowering/strings.btrc": "StringLowerer",
+    "ir/lowering/concurrency.btrc": "ConcurrencyLowerer",
+    "ir/lowering/ownership/semantics.btrc": "OwnershipSemantics",
+    "ir/lowering/ownership/operands.btrc": "OwnershipOperandPlanner",
+    "ir/lowering/ownership/calls.btrc": "CallOwnershipLowerer",
+    "ir/lowering/ownership/lifetime.btrc": "ManagedLifetimeLowerer",
+    "ir/lowering/ownership/managed_types.btrc": "ManagedTypeLowerer",
+    "ir/lowering/ownership/cycle_boundaries.btrc": "CycleBoundaryLowerer",
+    "ir/gpu/wgsl.btrc": "GpuWgslEmitter",
+    "ir/gpu/pipeline.btrc": "GpuPipeline",
+    "ir/optimization/optimizer.btrc": "IROptimizer",
+    "ir/optimization/cleanup.btrc": "CleanupSlotValidator",
+    "ir/optimization/setjmp/analysis.btrc": "SetjmpEffectAnalysis",
+    "ir/optimization/setjmp/safety.btrc": "SetjmpSafetyPlanner",
+    "ir/emitter.btrc": "CEmitter",
+}
+
+_IMPORT = re.compile(r"^\s*import\s+([^;]+);", re.MULTILINE)
+_BTRC_INCLUDE = re.compile(r"#include\s+\"[^\"]+\.btrc\"")
 
 
-def test_selfhost_compiler_never_uses_implicit_stdlib_globs() -> None:
-    wildcard_imports = [
-        path.relative_to(SELFHOST) for path in SELFHOST.rglob("*.btrc") if "import std.*;" in path.read_text()
-    ]
-
-    assert wildcard_imports == []
+def _path(relative: str) -> Path:
+    return SELFHOST / relative
 
 
-def test_semantic_policies_do_not_reach_back_into_ir_owners() -> None:
-    analyzer_stage = _source("analyzer/stage.btrc")
-    raw_projection = _source("raw_projection_carriers.btrc")
-    ir_projection = _source("ir_raw_projection_context.btrc")
-
-    for policy in (
-        "destructor_symbols.btrc",
-        "generic_method_symbols.btrc",
-        "string_method_semantics.btrc",
-        "ownership_transfer_semantics.btrc",
-        "mutex_type_semantics.btrc",
-        "cycle_semantics.btrc",
-        "gpu_builtin_semantics.btrc",
-        "gpu_type_semantics.btrc",
-    ):
-        assert f'#include "../{policy}"' in analyzer_stage
-    assert "IRGen" not in raw_projection
-    assert "SemanticValidationState" not in ir_projection
-    assert "class RawProjectionCarrierContext {" in raw_projection
-    assert "class SemanticRawProjectionContextBuilder {" in raw_projection
-    assert "class IRRawProjectionContextBuilder {" in ir_projection
+@cache
+def _program(relative: str):
+    path = _path(relative)
+    return Parser(Lexer(path.read_text(), str(path)).tokenize()).parse()
 
 
-def test_application_and_pipeline_have_real_instance_owners() -> None:
-    compiler = _source("compiler.btrc")
-    pipeline = _source("pipeline/pipeline.btrc")
-    options = _source("driver_options.btrc")
-    output = _source("driver_output.btrc")
+def _local_imports(relative: str) -> tuple[str, ...]:
+    imports: list[str] = []
+    path = _path(relative)
+    for spec in _IMPORT.findall(path.read_text()):
+        spec = spec.strip()
+        if not spec.endswith(".btrc"):
+            continue
+        target = (path.parent / spec).resolve()
+        assert target.is_relative_to(SELFHOST.resolve()), f"{relative} imports outside the package: {spec}"
+        assert target.is_file(), f"{relative} imports missing unit: {spec}"
+        imports.append(target.relative_to(SELFHOST.resolve()).as_posix())
+    return tuple(imports)
 
-    assert "class Compiler {" in compiler
-    assert "private CompilerPipeline pipeline;" in compiler
-    assert (
-        "self.pipeline = CompilerPipeline(\n            grammar, stdlibDirectory, sourceFiles, resolutionPolicy);"
-        in compiler
+
+def _import_graph() -> dict[str, set[str]]:
+    return {relative: set(_local_imports(relative)) for relative in EXPECTED_BTRC_FILES}
+
+
+def _cycle_residue(graph: dict[str, set[str]]) -> set[str]:
+    indegree = {node: 0 for node in graph}
+    reverse = {node: set() for node in graph}
+    for node, dependencies in graph.items():
+        for dependency in dependencies:
+            indegree[node] += 1
+            reverse[dependency].add(node)
+    ready = deque(node for node, degree in indegree.items() if degree == 0)
+    while ready:
+        dependency = ready.popleft()
+        for node in reverse[dependency]:
+            indegree[node] -= 1
+            if indegree[node] == 0:
+                ready.append(node)
+    return {node for node, degree in indegree.items() if degree != 0}
+
+
+def _class_declarations() -> dict[str, tuple[str, object]]:
+    declarations: dict[str, tuple[str, object]] = {}
+    for relative in EXPECTED_BTRC_FILES:
+        for declaration in _program(relative).declarations:
+            if type(declaration).__name__ != "ClassDecl":
+                continue
+            assert declaration.name not in declarations, f"duplicate class owner: {declaration.name}"
+            declarations[declaration.name] = (relative, declaration)
+    return declarations
+
+
+def _type_bases(type_expr) -> set[str]:
+    bases = {type_expr.base}
+    for argument in type_expr.generic_args:
+        bases.update(_type_bases(argument))
+    return bases
+
+
+def _retained_owner_graph() -> dict[str, set[str]]:
+    declarations = _class_declarations()
+    graph = {name: set() for name in declarations}
+    for name, (_, declaration) in declarations.items():
+        for member in declaration.members:
+            if type(member).__name__ != "FieldDecl":
+                continue
+            graph[name].update(_type_bases(member.type) & declarations.keys())
+        graph[name].discard(name)
+    return graph
+
+
+def _without_comments(source: str) -> str:
+    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
+    return re.sub(r"//.*", "", source)
+
+
+def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
+    actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
+
+    assert actual == EXPECTED_BTRC_FILES
+    assert len(actual) == 88
+    assert {path.name for path in SELFHOST.glob("*.btrc")} == {"btrcc_main.btrc", "compiler.btrc"}
+
+
+def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
+    missing_classes: list[str] = []
+    for relative in EXPECTED_BTRC_FILES:
+        declarations = _program(relative).declarations
+        if relative in STAGE_MANIFESTS or relative in PUBLIC_ENTRY_POINTS:
+            continue
+        if not any(type(declaration).__name__ == "ClassDecl" for declaration in declarations):
+            missing_classes.append(relative)
+
+    assert missing_classes == []
+
+    classes = _class_declarations()
+    missing_owners = {relative: owner for relative, owner in REQUIRED_OWNER_BY_PATH.items() if owner not in classes}
+    misplaced_owners = {
+        relative: (owner, classes[owner][0])
+        for relative, owner in REQUIRED_OWNER_BY_PATH.items()
+        if owner in classes and classes[owner][0] != relative
+    }
+    assert missing_owners == {}
+    assert misplaced_owners == {}
+
+
+def test_call_lowering_has_one_typed_target_resolution_owner() -> None:
+    expressions = _path("ir/lowering/expressions.btrc").read_text()
+    ownership_calls = _path("ir/lowering/ownership/calls.btrc").read_text()
+
+    declarations = _program("ir/lowering/calls.btrc").declarations
+    classes = {
+        declaration.name
+        for declaration in declarations
+        if type(declaration).__name__ == "ClassDecl"
+    }
+    assert {
+        "CallSignature",
+        "CallTarget",
+        "CallTargetResolver",
+        "CallArgumentPlan",
+        "CallLowerer",
+    } <= classes
+    assert "CallTargetResolver callTargets" in expressions
+    assert "CallTargetResolver targets" in ownership_calls
+    assert "callTargetResolvedParameters" not in expressions
+    assert "paramsForCall" not in expressions
+    assert "parametersFor" not in ownership_calls
+
+
+def test_lexer_owns_its_cursor_and_literal_scanning() -> None:
+    declarations = _program("lexer/lexer.btrc").declarations
+    classes = [declaration for declaration in declarations if type(declaration).__name__ == "ClassDecl"]
+
+    assert [declaration.name for declaration in classes] == ["Lexer"]
+    lexer = classes[0]
+    fields = [member for member in lexer.members if type(member).__name__ == "FieldDecl"]
+    methods = [member for member in lexer.members if type(member).__name__ == "MethodDecl"]
+
+    assert {field.name for field in fields if field.access == "public"} == {"failed", "diagnostic"}
+    assert {field.name for field in fields if field.access == "private"} == {
+        "source",
+        "sourceLen",
+        "grammar",
+        "pos",
+        "line",
+        "col",
+        "tokens",
+        "complete",
+    }
+    assert {method.name for method in methods if method.access == "public"} == {"Lexer", "tokenize"}
+    assert {"readNumber", "readString", "readChar", "readFstring", "appendEscape"} <= {
+        method.name for method in methods if method.access == "private"
+    }
+    assert not any(parameter.type.base == "Lexer" for method in methods for parameter in method.params)
+
+
+def test_stage_manifests_are_import_only_and_no_source_is_textually_included() -> None:
+    included_sources = {
+        relative: _BTRC_INCLUDE.findall(_without_comments(_path(relative).read_text()))
+        for relative in EXPECTED_BTRC_FILES
+        if _BTRC_INCLUDE.search(_without_comments(_path(relative).read_text()))
+    }
+    assert included_sources == {}
+
+    for relative in STAGE_MANIFESTS:
+        body = _without_comments(_path(relative).read_text())
+        statements = [line.strip() for line in body.splitlines() if line.strip()]
+        assert statements
+        assert all(re.fullmatch(r"import\s+[^;]+;", statement) for statement in statements), relative
+
+
+def test_imports_resolve_form_a_dag_and_reach_every_unit() -> None:
+    graph = _import_graph()
+
+    assert _cycle_residue(graph) == set()
+
+    reachable: set[str] = set()
+    pending = list(PUBLIC_ENTRY_POINTS)
+    while pending:
+        relative = pending.pop()
+        if relative in reachable:
+            continue
+        reachable.add(relative)
+        pending.extend(graph[relative])
+
+    assert reachable == EXPECTED_BTRC_FILES
+
+
+def test_retained_collaborators_form_a_dag_without_composition_root_leaks() -> None:
+    graph = _retained_owner_graph()
+
+    assert _cycle_residue(graph) == set()
+
+    forbidden_roots = {"IRLowerer", "SemanticAnalyzer", "Compiler"}
+    leaked_roots = {
+        owner: sorted(dependencies & forbidden_roots)
+        for owner, dependencies in graph.items()
+        if dependencies & forbidden_roots
+    }
+    assert leaked_roots == {}
+    assert graph["Compiler"] & {"CompilerPipeline"} == {"CompilerPipeline"}
+
+    for state_name in ("LoweringContext", "SemanticValidationState"):
+        retained_services = {
+            dependency
+            for dependency in graph[state_name]
+            if dependency.endswith(
+                (
+                    "Analyzer",
+                    "Catalog",
+                    "Lowerer",
+                    "Pipeline",
+                    "Registry",
+                    "Repository",
+                    "Resolver",
+                    "Semantics",
+                    "Validator",
+                )
+            )
+        }
+        assert retained_services == set(), state_name
+
+
+def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> None:
+    expected_owners = {
+        "analyzer/declarations.btrc",
+        "analyzer/expressions.btrc",
+        "analyzer/gpu.btrc",
+        "analyzer/validation/borrows.btrc",
+        "analyzer/validation/calls.btrc",
+        "analyzer/validation/declarations.btrc",
+        "analyzer/validation/names.btrc",
+        "analyzer/validation/ownership.btrc",
+        "ir/gpu/pipeline.btrc",
+        "ir/lowering/callables.btrc",
+        "ir/lowering/calls.btrc",
+        "ir/lowering/concurrency.btrc",
+        "ir/lowering/declarations.btrc",
+        "ir/lowering/expressions.btrc",
+        "ir/lowering/functions.btrc",
+        "ir/lowering/ownership/semantics.btrc",
+        "ir/lowering/statements.btrc",
+        "ir/lowering/strings.btrc",
+        "ir/lowering/types.btrc",
+        "ir/optimization/setjmp/analysis.btrc",
+        "pipeline/pipeline.btrc",
+    }
+    actual_owners = {
+        relative
+        for relative in EXPECTED_BTRC_FILES
+        if "private HostedAbiRepository hostedAbi;" in _path(relative).read_text()
+    }
+    assert actual_owners == expected_owners
+    assert all(
+        "self.hostedAbi." in _path(relative).read_text()
+        for relative in actual_owners
     )
-    assert "class BtrccDriver {" in compiler
-    assert "private FeSourceResolutionPolicy resolutionPolicy;" in compiler
-    assert "private FeSourceFileReader sourceFiles;" in compiler
-    assert "self.resolutionPolicy = FeSourceResolutionPolicy();" in compiler
-    assert "self.sourceFiles = FeSourceFileReader(self.resolutionPolicy);" in compiler
-    assert "self.sourceFiles.readRequired(dataPaths.grammar)" in compiler
-    assert "self.sourceFiles.readRequired(sourcePath)" in compiler
-    assert "class CompilerPipeline {" in pipeline
-    assert "public BtrccCompilationResult compile(" in pipeline
 
-    assert "class BtrccCommandLine {" in options
-    assert "private Vector<string> arguments;" in options
-    assert "BtrccDriverOptions" not in options
-    assert "class string usage()" not in options
-    assert "class BtrccOutput {" in output
-    for loose_helper in (
-        "bool driverWriteStdoutChunk(",
-        "bool driverFlushStdout(",
-        "bool printNoNL(",
-        "bool printLineChecked(",
+    pipeline = _path("pipeline/pipeline.btrc").read_text()
+    analyzer = _path("analyzer/analyzer.btrc").read_text()
+    lowerer = _path("ir/lowering/lowerer.btrc").read_text()
+    models = _path("analyzer/models.btrc").read_text()
+    validation_state = _path("analyzer/validation/types.btrc").read_text()
+    hosted_abi = _path("analyzer/hosted_abi.btrc").read_text()
+    declarations = _path("analyzer/declarations.btrc").read_text()
+
+    assert pipeline.count("HostedAbiRepository(") == 1
+    assert "self.hostedAbi = HostedAbiRepository(" in pipeline
+    assert "HostedAbiRepository" not in models
+    assert "hostedAbi" not in validation_state
+    assert "HostedAbiRepository" not in analyzer.split("public SemanticAnalyzer(", 1)[0]
+    assert "HostedAbiRepository" not in lowerer.split("public IRLowerer(", 1)[0]
+    assert "HostedAbiRepository" not in _path("ir/optimization/optimizer.btrc").read_text()
+    assert "HostedAbiRepository" not in _path("ir/optimization/setjmp/safety.btrc").read_text()
+    assert "lexicalBindingCName" not in models
+    assert "string name, bool typeConflict" in hosted_abi
+    assert "public string sourceFunctionSymbol(string name)" in declarations
+    assert "class string sourceFunctionSymbol" not in declarations
+
+    service_location = {
+        relative: marker
+        for relative in EXPECTED_BTRC_FILES
+        for marker in (".analyzed.hostedAbi", ".state.analyzed.hostedAbi")
+        if marker in _path(relative).read_text()
+    }
+    assert service_location == {}
+
+
+def test_only_explicit_process_entry_points_have_top_level_behavior() -> None:
+    actual: dict[str, list[str]] = {}
+    for relative in EXPECTED_BTRC_FILES:
+        functions = [
+            declaration.name
+            for declaration in _program(relative).declarations
+            if type(declaration).__name__ == "FunctionDecl"
+        ]
+        if functions:
+            actual[relative] = functions
+
+    assert actual == {relative: ["main"] for relative in PUBLIC_ENTRY_POINTS}
+
+
+def test_retired_facades_and_parallel_compilers_cannot_return() -> None:
+    combined = "\n".join(_path(relative).read_text() for relative in EXPECTED_BTRC_FILES)
+
+    for retired in (
+        "IRGen",
+        "SemanticAnalyzerMixin",
+        "CycleRuntimeSourceCatalog",
+        "CycleRuntimeDependencyCatalog",
+        "_UserGenericEmitter",
+        "bindCollaborators",
+        "bindGenerics",
     ):
-        assert loose_helper not in output
+        assert retired not in combined
+
+    assert not any(
+        "utils" in Path(relative).stem or "helpers" in Path(relative).stem for relative in EXPECTED_BTRC_FILES
+    )
 
 
-def test_frontend_scanning_and_recursive_resolution_are_instance_owned() -> None:
-    frontend = _source("frontend.btrc")
-    pipeline = _source("pipeline/pipeline.btrc")
-    visibility = _source("import_visibility.btrc")
-    frontend_main = _source("frontend_main.btrc")
+def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
+    pipeline = _path("pipeline/pipeline.btrc").read_text()
+    lowerer = _path("ir/lowering/lowerer.btrc").read_text()
+    optimizer = _path("ir/optimization/optimizer.btrc").read_text()
+    runtime_catalog = _path("ir/runtime/catalog.btrc").read_text()
+    setjmp_analysis = _path("ir/optimization/setjmp/analysis.btrc").read_text()
+    setjmp_safety = _path("ir/optimization/setjmp/safety.btrc").read_text()
+    cycle_boundaries = _path("ir/lowering/ownership/cycle_boundaries.btrc").read_text()
+    context = _path("ir/lowering/context.btrc").read_text()
+    model = _path("ir/model.btrc").read_text()
 
-    assert "class FeDirectiveScanner {" in frontend
-    assert "private GrammarInfo grammar;" in frontend
-    assert "public Vector<FeDirective> scan(string source)" in frontend
-    assert "private void inlinePaths(" in frontend
-    assert "private void resolveInto(" in frontend
-    assert "self.dependencies = FeDependencyGraph();" in frontend
+    lower_call = pipeline.index("IRModule module = lowerer.lower(program);")
+    optimize_call = pipeline.index("optimizer.optimize(module, options.runDce);")
+    emit_call = pipeline.index("emitter.emit(module)")
+    assert lower_call < optimize_call < emit_call
 
-    for loose_behavior in (
-        "feGrammarCache",
-        "GrammarInfo feGrammar(",
-        "feScanDirectives(",
-        "feInlinePaths(",
-        "feResolveTracedInto",
-        "feResolveIncludes(",
-        "feResolveFrontendSource(",
+    for forbidden in (
+        "../optimization/",
+        "../runtime/references.btrc",
+        "setDceEnabled",
+        "dceEnabled",
+        "collectHelpers",
+        "IROptimizer",
+        "SetjmpSafetyPlanner",
+        "CleanupSlotValidator",
+        "installProgramBoundary",
     ):
-        assert loose_behavior not in frontend
+        assert forbidden not in lowerer
 
-    assert "self.grammar, self.stdlib," in pipeline
-    assert "program, resolved, self.stdlibSymbols" in pipeline
-    assert "Lexer lexer = Lexer(source, self.grammar);" in visibility
-    assert "Parser parser = Parser(tokens, self.grammar);" in visibility
-    assert "FeFrontendResolver resolver = FeFrontendResolver(" in frontend_main
-    assert "resolver.resolve(src, path)" in frontend_main
+    optimize = optimizer[optimizer.index("public void optimize(") : optimizer.index("private void eliminateUnreachable(")]
+    assert optimize.index("self.setjmpSafety.apply(module)") < optimize.index("CleanupSlotValidator(")
+    assert optimize.index("CleanupSlotValidator(") < optimize.index("self.eliminateUnreachable(module)")
+    assert optimize.index("CycleReturnBoundaryLowerer(") < optimize.index("self.normalizeUnusedParameters(module)")
+    assert optimize.index("self.normalizeUnusedParameters(module)") < optimize.index("materializeInto(")
+    assert "GpuPipeline.eliminateUnreachable(module);" in optimizer
+    assert "private GpuPipeline" not in optimizer
 
+    assert "public void materializeInto(" in runtime_catalog
+    assert "class CycleReturnBoundaryLowerer {" in cycle_boundaries
+    assert "private IRTemporaryNames temporaryNames;" in cycle_boundaries
+    assert "LoweringContext" not in cycle_boundaries[
+        cycle_boundaries.index("class CycleReturnBoundaryLowerer {") : cycle_boundaries.index("class CycleBoundaryLowerer {")
+    ]
+    assert "class IRTemporaryNames {" in model
+    assert "public IRTemporaryNames temporary_names;" in model
+    assert "private IRTemporaryNames temporaryNameState;" in context
+    assert "module.temporary_names = self.temporaryNameState;" in context
 
-def test_frontend_source_text_and_directory_policy_have_real_owners() -> None:
-    frontend = _source("frontend.btrc")
-    limits = _source("frontend_limits.btrc")
-    source_io = _source("frontend_source_io.btrc")
-
-    assert "class FeSourceText {" in frontend
-    assert "private string content;" in frontend
-    for text_operation in (
-        "public Vector<string> lines()",
-        "public int lineCount()",
-        "public bool startsWithAt(",
-        "class string joinLines(",
-    ):
-        assert text_operation in frontend
-
-    assert "class FeSourceDirectoryScanner {" in frontend
-    assert "private FeSourceResolutionPolicy policy;" in frontend
-    assert "private void sort(Vector<string> entries)" in frontend
-    assert "public Vector<string> sortedEntries(string path)" in frontend
-    assert "public Vector<string> sortedEntriesWithinBudget(" in frontend
-    assert "private FeSourceDirectoryScanner sourceDirectories;" in frontend
-    assert frontend.count("FeSourceDirectoryScanner(resolutionPolicy)") == 2
-    assert "stdlib, emptySnapshot, self.sourceDirectories" in frontend
-    assert "self.stdlib, currentSnapshot, self.sourceDirectories" in frontend
-
-    for obsolete_loose_behavior in (
-        "feSplitLines(",
-        "feJoinLines(",
-        "feSortedListDir(",
-        "feSortedListDirBudget(",
-        "feRawStartsWith(",
-    ):
-        assert obsolete_loose_behavior not in frontend
-
-    assert "class FeUtf8SourceDecoder {" in source_io
-    assert "private bool continuation(" in source_io
-    assert "private bool validAt(" in source_io
-    assert "private int widthAt(" in source_io
-    assert "public string decode(Bytes data, string path)" in source_io
-    assert "class FeSourceFileReader {" in source_io
-    assert "private FeSourceResolutionPolicy policy;" in source_io
-    assert "private FeUtf8SourceDecoder decoder;" in source_io
-    assert "public string readRequired(string path)" in source_io
-    assert "FE_MAX_SOURCE_BYTES" not in source_io
-    for obsolete_loose_behavior in (
-        "feSourceReadError(",
-        "feUtf8Continuation(",
-        "feValidUtf8At(",
-        "feUtf8Width(",
-        "feDecodeSource(",
-        "feReadRequiredSource(",
-        "feReadRequiredDirectory(",
-    ):
-        assert obsolete_loose_behavior not in source_io
-
-    assert "class FeSourceResolutionPolicy {" in limits
-    for private_limit in (
-        "private int maximumSourceBytes;",
-        "private int maximumFiles;",
-        "private int maximumDirectoryEntries;",
-        "private int maximumImportDepth;",
-    ):
-        assert private_limit in limits
-    for owned_operation in (
-        "public FeResolutionBudget newResolutionBudget()",
-        "public FeDirectoryScanBudget newDirectoryBudget(string root)",
-        "public void validateCombinedSource(",
-    ):
-        assert owned_operation in limits
-    assert "private FeSourceResolutionPolicy policy;" in limits
-    assert "class FeResolutionBudget {" in limits
-    assert "class FeDirectoryScanBudget {" in limits
-    for obsolete_global in (
-        "FE_MAX_RESOLVED_SOURCE_BYTES",
-        "FE_MAX_RESOLVED_FILES",
-        "FE_MAX_IMPORT_SCAN_ENTRIES",
-        "FE_MAX_IMPORT_DEPTH",
-        "feCheckCombinedSourceSize(",
-    ):
-        assert obsolete_global not in limits
-
-
-def test_import_resolution_has_one_compilation_local_owner() -> None:
-    frontend = _source("frontend.btrc")
-    owner = frontend.split("class FeImportResolver {", 1)[1].split("/* ----- top-level entry:", 1)[0]
-
-    assert "private FeStdlibRepository stdlib;" in owner
-    assert "private FeStdlibRootSnapshot stdlibSnapshot;" in owner
-    assert "private FeSourceDirectoryScanner sourceDirectories;" in owner
-    assert "private FeSourceResolutionPolicy resolutionPolicy;" in owner
-    for public_operation in (
-        "public string resolveIncludePath(",
-        "public Vector<string> resolveSpec(",
-        "public string renderCInclude(",
-    ):
-        assert public_operation in owner
-    assert owner.count("    public ") == 4  # constructor plus three operations
-    for private_operation in (
-        "private void collectTree(",
-        "private void sortPaths(",
-        "private Vector<string> resolveRelative(",
-        "private bool validIdentifier(",
-        "private bool packageImportSpec(",
-        "private Vector<string> stdlibModuleNames(",
-        "private void rejectInvalidSpec(",
-        "private bool cTrigraphSuffix(",
-    ):
-        assert private_operation in owner
-
-    for obsolete_loose_behavior in (
-        "feResolveIncludePath(",
-        "feWalkCollect(",
-        "feSortPaths(",
-        "feRelativeImportPaths(",
-        "feImportIdentifier(",
-        "fePackageImportSpec(",
-        "feStdModuleNames(",
-        "feInvalidImportSpec(",
-        "feImportSpecPaths(",
-        "feCTrigraphSuffix(",
-        "feCIncludeDirective(",
-    ):
-        assert obsolete_loose_behavior not in frontend
-
-    assert "private FeImportResolver importResolver;" in frontend
-    assert "stdlib, emptySnapshot, self.sourceDirectories,\n            self.resolutionPolicy" in frontend
-    assert "self.stdlib, currentSnapshot, self.sourceDirectories,\n            self.resolutionPolicy" in frontend
-    assert "self.importResolver.resolveIncludePath(" in frontend
-    assert "self.importResolver.resolveSpec(" in frontend
-    assert "self.importResolver.renderCInclude(" in frontend
-
-
-def test_stdlib_behavior_has_one_explicit_instance_owner() -> None:
-    frontend = _source("frontend.btrc")
-    compiler = _source("compiler.btrc")
-    pipeline = _source("pipeline/pipeline.btrc")
-    visibility = _source("import_visibility.btrc")
-
-    assert "class FeStdlibRepository {" in frontend
-    assert "class FeStdlibRootSnapshot {" in frontend
-    assert "private Vector<string> paths;" in frontend
-    assert "private Vector<string> sources;" in frontend
-    assert "private string directoryPath;" in frontend
-    assert "private FeDirectiveScanner directiveScanner;" in frontend
-    assert "private FeSourceFileReader sourceFiles;" in frontend
-    assert "private FeSourceResolutionPolicy resolutionPolicy;" in frontend
-    assert "self.sourceFiles = sourceFiles;" in frontend
-    assert "self.resolutionPolicy = resolutionPolicy;" in frontend
-    for owned_behavior in (
-        "public FeStdlibRootSnapshot rootSnapshot()",
-        "public string findFileForCompilation(",
-        "public FeStdlibLookup requiredModuleForCompilation(",
-        "public Vector<string> rootPaths(",
-        "public string readSourceForCompilation(",
-        "public string sourceAtSnapshot(",
-    ):
-        assert owned_behavior in frontend
-    assert "private Vector<string> discoverFiles()" in frontend
-    assert "private Map<string, bool> definedTypeNames(" in frontend
-    assert "public string findFile(string includePath)" not in frontend
-    assert "public string source(string userSource)" not in frontend
-    for leaked_index_lifecycle in (
-        "beginSymbolIndex(",
-        "indexSymbol(",
-        "completeSymbolIndex(",
-        "mergeSymbolFiles(",
-        "hasSymbolIndex(",
-    ):
-        assert leaked_index_lifecycle not in frontend
-
-    for loose_behavior in (
-        "feConfiguredGrammarPath",
-        "feConfiguredStdlibDirectory",
-        "feConfigureDataPaths(",
-        "feGrammarPath(",
-        "feStdlibDir(",
-        "feDiscoverStdlibFiles(",
-        "feFindStdlibFile(",
-        "feStdlibModulePath(",
-        "feRequiredStdlibModulePath(",
-        "feStdlibGlobPaths(",
-        "feStdlibFileSource(",
-        "feGetStdlibSource(",
-        "feDefinedNames(",
-    ):
-        assert loose_behavior not in frontend
-
-    assert not (SELFHOST / "frontend_data_paths.btrc").exists()
-    assert "feConfigureDataPaths" not in compiler
-    assert "private FeStdlibRepository stdlib;" in pipeline
-    assert "FeStdlibRepository(\n            stdlibDirectory, grammar, sourceFiles, resolutionPolicy)" in pipeline
-    assert "private FeStdlibSymbolIndex stdlibSymbols;" in pipeline
-    assert "FeStdlibSymbolIndex(grammar)" in pipeline
-    assert pipeline.count("FeStdlibSymbolIndex(") == 1
-    compile_body = pipeline.split("public BtrccCompilationResult compile(", 1)[1]
-    assert "FeStdlibSymbolIndex(" not in compile_body
-    assert "program, resolved, self.stdlibSymbols" in pipeline
-    assert "class FeStdlibSymbolIndex {" in visibility
-    assert "Map<string, Vector<string>> nextSymbolFiles = {};" in visibility
-    assert "self.symbolFiles = nextSymbolFiles;" in visibility
-    assert "self.indexedSnapshot = snapshot;" in visibility
-    assert "self.resolved.stdlibSnapshot" in visibility
-    assert "public FeStdlibSymbolIndexResult mergeSnapshotInto(" in visibility
-    assert "self.stdlibSymbols.mergeSnapshotInto(" in visibility
-
-
-def test_strict_imports_are_the_application_default() -> None:
-    models = _source("pipeline/models.btrc")
-    options = _source("driver_options.btrc")
-    frontend_main = _source("frontend_main.btrc")
-
-    assert "self.strictImports = true;" in models
-    assert 'option.equals("--relaxed-imports")' in options
-    assert "options.strictImports = false;" in options
-    assert "bool strictImports = true;" in frontend_main
-    assert 'option.equals("--relaxed-imports")' in frontend_main
-    assert "strictImports = false;" in frontend_main
+    assert "GeneratedHostedAbiData" not in setjmp_analysis
+    assert "HostedAbiRepository hostedAbi" in setjmp_analysis
+    assert "HostedAbiRepository" not in setjmp_safety
+    assert "private SetjmpEffectAnalysis effectAnalysis;" in setjmp_safety
+    assert "self.effectAnalysis.analyze(module)" in setjmp_safety

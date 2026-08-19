@@ -1,0 +1,1077 @@
+import std.map;
+import std.strings;
+import std.vector;
+import ../../analyzer/declarations.btrc;
+import ../../analyzer/expressions.btrc;
+import ../../analyzer/generics.btrc;
+import ../../analyzer/hosted_abi.btrc;
+import ../../analyzer/models.btrc;
+import ../../analyzer/types.btrc;
+import ../../analyzer/validation/calls.btrc;
+import ../../generated/ast/node.btrc;
+import ../../syntax/identity.btrc;
+import ../../syntax/types.btrc;
+import ../model.btrc;
+import ./callable_flow.btrc;
+import ./callables.btrc;
+import ./context.btrc;
+import ./types.btrc;
+
+/* One call-target domain serves semantic signature queries, ownership
+ * planning, argument binding, and final IR dispatch. Resolution never lowers
+ * an operand; recursive expression lowering consumes the plan in source order
+ * and returns the resulting values to CallLowerer for parameter-order
+ * materialization. */
+
+enum CallTargetKind {
+    CALL_TARGET_UNRESOLVED = 0,
+    CALL_TARGET_FUNCTION,
+    CALL_TARGET_METHOD,
+    CALL_TARGET_CONSTRUCTOR,
+    CALL_TARGET_CALLABLE_VALUE,
+    CALL_TARGET_HOSTED,
+    CALL_TARGET_BUILTIN,
+};
+
+class CallSignature {
+    public Vector<Node> parameters;
+    public Node? returnType;
+    public Map<string, Node> substitutions;
+    public bool variadic;
+
+    public CallSignature() {
+        self.parameters = [];
+        self.returnType = null;
+        self.substitutions = {};
+        self.variadic = false;
+    }
+}
+
+class CallTarget {
+    public int kind;
+    public Node call;
+    public CallSignature signature;
+    public Node? declaration;
+    public Node? receiver;
+    public Node? receiverType;
+    public Node? instanceType;
+    public Node? callableType;
+    public string symbol;
+    public bool receiverRequired;
+    public bool specializedBuiltin;
+    public bool languageCall;
+    public bool closureEnvironment;
+    public string closureFunction;
+    public string closureStorage;
+    public string defaultCName;
+    public string ownerName;
+    public string classPrefix;
+    public Node? selfType;
+
+    public CallTarget(Node call) {
+        self.kind = CALL_TARGET_UNRESOLVED;
+        self.call = call;
+        self.signature = CallSignature();
+        self.declaration = null;
+        self.receiver = null;
+        self.receiverType = null;
+        self.instanceType = null;
+        self.callableType = null;
+        self.symbol = "";
+        self.receiverRequired = false;
+        self.specializedBuiltin = false;
+        self.languageCall = false;
+        self.closureEnvironment = false;
+        self.closureFunction = "";
+        self.closureStorage = "";
+        self.defaultCName = "";
+        self.ownerName = "";
+        self.classPrefix = "";
+        self.selfType = null;
+    }
+
+    public bool resolved() {
+        return self.kind != CALL_TARGET_UNRESOLVED;
+    }
+}
+
+class CallArgumentSlot {
+    public Node parameter;
+    public Node expression;
+    public int sourceIndex;
+    public int parameterIndex;
+    public bool usesDefault;
+
+    public CallArgumentSlot(Node parameter, Node expression,
+            int sourceIndex, int parameterIndex, bool usesDefault) {
+        self.parameter = parameter;
+        self.expression = expression;
+        self.sourceIndex = sourceIndex;
+        self.parameterIndex = parameterIndex;
+        self.usesDefault = usesDefault;
+    }
+}
+
+class CallArgumentPlan {
+    public CallTarget target;
+    public Vector<CallArgumentSlot> evaluations;
+    public int resultCount;
+
+    public CallArgumentPlan(CallTarget target) {
+        self.target = target;
+        self.evaluations = [];
+        self.resultCount = 0;
+    }
+}
+
+class CallTargetResolver {
+    private Analyzed analyzed;
+    private HostedAbiRepository hostedAbi;
+    private DeclarationRegistry declarations;
+    private ExpressionTypeResolver expressionTypes;
+    private CallableValueSemantics callableValues;
+    private CTypeLowerer cTypes;
+    private LoweringContext context;
+
+    public CallTargetResolver(Analyzed analyzed,
+            HostedAbiRepository hostedAbi,
+            DeclarationRegistry declarations,
+            ExpressionTypeResolver expressionTypes,
+            CallableValueSemantics callableValues,
+            CTypeLowerer cTypes, LoweringContext context) {
+        self.analyzed = analyzed;
+        self.hostedAbi = hostedAbi;
+        self.declarations = declarations;
+        self.expressionTypes = expressionTypes;
+        self.callableValues = callableValues;
+        self.cTypes = cTypes;
+        self.context = context;
+    }
+
+    private void fail(string message) {
+        fprintf(stderr, "error: %s\n", message);
+        exit(1);
+    }
+
+    private Node bodyType(Node? typeExpr) {
+        return self.cTypes.resolveBodyType(
+            typeExpr, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0);
+    }
+
+    public Node? expressionType(
+            Node? expression, Map<string, Node> variableTypes) {
+        Node? result = self.context.callDefaultTypeDepth > 0
+            ? self.expressionTypes.inferSpecializationWithoutMemo(
+                expression, variableTypes)
+            : self.expressionTypes.inferSpecialization(
+                expression, variableTypes);
+        if (result == null) { return null; }
+        return self.bodyType(result);
+    }
+
+    private Node resolvedParameter(
+            Node source, Map<string, Node> substitutions) {
+        Node parameter = Node();
+        parameter.kind = NK_PARAM;
+        parameter.name = source.name;
+        parameter.type = SemanticTypeSystem.resolveGenericType(
+            source.type, substitutions, self.analyzed);
+        parameter.default_ = source.default_;
+        parameter.keep_ = source.keep_;
+        parameter.line = source.line;
+        parameter.col = source.col;
+        return parameter;
+    }
+
+    private Vector<Node> resolvedParameters(
+            Vector<Node> sources, Map<string, Node> substitutions) {
+        Vector<Node> parameters = [];
+        int index = 0;
+        while (index < sources.len) {
+            parameters.push(self.resolvedParameter(
+                sources.get(index), substitutions));
+            index = index + 1;
+        }
+        return parameters;
+    }
+
+    private Node syntheticParameter(string name, Node? typeExpr) {
+        Node parameter = Node();
+        parameter.kind = NK_PARAM;
+        parameter.name = name;
+        parameter.type = typeExpr;
+        return parameter;
+    }
+
+    private CallSignature declarationSignature(
+            Node declaration, Map<string, Node> substitutions) {
+        CallSignature signature = CallSignature();
+        signature.parameters = self.resolvedParameters(
+            declaration.params, substitutions);
+        signature.substitutions = substitutions;
+        if (declaration.return_type != null) {
+            signature.returnType = SemanticTypeSystem.resolveGenericType(
+                declaration.return_type, substitutions, self.analyzed);
+        }
+        return signature;
+    }
+
+    private CallSignature callableSignature(Node callableType) {
+        CallSignature signature = CallSignature();
+        if (callableType.generic_args.len > 0) {
+            signature.returnType = self.bodyType(
+                callableType.generic_args.get(0));
+        }
+        int index = 1;
+        while (index < callableType.generic_args.len) {
+            signature.parameters.push(self.syntheticParameter(
+                Strings.fromInt(index - 1),
+                self.bodyType(callableType.generic_args.get(index))));
+            index = index + 1;
+        }
+        return signature;
+    }
+
+    private CallSignature hostedSignature(string name) {
+        CallSignature signature = CallSignature();
+        signature.returnType = self.hostedAbi.semanticResultType(name);
+        signature.variadic = self.hostedAbi.variadic(name);
+        int count = self.hostedAbi.parameterCount(name);
+        if (count < 0) {
+            signature.variadic = true;
+            return signature;
+        }
+        int index = 0;
+        while (index < count) {
+            Node typeExpr = SemanticTypeSystem.primitive(
+                self.hostedAbi.parameterBase(name, index));
+            typeExpr.pointer_depth =
+                self.hostedAbi.parameterPointerDepth(name, index);
+            typeExpr.is_const =
+                self.hostedAbi.parameterConst(name, index);
+            signature.parameters.push(self.syntheticParameter(
+                Strings.fromInt(index), typeExpr));
+            index = index + 1;
+        }
+        return signature;
+    }
+
+    private bool sourceHasToString(Node? sourceType) {
+        if (sourceType == null || sourceType.is_array) { return false; }
+        Node? method = null;
+        if (self.analyzed.isClass(sourceType.base)) {
+            method = self.analyzed.classMethod(
+                sourceType.base, "toString");
+        } else if (self.analyzed.isGenericClass(sourceType.base)) {
+            method = self.analyzed.genericClassMethod(
+                sourceType.base, "toString");
+        }
+        return method != null && method.kind == NK_METHOD_DECL
+            && method.params.len == 0 && method.return_type != null
+            && TypeComposition.isSemanticScalarString(method.return_type);
+    }
+
+    private Node? richEnumVariant(
+            string enumName, string variantName) {
+        if (!self.analyzed.richEnumTable.has(enumName)) { return null; }
+        Node declaration = self.analyzed.richEnumTable.get(enumName);
+        int index = 0;
+        while (index < declaration.variants.len) {
+            Node variant = declaration.variants.get(index);
+            if (variant.name == variantName) { return variant; }
+            index = index + 1;
+        }
+        return null;
+    }
+
+    private string methodOwner(string receiverClass, Node method) {
+        string current = receiverClass;
+        string key = AstIdentity.key(method);
+        while (current != "" && self.analyzed.classTable.has(current)) {
+            Node declaration = self.analyzed.classTable.get(current);
+            int index = 0;
+            while (index < declaration.members.len) {
+                if (AstIdentity.key(declaration.members.get(index)) == key) {
+                    return current;
+                }
+                index = index + 1;
+            }
+            current = DeclarationRegistry.parentName(declaration);
+        }
+        return receiverClass;
+    }
+
+    private Map<string, Node> targetTypeMap(Node call,
+            Node? receiverType, Node? method,
+            Map<string, Node> variableTypes) {
+        Map<string, Node> substitutions = {};
+        if (call.kind == NK_NEW_EXPR) {
+            Node instance = self.bodyType(call.type);
+            if (self.analyzed.isGenericClass(instance.base)) {
+                return SemanticTypeSystem.genericTypeMap(
+                    self.analyzed, instance);
+            }
+            return substitutions;
+        }
+        Node? callee = call.callee;
+        if (callee != null && callee.kind == NK_IDENTIFIER
+                && !variableTypes.has(callee.name)
+                && self.analyzed.isGenericClass(callee.name)) {
+            Node? instance = self.expressionType(call, variableTypes);
+            if (instance != null && instance.base == callee.name) {
+                return SemanticTypeSystem.genericTypeMap(
+                    self.analyzed, instance);
+            }
+        }
+        if (receiverType != null
+                && self.analyzed.isGenericClass(receiverType.base)) {
+            substitutions = SemanticTypeSystem.genericTypeMap(
+                self.analyzed, receiverType);
+        }
+        if (method != null && method.kind == NK_METHOD_DECL) {
+            substitutions = SemanticTypeSystem.methodCallTypeMap(
+                self.analyzed, call, method, substitutions);
+        }
+        return substitutions;
+    }
+
+    private void configureDefaultMethodTarget(
+            CallTarget target, string receiverClass,
+            Node receiverType, Node method) {
+        string owner = self.methodOwner(receiverClass, method);
+        string prefix = receiverType.generic_args.len > 0
+            ? TypeIdentity.mangleGenericType(
+                owner, receiverType.generic_args)
+            : owner;
+        target.ownerName = owner;
+        target.classPrefix = prefix;
+        target.defaultCName = prefix + "_" + method.name;
+        if (method.access != "class") {
+            Node selfType = SemanticTypeSystem.namedClass(owner);
+            selfType.pointer_depth = 1;
+            target.selfType = selfType;
+        }
+    }
+
+    private CallTarget callableTarget(Node call, Node callee,
+            Node callableType, Map<string, Node> variableTypes,
+            CallableBoundaryContext boundary) {
+        CallTarget target = CallTarget(call);
+        target.kind = CALL_TARGET_CALLABLE_VALUE;
+        target.callableType = callableType;
+        target.signature = self.callableSignature(callableType);
+        if (callee.kind == NK_LAMBDA_EXPR) {
+            target.signature.parameters = self.resolvedParameters(
+                callee.params, {});
+        }
+        target.signature.returnType = self.expressionType(
+            call, variableTypes);
+        target.receiver = callee;
+        int abi = self.callableValues.expressionAbi(callee, boundary);
+        if (abi == 2) {
+            self.fail("managed-return callable target has ambiguous ownership ABI");
+        }
+        target.languageCall = abi == 1 || callee.kind == NK_LAMBDA_EXPR;
+        if (callee.kind == NK_IDENTIFIER
+                && boundary.hasEnvironment(callee.name)) {
+            target.closureEnvironment = true;
+            target.closureFunction =
+                boundary.environmentFunction(callee.name);
+            target.closureStorage =
+                boundary.environmentStorage(callee.name);
+            target.symbol = target.closureFunction;
+            target.receiver = null;
+        }
+        return target;
+    }
+
+    private CallSignature builtinSignature(Node call,
+            Node? receiverType, Map<string, Node> variableTypes) {
+        CallSignature signature = CallSignature();
+        signature.returnType = self.expressionType(call, variableTypes);
+        Node? callee = call.callee;
+        Node? mutexType = null;
+        string method = "";
+        if (call.kind == NK_NEW_EXPR) {
+            mutexType = self.bodyType(call.type);
+        } else if (callee != null && callee.kind == NK_IDENTIFIER
+                && callee.name == "Mutex"
+                && !variableTypes.has(callee.name)
+                && !self.analyzed.funcNames.has(callee.name)
+                && !self.analyzed.isClass(callee.name)) {
+            mutexType = self.expressionType(call, variableTypes);
+        } else if (callee != null
+                && callee.kind == NK_FIELD_ACCESS_EXPR) {
+            mutexType = receiverType;
+            method = callee.field;
+        }
+        Node? payload = SemanticTypeSystem.mutexPayloadFor(
+            self.analyzed, mutexType);
+        if (payload != null && (method == "" || method == "set")) {
+            signature.parameters.push(
+                self.syntheticParameter("value", payload));
+            return signature;
+        }
+        if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR
+                && SemanticTypeSystem.isString(receiverType)) {
+            if (CallValidator.oneStringArgMethod(callee.field)) {
+                signature.parameters.push(self.syntheticParameter(
+                    "value", SemanticTypeSystem.primitive("string")));
+            } else if (callee.field == "charAt"
+                    || callee.field == "repeat"
+                    || callee.field == "zfill") {
+                signature.parameters.push(self.syntheticParameter(
+                    "value", SemanticTypeSystem.primitive("int")));
+            } else if (callee.field == "substring") {
+                signature.parameters.push(self.syntheticParameter(
+                    "start", SemanticTypeSystem.primitive("int")));
+                signature.parameters.push(self.syntheticParameter(
+                    "length", SemanticTypeSystem.primitive("int")));
+            } else if (callee.field == "find") {
+                signature.parameters.push(self.syntheticParameter(
+                    "value", SemanticTypeSystem.primitive("string")));
+                signature.parameters.push(self.syntheticParameter(
+                    "start", SemanticTypeSystem.primitive("int")));
+            } else if (callee.field == "replace") {
+                signature.parameters.push(self.syntheticParameter(
+                    "old", SemanticTypeSystem.primitive("string")));
+                signature.parameters.push(self.syntheticParameter(
+                    "replacement", SemanticTypeSystem.primitive("string")));
+            } else if (callee.field == "padLeft"
+                    || callee.field == "padRight"
+                    || callee.field == "center") {
+                signature.parameters.push(self.syntheticParameter(
+                    "width", SemanticTypeSystem.primitive("int")));
+                signature.parameters.push(self.syntheticParameter(
+                    "fill", SemanticTypeSystem.primitive("char")));
+            }
+            return signature;
+        }
+        if (callee != null && callee.kind == NK_IDENTIFIER
+                && callee.name == "print"
+                && !variableTypes.has(callee.name)
+                && !self.analyzed.funcNames.has(callee.name)
+                && !self.analyzed.isClass(callee.name)) {
+            int index = 0;
+            while (index < call.args.len) {
+                Node? sourceType = self.expressionType(
+                    call.args.get(index), variableTypes);
+                Node? targetType = sourceType;
+                if (self.sourceHasToString(sourceType)) {
+                    targetType = SemanticTypeSystem.primitive("string");
+                }
+                if (targetType == null) {
+                    targetType = SemanticTypeSystem.primitive("int");
+                }
+                signature.parameters.push(self.syntheticParameter(
+                    Strings.fromInt(index), targetType));
+                index = index + 1;
+            }
+        }
+        return signature;
+    }
+
+    private CallTarget constructorTarget(Node call, Node instance,
+            Map<string, Node> variableTypes) {
+        CallTarget target = CallTarget(call);
+        target.kind = CALL_TARGET_CONSTRUCTOR;
+        target.instanceType = instance;
+        target.signature.returnType = instance;
+        target.languageCall = true;
+        string base = instance.base;
+        Node? constructor = self.analyzed.isGenericClass(base)
+            ? self.analyzed.genericClassConstructor(base)
+            : self.analyzed.classConstructor(base);
+        Map<string, Node> substitutions =
+            self.targetTypeMap(call, null, constructor, variableTypes);
+        if (constructor != null) {
+            target.declaration = constructor;
+            target.signature = self.declarationSignature(
+                constructor, substitutions);
+            target.signature.returnType = instance;
+        } else {
+            target.signature.substitutions = substitutions;
+        }
+        string prefix = instance.generic_args.len > 0
+            ? TypeIdentity.mangleGenericType(base, instance.generic_args)
+            : base;
+        target.symbol = prefix + "_new";
+        target.defaultCName = target.symbol;
+        target.ownerName = base;
+        target.classPrefix = prefix;
+        return target;
+    }
+
+    private CallTarget methodTarget(Node call, Node receiver,
+            Node receiverType, Node method,
+            Map<string, Node> variableTypes, bool receiverRequired) {
+        CallTarget target = CallTarget(call);
+        target.kind = CALL_TARGET_METHOD;
+        target.declaration = method;
+        target.receiver = receiverRequired ? receiver : null;
+        target.receiverType = receiverType;
+        target.receiverRequired = receiverRequired;
+        target.languageCall = true;
+        Map<string, Node> substitutions = self.targetTypeMap(
+            call, receiverType, method, variableTypes);
+        target.signature = self.declarationSignature(
+            method, substitutions);
+        string prefix = receiverType.generic_args.len > 0
+            ? TypeIdentity.mangleGenericType(
+                receiverType.base, receiverType.generic_args)
+            : receiverType.base;
+        target.symbol = prefix + "_" + method.name;
+        if (method.generic_params.len > 0
+                && self.analyzed.methodGenCallArgs.has(
+                    AstIdentity.key(call))) {
+            target.symbol = GenericSpecializer.genericMethodInstanceName(
+                receiverType.base, receiverType.generic_args,
+                method.name,
+                self.analyzed.methodGenCallArgs.get(
+                    AstIdentity.key(call)));
+        }
+        self.configureDefaultMethodTarget(
+            target, receiverType.base, receiverType, method);
+        return target;
+    }
+
+    private CallTarget builtinTarget(Node call, string symbol,
+            Node? receiver, Node? receiverType,
+            Map<string, Node> variableTypes) {
+        CallTarget target = CallTarget(call);
+        target.kind = CALL_TARGET_BUILTIN;
+        target.symbol = symbol;
+        target.receiver = receiver;
+        target.receiverType = receiverType;
+        target.receiverRequired = receiver != null;
+        target.specializedBuiltin = true;
+        target.signature = self.builtinSignature(
+            call, receiverType, variableTypes);
+        Node? callee = call.callee;
+        if (call.kind == NK_NEW_EXPR
+                && receiverType != null
+                && receiverType.base == "Mutex") {
+            target.languageCall = true;
+        } else if (callee != null
+                && callee.kind == NK_IDENTIFIER
+                && callee.name == "Mutex") {
+            target.languageCall = true;
+        } else if (callee != null
+                && callee.kind == NK_FIELD_ACCESS_EXPR
+                && receiverType != null
+                && ((receiverType.base == "Thread"
+                        && callee.field == "join")
+                    || (receiverType.base == "Mutex"
+                        && callee.field == "get"))) {
+            target.languageCall = true;
+        }
+        return target;
+    }
+
+    private CallTarget resolveNew(
+            Node call, Map<string, Node> variableTypes) {
+        Node instance = self.bodyType(call.type);
+        if (instance.base == "Mutex"
+                && !self.analyzed.isClass(instance.base)
+                && !self.analyzed.isGenericClass(instance.base)) {
+            return self.builtinTarget(
+                call, "__btrc_mutex_val_create", null,
+                instance, variableTypes);
+        }
+        if (self.analyzed.isClass(instance.base)
+                || self.analyzed.isGenericClass(instance.base)) {
+            return self.constructorTarget(
+                call, instance, variableTypes);
+        }
+        return self.builtinTarget(
+            call, instance.base + "_new", null,
+            instance, variableTypes);
+    }
+
+    private CallTarget resolveIdentifier(Node call, Node callee,
+            Map<string, Node> variableTypes,
+            CallableBoundaryContext boundary) {
+        string name = callee.name;
+        if (variableTypes.has(name)
+                || boundary.hasEnvironment(name)) {
+            Node? callableType = SemanticTypeSystem.directFunctionPointer(
+                self.expressionType(callee, variableTypes), self.analyzed);
+            if (callableType != null) {
+                return self.callableTarget(
+                    call, callee, callableType, variableTypes, boundary);
+            }
+        }
+        if (self.analyzed.isClass(name)) {
+            Node instance = SemanticTypeSystem.namedClass(name);
+            return self.constructorTarget(call, instance, variableTypes);
+        }
+        if (self.analyzed.isGenericClass(name)) {
+            Node? instance = self.expressionType(call, variableTypes);
+            if (instance != null && instance.base == name
+                    && instance.generic_args.len
+                        == self.analyzed.genericClassTable.get(
+                            name).generic_params.len) {
+                return self.constructorTarget(
+                    call, instance, variableTypes);
+            }
+            self.fail("cannot resolve generic constructor instance '"
+                + name + "'");
+        }
+        if (self.analyzed.hostedCallKeys.has(AstIdentity.key(call))
+                && self.hostedAbi.exactFunction(name)) {
+            CallTarget hosted = CallTarget(call);
+            hosted.kind = CALL_TARGET_HOSTED;
+            hosted.symbol = name;
+            hosted.signature = self.hostedSignature(name);
+            return hosted;
+        }
+        if (self.analyzed.funcTable.has(name)) {
+            CallTarget functionTarget = CallTarget(call);
+            functionTarget.kind = CALL_TARGET_FUNCTION;
+            functionTarget.declaration = self.analyzed.funcTable.get(name);
+            functionTarget.signature = self.declarationSignature(
+                functionTarget.declaration, {});
+            functionTarget.symbol = self.declarations.sourceCallSymbol(
+                name, call);
+            functionTarget.defaultCName =
+                self.declarations.sourceFunctionSymbol(name);
+            functionTarget.languageCall = true;
+            return functionTarget;
+        }
+        return self.builtinTarget(
+            call, name, null, null, variableTypes);
+    }
+
+    private CallTarget resolveField(Node call, Node callee,
+            Map<string, Node> variableTypes,
+            CallableBoundaryContext boundary) {
+        Node? callableType = SemanticTypeSystem.directFunctionPointer(
+            self.expressionType(callee, variableTypes), self.analyzed);
+        if (callableType != null) {
+            return self.callableTarget(
+                call, callee, callableType, variableTypes, boundary);
+        }
+        Node receiver = callee.obj;
+        if (receiver != null && receiver.kind == NK_IDENTIFIER
+                && !variableTypes.has(receiver.name)) {
+            Node? variant = self.richEnumVariant(
+                receiver.name, callee.field);
+            if (variant != null) {
+                CallTarget richEnum = CallTarget(call);
+                richEnum.kind = CALL_TARGET_METHOD;
+                richEnum.declaration = variant;
+                richEnum.signature = self.declarationSignature(
+                    variant, {});
+                richEnum.signature.returnType =
+                    SemanticTypeSystem.namedClass(receiver.name);
+                richEnum.symbol = receiver.name + "_" + callee.field;
+                richEnum.defaultCName = richEnum.symbol;
+                richEnum.ownerName = receiver.name;
+                richEnum.classPrefix = receiver.name;
+                richEnum.languageCall = true;
+                return richEnum;
+            }
+            if (self.analyzed.isClass(receiver.name)) {
+                Node? method = self.analyzed.classMethod(
+                    receiver.name, callee.field);
+                if (method != null && method.kind == NK_METHOD_DECL) {
+                    Node receiverType = SemanticTypeSystem.namedClass(
+                        receiver.name);
+                    return self.methodTarget(call, receiver,
+                        receiverType, method, variableTypes, false);
+                }
+            }
+            if (self.analyzed.isGenericClass(receiver.name)) {
+                Node? method = self.analyzed.genericClassMethod(
+                    receiver.name, callee.field);
+                if (method != null && method.kind == NK_METHOD_DECL) {
+                    Node receiverType = SemanticTypeSystem.namedClass(
+                        receiver.name);
+                    return self.methodTarget(call, receiver,
+                        receiverType, method, variableTypes, false);
+                }
+            }
+        }
+        Node? receiverType = self.expressionType(
+            receiver, variableTypes);
+        if (receiverType != null) {
+            Node? method = self.analyzed.isGenericClass(receiverType.base)
+                ? self.analyzed.genericClassMethod(
+                    receiverType.base, callee.field)
+                : self.analyzed.classMethod(
+                    receiverType.base, callee.field);
+            if (method != null && method.kind == NK_METHOD_DECL) {
+                return self.methodTarget(call, receiver,
+                    receiverType, method, variableTypes, true);
+            }
+        }
+        return self.builtinTarget(
+            call, callee.field, receiver,
+            receiverType, variableTypes);
+    }
+
+    public CallTarget resolve(
+            Node call, Map<string, Node> variableTypes,
+            CallableBoundaryContext boundary) {
+        if (call.kind == NK_NEW_EXPR) {
+            return self.resolveNew(call, variableTypes);
+        }
+        Node? callee = call.callee;
+        if (callee == null) { return CallTarget(call); }
+        if (callee.kind == NK_IDENTIFIER) {
+            return self.resolveIdentifier(
+                call, callee, variableTypes, boundary);
+        }
+        if (callee.kind == NK_FIELD_ACCESS_EXPR) {
+            return self.resolveField(
+                call, callee, variableTypes, boundary);
+        }
+        Node? callableType = SemanticTypeSystem.directFunctionPointer(
+            self.expressionType(callee, variableTypes), self.analyzed);
+        if (callableType != null) {
+            return self.callableTarget(
+                call, callee, callableType, variableTypes, boundary);
+        }
+        return CallTarget(call);
+    }
+
+    public CallTarget defaultTarget(
+            Node call, Map<string, Node> variableTypes,
+            CallableBoundaryContext boundary) {
+        CallTarget target = self.resolve(call, variableTypes, boundary);
+        if (target.declaration == null || target.defaultCName == "") {
+            self.fail("cannot resolve declaration scope for a default argument");
+        }
+        return target;
+    }
+
+    public Node? defaultExpressionType(Node expression,
+            Map<string, Node> substitutions,
+            Map<string, Node> variableTypes) {
+        Map<string, Node> saved = self.context.activeTypeMap;
+        Map<string, Node> combined = {};
+        Vector<string> names = saved.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            combined.put(name, saved.get(name));
+            index = index + 1;
+        }
+        names = substitutions.keys();
+        index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            combined.put(name, substitutions.get(name));
+            index = index + 1;
+        }
+        self.context.activeTypeMap = combined;
+        self.context.callDefaultTypeDepth =
+            self.context.callDefaultTypeDepth + 1;
+        Node? result = self.expressionTypes.inferSpecializationWithoutMemo(
+            expression, variableTypes);
+        self.context.callDefaultTypeDepth =
+            self.context.callDefaultTypeDepth - 1;
+        self.context.activeTypeMap = saved;
+        return result;
+    }
+}
+
+class CallLowerer {
+    private CallTargetResolver targets;
+    private CTypeLowerer cTypes;
+    private LoweringContext context;
+
+    public CallLowerer(CallTargetResolver targets,
+            CTypeLowerer cTypes, LoweringContext context) {
+        self.targets = targets;
+        self.cTypes = cTypes;
+        self.context = context;
+    }
+
+    private void fail(string message) {
+        fprintf(stderr, "error: %s\n", message);
+        exit(1);
+    }
+
+    private Node passthroughParameter(
+            int index, Node? typeExpr) {
+        Node parameter = Node();
+        parameter.kind = NK_PARAM;
+        parameter.name = Strings.fromInt(index);
+        parameter.type = typeExpr;
+        return parameter;
+    }
+
+    public CallArgumentPlan planArguments(
+            CallTarget target, Node call) {
+        CallArgumentPlan plan = CallArgumentPlan(target);
+        Vector<Node> parameters = target.signature.parameters;
+        if (parameters.len == 0) {
+            int sourceIndex = 0;
+            while (sourceIndex < call.args.len) {
+                Node parameter = self.passthroughParameter(
+                    sourceIndex, null);
+                plan.evaluations.push(CallArgumentSlot(
+                    parameter, call.args.get(sourceIndex),
+                    sourceIndex, sourceIndex, false));
+                sourceIndex = sourceIndex + 1;
+            }
+            plan.resultCount = call.args.len;
+            return plan;
+        }
+        Map<string, int> parameterIndices = {};
+        Vector<int> sourceForParameter = [];
+        int index = 0;
+        while (index < parameters.len) {
+            parameterIndices.put(parameters.get(index).name, index);
+            sourceForParameter.push(-1);
+            index = index + 1;
+        }
+        int positional = 0;
+        index = 0;
+        while (index < call.args.len) {
+            string name = index < call.arg_names.len
+                ? call.arg_names.get(index) : "";
+            int parameterIndex = positional;
+            if (name != "") {
+                if (!parameterIndices.has(name)) {
+                    self.fail("unknown named argument '" + name + "'");
+                }
+                parameterIndex = parameterIndices.get(name);
+            } else {
+                positional = positional + 1;
+                if (parameterIndex >= parameters.len) {
+                    if (!target.signature.variadic) {
+                        self.fail("too many positional arguments");
+                    }
+                    Node parameter = self.passthroughParameter(
+                        parameterIndex, null);
+                    plan.evaluations.push(CallArgumentSlot(
+                        parameter, call.args.get(index), index,
+                        parameterIndex, false));
+                    index = index + 1;
+                    continue;
+                }
+            }
+            if (sourceForParameter.get(parameterIndex) >= 0) {
+                self.fail("duplicate argument for parameter '"
+                    + parameters.get(parameterIndex).name + "'");
+            }
+            sourceForParameter.set(parameterIndex, index);
+            plan.evaluations.push(CallArgumentSlot(
+                parameters.get(parameterIndex), call.args.get(index),
+                index, parameterIndex, false));
+            index = index + 1;
+        }
+        int parameterIndex = 0;
+        while (parameterIndex < parameters.len) {
+            if (sourceForParameter.get(parameterIndex) < 0) {
+                Node parameter = parameters.get(parameterIndex);
+                if (parameter.default_ == null) {
+                    self.fail("missing required argument for parameter '"
+                        + parameter.name + "'");
+                }
+                plan.evaluations.push(CallArgumentSlot(
+                    parameter, parameter.default_, -1,
+                    parameterIndex, true));
+            }
+            parameterIndex = parameterIndex + 1;
+        }
+        plan.resultCount = parameters.len;
+        if (target.signature.variadic
+                && call.args.len > plan.resultCount) {
+            plan.resultCount = call.args.len;
+        }
+        return plan;
+    }
+
+    public Vector<IRNode> materializeArguments(
+            CallArgumentPlan plan,
+            Vector<IRNode> loweredValues) {
+        if (plan.evaluations.len != loweredValues.len) {
+            self.fail("internal call-plan materialization mismatch");
+        }
+        Vector<IRNode> result = [];
+        int index = 0;
+        while (index < plan.resultCount) {
+            result.push(IRNode.literal("0"));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < plan.evaluations.len) {
+            CallArgumentSlot slot = plan.evaluations.get(index);
+            result.set(slot.parameterIndex, loweredValues.get(index));
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public Map<string, Node> beginDefaultTypeScope(
+            Map<string, Node> substitutions) {
+        Map<string, Node> saved = self.context.activeTypeMap;
+        Map<string, Node> combined = {};
+        Vector<string> names = saved.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            combined.put(name, saved.get(name));
+            index = index + 1;
+        }
+        names = substitutions.keys();
+        index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            combined.put(name, substitutions.get(name));
+            index = index + 1;
+        }
+        self.context.activeTypeMap = combined;
+        self.context.callDefaultTypeDepth =
+            self.context.callDefaultTypeDepth + 1;
+        return saved;
+    }
+
+    public void endDefaultTypeScope(Map<string, Node> saved) {
+        self.context.activeTypeMap = saved;
+        self.context.callDefaultTypeDepth =
+            self.context.callDefaultTypeDepth - 1;
+    }
+
+    public string defaultHelperSymbol(
+            CallTarget target, int parameterIndex) {
+        return "__btrc_default_" + target.defaultCName + "_"
+            + Strings.fromInt(parameterIndex + 1);
+    }
+
+    private IRNode materializeCallable(
+            CallTarget target, IRNode callee,
+            Vector<IRNode> arguments) {
+        if (target.closureEnvironment) {
+            arguments.push(IRNode.cast("void*", IRNode.addressOf(
+                IRNode.variable(target.closureStorage))));
+            return IRNode.call(target.closureFunction, arguments);
+        }
+        Node callableType = target.callableType;
+        string calleeKey = AstIdentity.key(target.call.callee);
+        if (self.context.hasExpressionOverrideKey(calleeKey)) {
+            return IRNode.indirectCall(
+                self.context.expressionOverrideForKey(calleeKey),
+                arguments);
+        }
+        if (arguments.len == 0) {
+            return IRNode.indirectCall(callee, arguments);
+        }
+        Node concreteCallableType = self.cTypes.resolveBodyType(
+            callableType, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0);
+        Node storageType = TypeShape.copy(concreteCallableType);
+        storageType.is_const = false;
+        storageType.is_static = false;
+        storageType.is_extern = false;
+        storageType.is_volatile = false;
+        string callableName =
+            self.context.freshTemporary("__btrc_callable");
+        IRNode declaration = IRNode.variableDeclaration(
+            self.cTypes.lower(storageType), callableName, null);
+        self.context.recordLocal(declaration);
+        IRNode callable = IRNode.variable(callableName);
+        Vector<IRNode> declarations = [declaration];
+        Vector<IRNode> sequence = [
+            IRNode.binary(callable, "=", callee),
+            IRNode.indirectCall(callable, arguments),
+        ];
+        return IRNode.statementExpression(
+            declarations, IRNode.commaExpression(sequence));
+    }
+
+    public IRNode? materializeDispatch(CallTarget target,
+            IRNode? callee, IRNode? receiver,
+            Vector<IRNode> arguments) {
+        if (target.kind == CALL_TARGET_CALLABLE_VALUE) {
+            if (target.closureEnvironment) {
+                return self.materializeCallable(
+                    target, IRNode.literal("0"), arguments);
+            }
+            if (callee == null) {
+                self.fail("callable target was not evaluated");
+            }
+            return self.materializeCallable(
+                target, callee, arguments);
+        }
+        if (target.kind == CALL_TARGET_FUNCTION
+                || target.kind == CALL_TARGET_CONSTRUCTOR
+                || target.kind == CALL_TARGET_HOSTED
+                || target.kind == CALL_TARGET_METHOD) {
+            Vector<IRNode> callArguments = [];
+            if (target.receiverRequired) {
+                if (receiver == null) {
+                    self.fail("method receiver was not evaluated");
+                }
+                callArguments.push(receiver);
+            }
+            int index = 0;
+            while (index < arguments.len) {
+                callArguments.push(arguments.get(index));
+                index = index + 1;
+            }
+            return IRNode.call(target.symbol, callArguments);
+        }
+        return null;
+    }
+
+    private bool optionalPresenceCondition(IRNode? condition) {
+        if (condition == null || condition.kind != IRK_BINARY
+                || condition.op != "!="
+                || condition.left == null
+                || condition.right == null) {
+            return false;
+        }
+        return condition.left.kind == IRK_VAR
+            && condition.right.kind == IRK_LITERAL
+            && (condition.right.text == "NULL"
+                || condition.right.text == "0");
+    }
+
+    public bool replaceOptionalFallback(
+            IRNode? node, IRNode fallback) {
+        if (node == null) { return false; }
+        if (node.kind == IRK_TERNARY
+                && self.optionalPresenceCondition(node.condition)) {
+            if (node.else_expr != null
+                    && node.else_expr.kind == IRK_BINARY
+                    && node.else_expr.op == "=") {
+                node.else_expr.right = fallback;
+            } else {
+                node.else_expr = fallback;
+            }
+            return true;
+        }
+        if (node.kind == IRK_STMT_EXPR) {
+            return self.replaceOptionalFallback(
+                node.result, fallback);
+        }
+        if (node.kind == IRK_COMMA_EXPR) {
+            int index = node.args.len - 1;
+            while (index >= 0) {
+                if (self.replaceOptionalFallback(
+                        node.args.get(index), fallback)) {
+                    return true;
+                }
+                index = index - 1;
+            }
+            return false;
+        }
+        if (node.kind == IRK_BINARY) {
+            if (self.replaceOptionalFallback(node.right, fallback)) {
+                return true;
+            }
+            return self.replaceOptionalFallback(node.left, fallback);
+        }
+        if (node.kind == IRK_CAST) {
+            return self.replaceOptionalFallback(node.expr, fallback);
+        }
+        return false;
+    }
+}

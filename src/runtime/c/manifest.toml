@@ -1,0 +1,2393 @@
+schema_version = 1
+marker_version = 1
+freestanding_header = "btrc_rt.h"
+
+[freestanding]
+calls = [
+  "abort",
+  "calloc",
+  "ceil",
+  "clock_gettime",
+  "exit",
+  "fabs",
+  "floor",
+  "fmod",
+  "fprintf",
+  "free",
+  "isalpha",
+  "isdigit",
+  "isspace",
+  "longjmp",
+  "malloc",
+  "memcmp",
+  "memcpy",
+  "memmove",
+  "memset",
+  "nanosleep",
+  "pow",
+  "printf",
+  "qsort",
+  "realloc",
+  "round",
+  "setjmp",
+  "sin",
+  "snprintf",
+  "sqrt",
+  "strchr",
+  "strcmp",
+  "strcpy",
+  "strlen",
+  "strncmp",
+  "strncpy",
+  "strstr",
+  "strtod",
+  "strtof",
+  "tolower",
+  "toupper",
+]
+objects = [
+  "errno",
+  "stderr",
+  "stdin",
+  "stdout",
+]
+types = [
+  "bool",
+  "int16_t",
+  "int32_t",
+  "int64_t",
+  "int8_t",
+  "intptr_t",
+  "max_align_t",
+  "ptrdiff_t",
+  "size_t",
+  "uint16_t",
+  "uint32_t",
+  "uint64_t",
+  "uint8_t",
+  "uintptr_t",
+]
+literals = [
+  "CHAR_BIT",
+  "CHAR_MAX",
+  "CHAR_MIN",
+  "INT_MAX",
+  "INT_MIN",
+  "LLONG_MAX",
+  "LLONG_MIN",
+  "LONG_MAX",
+  "LONG_MIN",
+  "NULL",
+  "SCHAR_MAX",
+  "SCHAR_MIN",
+  "SHRT_MAX",
+  "SHRT_MIN",
+  "SIZE_MAX",
+  "UCHAR_MAX",
+  "UINT_MAX",
+  "ULLONG_MAX",
+  "ULONG_MAX",
+  "USHRT_MAX",
+  "false",
+  "true",
+]
+
+[[runtime_call_features]]
+prefix = "btrc_gpu_"
+macro = "BTRC_RT_NEEDS_GPU"
+
+[[runtime_call_features]]
+prefix = "btrc_gui_"
+macro = "BTRC_RT_NEEDS_GUI"
+
+[[runtime_call_features]]
+prefix = "btrc_tray_"
+macro = "BTRC_RT_NEEDS_TRAY"
+
+[[runtime_call_features]]
+prefix = "pthread_"
+macro = "BTRC_RT_NEEDS_PTHREAD"
+
+[[header_features]]
+header = "pthread.h"
+macro = "BTRC_RT_NEEDS_PTHREAD"
+
+[[header_features]]
+header = "setjmp.h"
+macro = "BTRC_RT_NEEDS_SETJMP"
+
+[[helpers]]
+name = "__btrc_strdup"
+category = "alloc"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = true
+order = { python = 0, btrc = 0 }
+
+[[helpers]]
+name = "__btrc_safe_realloc"
+category = "alloc"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = true
+order = { python = 1, btrc = 1 }
+
+[[helpers]]
+name = "__btrc_safe_calloc"
+category = "alloc"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = true
+order = { python = 2, btrc = 2 }
+
+[[helpers]]
+name = "__btrc_div"
+category = "divmod"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 3, btrc = 3 }
+
+[[helpers]]
+name = "__btrc_mod"
+category = "divmod"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 4, btrc = 4 }
+
+[[helpers]]
+name = "__btrc_div_int"
+category = "divmod"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 5, btrc = 5 }
+
+[[helpers]]
+name = "__btrc_div_double"
+category = "divmod"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 6, btrc = 6 }
+
+[[helpers]]
+name = "__btrc_mod_int"
+category = "divmod"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 7, btrc = 7 }
+
+[[helpers]]
+name = "__btrc_gpu_index_check"
+category = "gpu"
+asset = "gpu.c"
+dependencies = []
+headers = ["stdio.h", "stdlib.h"]
+source_visible = false
+order = { python = 8 }
+
+[[helpers]]
+name = "__btrc_string_registry"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 9, btrc = 8 }
+
+[[helpers]]
+name = "__btrc_string_registry_lock_state"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = []
+headers = ["stdatomic.h"]
+source_visible = false
+order = { python = 10, btrc = 9 }
+
+[[helpers]]
+name = "__btrc_string_registry_lock"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = ["__btrc_string_registry_lock_state"]
+headers = []
+source_visible = false
+order = { python = 11, btrc = 10 }
+
+[[helpers]]
+name = "__btrc_string_registry_hash"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 12, btrc = 11 }
+
+[[helpers]]
+name = "__btrc_string_registry_slot"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = ["__btrc_string_registry", "__btrc_string_registry_hash"]
+headers = []
+source_visible = false
+order = { python = 13, btrc = 12 }
+
+[[helpers]]
+name = "__btrc_string_registry_count"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 14, btrc = 13 }
+
+[[helpers]]
+name = "__btrc_string_registry_resize"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = ["__btrc_string_registry", "__btrc_string_registry_hash", "__btrc_safe_calloc"]
+headers = []
+source_visible = false
+order = { python = 15, btrc = 14 }
+
+[[helpers]]
+name = "__btrc_string_adopt"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = [
+  "__btrc_string_registry_resize",
+  "__btrc_string_registry_slot",
+  "__btrc_string_registry_lock",
+  "__btrc_string_registry_count",
+  "__btrc_safe_realloc",
+]
+headers = []
+source_visible = true
+order = { python = 16, btrc = 15 }
+
+[[helpers]]
+name = "__btrc_string_retain"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = ["__btrc_string_registry_slot", "__btrc_string_registry_lock"]
+headers = []
+source_visible = false
+order = { python = 17, btrc = 16 }
+
+[[helpers]]
+name = "__btrc_string_release"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = [
+  "__btrc_string_registry_slot",
+  "__btrc_string_registry_lock",
+  "__btrc_string_registry_count",
+]
+headers = []
+source_visible = false
+order = { python = 18, btrc = 17 }
+
+[[helpers]]
+name = "__btrc_string_release_cleanup"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = ["__btrc_string_release"]
+headers = []
+source_visible = false
+order = { python = 19, btrc = 18 }
+
+[[helpers]]
+name = "__btrc_string_live_count"
+category = "string_ownership"
+asset = "strings.c"
+dependencies = ["__btrc_string_registry_lock", "__btrc_string_registry_count"]
+headers = []
+source_visible = true
+order = { python = 20, btrc = 19 }
+
+[[helpers]]
+name = "__btrc_str_track"
+category = "string_pool"
+asset = "strings.c"
+dependencies = ["__btrc_string_adopt"]
+headers = []
+source_visible = true
+order = { python = 21, btrc = 20 }
+
+[[helpers]]
+name = "__btrc_str_flush"
+category = "string_pool"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 22, btrc = 21 }
+
+[[helpers]]
+name = "__btrc_string_or_empty"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = true
+order = { python = 23, btrc = 22 }
+
+[[helpers]]
+name = "__btrc_string_length"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = true
+order = { python = 24, btrc = 23 }
+
+[[helpers]]
+name = "__btrc_string_alloc"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_safe_realloc", "__btrc_string_adopt"]
+headers = []
+source_visible = true
+order = { python = 25, btrc = 24 }
+
+[[helpers]]
+name = "__btrc_ascii_upper"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 26, btrc = 25 }
+
+[[helpers]]
+name = "__btrc_ascii_lower"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 27, btrc = 26 }
+
+[[helpers]]
+name = "__btrc_ascii_space"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 28, btrc = 27 }
+
+[[helpers]]
+name = "__btrc_substring"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 29, btrc = 28 }
+
+[[helpers]]
+name = "__btrc_trim"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"]
+headers = []
+source_visible = false
+order = { python = 30, btrc = 29 }
+
+[[helpers]]
+name = "__btrc_toUpper"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_upper"]
+headers = []
+source_visible = false
+order = { python = 31, btrc = 30 }
+
+[[helpers]]
+name = "__btrc_toLower"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_lower"]
+headers = []
+source_visible = false
+order = { python = 32, btrc = 31 }
+
+[[helpers]]
+name = "__btrc_replace"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"]
+headers = []
+source_visible = false
+order = { python = 33, btrc = 32 }
+
+[[helpers]]
+name = "__btrc_split"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_safe_realloc", "__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 34, btrc = 33 }
+
+[[helpers]]
+name = "__btrc_repeat"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 35, btrc = 34 }
+
+[[helpers]]
+name = "__btrc_reverse"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 36, btrc = 35 }
+
+[[helpers]]
+name = "__btrc_removePrefix"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"]
+headers = []
+source_visible = false
+order = { python = 37, btrc = 36 }
+
+[[helpers]]
+name = "__btrc_removeSuffix"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"]
+headers = []
+source_visible = false
+order = { python = 38, btrc = 37 }
+
+[[helpers]]
+name = "__btrc_capitalize"
+category = "string"
+asset = "strings.c"
+dependencies = [
+  "__btrc_string_length",
+  "__btrc_string_alloc",
+  "__btrc_ascii_lower",
+  "__btrc_ascii_upper",
+]
+headers = []
+source_visible = false
+order = { python = 39, btrc = 38 }
+
+[[helpers]]
+name = "__btrc_title"
+category = "string"
+asset = "strings.c"
+dependencies = [
+  "__btrc_string_length",
+  "__btrc_string_alloc",
+  "__btrc_ascii_lower",
+  "__btrc_ascii_space",
+  "__btrc_ascii_upper",
+]
+headers = []
+source_visible = false
+order = { python = 40, btrc = 39 }
+
+[[helpers]]
+name = "__btrc_swapCase"
+category = "string"
+asset = "strings.c"
+dependencies = [
+  "__btrc_string_length",
+  "__btrc_string_alloc",
+  "__btrc_ascii_lower",
+  "__btrc_ascii_upper",
+]
+headers = []
+source_visible = false
+order = { python = 41, btrc = 40 }
+
+[[helpers]]
+name = "__btrc_padLeft"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 42, btrc = 41 }
+
+[[helpers]]
+name = "__btrc_padRight"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 43, btrc = 42 }
+
+[[helpers]]
+name = "__btrc_center"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 44, btrc = 43 }
+
+[[helpers]]
+name = "__btrc_lstrip"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"]
+headers = []
+source_visible = false
+order = { python = 45, btrc = 44 }
+
+[[helpers]]
+name = "__btrc_rstrip"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"]
+headers = []
+source_visible = false
+order = { python = 46, btrc = 45 }
+
+[[helpers]]
+name = "__btrc_zfill"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 47, btrc = 46 }
+
+[[helpers]]
+name = "__btrc_strcat"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"]
+headers = []
+source_visible = false
+order = { python = 48, btrc = 47 }
+
+[[helpers]]
+name = "__btrc_join"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length", "__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 49, btrc = 48 }
+
+[[helpers]]
+name = "__btrc_charAt"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 50, btrc = 49 }
+
+[[helpers]]
+name = "__btrc_indexOf"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 51, btrc = 50 }
+
+[[helpers]]
+name = "__btrc_lastIndexOf"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 52, btrc = 51 }
+
+[[helpers]]
+name = "__btrc_isEmpty"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 53, btrc = 52 }
+
+[[helpers]]
+name = "__btrc_startsWith"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 54, btrc = 53 }
+
+[[helpers]]
+name = "__btrc_endsWith"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 55, btrc = 54 }
+
+[[helpers]]
+name = "__btrc_strContains"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 56, btrc = 55 }
+
+[[helpers]]
+name = "__btrc_count"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 57, btrc = 56 }
+
+[[helpers]]
+name = "__btrc_find"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 58, btrc = 57 }
+
+[[helpers]]
+name = "__btrc_isDigitStr"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 59, btrc = 58 }
+
+[[helpers]]
+name = "__btrc_isAlphaStr"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 60, btrc = 59 }
+
+[[helpers]]
+name = "__btrc_isBlank"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_ascii_space"]
+headers = []
+source_visible = false
+order = { python = 61, btrc = 60 }
+
+[[helpers]]
+name = "__btrc_isUpper"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_ascii_space"]
+headers = []
+source_visible = false
+order = { python = 62, btrc = 61 }
+
+[[helpers]]
+name = "__btrc_isLower"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_ascii_space"]
+headers = []
+source_visible = false
+order = { python = 63, btrc = 62 }
+
+[[helpers]]
+name = "__btrc_isAlnumStr"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 64, btrc = 63 }
+
+[[helpers]]
+name = "__btrc_utf8_charlen"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_length"]
+headers = []
+source_visible = false
+order = { python = 65, btrc = 64 }
+
+[[helpers]]
+name = "__btrc_charLen"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_utf8_charlen"]
+headers = []
+source_visible = false
+order = { python = 66, btrc = 65 }
+
+[[helpers]]
+name = "__btrc_parseLong"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 67, btrc = 66 }
+
+[[helpers]]
+name = "__btrc_parseInt"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_parseLong"]
+headers = []
+source_visible = false
+order = { python = 68, btrc = 67 }
+
+[[helpers]]
+name = "__btrc_parseBool"
+category = "string"
+asset = "strings.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 69, btrc = 68 }
+
+[[helpers]]
+name = "__btrc_intToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 70, btrc = 69 }
+
+[[helpers]]
+name = "__btrc_longToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 71, btrc = 70 }
+
+[[helpers]]
+name = "__btrc_longLongToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 72, btrc = 71 }
+
+[[helpers]]
+name = "__btrc_uintToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 73, btrc = 72 }
+
+[[helpers]]
+name = "__btrc_ulongToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 74, btrc = 73 }
+
+[[helpers]]
+name = "__btrc_ulongLongToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 75, btrc = 74 }
+
+[[helpers]]
+name = "__btrc_floatToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 76, btrc = 75 }
+
+[[helpers]]
+name = "__btrc_doubleToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 77, btrc = 76 }
+
+[[helpers]]
+name = "__btrc_longDoubleToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 78, btrc = 77 }
+
+[[helpers]]
+name = "__btrc_charToString"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 79, btrc = 78 }
+
+[[helpers]]
+name = "__btrc_fromInt"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 80, btrc = 79 }
+
+[[helpers]]
+name = "__btrc_fromFloat"
+category = "string"
+asset = "strings.c"
+dependencies = ["__btrc_string_alloc"]
+headers = []
+source_visible = false
+order = { python = 81, btrc = 80 }
+
+[[helpers]]
+name = "__btrc_math_factorial"
+category = "math"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 82, btrc = 81 }
+
+[[helpers]]
+name = "__btrc_math_gcd"
+category = "math"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 83, btrc = 82 }
+
+[[helpers]]
+name = "__btrc_math_lcm"
+category = "math"
+asset = "core.c"
+dependencies = ["__btrc_math_gcd"]
+headers = []
+source_visible = false
+order = { python = 84, btrc = 83 }
+
+[[helpers]]
+name = "__btrc_math_fibonacci"
+category = "math"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 85, btrc = 84 }
+
+[[helpers]]
+name = "__btrc_math_isPrime"
+category = "math"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 86, btrc = 85 }
+
+[[helpers]]
+name = "__btrc_math_sum_int"
+category = "math"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 87, btrc = 86 }
+
+[[helpers]]
+name = "__btrc_math_fsum"
+category = "math"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 88, btrc = 87 }
+
+[[helpers]]
+name = "__btrc_try_level"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 89, btrc = 88 }
+
+[[helpers]]
+name = "__btrc_trycatch_globals"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_try_level"]
+headers = ["setjmp.h"]
+source_visible = false
+order = { python = 90, btrc = 89 }
+
+[[helpers]]
+name = "__btrc_copy_error_message"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = []
+headers = ["string.h"]
+source_visible = false
+order = { python = 91, btrc = 90 }
+
+[[helpers]]
+name = "__btrc_try_capacity"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 92, btrc = 91 }
+
+[[helpers]]
+name = "__btrc_launder_state"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 93, btrc = 93 }
+
+[[helpers]]
+name = "__btrc_launder"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_launder_state"]
+headers = []
+source_visible = false
+order = { python = 94, btrc = 94 }
+
+[[helpers]]
+name = "__btrc_push_try"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_trycatch_globals", "__btrc_try_capacity", "__btrc_safe_realloc"]
+headers = []
+source_visible = false
+order = { python = 95, btrc = 95 }
+
+[[helpers]]
+name = "__btrc_cleanup_types"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_try_level", "__btrc_arc_callback_types"]
+headers = []
+source_visible = false
+order = { python = 96, btrc = 159 }
+
+[[helpers]]
+name = "__btrc_cleanup_capacity"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 97, btrc = 92 }
+
+[[helpers]]
+name = "__btrc_register_cleanup_kind"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_cleanup_types", "__btrc_cleanup_capacity", "__btrc_safe_realloc"]
+headers = []
+source_visible = false
+order = { python = 98, btrc = 160 }
+
+[[helpers]]
+name = "__btrc_register_cleanup"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_register_cleanup_kind"]
+headers = []
+source_visible = false
+order = { python = 99, btrc = 161 }
+
+[[helpers]]
+name = "__btrc_register_direct_cleanup"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_register_cleanup_kind"]
+headers = []
+source_visible = false
+order = { python = 100, btrc = 162 }
+
+[[helpers]]
+name = "__btrc_run_cleanup_guarded"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_cleanup_types", "__btrc_push_try", "__btrc_arc_release"]
+headers = []
+source_visible = false
+order = { python = 101, btrc = 168 }
+
+[[helpers]]
+name = "__btrc_arc_guard_hook"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_arc_callback_types", "__btrc_push_try", "__btrc_copy_error_message"]
+headers = []
+source_visible = false
+order = { python = 102, btrc = 166 }
+
+[[helpers]]
+name = "__btrc_raise_captured"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_arc_callback_types"]
+headers = ["stdio.h", "stdlib.h"]
+source_visible = false
+order = { python = 103, btrc = 167 }
+
+[[helpers]]
+name = "__btrc_flush_cycles_guarded"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_push_try", "__btrc_flush_cycles"]
+headers = []
+source_visible = false
+order = { python = 104, btrc = 169 }
+
+[[helpers]]
+name = "__btrc_run_cleanups"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = [
+  "__btrc_cleanup_types",
+  "__btrc_safe_realloc",
+  "__btrc_destroyed_tracking_scope",
+  "__btrc_is_destroyed",
+  "__btrc_run_cleanup_guarded",
+  "__btrc_flush_cycles_guarded",
+]
+headers = []
+source_visible = false
+order = { python = 105, btrc = 170 }
+
+[[helpers]]
+name = "__btrc_discard_cleanups"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_cleanup_types"]
+headers = []
+source_visible = false
+order = { python = 106, btrc = 163 }
+
+[[helpers]]
+name = "__btrc_cleanup_mark"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_cleanup_types"]
+headers = []
+source_visible = false
+order = { python = 107, btrc = 164 }
+
+[[helpers]]
+name = "__btrc_discard_cleanups_to"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_cleanup_types"]
+headers = []
+source_visible = false
+order = { python = 108, btrc = 165 }
+
+[[helpers]]
+name = "__btrc_throw"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = ["__btrc_trycatch_globals", "__btrc_copy_error_message", "__btrc_run_cleanups"]
+headers = []
+source_visible = false
+order = { python = 109, btrc = 171 }
+
+[[helpers]]
+name = "__btrc_try_state_cleanup"
+category = "trycatch"
+asset = "trycatch.c"
+dependencies = [
+  "__btrc_trycatch_globals",
+  "__btrc_try_capacity",
+  "__btrc_cleanup_types",
+  "__btrc_cleanup_capacity",
+  "__btrc_launder_state",
+]
+headers = []
+source_visible = false
+order = { python = 110, btrc = 172 }
+
+[[helpers]]
+name = "__btrc_hash_real"
+category = "hash"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 111, btrc = 96 }
+
+[[helpers]]
+name = "__btrc_hash_str"
+category = "hash"
+asset = "core.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 112, btrc = 97 }
+
+[[helpers]]
+name = "List_forEach"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 113 }
+
+[[helpers]]
+name = "List_filter"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 114 }
+
+[[helpers]]
+name = "List_any"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 115 }
+
+[[helpers]]
+name = "List_all"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 116 }
+
+[[helpers]]
+name = "List_findIndex"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 117 }
+
+[[helpers]]
+name = "List_map"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 118 }
+
+[[helpers]]
+name = "List_reduce"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 119 }
+
+[[helpers]]
+name = "Map_forEach"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 120 }
+
+[[helpers]]
+name = "Map_containsValue"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 121 }
+
+[[helpers]]
+name = "Set_forEach"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 122 }
+
+[[helpers]]
+name = "Set_filter"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 123 }
+
+[[helpers]]
+name = "Set_any"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 124 }
+
+[[helpers]]
+name = "Set_all"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 125 }
+
+[[helpers]]
+name = "Set_findIndex"
+category = "collections"
+asset = "collections.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 126 }
+
+[[helpers]]
+name = "__btrc_arc_callback_types"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 127, btrc = 98 }
+
+[[helpers]]
+name = "__btrc_arc_header_of"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_callback_types"]
+headers = []
+source_visible = false
+order = { python = 128, btrc = 99 }
+
+[[helpers]]
+name = "__btrc_arc_type_of"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_header_of"]
+headers = []
+source_visible = false
+order = { python = 129, btrc = 100 }
+
+[[helpers]]
+name = "__btrc_arc_validate"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_header_of"]
+headers = []
+source_visible = false
+order = { python = 130, btrc = 101 }
+
+[[helpers]]
+name = "__btrc_destroyed_tracking"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 131, btrc = 102 }
+
+[[helpers]]
+name = "__btrc_destroyed_tracking_scope"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_destroyed_tracking",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_active_unwinds_state",
+]
+headers = []
+source_visible = false
+order = { python = 132, btrc = 112 }
+
+[[helpers]]
+name = "__btrc_is_destroyed"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_destroyed_tracking", "__btrc_arc_mutation_lock"]
+headers = []
+source_visible = false
+order = { python = 133, btrc = 113 }
+
+[[helpers]]
+name = "__btrc_destroyed_capacity"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 134, btrc = 114 }
+
+[[helpers]]
+name = "__btrc_mark_destroyed"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_destroyed_tracking",
+  "__btrc_destroyed_capacity",
+  "__btrc_safe_realloc",
+  "__btrc_arc_mutation_lock",
+]
+headers = []
+source_visible = false
+order = { python = 135, btrc = 115 }
+
+[[helpers]]
+name = "__btrc_suspect_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_callback_types"]
+headers = []
+source_visible = false
+order = { python = 136, btrc = 116 }
+
+[[helpers]]
+name = "__btrc_suspect_capacity"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 137, btrc = 117 }
+
+[[helpers]]
+name = "__btrc_ptr_hash"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 138, btrc = 118 }
+
+[[helpers]]
+name = "__btrc_suspect_locked"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_suspect_state",
+  "__btrc_suspect_capacity",
+  "__btrc_ptr_hash",
+  "__btrc_safe_calloc",
+  "__btrc_safe_realloc",
+  "__btrc_arc_type_of",
+  "__btrc_arc_validate",
+]
+headers = []
+source_visible = false
+order = { python = 139, btrc = 119 }
+
+[[helpers]]
+name = "__btrc_suspect"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_suspect_locked", "__btrc_arc_mutation_lock"]
+headers = []
+source_visible = false
+order = { python = 140, btrc = 120 }
+
+[[helpers]]
+name = "__btrc_arc_lock_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = ["stdatomic.h"]
+source_visible = false
+order = { python = 141, btrc = 103 }
+
+[[helpers]]
+name = "__btrc_arc_shutdown_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 142, btrc = 108 }
+
+[[helpers]]
+name = "__btrc_arc_active_drains_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 143, btrc = 109 }
+
+[[helpers]]
+name = "__btrc_arc_active_unwinds_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 144, btrc = 110 }
+
+[[helpers]]
+name = "__btrc_arc_snapshot_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = ["stdatomic.h"]
+source_visible = false
+order = { python = 145, btrc = 104 }
+
+[[helpers]]
+name = "__btrc_arc_mutation_lock"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_lock_state",
+  "__btrc_arc_snapshot_state",
+  "__btrc_arc_shutdown_state",
+]
+headers = []
+source_visible = false
+order = { python = 146, btrc = 111 }
+
+[[helpers]]
+name = "__btrc_arc_topology_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 147, btrc = 121 }
+
+[[helpers]]
+name = "__btrc_arc_topology_depth_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 148, btrc = 122 }
+
+[[helpers]]
+name = "__btrc_arc_topology_begin"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_lock_state",
+  "__btrc_arc_snapshot_state",
+  "__btrc_arc_snapshot_gate_state",
+  "__btrc_arc_shutdown_state",
+  "__btrc_arc_topology_state",
+  "__btrc_arc_topology_depth_state",
+]
+headers = ["limits.h", "stdio.h", "stdlib.h"]
+source_visible = false
+order = { python = 149, btrc = 124 }
+
+[[helpers]]
+name = "__btrc_arc_topology_leave"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_lock_state",
+  "__btrc_arc_shutdown_state",
+  "__btrc_arc_topology_state",
+  "__btrc_arc_topology_depth_state",
+]
+headers = ["stdio.h", "stdlib.h"]
+source_visible = false
+order = { python = 150, btrc = 125 }
+
+[[helpers]]
+name = "__btrc_arc_topology_cleanup"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_topology_leave",
+  "__btrc_arc_abandon_queue_drain",
+  "__btrc_flush_cycles",
+  "__btrc_arc_drain",
+]
+headers = []
+source_visible = false
+order = { python = 151, btrc = 136 }
+
+[[helpers]]
+name = "__btrc_arc_topology_complete"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_topology_leave",
+  "__btrc_arc_abandon_queue_drain",
+  "__btrc_flush_cycles",
+  "__btrc_arc_drain",
+]
+headers = []
+source_visible = false
+order = { python = 152, btrc = 137 }
+
+[[helpers]]
+name = "__btrc_arc_deferred_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_callback_types", "__btrc_arc_header_of"]
+headers = ["stdio.h", "stdlib.h"]
+source_visible = false
+order = { python = 153, btrc = 126 }
+
+[[helpers]]
+name = "__btrc_arc_snapshot_gate_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = ["stdatomic.h"]
+source_visible = false
+order = { python = 154, btrc = 105 }
+
+[[helpers]]
+name = "__btrc_arc_exclusive_snapshot"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_lock_state",
+  "__btrc_arc_snapshot_state",
+  "__btrc_arc_snapshot_gate_state",
+  "__btrc_arc_shutdown_state",
+  "__btrc_arc_topology_state",
+  "__btrc_arc_topology_depth_state",
+]
+headers = ["limits.h", "stdio.h", "stdlib.h"]
+source_visible = false
+order = { python = 155, btrc = 123 }
+
+[[helpers]]
+name = "__btrc_arc_reverse_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 156, btrc = 138 }
+
+[[helpers]]
+name = "__btrc_arc_register_incoming"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_header_of", "__btrc_safe_realloc"]
+headers = []
+source_visible = false
+order = { python = 157, btrc = 139 }
+
+[[helpers]]
+name = "__btrc_arc_unregister_incoming"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_header_of"]
+headers = []
+source_visible = false
+order = { python = 158, btrc = 129 }
+
+[[helpers]]
+name = "__btrc_arc_incoming_teardown_pending"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_validate"]
+headers = []
+source_visible = false
+order = { python = 159, btrc = 140 }
+
+[[helpers]]
+name = "__btrc_arc_reverse_proves_live"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_reverse_state",
+  "__btrc_arc_validate",
+  "__btrc_ptr_hash",
+  "__btrc_safe_calloc",
+  "__btrc_safe_realloc",
+]
+headers = []
+source_visible = false
+order = { python = 160, btrc = 141 }
+
+[[helpers]]
+name = "__btrc_arc_retain"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_validate", "__btrc_arc_mutation_lock", "__btrc_arc_deferred_state"]
+headers = []
+source_visible = false
+order = { python = 161, btrc = 142 }
+
+[[helpers]]
+name = "__btrc_arc_retain_edge"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_register_incoming",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_deferred_state",
+]
+headers = []
+source_visible = false
+order = { python = 162, btrc = 143 }
+
+[[helpers]]
+name = "__btrc_arc_adopt_edge"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_register_incoming",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_deferred_state",
+]
+headers = []
+source_visible = false
+order = { python = 163, btrc = 144 }
+
+[[helpers]]
+name = "__btrc_arc_unlink_edge"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_unregister_incoming",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_deferred_state",
+]
+headers = []
+source_visible = false
+order = { python = 164, btrc = 145 }
+
+[[helpers]]
+name = "__btrc_forget_suspect"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_suspect_state", "__btrc_ptr_hash"]
+headers = []
+source_visible = false
+order = { python = 165, btrc = 130 }
+
+[[helpers]]
+name = "__btrc_arc_release_impl"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_suspect_locked",
+  "__btrc_arc_incoming_teardown_pending",
+  "__btrc_arc_reverse_proves_live",
+  "__btrc_forget_suspect",
+  "__btrc_arc_deferred_state",
+]
+headers = []
+source_visible = false
+order = { python = 166, btrc = 146 }
+
+[[helpers]]
+name = "__btrc_arc_replace_edge"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_release_impl",
+  "__btrc_arc_register_incoming",
+  "__btrc_arc_unregister_incoming",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_drain",
+]
+headers = []
+source_visible = false
+order = { python = 167, btrc = 147 }
+
+[[helpers]]
+name = "__btrc_arc_release"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_release_impl", "__btrc_arc_mutation_lock", "__btrc_arc_drain"]
+headers = []
+source_visible = false
+order = { python = 168, btrc = 148 }
+
+[[helpers]]
+name = "__btrc_arc_release_edge"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_release_impl", "__btrc_arc_mutation_lock", "__btrc_arc_drain"]
+headers = []
+source_visible = false
+order = { python = 169, btrc = 149 }
+
+[[helpers]]
+name = "__btrc_arc_release_acyclic"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_type_of",
+  "__btrc_arc_validate",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_drain",
+]
+headers = []
+source_visible = false
+order = { python = 170, btrc = 150 }
+
+[[helpers]]
+name = "__btrc_arc_invalidate"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_validate", "__btrc_arc_mutation_lock"]
+headers = []
+source_visible = false
+order = { python = 171, btrc = 151 }
+
+[[helpers]]
+name = "__btrc_arc_destroy_slot"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_forget_suspect",
+  "__btrc_arc_type_of",
+  "__btrc_arc_validate",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_deferred_state",
+  "__btrc_arc_drain",
+]
+headers = []
+source_visible = false
+order = { python = 172, btrc = 152 }
+
+[[helpers]]
+name = "__btrc_arc_destroy_edge"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_forget_suspect",
+  "__btrc_arc_unregister_incoming",
+  "__btrc_arc_type_of",
+  "__btrc_arc_validate",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_deferred_state",
+  "__btrc_arc_drain",
+]
+headers = []
+source_visible = false
+order = { python = 173, btrc = 153 }
+
+[[helpers]]
+name = "__btrc_cycle_collector_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 174, btrc = 127 }
+
+[[helpers]]
+name = "__btrc_arc_graph_primitives"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_cycle_collector_state",
+  "__btrc_ptr_hash",
+  "__btrc_safe_calloc",
+  "__btrc_safe_realloc",
+  "__btrc_arc_type_of",
+  "__btrc_arc_validate",
+]
+headers = []
+source_visible = false
+order = { python = 175, btrc = 128 }
+
+[[helpers]]
+name = "__btrc_arc_abandon_graph"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_graph_primitives",
+  "__btrc_arc_unregister_incoming",
+  "__btrc_forget_suspect",
+  "__btrc_arc_exclusive_snapshot",
+  "__btrc_arc_deferred_state",
+  "__btrc_arc_drain",
+]
+headers = ["stdlib.h"]
+source_visible = false
+order = { python = 176, btrc = 133 }
+
+[[helpers]]
+name = "__btrc_arc_abandon_callback_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = []
+headers = []
+source_visible = false
+order = { python = 177, btrc = 106 }
+
+[[helpers]]
+name = "__btrc_arc_abandon_queue_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_abandon_callback_state"]
+headers = []
+source_visible = false
+order = { python = 178, btrc = 107 }
+
+[[helpers]]
+name = "__btrc_arc_abandon_queue_drain"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_abandon_callback_state"]
+headers = []
+source_visible = false
+order = { python = 179, btrc = 135 }
+
+[[helpers]]
+name = "__btrc_arc_abandon"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_abandon_graph",
+  "__btrc_arc_abandon_queue_state",
+  "__btrc_safe_realloc",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_topology_state",
+  "__btrc_arc_topology_depth_state",
+]
+headers = [
+  "limits.h",
+  "stdint.h",
+  "stdio.h",
+  "stdlib.h",
+]
+source_visible = false
+order = { python = 180, btrc = 154 }
+
+[[helpers]]
+name = "__btrc_collect_cycles_once"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_graph_primitives",
+  "__btrc_suspect_state",
+  "__btrc_ptr_hash",
+  "__btrc_safe_realloc",
+  "__btrc_arc_unregister_incoming",
+  "__btrc_forget_suspect",
+  "__btrc_arc_type_of",
+  "__btrc_arc_validate",
+  "__btrc_arc_lock_state",
+  "__btrc_arc_snapshot_state",
+  "__btrc_arc_snapshot_gate_state",
+  "__btrc_arc_topology_state",
+  "__btrc_arc_shutdown_state",
+  "__btrc_arc_deferred_state",
+]
+headers = []
+source_visible = false
+order = { python = 181, btrc = 131 }
+
+[[helpers]]
+name = "__btrc_arc_drain"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_deferred_state",
+  "__btrc_collect_cycles_once",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_topology_state",
+  "__btrc_arc_topology_depth_state",
+  "__btrc_arc_shutdown_state",
+  "__btrc_arc_active_drains_state",
+]
+headers = [
+  "limits.h",
+  "stdio.h",
+  "stdlib.h",
+  "string.h",
+]
+source_visible = false
+order = { python = 182, btrc = 132 }
+
+[[helpers]]
+name = "__btrc_collect_cycles"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_drain"]
+headers = []
+source_visible = false
+order = { python = 183, btrc = 155 }
+
+[[helpers]]
+name = "__btrc_poll_cycles"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_drain", "__btrc_arc_mutation_lock"]
+headers = []
+source_visible = false
+order = { python = 184, btrc = 156 }
+
+[[helpers]]
+name = "__btrc_flush_cycles"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_drain"]
+headers = []
+source_visible = false
+order = { python = 185, btrc = 134 }
+
+[[helpers]]
+name = "__btrc_arc_thread_state_cleanup"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_abandon_queue_state",
+  "__btrc_arc_abandon_queue_drain",
+  "__btrc_arc_drain",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_topology_depth_state",
+  "__btrc_arc_deferred_state",
+  "__btrc_destroyed_tracking",
+  "__btrc_destroyed_capacity",
+]
+headers = []
+source_visible = false
+order = { python = 186, btrc = 157 }
+
+[[helpers]]
+name = "__btrc_cycle_state_cleanup"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_flush_cycles",
+  "__btrc_arc_thread_state_cleanup",
+  "__btrc_suspect_capacity",
+  "__btrc_arc_reverse_state",
+  "__btrc_arc_deferred_state",
+  "__btrc_arc_drain",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_lock_state",
+  "__btrc_arc_snapshot_state",
+  "__btrc_arc_snapshot_gate_state",
+  "__btrc_arc_shutdown_state",
+  "__btrc_arc_active_drains_state",
+  "__btrc_arc_active_unwinds_state",
+  "__btrc_arc_topology_state",
+  "__btrc_cycle_collector_state",
+]
+headers = []
+source_visible = false
+order = { python = 187, btrc = 158 }
+
+[[helpers]]
+name = "__btrc_descriptor_close_bound"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["stdint.h", "sys/resource.h"]
+source_visible = true
+order = { python = 188, btrc = 173 }
+
+[[helpers]]
+name = "__btrc_close_descriptors_from"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "unistd.h"]
+source_visible = true
+order = { python = 189, btrc = 174 }
+
+[[helpers]]
+name = "__btrc_close_descriptors_except"
+category = "process"
+asset = "process.c"
+dependencies = ["__btrc_close_descriptors_from"]
+headers = []
+source_visible = true
+order = { python = 190, btrc = 175 }
+
+[[helpers]]
+name = "__btrc_close_descriptors_except_many"
+category = "process"
+asset = "process.c"
+dependencies = ["__btrc_close_descriptors_from"]
+headers = ["errno.h"]
+source_visible = true
+order = { python = 191, btrc = 176 }
+
+[[helpers]]
+name = "__btrc_move_descriptor_outside_stdio"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "fcntl.h", "unistd.h"]
+source_visible = true
+order = { python = 192, btrc = 177 }
+
+[[helpers]]
+name = "__btrc_posix_spawn_cloexec"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "sys/types.h", "unistd.h"]
+source_visible = true
+order = { python = 193, btrc = 178 }
+
+[[helpers]]
+name = "__btrc_process_descriptors_supported"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = []
+source_visible = true
+order = { python = 194, btrc = 179 }
+
+[[helpers]]
+name = "__btrc_validate_executable_descriptor"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "sys/stat.h", "unistd.h"]
+source_visible = true
+order = { python = 195, btrc = 180 }
+
+[[helpers]]
+name = "__btrc_validate_working_directory_descriptor"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "sys/stat.h", "unistd.h"]
+source_visible = true
+order = { python = 196, btrc = 181 }
+
+[[helpers]]
+name = "__btrc_enter_working_directory_descriptor"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "unistd.h"]
+source_visible = true
+order = { python = 197, btrc = 182 }
+
+[[helpers]]
+name = "__btrc_exec_signal_guard_begin"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "pthread.h", "signal.h"]
+source_visible = true
+order = { python = 198, btrc = 183 }
+
+[[helpers]]
+name = "__btrc_exec_signal_guard_parent_end"
+category = "process"
+asset = "process.c"
+dependencies = ["__btrc_exec_signal_guard_begin"]
+headers = ["errno.h", "pthread.h", "signal.h"]
+source_visible = true
+order = { python = 199, btrc = 184 }
+
+[[helpers]]
+name = "__btrc_exec_signal_guard_child_end"
+category = "process"
+asset = "process.c"
+dependencies = ["__btrc_exec_signal_guard_begin"]
+headers = [
+  "errno.h",
+  "pthread.h",
+  "signal.h",
+  "string.h",
+]
+source_visible = true
+order = { python = 200, btrc = 185 }
+
+[[helpers]]
+name = "__btrc_exec_executable_descriptor"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "unistd.h"]
+source_visible = true
+order = { python = 201, btrc = 186 }
+
+[[helpers]]
+name = "__btrc_thread_spawn"
+category = "threads"
+asset = "threads.c"
+dependencies = [
+  "__btrc_safe_realloc",
+  "__btrc_try_state_cleanup",
+  "__btrc_arc_thread_state_cleanup",
+  "__btrc_arc_callback_types",
+  "__btrc_arc_guard_hook",
+  "__btrc_throw",
+]
+headers = ["pthread.h", "string.h"]
+source_visible = false
+order = { python = 202, btrc = 187 }
+
+[[helpers]]
+name = "__btrc_thread_finish"
+category = "threads"
+asset = "threads.c"
+dependencies = ["__btrc_thread_spawn"]
+headers = []
+source_visible = false
+order = { python = 203, btrc = 188 }
+
+[[helpers]]
+name = "__btrc_thread_destroy_handle"
+category = "threads"
+asset = "threads.c"
+dependencies = ["__btrc_thread_spawn"]
+headers = []
+source_visible = false
+order = { python = 204, btrc = 189 }
+
+[[helpers]]
+name = "__btrc_thread_box_dispose"
+category = "threads"
+asset = "threads.c"
+dependencies = ["__btrc_thread_spawn"]
+headers = []
+source_visible = false
+order = { python = 205, btrc = 190 }
+
+[[helpers]]
+name = "__btrc_thread_arc_dispose"
+category = "threads"
+asset = "threads.c"
+dependencies = ["__btrc_thread_spawn", "__btrc_arc_release", "__btrc_flush_cycles"]
+headers = []
+source_visible = false
+order = { python = 206, btrc = 191 }
+
+[[helpers]]
+name = "__btrc_thread_string_dispose"
+category = "threads"
+asset = "threads.c"
+dependencies = ["__btrc_thread_spawn", "__btrc_string_release"]
+headers = []
+source_visible = false
+order = { python = 207, btrc = 192 }
+
+[[helpers]]
+name = "__btrc_thread_dispose_guarded"
+category = "threads"
+asset = "threads.c"
+dependencies = ["__btrc_thread_spawn", "__btrc_arc_guard_hook"]
+headers = []
+source_visible = false
+order = { python = 208, btrc = 193 }
+
+[[helpers]]
+name = "__btrc_thread_join"
+category = "threads"
+asset = "threads.c"
+dependencies = [
+  "__btrc_thread_finish",
+  "__btrc_thread_destroy_handle",
+  "__btrc_thread_dispose_guarded",
+  "__btrc_raise_captured",
+]
+headers = []
+source_visible = false
+order = { python = 209, btrc = 194 }
+
+[[helpers]]
+name = "__btrc_thread_free"
+category = "threads"
+asset = "threads.c"
+dependencies = [
+  "__btrc_thread_finish",
+  "__btrc_thread_destroy_handle",
+  "__btrc_thread_dispose_guarded",
+  "__btrc_raise_captured",
+]
+headers = []
+source_visible = false
+order = { python = 210, btrc = 195 }
+
+[[helpers]]
+name = "__btrc_mutex_val_types"
+category = "threads"
+asset = "mutex.c"
+dependencies = ["__btrc_arc_callback_types"]
+headers = ["pthread.h"]
+source_visible = false
+order = { python = 211, btrc = 196 }
+
+[[helpers]]
+name = "__btrc_mutex_value_callback_guard"
+category = "threads"
+asset = "mutex.c"
+dependencies = ["__btrc_mutex_val_types", "__btrc_arc_guard_hook"]
+headers = []
+source_visible = false
+order = { python = 212, btrc = 197 }
+
+[[helpers]]
+name = "__btrc_mutex_finalize_callback_guard"
+category = "threads"
+asset = "mutex.c"
+dependencies = ["__btrc_mutex_val_types", "__btrc_arc_guard_hook"]
+headers = []
+source_visible = false
+order = { python = 213, btrc = 198 }
+
+[[helpers]]
+name = "__btrc_mutex_val_create"
+category = "threads"
+asset = "mutex.c"
+dependencies = [
+  "__btrc_mutex_arc_type",
+  "__btrc_mutex_value_callback_guard",
+  "__btrc_raise_captured",
+  "__btrc_safe_realloc",
+]
+headers = ["string.h"]
+source_visible = false
+order = { python = 214, btrc = 205 }
+
+[[helpers]]
+name = "__btrc_mutex_arc_retain"
+category = "threads"
+asset = "mutex.c"
+dependencies = ["__btrc_mutex_val_types", "__btrc_arc_retain", "__btrc_arc_retain_edge"]
+headers = []
+source_visible = false
+order = { python = 215, btrc = 199 }
+
+[[helpers]]
+name = "__btrc_mutex_arc_release"
+category = "threads"
+asset = "mutex.c"
+dependencies = [
+  "__btrc_mutex_val_types",
+  "__btrc_arc_release",
+  "__btrc_arc_release_edge",
+  "__btrc_arc_unlink_edge",
+]
+headers = []
+source_visible = false
+order = { python = 216, btrc = 200 }
+
+[[helpers]]
+name = "__btrc_mutex_arc_finalize"
+category = "threads"
+asset = "mutex.c"
+dependencies = ["__btrc_mutex_val_types", "__btrc_flush_cycles"]
+headers = []
+source_visible = false
+order = { python = 217, btrc = 201 }
+
+[[helpers]]
+name = "__btrc_mutex_string_retain"
+category = "threads"
+asset = "mutex.c"
+dependencies = ["__btrc_mutex_val_types", "__btrc_string_retain"]
+headers = []
+source_visible = false
+order = { python = 218, btrc = 202 }
+
+[[helpers]]
+name = "__btrc_mutex_string_release"
+category = "threads"
+asset = "mutex.c"
+dependencies = ["__btrc_mutex_val_types", "__btrc_string_release"]
+headers = []
+source_visible = false
+order = { python = 219, btrc = 203 }
+
+[[helpers]]
+name = "__btrc_mutex_arc_type"
+category = "threads"
+asset = "mutex.c"
+dependencies = [
+  "__btrc_mutex_val_types",
+  "__btrc_arc_topology_begin",
+  "__btrc_arc_topology_leave",
+  "__btrc_mark_destroyed",
+  "__btrc_throw",
+]
+headers = ["stdio.h", "stdlib.h"]
+source_visible = false
+order = { python = 220, btrc = 204 }
+
+[[helpers]]
+name = "__btrc_mutex_val_get"
+category = "threads"
+asset = "mutex.c"
+dependencies = [
+  "__btrc_mutex_value_callback_guard",
+  "__btrc_mutex_finalize_callback_guard",
+  "__btrc_arc_topology_begin",
+  "__btrc_arc_topology_leave",
+  "__btrc_raise_captured",
+  "__btrc_safe_realloc",
+]
+headers = ["string.h"]
+source_visible = false
+order = { python = 221, btrc = 206 }
+
+[[helpers]]
+name = "__btrc_mutex_val_set"
+category = "threads"
+asset = "mutex.c"
+dependencies = [
+  "__btrc_mutex_value_callback_guard",
+  "__btrc_mutex_finalize_callback_guard",
+  "__btrc_arc_topology_begin",
+  "__btrc_arc_topology_leave",
+  "__btrc_raise_captured",
+]
+headers = ["string.h"]
+source_visible = false
+order = { python = 222, btrc = 207 }

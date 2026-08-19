@@ -123,16 +123,17 @@ def test_windows_ci_runs_and_uploads_the_extracted_zip() -> None:
 
     assert SETUP_NODE in job
     assert 'node-version: "22.23.1"' in job
-    assert "cache-dependency-path: src/devex/ext/package-lock.json" in job
+    assert "cache-dependency-path: src/devex/vscode/package-lock.json" in job
     extension = _step_containing(job, "npm test")
-    assert "working-directory: src/devex/ext" in extension
-    assert "python -m pip install ../../.." in extension
+    assert "working-directory:" not in extension
+    assert "python -m pip install ." in extension
+    assert "node src/devex/vscode/packaging/prepare.js" in extension
+    assert "cd build/devex/vscode" in extension
     assert "npm ci" in extension
     assert "npm run package" in extension
-    assert 'ZipFile("btrc.vsix")' in extension
-    assert '"extension/out/client_lifecycle.js"' in extension
-    assert '"extension/out/process_tree.js"' in extension
-    assert '"extension/out/server_process.js"' in extension
+    assert 'ZipFile("dist/btrc.vsix")' in extension
+    assert '"extension/out/extension.js"' in extension
+    assert '"extension/server/src/devex/debug/__main__.py"' in extension
     assert '"extension/server/vendor/pygls/__init__.py"' in extension
     assert "python -m zipfile -e" in job
     assert "btrcc-windows-smoke" in job

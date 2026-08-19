@@ -114,15 +114,36 @@ def test_generic_callable_returns_preserve_borrowed_and_owned_abis(
 
 
 @pytest.mark.parametrize(
-    "mutation",
+    ("mutation", "diagnostic"),
     (
-        "if (choose) { callback = genericCallableSourceString; }",
-        "while (choose) { callback = genericCallableSourceString; break; }",
-        "do { if (choose) { callback = genericCallableSourceString; break; } } while (false);",
-        "for (int index = 0; choose && index < 1; index++) { callback = genericCallableSourceString; }",
-        "for index in range(choose ? 1 : 0) { callback = genericCallableSourceString; }",
-        "switch (choose ? 1 : 0) { case 1: callback = genericCallableSourceString; break; default: break; }",
-        "try { callback = genericCallableSourceString; } catch (string error) {}",
+        (
+            "if (choose) { callback = genericCallableSourceString; }",
+            "ambiguous ownership ABI",
+        ),
+        (
+            "while (choose) { callback = genericCallableSourceString; break; }",
+            "ambiguous ownership ABI",
+        ),
+        (
+            "do { if (choose) { callback = genericCallableSourceString; break; } } while (false);",
+            "ambiguous ownership ABI",
+        ),
+        (
+            "for (int index = 0; choose && index < 1; index++) { callback = genericCallableSourceString; }",
+            "invariant across a repeated loop back-edge",
+        ),
+        (
+            "for index in range(choose ? 1 : 0) { callback = genericCallableSourceString; }",
+            "invariant across a repeated loop back-edge",
+        ),
+        (
+            "switch (choose ? 1 : 0) { case 1: callback = genericCallableSourceString; break; default: break; }",
+            "ambiguous ownership ABI",
+        ),
+        (
+            "try { callback = genericCallableSourceString; } catch (string error) {}",
+            "ambiguous ownership ABI",
+        ),
     ),
     ids=("if", "while", "do-while-conditional", "c-for", "range", "switch", "try-catch"),
 )
@@ -130,6 +151,7 @@ def test_generic_mixed_callback_flows_fail_closed(
     semantic_btrcc: Path,
     tmp_path: Path,
     mutation: str,
+    diagnostic: str,
 ) -> None:
     source = f"""
         extern string genericCallableForeignString();
@@ -152,7 +174,7 @@ def test_generic_mixed_callback_flows_fail_closed(
     """
     for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
-        assert "ambiguous ownership ABI" in result.stdout + result.stderr
+        assert diagnostic in result.stdout + result.stderr
 
 
 def test_generic_mixed_callback_ternary_fails_closed(

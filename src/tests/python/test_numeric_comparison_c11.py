@@ -9,11 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.nodes import IRBinOp, IRCast
-from src.compiler.python.ir.optimizer_walk import IRTree
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.nodes import IRBinOp, IRCast, IRNode
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
@@ -75,7 +74,11 @@ def _generate(source: str):
 
 
 def _comparisons(module):
-    return [node for node in IRTree(module) if isinstance(node, IRBinOp) and node.op in COMPARISON_OPERATORS]
+    return [
+        node
+        for node in IRNode.walk_value(module)
+        if isinstance(node, IRBinOp) and node.op in COMPARISON_OPERATORS
+    ]
 
 
 def test_mixed_comparisons_normalize_both_operands_in_structured_ir():
@@ -109,7 +112,11 @@ def test_same_type_comparisons_and_arithmetic_remain_direct():
     """)
 
     comparisons = _comparisons(module)
-    addition = next(node for node in IRTree(module) if isinstance(node, IRBinOp) and node.op == "+")
+    addition = next(
+        node
+        for node in IRNode.walk_value(module)
+        if isinstance(node, IRBinOp) and node.op == "+"
+    )
     assert len(comparisons) == 3
     assert all(not isinstance(node.left, IRCast) for node in comparisons)
     assert all(not isinstance(node.right, IRCast) for node in comparisons)

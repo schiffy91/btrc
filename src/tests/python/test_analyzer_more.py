@@ -2,8 +2,8 @@
 outside methods, uninitialized `var`, interface registration errors, and switch
 return analysis. Asserts the specific diagnostic."""
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
@@ -35,7 +35,7 @@ def test_self_outside_method_is_error():
 def test_uninitialized_var_rejected_by_parser():
     import pytest
 
-    from src.compiler.python.parser.core import ParseError
+    from src.compiler.python.parser.parser import ParseError
 
     with pytest.raises(ParseError):
         Parser(Lexer("int main() { var x; return 0; }", "<t>").tokenize()).parse()

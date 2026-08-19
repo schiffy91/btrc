@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.ir.gen.setjmp_volatility import apply_setjmp_volatility
+from src.compiler.python.ir.lowering.exceptions import ExceptionLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -24,6 +24,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
+from src.compiler.python.ir.verifier import IRVerifier
 
 
 def _setjmp_condition():
@@ -87,7 +88,7 @@ def test_current_setjmp_preserves_values_written_in_its_catch_branch():
         ]
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert aggregate.is_volatile
 
@@ -113,7 +114,7 @@ def test_vla_bound_write_resolves_before_the_new_declaration_is_bound():
         ]
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert outer_extent.is_volatile
     assert not inner_extent.is_volatile
@@ -138,7 +139,7 @@ def test_stmt_expr_vla_bound_setjmp_observes_declaration_point_order():
         ]
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert outer.is_volatile
     assert not setup.is_volatile
@@ -162,7 +163,7 @@ def test_stmt_expr_to_the_right_is_hoisted_before_containing_setjmp_statement():
         ]
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert call_result.is_volatile
 
@@ -195,7 +196,7 @@ def test_for_header_hoists_precede_setjmp_in_init_initializer():
         ]
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert loop_index.is_volatile
     assert condition_temp.is_volatile
@@ -226,7 +227,7 @@ def test_cleanup_validation_distinguishes_equal_metadata_at_distinct_sites():
     )
 
     with pytest.raises(ValueError, match="metadata has no registration: slot"):
-        module.validate_declarations()
+        IRVerifier(module).validate()
 
 
 def test_cleanup_validation_rejects_shared_metadata_across_functions():
@@ -248,4 +249,4 @@ def test_cleanup_validation_rejects_shared_metadata_across_functions():
     module = IRModule(function_defs=functions)
 
     with pytest.raises(ValueError, match="attached more than once"):
-        module.validate_declarations()
+        IRVerifier(module).validate()

@@ -18,10 +18,8 @@ REPO = Path(__file__).resolve().parents[3]
 
 def test_lsp_dependency_floor_matches_the_imported_pygls_api() -> None:
     project = tomllib.loads((REPO / "pyproject.toml").read_text(encoding="utf-8"))
-    requirements = (REPO / "src/devex/lsp/requirements.txt").read_text(encoding="utf-8").splitlines()
 
     assert "pygls>=2.0.0" in project["project"]["dependencies"]
-    assert "pygls>=2.0.0" in requirements
 
     from pygls.lsp.server import LanguageServer
 
@@ -140,7 +138,7 @@ def test_gui_rule_removes_stale_outputs_on_probe_or_compile_failure(
     stem: str,
     succeeds: bool,
 ) -> None:
-    build = tmp_path / "src/stdlib/gui/build"
+    build = tmp_path / "build/stdlib/gui"
     build.mkdir(parents=True)
     archive = build / f"lib{stem}.a"
     object_file = build / f"{stem}.o"

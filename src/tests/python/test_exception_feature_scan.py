@@ -4,11 +4,8 @@ from __future__ import annotations
 
 import re
 
-from src.compiler.python.ir.gen.feature_scan import (
-    _value_uses_trycatch,
-    program_uses_trycatch,
-)
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.ir.lowering.translation_unit import TranslationUnitLowerer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
@@ -20,7 +17,7 @@ def _parse(source: str):
 def test_exception_scan_descends_into_lambda_expressions() -> None:
     program = _parse('void invoke() { var fail = () => { throw "nested"; }; fail(); }')
 
-    assert program_uses_trycatch(program)
+    assert TranslationUnitLowerer.program_uses_trycatch(program)
 
 
 def test_exception_scan_tolerates_cyclic_annotations() -> None:
@@ -29,8 +26,8 @@ def test_exception_scan_tolerates_cyclic_annotations() -> None:
     mapping = {}
     mapping["self"] = mapping
 
-    assert not _value_uses_trycatch(sequence, set())
-    assert not _value_uses_trycatch(mapping, set())
+    assert not TranslationUnitLowerer.uses_trycatch(sequence)
+    assert not TranslationUnitLowerer.uses_trycatch(mapping)
 
 
 def test_lambda_only_exception_contract_guards_constructor_wrapper() -> None:

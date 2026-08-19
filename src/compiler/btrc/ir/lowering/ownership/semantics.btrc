@@ -1,0 +1,662 @@
+import std.map;
+import std.vector;
+import ../../../analyzer/declarations.btrc;
+import ../../../analyzer/expressions.btrc;
+import ../../../analyzer/hosted_abi.btrc;
+import ../../../analyzer/models.btrc;
+import ../../../analyzer/operators.btrc;
+import ../../../analyzer/ownership/values.btrc;
+import ../../../analyzer/types.btrc;
+import ../../../analyzer/validation/declarations.btrc;
+import ../../../analyzer/validation/storage.btrc;
+import ../../../generated/ast/node.btrc;
+import ../../../syntax/identity.btrc;
+import ../callable_flow.btrc;
+import ../callables.btrc;
+import ../calls.btrc;
+import ../context.btrc;
+import ./lifetime.btrc;
+import ./operands.btrc;
+
+/* Ownership provenance and projection policy for structured IR lowering. */
+
+class OwnershipProjectionPlan {
+    public Vector<Node> expressions;
+    public Vector<bool> owned;
+    public Vector<bool> retained;
+
+    public OwnershipProjectionPlan() {
+        self.expressions = [];
+        self.owned = [];
+        self.retained = [];
+    }
+
+    public bool requiresBoundary() {
+        int index = 0;
+        while (index < self.owned.len) {
+            if (self.owned.get(index) || self.retained.get(index)) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public bool hasRetainedOperand() {
+        int index = 0;
+        while (index < self.retained.len) {
+            if (self.retained.get(index)) { return true; }
+            index = index + 1;
+        }
+        return false;
+    }
+}
+
+class OwnershipSemantics {
+    private Analyzed analyzed;
+    private HostedAbiRepository hostedAbi;
+    private OperatorSemantics operators;
+    private ManagedValueSemantics managedValues;
+    private CallableValueSemantics callableValues;
+    private OwnershipOperandPlanner operandPlanner;
+    private LoweringContext context;
+    private CallTargetResolver targets;
+
+    public OwnershipSemantics(
+            Analyzed analyzed,
+            HostedAbiRepository hostedAbi,
+            OperatorSemantics operators,
+            ManagedValueSemantics managedValues,
+            CallableValueSemantics callableValues,
+            OwnershipOperandPlanner operandPlanner,
+            LoweringContext context,
+            CallTargetResolver targets) {
+        self.analyzed = analyzed;
+        self.hostedAbi = hostedAbi;
+        self.operators = operators;
+        self.managedValues = managedValues;
+        self.callableValues = callableValues;
+        self.operandPlanner = operandPlanner;
+        self.context = context;
+        self.targets = targets;
+    }
+
+    public Node resolveType(
+            Node? typeExpr, OwnershipOperandEnvironment environment) {
+        return self.operandPlanner.resolveType(typeExpr, environment);
+    }
+
+    public Node? expressionType(
+            Node? expression, OwnershipOperandEnvironment environment) {
+        return self.operandPlanner.expressionType(expression, environment);
+    }
+
+    public bool isManaged(
+            Node? typeExpr, OwnershipOperandEnvironment environment) {
+        return self.managedValues.isManaged(
+            self.resolveType(typeExpr, environment));
+    }
+
+    private CallableBoundaryContext callableContext(
+            OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+        return callableFlow.boundaryContext(
+            environment.variables(), environment.typeArguments(),
+            environment.specializationActive());
+    }
+
+
+
+    public bool knownLanguageCall(Node call,
+            OwnershipOperandEnvironment environment,
+            CallableFlowState callableFlow) {
+        return self.targets.resolve(
+            call, environment.variables(),
+            self.callableContext(environment, callableFlow)).languageCall;
+    }
+
+    public bool stringCallOwnsResult(Node call,
+            OwnershipOperandEnvironment environment,
+            CallableFlowState callableFlow) {
+        if (self.knownLanguageCall(
+                call, environment, callableFlow)) { return true; }
+        Node callee = call.callee;
+        if (callee == null) { return false; }
+        if (callee.kind == NK_IDENTIFIER) {
+            return callee.name == "__btrc_string_alloc"
+                || callee.name == "__btrc_string_adopt"
+                || callee.name == "__btrc_str_track";
+        }
+        if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+        Node? receiverType = self.expressionType(
+            callee.obj, environment);
+        if (self.managedValues.isString(
+                self.resolveType(receiverType, environment))) {
+            return SemanticTypeSystem.stringResultIsTracked(callee.field);
+        }
+        if (callee.field != "toString" || receiverType == null) {
+            return false;
+        }
+        return receiverType.base != "bool"
+            && !self.analyzed.enumTable.has(receiverType.base);
+    }
+
+
+    private bool conditionalOwnsResult(Node expression,
+            Node left, Node right,
+            OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+        if (!self.isManaged(
+                self.expressionType(expression, environment),
+                environment)) {
+            return false;
+        }
+        CallableBoundaryContext callableContext =
+            self.callableContext(environment, callableFlow);
+        CallableConditionalCapture capture =
+            callableFlow.beginConditionalFacts(
+                expression, self.callableValues, callableContext);
+        bool leftOwned = self.expressionOwnsResult(left, environment, callableFlow);
+        bool leftPromotable = left.kind == NK_NULL_LITERAL
+            || leftOwned
+            || self.isManaged(
+                self.expressionType(left, environment), environment);
+        callableFlow.selectConditionalRight(
+            capture, self.callableValues, callableContext);
+        bool rightOwned = self.expressionOwnsResult(right, environment, callableFlow);
+        bool rightPromotable = right.kind == NK_NULL_LITERAL
+            || rightOwned
+            || self.isManaged(
+                self.expressionType(right, environment), environment);
+        callableFlow.finishConditionalFacts(capture);
+        return (leftOwned || rightOwned)
+            && leftPromotable && rightPromotable;
+    }
+
+    public bool expressionOwnsResult(Node? expression,
+            OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+        if (expression == null) { return false; }
+        Node? resultType = self.expressionType(expression, environment);
+        bool managedResult = self.isManaged(resultType, environment);
+        if (expression.kind == NK_NEW_EXPR
+                || expression.kind == NK_LIST_LITERAL
+                || expression.kind == NK_MAP_LITERAL
+                || expression.kind == NK_BRACE_INITIALIZER) {
+            return managedResult;
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            return managedResult && self.expressionOwnsResult(
+                expression.expr, environment, callableFlow);
+        }
+        if (expression.kind == NK_F_STRING_LITERAL) {
+            int part = 0;
+            while (part < expression.parts.len) {
+                if (expression.parts.get(part).kind == NK_F_STRING_EXPR) {
+                    return true;
+                }
+                part = part + 1;
+            }
+            return false;
+        }
+        if (expression.kind == NK_CALL_EXPR) {
+            if (self.managedValues.isString(
+                    self.resolveType(resultType, environment))) {
+                return self.stringCallOwnsResult(
+                    expression, environment, callableFlow);
+            }
+            return managedResult
+                && self.knownLanguageCall(
+                    expression, environment, callableFlow);
+        }
+        if (expression.kind == NK_ASSIGN_EXPR) {
+            Node target = expression.target;
+            bool ownedReceiver = target != null
+                && (target.kind == NK_FIELD_ACCESS_EXPR
+                    || target.kind == NK_INDEX_EXPR)
+                && (self.expressionOwnsResult(
+                        target.obj, environment, callableFlow)
+                    || self.assignmentPinsBorrowedTarget(
+                        target, environment,
+                        environment.currentPropertyBacking(), callableFlow));
+            Node? virtualType = self.virtualAssignmentValueType(
+                target, environment,
+                environment.currentPropertyBacking());
+            bool ownedValue = virtualType != null
+                && self.virtualAssignmentRhsOwnsResult(
+                    expression, virtualType, environment);
+            return managedResult && (ownedReceiver || ownedValue);
+        }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR
+                || expression.kind == NK_INDEX_EXPR) {
+            if (!managedResult) { return false; }
+            if (expression.kind == NK_FIELD_ACCESS_EXPR
+                    && self.customPropertyGetterProjection(
+                        expression, environment)) {
+                return true;
+            }
+            if (self.expressionOwnsResult(
+                    expression.obj, environment, callableFlow)) {
+                return true;
+            }
+            if (expression.kind == NK_FIELD_ACCESS_EXPR
+                    && self.propertyGetterProjection(
+                        expression, environment)) {
+                return true;
+            }
+            if (expression.kind == NK_INDEX_EXPR) {
+                Node? receiverType = self.expressionType(
+                    expression.obj, environment);
+                return receiverType != null
+                    && !StorageValidator.rawIndexedPointer(
+                        receiverType, self.analyzed)
+                    && StorageValidator.validIndexedGetter(
+                        StorageValidator.indexedMethod(
+                            receiverType, "get", self.analyzed));
+            }
+            return false;
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.conditionalOwnsResult(expression,
+                expression.true_expr, expression.false_expr,
+                environment, callableFlow);
+        }
+        if (expression.kind == NK_BINARY_EXPR
+                && expression.op == "??") {
+            return self.conditionalOwnsResult(expression,
+                expression.left, expression.right, environment, callableFlow);
+        }
+        if (expression.kind == NK_BINARY_EXPR && managedResult) {
+            if (expression.op == "+"
+                    && self.managedValues.isString(
+                        self.resolveType(resultType, environment))
+                    && self.managedValues.isString(self.resolveType(
+                        self.expressionType(expression.left, environment),
+                        environment))
+                    && self.managedValues.isString(self.resolveType(
+                        self.expressionType(expression.right, environment),
+                        environment))) {
+                return true;
+            }
+            Node? leftType = self.expressionType(
+                expression.left, environment);
+            return self.binaryMethod(leftType, expression.op) != null;
+        }
+        if (expression.kind == NK_UNARY_EXPR && managedResult
+                && expression.op == "-") {
+            Node? operandType = self.expressionType(
+                expression.operand, environment);
+            if (operandType == null) { return false; }
+            if (self.analyzed.isClass(operandType.base)) {
+                return self.analyzed.classMethod(
+                    operandType.base, "__neg__") != null;
+            }
+            if (self.analyzed.isGenericClass(operandType.base)) {
+                return self.analyzed.genericClassMethod(
+                    operandType.base, "__neg__") != null;
+            }
+        }
+        return false;
+    }
+
+    public bool unconsumedOwnedResult(Node? expression,
+            OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+        if (expression == null
+                || self.context.hasExpressionOverride(expression)) {
+            return false;
+        }
+        return self.expressionOwnsResult(expression, environment, callableFlow);
+    }
+
+    public bool contextualExpressionOwnsResult(Node? expression,
+            Node? expectedType,
+            OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+        if (expression == null) { return false; }
+        bool aggregate = expression.kind == NK_LIST_LITERAL
+            || expression.kind == NK_MAP_LITERAL
+            || expression.kind == NK_BRACE_INITIALIZER;
+        if (aggregate && self.isManaged(expectedType, environment)) {
+            return true;
+        }
+        if (expression.kind == NK_CALL_EXPR
+                && self.managedValues.isString(
+                    self.resolveType(expectedType, environment))
+                && self.stringCallOwnsResult(
+                    expression, environment, callableFlow)) {
+            return true;
+        }
+        if (expression.kind == NK_CALL_EXPR
+                && self.isManaged(expectedType, environment)
+                && self.knownLanguageCall(
+                    expression, environment, callableFlow)) {
+            return true;
+        }
+        if (expression.kind == NK_F_STRING_LITERAL
+                && self.managedValues.isString(
+                    self.resolveType(expectedType, environment))) {
+            int part = 0;
+            while (part < expression.parts.len) {
+                if (expression.parts.get(part).kind == NK_F_STRING_EXPR) {
+                    return true;
+                }
+                part = part + 1;
+            }
+        }
+        return self.expressionOwnsResult(expression, environment, callableFlow);
+    }
+
+    public bool contextualUnconsumedOwnedResult(Node? expression,
+            Node? expectedType,
+            OwnershipOperandEnvironment environment, CallableFlowState callableFlow) {
+        return expression != null
+            && !self.context.hasExpressionOverride(expression)
+            && self.contextualExpressionOwnsResult(
+                expression, expectedType, environment, callableFlow);
+    }
+
+    public Node? virtualAssignmentValueType(Node? target,
+            OwnershipOperandEnvironment environment,
+            string currentPropertyBacking) {
+        if (target == null) { return null; }
+        if (target.kind == NK_INDEX_EXPR) {
+            Node? receiver = self.expressionType(
+                target.obj, environment);
+            if (receiver == null || StorageValidator.rawIndexedPointer(
+                    receiver, self.analyzed)) {
+                return null;
+            }
+            Node? setter = StorageValidator.indexedMethod(
+                receiver, "set", self.analyzed);
+            if (!StorageValidator.validIndexedSetter(setter)) {
+                return null;
+            }
+            Node concreteSetter = setter;
+            return StorageValidator.resolvedIndexedType(
+                concreteSetter.params.get(1).type,
+                receiver, self.analyzed);
+        }
+        if (target.kind != NK_FIELD_ACCESS_EXPR) { return null; }
+        Node? receiver = self.expressionType(target.obj, environment);
+        Node? member = DeclarationRegistry.instanceMemberForType(
+            self.analyzed, receiver, target.field);
+        if (member == null || member.kind != NK_PROPERTY_DECL) {
+            return null;
+        }
+        Node property = member;
+        if (DeclarationRegistry.propertyTargetUsesBacking(
+                target.obj, target.field, currentPropertyBacking)) {
+            return null;
+        }
+        return DeclarationRegistry.resolvedInstanceMemberType(
+            self.analyzed, receiver, property);
+    }
+
+
+    public bool propertyGetterProjection(Node? expression,
+            OwnershipOperandEnvironment environment) {
+        if (expression == null
+                || expression.kind != NK_FIELD_ACCESS_EXPR
+                || expression.obj.kind == NK_SELF_EXPR
+                || expression.obj.kind == NK_SUPER_EXPR) {
+            return false;
+        }
+        Node? receiverType = self.expressionType(
+            expression.obj, environment);
+        Node? member = DeclarationRegistry.instanceMemberForType(
+            self.analyzed, receiverType, expression.field);
+        return member != null && member.kind == NK_PROPERTY_DECL;
+    }
+
+    public bool customPropertyGetterProjection(Node? expression,
+            OwnershipOperandEnvironment environment) {
+        if (expression == null
+                || expression.kind != NK_FIELD_ACCESS_EXPR) {
+            return false;
+        }
+        Node? receiverType = self.expressionType(
+            expression.obj, environment);
+        Node? member = DeclarationRegistry.instanceMemberForType(
+            self.analyzed, receiverType, expression.field);
+        return member != null && member.kind == NK_PROPERTY_DECL
+            && member.getter_body != null;
+    }
+
+    public bool virtualAssignmentRhsOwnsResult(Node assignment,
+            Node? targetType,
+            OwnershipOperandEnvironment environment) {
+        return assignment.op == "=" && targetType != null
+            && self.isManaged(targetType, environment);
+    }
+
+    public bool assignmentPropertyProjection(Node target,
+            OwnershipOperandEnvironment environment,
+            string currentPropertyBacking) {
+        if (target.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+        Node? receiverType = self.expressionType(target.obj, environment);
+        if (receiverType == null) { return false; }
+        Node? member = DeclarationRegistry.instanceMemberForType(
+            self.analyzed, receiverType, target.field);
+        return member != null && member.kind == NK_PROPERTY_DECL
+            && !DeclarationRegistry.propertyTargetUsesBacking(
+                target.obj, target.field, currentPropertyBacking);
+    }
+
+    public OwnershipProjectionPlan assignmentTargetOperands(
+            Node? target, OwnershipOperandEnvironment environment,
+            string currentPropertyBacking, CallableFlowState callableFlow) {
+        OwnershipProjectionPlan result = OwnershipProjectionPlan();
+        self.collectAssignmentTargetOperands(target, environment,
+            currentPropertyBacking, result, false, callableFlow);
+        return result;
+    }
+
+    private void collectAssignmentTargetOperands(Node? target,
+            OwnershipOperandEnvironment environment,
+            string currentPropertyBacking,
+            OwnershipProjectionPlan result,
+            bool receiverValue, CallableFlowState callableFlow) {
+        if (target == null) { return; }
+        bool fieldTarget = target.kind == NK_FIELD_ACCESS_EXPR;
+        bool indexTarget = target.kind == NK_INDEX_EXPR;
+        if (receiverValue && fieldTarget
+                && self.assignmentPropertyProjection(
+                    target, environment, currentPropertyBacking)) {
+            result.expressions.push(target);
+            result.owned.push(false);
+            result.retained.push(self.isManaged(
+                    self.expressionType(target, environment), environment)
+                && !self.context.hasExpressionOverride(target));
+            return;
+        }
+        if (!fieldTarget && !indexTarget) {
+            result.expressions.push(target);
+            result.owned.push(false);
+            result.retained.push(false);
+            return;
+        }
+        Node? object = target.obj;
+        if (object != null) {
+            bool objectOwned = self.unconsumedOwnedResult(
+                object, environment, callableFlow);
+            Node? objectType = self.expressionType(object, environment);
+            bool objectOverridden =
+                self.context.hasExpressionOverride(object);
+            bool objectManaged = self.isManaged(objectType, environment)
+                && object.kind != NK_SELF_EXPR
+                && object.kind != NK_SUPER_EXPR
+                && !objectOverridden;
+            if (objectOwned || objectManaged) {
+                result.expressions.push(object);
+                result.owned.push(objectOwned);
+                result.retained.push(objectManaged && !objectOwned);
+            } else if (!objectOverridden) {
+                self.collectAssignmentTargetOperands(object, environment,
+                    currentPropertyBacking, result, true, callableFlow);
+            }
+        }
+        if (!indexTarget || target.index == null) { return; }
+        Node index = target.index;
+        result.expressions.push(index);
+        bool indexOwned = self.unconsumedOwnedResult(index, environment, callableFlow);
+        result.owned.push(indexOwned);
+        result.retained.push(self.isManaged(
+                self.expressionType(index, environment), environment)
+            && !indexOwned
+            && !self.context.hasExpressionOverride(index));
+    }
+
+    public bool assignmentPinsBorrowedTarget(Node? target,
+            OwnershipOperandEnvironment environment,
+            string currentPropertyBacking, CallableFlowState callableFlow) {
+        if (target == null || (target.kind != NK_FIELD_ACCESS_EXPR
+                && target.kind != NK_INDEX_EXPR)) {
+            return false;
+        }
+        return self.assignmentTargetOperands(target, environment,
+            currentPropertyBacking, callableFlow).hasRetainedOperand();
+    }
+
+    public void collectProjectionRoots(Node? expression,
+            OwnershipOperandEnvironment environment,
+            Vector<Node> roots, CallableFlowState callableFlow) {
+        if (expression == null
+                || self.context.hasExpressionOverride(expression)
+                || self.unconsumedOwnedResult(expression, environment, callableFlow)
+                || (expression.kind != NK_FIELD_ACCESS_EXPR
+                    && expression.kind != NK_INDEX_EXPR)) {
+            return;
+        }
+        Node? receiver = expression.obj;
+        if (receiver == null
+                || self.context.hasExpressionOverride(receiver)) {
+            return;
+        }
+        if (self.unconsumedOwnedResult(receiver, environment, callableFlow)) {
+            roots.push(receiver);
+            return;
+        }
+        self.collectProjectionRoots(receiver, environment, roots, callableFlow);
+    }
+
+    public Node? binaryMethod(Node? leftType, string op) {
+        if (leftType == null) { return null; }
+        string magic = self.operators.binaryMethodName(op);
+        if (magic == "") { return null; }
+        if (self.analyzed.isClass(leftType.base)) {
+            return self.analyzed.classMethod(leftType.base, magic);
+        }
+        if (self.analyzed.isGenericClass(leftType.base)) {
+            return self.analyzed.genericClassMethod(
+                leftType.base, magic);
+        }
+        return null;
+    }
+
+    public bool managedCompoundKeepsRhs(Node targetType, string op) {
+        Node? method = self.binaryMethod(targetType, op);
+        return method != null && method.params.len > 0
+            && method.params.get(0).keep_;
+    }
+
+    private void prepareRawProjection(
+            RawProjectionCarrierContext projection,
+            Node? expression,
+            OwnershipOperandEnvironment environment) {
+        if (expression == null || projection.prepared(expression)) {
+            return;
+        }
+        Node? typeExpr = self.expressionType(expression, environment);
+        projection.recordExpression(expression, typeExpr,
+            self.isManaged(typeExpr, environment),
+            self.context.hasExpressionOverride(expression));
+        if (expression.kind == NK_CALL_EXPR
+                && expression.callee != null
+                && expression.callee.kind == NK_IDENTIFIER
+                && self.analyzed.hostedCallKeys.has(
+                    AstIdentity.key(expression))) {
+            int parameter = self.hostedAbi.returnAliasParameter(
+                expression.callee.name);
+            if (parameter >= 0 && parameter < expression.args.len) {
+                Node alias = expression.args.get(parameter);
+                projection.recordAlias(expression, alias);
+                self.prepareRawProjection(
+                    projection, alias, environment);
+            }
+        }
+        self.prepareRawProjection(projection, expression.expr, environment);
+        self.prepareRawProjection(projection, expression.operand, environment);
+        self.prepareRawProjection(projection, expression.left, environment);
+        self.prepareRawProjection(projection, expression.right, environment);
+        self.prepareRawProjection(
+            projection, expression.true_expr, environment);
+        self.prepareRawProjection(
+            projection, expression.false_expr, environment);
+        self.prepareRawProjection(projection, expression.obj, environment);
+        int argument = 0;
+        while (argument < expression.args.len) {
+            self.prepareRawProjection(
+                projection, expression.args.get(argument), environment);
+            argument = argument + 1;
+        }
+    }
+
+    public RawProjectionCarrierContext rawProjectionContext(
+            Node? expression,
+            OwnershipOperandEnvironment environment) {
+        RawProjectionCarrierContext projection =
+            RawProjectionCarrierContext(self.analyzed);
+        self.prepareRawProjection(projection, expression, environment);
+        return projection;
+    }
+
+    public RawProjectionStorageRoot? projectionStorageRoot(
+            Node? expression,
+            OwnershipOperandEnvironment environment) {
+        RawProjectionCarrierContext projection =
+            self.rawProjectionContext(expression, environment);
+        RawProjectionCarrier? carrier =
+            ExpressionTypeResolver.rawProjectionCarrier(
+                expression, projection);
+        if (carrier == null || carrier.kind != "leaf") { return null; }
+        return ExpressionTypeResolver.rawProjectionStorageRoot(
+            carrier, projection);
+    }
+
+    public void collectProjectionStorage(
+            Node? expression,
+            OwnershipOperandEnvironment environment,
+            Vector<Node> roots, Vector<bool> owned,
+            Vector<bool> retained, CallableFlowState callableFlow) {
+        if (expression == null
+                || self.context.hasExpressionOverride(expression)) {
+            return;
+        }
+        RawProjectionStorageRoot? storage =
+            self.projectionStorageRoot(expression, environment);
+        if (storage == null) { return; }
+        bool rootOwned = storage.managed
+            && self.unconsumedOwnedResult(
+                storage.expression, environment, callableFlow);
+        roots.push(storage.expression);
+        owned.push(rootOwned);
+        retained.push(storage.managed && !rootOwned);
+    }
+
+    public void failOpaqueOperand(Node expression,
+            string operation, bool typedDeclaration) {
+        if (typedDeclaration) {
+            fprintf(stderr,
+                "error: opaque C operand at %d:%d precedes an ordered sibling in %s; cast it explicitly or provide a typed declaration\n",
+                expression.line, expression.col, operation);
+        } else {
+            fprintf(stderr,
+                "error: opaque C operand at %d:%d precedes an ordered sibling in %s; cast it explicitly\n",
+                expression.line, expression.col, operation);
+        }
+        exit(1);
+    }
+
+    public void failOpaqueCallCleanup(Node call) {
+        fprintf(stderr,
+            "error: opaque C call result at %d:%d cannot cross an ownership cleanup boundary; provide a typed declaration or exact hosted ABI contract\n",
+            call.line, call.col);
+        exit(1);
+    }
+}

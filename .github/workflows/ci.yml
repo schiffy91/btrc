@@ -60,7 +60,15 @@ jobs:
           retention-days: 14
       - name: Verify release builds did not mutate generated sources
         run: |
-          paths=(src/compiler/python/ast_nodes.py src/compiler/btrc/ast/node.btrc src/compiler/btrc/generated/hosted_abi src/devex/lsp/builtins.py)
+          paths=(
+            src/compiler/python/runtime/generated.py
+            src/compiler/btrc/generated/runtime/catalog.btrc
+            src/compiler/python/syntax/ast/generated.py
+            src/compiler/btrc/generated/ast/node.btrc
+            src/compiler/python/abi/generated.py
+            src/compiler/btrc/generated/hosted_abi/tables.btrc
+            src/devex/lsp/catalog/generated.py
+          )
           git diff --exit-code -- "${paths[@]}"
           test -z "$(git status --porcelain --untracked-files=all -- "${paths[@]}")"
       - run: podman run --rm -v "$PWD:/workspace" btrc-devcontainer:latest make NIX= gpu-required test

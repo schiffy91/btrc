@@ -1,14 +1,3 @@
-/* Public manifest for the lexical foundation and lexer stage.
- *
- * Textual includes below form one implementation unit. Downstream stages
- * import this manifest, preserving a directed stage dependency graph.
- */
+/* Public manifest for the grammar-driven lexer stage. */
 
-#include "../tokens.btrc"
-#include "../ast/node.btrc"
-#include "../type_shapes.btrc"
-#include "../callable_type_shapes.btrc"
-#include "../ast_identity.btrc"
-#include "../type_identity.btrc"
-#include "../ebnf.btrc"
-#include "../lexer.btrc"
+import ./lexer.btrc;

@@ -1,0 +1,527 @@
+import std.map;
+import std.strings;
+import std.vector;
+import ../../analyzer/expressions.btrc;
+import ../../analyzer/hosted_abi.btrc;
+import ../../analyzer/models.btrc;
+import ../../analyzer/operators.btrc;
+import ../../analyzer/ownership/values.btrc;
+import ../../analyzer/types.btrc;
+import ../../generated/ast/node.btrc;
+import ../../syntax/types.btrc;
+import ../model.btrc;
+import ./context.btrc;
+import ./ownership/lifetime.btrc;
+import ./types.btrc;
+
+/* Thread/mutex/capture planning and IR materialization over lowered operands. */
+
+class ConcurrencyLowerer {
+    private Analyzed analyzed;
+    private HostedAbiRepository hostedAbi;
+    private OperatorSemantics operators;
+    private ExpressionTypeResolver expressionTypes;
+    private ManagedValueSemantics managedValues;
+    private CleanupSlotRegistry cleanupSlots;
+    private LoweringContext context;
+    private ManagedLifetimeLowerer managedLifetime;
+    private CTypeLowerer cTypes;
+
+    public ConcurrencyLowerer(Analyzed analyzed,
+            HostedAbiRepository hostedAbi, OperatorSemantics operators,
+            ExpressionTypeResolver expressionTypes, ManagedValueSemantics managedValues,
+            CleanupSlotRegistry cleanupSlots, ManagedLifetimeLowerer managedLifetime,
+            LoweringContext context, CTypeLowerer cTypes) {
+        self.analyzed = analyzed; self.operators = operators;
+        self.hostedAbi = hostedAbi;
+        self.expressionTypes = expressionTypes; self.managedValues = managedValues;
+        self.cleanupSlots = cleanupSlots; self.managedLifetime = managedLifetime;
+        self.context = context; self.cTypes = cTypes;
+    }
+
+    private Node? resolvedExpressionType(
+            Node? expression, Map<string, Node> variableTypes) {
+        return self.expressionTypes.inferSpecialization(expression, variableTypes);
+    }
+
+    /* Completion-safe ownership lowering for spawned capture environments. */
+
+    public IRFunction spawnCaptureReleaseAdapter(string name,
+            string envName, string fieldName, Node captureType) {
+        IRFunction definition = IRFunction();
+        definition.name = name;
+        definition.return_type = "void";
+        definition.is_static = true;
+        definition.params.push(IRParam("void*", "__raw"));
+        string envType = "struct " + envName + "*";
+        Vector<IRNode> body = [];
+        body.push(IRNode.variableDeclaration(envType, "__env",
+            IRNode.cast(envType, IRNode.variable("__raw"))));
+        IRNode field = IRNode.fieldAccess(
+            IRNode.variable("__env"),
+            self.hostedAbi.lexicalBindingCName(fieldName, false), true);
+        body.push(IRNode.variableDeclaration(
+            self.cTypes.lower(captureType),
+            "__value", field));
+        body.push(IRNode.assignment(field, IRNode.literal("NULL")));
+        body.push(IRNode.expressionStatement(self.managedLifetime.releaseValue(IRNode.variable("__value"), self.cTypes.resolveBodyType(captureType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))));
+        definition.body = IRNode.block(body);
+        return definition;
+    }
+
+    public IRNode spawnCaptureErrorBuffer(string name) {
+        return IRNode.arrayDeclaration(
+            "char", name, IRNode.literal("1024"), IRNode.literal("\"\""));
+    }
+
+    public IRNode guardSpawnCapture(string adapter) {
+        Vector<IRNode> arguments = [];
+        arguments.push(IRNode.functionReference(adapter));
+        arguments.push(IRNode.variable("__env"));
+        arguments.push(IRNode.variable("__error"));
+        arguments.push(IRNode.sizeofExpression(IRNode.variable("__error")));
+        IRNode guarded = IRNode.call("__btrc_arc_guard_hook", arguments);
+        Vector<IRNode> first = [];
+        Vector<IRNode> copyArguments = [];
+        copyArguments.push(IRNode.variable("__first_error"));
+        copyArguments.push(IRNode.variable("__error"));
+        copyArguments.push(IRNode.sizeofExpression(IRNode.variable("__first_error")));
+        first.push(IRNode.expressionStatement(IRNode.call("memcpy", copyArguments)));
+        first.push(IRNode.assignment(
+            IRNode.variable("__has_error"), IRNode.literal("1")));
+        return IRNode.ifStatement(IRNode.binary(guarded, "&&", IRNode.unary(
+            "!", IRNode.variable("__has_error"), true)), IRNode.block(first), null);
+    }
+
+    public string emitSpawnCaptureDisposer(Vector<string> capNames, Map<string, Node> varTypes,
+            string envName, int spawnId) {
+        if (capNames.len == 0) { return ""; }
+        Vector<string> adapters = [];
+        int index = 0;
+        while (index < capNames.len) {
+            string captureName = capNames.get(index);
+            Node? captureType = varTypes.get(captureName);
+            if (self.managedValues.isManaged(
+                    self.cTypes.resolveBodyType(captureType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+                string adapter = "__btrc_spawn_capture_release_"
+                    + Strings.fromInt(spawnId) + "_" + captureName;
+                self.context.module.functions.push(
+                    self.spawnCaptureReleaseAdapter(adapter,
+                        envName, captureName, captureType));
+                adapters.push(adapter);
+            }
+            index = index + 1;
+        }
+
+        string name = "__btrc_spawn_env_dispose_"
+            + Strings.fromInt(spawnId);
+        IRFunction definition = IRFunction();
+        definition.name = name;
+        definition.return_type = "void";
+        definition.is_static = true;
+        definition.params.push(IRParam("void*", "__raw"));
+        Vector<IRNode> body = [];
+        string envType = "struct " + envName + "*";
+        body.push(IRNode.variableDeclaration(envType, "__env",
+            IRNode.cast(envType, IRNode.variable("__raw"))));
+        if (adapters.len > 0) {
+            self.context.referenceHelper("__btrc_arc_guard_hook");
+            self.context.referenceHelper("__btrc_raise_captured");
+            self.context.referenceHelper("__btrc_throw");
+            body.push(IRNode.variableDeclaration(
+                "int", "__has_error", IRNode.literal("0")));
+            body.push(spawnCaptureErrorBuffer("__first_error"));
+            body.push(spawnCaptureErrorBuffer("__error"));
+            index = 0;
+            while (index < adapters.len) {
+                body.push(guardSpawnCapture(adapters.get(index)));
+                index = index + 1;
+            }
+        }
+        Vector<IRNode> freeArguments = [];
+        freeArguments.push(IRNode.variable("__env"));
+        body.push(IRNode.expressionStatement(IRNode.call("free", freeArguments)));
+        if (adapters.len > 0) {
+            Vector<IRNode> raiseArguments = [];
+            raiseArguments.push(IRNode.functionReference("__btrc_throw"));
+            raiseArguments.push(IRNode.variable("__first_error"));
+            Vector<IRNode> raiseBody = [];
+            raiseBody.push(IRNode.expressionStatement(IRNode.call(
+                "__btrc_raise_captured", raiseArguments)));
+            body.push(IRNode.ifStatement(IRNode.variable("__has_error"),
+                IRNode.block(raiseBody), null));
+        }
+        definition.body = IRNode.block(body);
+        self.context.module.functions.push(definition);
+        return name;
+    }
+    public bool threadResultRequiresBox(Node? retType) {
+        if (retType == null) { return false; }
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            retType, self.analyzed.typedefTable);
+        if (resolved == null || (resolved.base == "void"
+                && resolved.pointer_depth == 0)) {
+            return false;
+        }
+        if (resolved.base == "__fn_ptr") { return true; }
+        return !self.operators.isReferenceType(resolved);
+    }
+
+    public bool isFreshThreadResult(Node? expression, Node? resultType) {
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            resultType, self.analyzed.typedefTable);
+        if (expression == null || resolved == null
+                || resolved.base != "Thread") {
+            return false;
+        }
+        if (expression.kind == NK_SPAWN_EXPR
+                || expression.kind == NK_CALL_EXPR) {
+            return true;
+        }
+        if (expression.kind == NK_NULL_LITERAL) { return false; }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.isFreshThreadResult(
+                    expression.true_expr, resolved)
+                && self.isFreshThreadResult(
+                    expression.false_expr, resolved);
+        }
+        return false;
+    }
+
+    public string threadResultStorageC(Node resultType) {
+        Node storageType = TypeShape.copy(resultType);
+        storageType.is_const = false;
+        storageType.is_static = false;
+        storageType.is_extern = false;
+        storageType.is_volatile = false;
+        return self.cTypes.lower(storageType);
+    }
+
+    public IRNode boxExactValue(
+            IRNode expr, Node valueType, string prefix) {
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            valueType, self.analyzed.typedefTable);
+        if (resolved == null || (resolved.base == "void"
+                && resolved.pointer_depth == 0)) {
+            return IRNode.literal("NULL");
+        }
+        self.context.referenceHelper("__btrc_safe_realloc");
+        string valueC = self.threadResultStorageC(resolved);
+        string boxName = self.context.freshTemporary(prefix + "_box");
+        string valueName = self.context.freshTemporary(prefix + "_value");
+        IRNode box = IRNode.variable(boxName);
+        IRNode value = IRNode.variable(valueName);
+        Vector<IRNode> declarations = [];
+        declarations.push(IRNode.variableDeclaration(valueC + "*", boxName, null));
+        declarations.push(IRNode.variableDeclaration(valueC, valueName, null));
+        Vector<IRNode> sequence = [];
+        sequence.push(IRNode.binary(value, "=", expr));
+        Vector<IRNode> allocationArgs = [];
+        allocationArgs.push(IRNode.literal("NULL"));
+        allocationArgs.push(IRNode.sizeofExpression(IRNode.dereference(box)));
+        sequence.push(IRNode.binary(box, "=", IRNode.cast(valueC + "*",
+            IRNode.call("__btrc_safe_realloc", allocationArgs))));
+        sequence.push(IRNode.binary(IRNode.dereference(box), "=", value));
+        sequence.push(IRNode.cast("void*", box));
+        return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+    }
+
+    public IRNode unboxExactValue(
+            IRNode payloadCall, Node valueType, string prefix) {
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            valueType, self.analyzed.typedefTable);
+        if (resolved == null || (resolved.base == "void"
+                && resolved.pointer_depth == 0)) {
+            return payloadCall;
+        }
+        string valueC = self.threadResultStorageC(resolved);
+        string payloadName = self.context.freshTemporary(prefix + "_payload");
+        string valueName = self.context.freshTemporary(prefix + "_value");
+        IRNode payload = IRNode.variable(payloadName);
+        IRNode value = IRNode.variable(valueName);
+        Vector<IRNode> declarations = [];
+        declarations.push(IRNode.variableDeclaration("void*", payloadName, null));
+        declarations.push(IRNode.variableDeclaration(valueC, valueName, null));
+        Vector<IRNode> sequence = [];
+        sequence.push(IRNode.binary(payload, "=", payloadCall));
+        sequence.push(IRNode.binary(value, "=",
+            IRNode.dereference(IRNode.cast(valueC + "*", payload))));
+        Vector<IRNode> freeArgs = [];
+        freeArgs.push(payload);
+        sequence.push(IRNode.call("free", freeArgs));
+        sequence.push(value);
+        return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+    }
+
+    public IRNode boxThreadResult(IRNode? expr, Node? retType) {
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            retType, self.analyzed.typedefTable);
+        if (expr == null || resolved == null || (resolved.base == "void"
+                && resolved.pointer_depth == 0)) {
+            return IRNode.literal("NULL");
+        }
+        if (!self.threadResultRequiresBox(resolved)) {
+            return IRNode.cast("void*", expr);
+        }
+        return self.boxExactValue(expr, resolved, "__btrc_thread");
+    }
+
+    public IRNode unboxThreadResult(IRNode payloadCall, Node? retType) {
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            retType, self.analyzed.typedefTable);
+        if (resolved == null || (resolved.base == "void"
+                && resolved.pointer_depth == 0)) {
+            return payloadCall;
+        }
+        if (!self.threadResultRequiresBox(resolved)) {
+            return IRNode.cast(self.cTypes.lower(retType), payloadCall);
+        }
+        return self.unboxExactValue(
+            payloadCall, resolved, "__btrc_thread");
+    }
+
+    public IRNode consumeOpaqueHandle(IRNode obj, string handleC,
+                                      string prefix) {
+        bool addressable = obj.kind == IRK_VAR || obj.kind == IRK_FIELD_ACCESS
+            || obj.kind == IRK_INDEX || obj.kind == IRK_DEREF;
+        if (!addressable) { return obj; }
+        string slotName = self.context.freshTemporary(prefix + "_slot");
+        string handleName = self.context.freshTemporary(prefix + "_handle");
+        IRNode slot = IRNode.variable(slotName);
+        IRNode handle = IRNode.variable(handleName);
+        Vector<IRNode> declarations = [];
+        declarations.push(IRNode.variableDeclaration(
+            handleC + "* volatile*", slotName, null));
+        declarations.push(IRNode.variableDeclaration(handleC + "*", handleName, null));
+        Vector<IRNode> sequence = [];
+        sequence.push(IRNode.binary(slot, "=", IRNode.addressOf(obj)));
+        sequence.push(IRNode.binary(handle, "=", IRNode.dereference(slot)));
+        sequence.push(IRNode.binary(IRNode.dereference(slot), "=", IRNode.literal("NULL")));
+        sequence.push(handle);
+        return IRNode.statementExpression(declarations, IRNode.commaExpression(sequence));
+    }
+
+    public IRNode consumeThreadHandle(IRNode obj) {
+        return self.consumeOpaqueHandle(
+            obj, "__btrc_thread_t", "__btrc_thread");
+    }
+
+    public void appendThreadResultDisposal(
+            Vector<IRNode> args, Node? resultType) {
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            resultType, self.analyzed.typedefTable);
+        IRNode context = IRNode.literal("NULL");
+        IRNode contextSize = IRNode.literal("0");
+        IRNode callback = IRNode.literal("NULL");
+        IRNode raiseCallback = IRNode.literal("NULL");
+        if (resolved != null && !(resolved.base == "void"
+                && resolved.pointer_depth == 0)) {
+            if (SemanticTypeSystem.isString(resolved)) {
+                self.context.referenceHelper("__btrc_thread_string_dispose");
+                callback = IRNode.functionReference("__btrc_thread_string_dispose");
+            } else if (self.managedValues.isManaged(
+                    self.cTypes.resolveBodyType(resolved, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+                context = self.managedLifetime.runtimeDescriptor(self.managedValues.runtimeType(
+                        self.cTypes.resolveBodyType(resolved, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)));
+                contextSize = IRNode.sizeofType("__btrc_arc_type");
+                self.context.referenceHelper("__btrc_thread_arc_dispose");
+                self.context.referenceHelper("__btrc_throw");
+                callback = IRNode.functionReference("__btrc_thread_arc_dispose");
+                raiseCallback = IRNode.functionReference("__btrc_throw");
+            } else if (self.threadResultRequiresBox(resolved)) {
+                self.context.referenceHelper("__btrc_thread_box_dispose");
+                callback = IRNode.functionReference("__btrc_thread_box_dispose");
+            }
+        }
+        args.push(context);
+        args.push(contextSize);
+        args.push(callback);
+        args.push(raiseCallback);
+    }
+
+    /* Lower a spawn(lambda) expression to a lifted pthread wrapper function
+     * plus a __btrc_thread_spawn call, returning its thread handle. */
+    public Vector<IRNode> rewriteThreadStatements(
+            Vector<IRNode> statements, Node? retType) {
+        Vector<IRNode> out = [];
+        int i = 0;
+        while (i < statements.len) {
+            IRNode stmt = statements.get(i);
+            if (stmt.kind == IRK_RETURN) {
+                IRNode? value = null;
+                if (stmt.value != null) { value = stmt.value; }
+                IRNode boxed = self.boxThreadResult(value, retType);
+                out.push(IRNode.returnStatement(boxed));
+            } else {
+                if (stmt.kind == IRK_IF) {
+                    if (stmt.then_block != null) {
+                        stmt.then_block.stmts = self.rewriteThreadStatements(
+                            stmt.then_block.stmts, retType);
+                    }
+                    if (stmt.else_block != null) {
+                        stmt.else_block.stmts = self.rewriteThreadStatements(
+                            stmt.else_block.stmts, retType);
+                    }
+                } else if (stmt.kind == IRK_WHILE || stmt.kind == IRK_DO_WHILE
+                        || stmt.kind == IRK_FOR) {
+                    if (stmt.body != null) {
+                        stmt.body.stmts = self.rewriteThreadStatements(
+                            stmt.body.stmts, retType);
+                    }
+                } else if (stmt.kind == IRK_SWITCH) {
+                    int caseIndex = 0;
+                    while (caseIndex < stmt.args.len) {
+                        IRNode caseNode = stmt.args.get(caseIndex);
+                        caseNode.stmts = self.rewriteThreadStatements(
+                            caseNode.stmts, retType);
+                        caseIndex = caseIndex + 1;
+                    }
+                } else if (stmt.kind == IRK_BLOCK) {
+                    stmt.stmts = self.rewriteThreadStatements(
+                        stmt.stmts, retType);
+                }
+                out.push(stmt);
+            }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    /* Lower Thread<T>.join() with the same typed transport contract used by
+     * the wrapper return path. */
+    public IRNode lowerThreadMethod(IRNode obj, string method, Node ot) {
+        if (method == "join") {
+            self.context.referenceHelper("__btrc_thread_join");
+            Vector<IRNode> jargs = [];
+            jargs.push(self.consumeThreadHandle(obj));
+            IRNode joinCall = IRNode.call("__btrc_thread_join", jargs);
+            Node? ret = null;
+            if (ot.generic_args.len > 0) { ret = ot.generic_args.get(0); }
+            if (ret == null || ret.base == "void") { return joinCall; }
+            return self.unboxThreadResult(joinCall, ret);
+        }
+        /* Unknown Thread method: fall back to __btrc_thread_<method>(obj). */
+        Vector<IRNode> fargs = [];
+        fargs.push(obj);
+        return IRNode.call("__btrc_thread_" + method, fargs);
+    }
+
+    /* Lower a Mutex<T> method call: .get() unboxes the stored void*; .set(v) boxes
+     * the value; .destroy() tears down the mutex. Mirrors methods._lower_mutex_method. */
+    public IRNode lowerMutexMethod(IRNode obj, string method, Node ot,
+                                   Vector<IRNode> args) {
+        Node? valType = null;
+        if (ot.generic_args.len > 0) { valType = ot.generic_args.get(0); }
+        if (method == "get") {
+            self.context.referenceHelper("__btrc_mutex_val_get");
+            Vector<IRNode> gargs = [];
+            gargs.push(obj);
+            IRNode getCall = IRNode.call("__btrc_mutex_val_get", gargs);
+            if (valType != null) {
+                return self.unboxExactValue(
+                    getCall, valType, "__btrc_mutex");
+            }
+            return getCall;
+        }
+        if (method == "set") {
+            self.context.referenceHelper("__btrc_mutex_val_set");
+            Vector<IRNode> sargs = [];
+            sargs.push(obj);
+            if (args.len > 0) {
+                sargs.push(self.boxExactValue(
+                    args.get(0), valType, "__btrc_mutex"));
+            }
+            return IRNode.call("__btrc_mutex_val_set", sargs);
+        }
+        if (method == "destroy") {
+            fprintf(stderr,
+                "error: Mutex.destroy() must be a standalone expression statement\n");
+            exit(1);
+            return IRNode.literal("0");
+        }
+        /* Unknown Mutex method: fall back to __btrc_mutex_val_<method>(obj, ...). */
+        Vector<IRNode> fargs = [];
+        fargs.push(obj);
+        int i = 0;
+        while (i < args.len) { fargs.push(args.get(i)); i = i + 1; }
+        return IRNode.call("__btrc_mutex_val_" + method, fargs);
+    }
+
+    /* Lower Mutex(val) -> __btrc_mutex_val_create(boxed_val). `args` are the
+     * pre-lowered call arguments. Mirrors calls._lower_mutex_constructor. */
+    public IRNode lowerMutexConstructor(Node node, Vector<IRNode> args,
+                                        Map<string, Node> varTypes) {
+        self.context.referenceHelper("__btrc_mutex_val_create");
+        if (node.args.len == 0) {
+            Vector<IRNode> nargs = [];
+            nargs.push(IRNode.literal("NULL"));
+            nargs.push(IRNode.literal("0"));
+            nargs.push(IRNode.literal("NULL"));
+            nargs.push(IRNode.literal("NULL"));
+            nargs.push(IRNode.literal("NULL"));
+            nargs.push(IRNode.literal("0"));
+            nargs.push(IRNode.literal("NULL"));
+            nargs.push(IRNode.literal("NULL"));
+            nargs.push(IRNode.literal("NULL"));
+            nargs.push(IRNode.literal("NULL"));
+            return IRNode.call("__btrc_mutex_val_create", nargs);
+        }
+        Node? argType = self.resolvedExpressionType(
+            node.args.get(0), varTypes);
+        if (node.kind == NK_NEW_EXPR && node.type.generic_args.len > 0) {
+            argType = node.type.generic_args.get(0);
+        }
+        Node concreteType = argType;
+        IRNode boxed = self.boxExactValue(
+            args.get(0), concreteType, "__btrc_mutex");
+        string valueC = self.threadResultStorageC(concreteType);
+        IRNode descriptor = IRNode.literal("NULL");
+        IRNode descriptorSize = IRNode.literal("0");
+        IRNode retain = IRNode.literal("NULL");
+        IRNode releaseCallback = IRNode.literal("NULL");
+        IRNode finalizeCallback = IRNode.literal("NULL");
+        IRNode raiseCallback = IRNode.literal("NULL");
+        IRNode access = IRNode.literal("NULL");
+        IRNode slotAccess = IRNode.literal("NULL");
+        if (SemanticTypeSystem.isString(concreteType)) {
+            access = IRNode.functionReference(
+                self.cleanupSlots.ensureMutexValueAdapter(valueC));
+            self.context.referenceHelper("__btrc_mutex_string_retain");
+            self.context.referenceHelper("__btrc_mutex_string_release");
+            retain = IRNode.functionReference("__btrc_mutex_string_retain");
+            releaseCallback = IRNode.functionReference(
+                "__btrc_mutex_string_release");
+        } else if (self.managedValues.isManaged(
+                self.cTypes.resolveBodyType(concreteType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
+            access = IRNode.functionReference(
+                self.cleanupSlots.ensureMutexValueAdapter(valueC));
+            slotAccess = IRNode.functionReference(
+                self.cleanupSlots.ensureArcSlotAdapter(valueC));
+            descriptor = self.managedLifetime.runtimeDescriptor(self.managedValues.runtimeType(
+                    self.cTypes.resolveBodyType(concreteType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0)));
+            descriptorSize = IRNode.sizeofType("__btrc_arc_type");
+            self.context.referenceHelper("__btrc_mutex_arc_retain");
+            self.context.referenceHelper("__btrc_mutex_arc_release");
+            self.context.referenceHelper("__btrc_mutex_arc_finalize");
+            self.context.referenceHelper("__btrc_throw");
+            retain = IRNode.functionReference("__btrc_mutex_arc_retain");
+            releaseCallback = IRNode.functionReference("__btrc_mutex_arc_release");
+            finalizeCallback = IRNode.functionReference(
+                "__btrc_mutex_arc_finalize");
+            raiseCallback = IRNode.functionReference("__btrc_throw");
+        }
+        Vector<IRNode> cargs = [];
+        cargs.push(boxed);
+        cargs.push(IRNode.sizeofType(valueC));
+        cargs.push(access);
+        cargs.push(slotAccess);
+        cargs.push(descriptor);
+        cargs.push(descriptorSize);
+        cargs.push(retain);
+        cargs.push(releaseCallback);
+        cargs.push(finalizeCallback);
+        cargs.push(raiseCallback);
+        return IRNode.call("__btrc_mutex_val_create", cargs);
+    }
+
+}

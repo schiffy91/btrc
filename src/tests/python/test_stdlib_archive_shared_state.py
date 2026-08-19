@@ -7,21 +7,27 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import stdlib_archive as archive
-from src.compiler.python.cli_archive import StdlibArchiveBuilder
-from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
-from src.compiler.python.ir.helpers.cycles import CYCLES
-from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
-from src.compiler.python.ir.helpers.trycatch import TRYCATCH
-from src.compiler.python.ir.nodes import IRModule
-from src.compiler.python.stdlib_shared_state import SharedStateArchivePolicy
+import src.compiler.python.artifacts.stdlib as archive
+from src.compiler.python.application.compiler import Compiler
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.ir.nodes import IRHelperDecl, IRModule
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.tests.python.stdlib_archive_state_fixture import PROGRAM_SOURCE
 
-ARCHIVE = archive.StdlibArchive()
-SHARED = SharedStateArchivePolicy()
+ARCHIVE = CompilationPipeline().stdlib_archive
+SHARED = ARCHIVE
+RUNTIME_CATALOG = RuntimeHelperCatalog()
+CYCLES = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("cycles")}
+STRING_OWNERSHIP = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string_ownership")}
+TRYCATCH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("trycatch")}
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 AR = shutil.which("ar")
+
+
+def _helper_declarations(roots: set[str]) -> list[IRHelperDecl]:
+    return [IRHelperDecl.from_runtime(definition) for definition in RUNTIME_CATALOG.definitions_for(roots)]
+
 
 ARCHIVE_PROBE_SOURCE = r"""
 #include "btrc_stdlib.h"
@@ -290,7 +296,7 @@ def test_all_cross_tu_runtime_storage_has_one_explicit_owner_group():
     ],
 )
 def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expected_groups):
-    module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({root}))
+    module = IRModule(helper_decls=_helper_declarations({root}))
 
     archive_owned, declarations = ARCHIVE.transform_module(module)
     expected = set()
@@ -307,7 +313,7 @@ def test_shared_api_completion_reaches_fixed_point_and_externalizes(root, expect
 
 
 def test_worker_arc_state_finalizer_has_cross_tu_linkage():
-    module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({"__btrc_thread_spawn"}))
+    module = IRModule(helper_decls=_helper_declarations({"__btrc_thread_spawn"}))
 
     archive_owned, declarations = ARCHIVE.transform_module(module)
     cleanup_name = "__btrc_arc_thread_state_cleanup"
@@ -321,7 +327,7 @@ def test_worker_arc_state_finalizer_has_cross_tu_linkage():
 
 
 def test_archive_completes_the_thread_handle_lifecycle_api():
-    module = IRModule(helper_decls=RuntimeHelperRegistry().declarations_for({"__btrc_thread_spawn"}))
+    module = IRModule(helper_decls=_helper_declarations({"__btrc_thread_spawn"}))
 
     archive_owned, declarations = ARCHIVE.transform_module(module)
     helpers = {helper.name for helper in module.helper_decls}
@@ -431,7 +437,10 @@ def test_shared_capacity_growth_and_reset_cross_archive_boundary(
     c_compiler: str,
 ):
     output = tmp_path / "stdlib"
-    StdlibArchiveBuilder().build(str(output))
+    compiler = Compiler(
+        CompilationPipeline(archive_repository=archive.StdlibArtifactRepository())
+    )
+    assert compiler.build_stdlib_archive(str(output)).successful
 
     archive_probe = output / "archive_probe.c"
     program = output / "program.c"

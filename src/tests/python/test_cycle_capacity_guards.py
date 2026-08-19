@@ -11,8 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
-from src.compiler.python.ir.helpers.cycles import CYCLES
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 ROOTS = {
     "__btrc_arc_abandon",
@@ -21,10 +20,11 @@ ROOTS = {
     "__btrc_mark_destroyed",
     "__btrc_suspect",
 }
-RUNTIME = "\n\n".join(helper.c_source for helper in RuntimeHelperRegistry().declarations_for(ROOTS))
+RUNTIME_CATALOG = RuntimeHelperCatalog()
+CYCLES = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("cycles")}
+RUNTIME = "\n\n".join(helper.c_source for helper in RUNTIME_CATALOG.definitions_for(ROOTS))
 FIXTURE = Path(__file__).with_name("fixtures") / "cycle_capacity_guards.c"
 MARKER = "/* BTRC_RUNTIME_HELPERS */"
-SELFHOST = Path("src/compiler/btrc")
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 FAILURE_CASES = {
     "cycle-capacity": "btrc: cycle capacity boundary\n",
@@ -94,19 +94,13 @@ def test_cycle_allocations_compute_checked_bytes_before_use() -> None:
 
 
 def test_selfhost_capacity_dependencies_match_checked_allocators() -> None:
-    state_dependencies = (SELFHOST / "cycle_runtime_dependencies_state.btrc").read_text()
-    lifecycle_dependencies = (SELFHOST / "cycle_runtime_dependencies_lifecycle.btrc").read_text()
-    for source, helper_name in (
-        (lifecycle_dependencies, "__btrc_arc_graph_primitives"),
-        (state_dependencies, "__btrc_arc_reverse_proves_live"),
-        (state_dependencies, "__btrc_suspect_locked"),
+    for helper_name in (
+        "__btrc_arc_graph_primitives",
+        "__btrc_arc_reverse_proves_live",
+        "__btrc_suspect_locked",
     ):
-        marker = f'if (name == "{helper_name}")'
-        start = source.index(marker)
-        end = source.find("if (name ==", start + len(marker))
-        branch = source[start : end if end >= 0 else None]
-        assert 'out.push("__btrc_safe_calloc")' in branch
-        assert 'out.push("__btrc_safe_realloc")' in branch
+        assert "__btrc_safe_calloc" in CYCLES[helper_name].depends_on
+        assert "__btrc_safe_realloc" in CYCLES[helper_name].depends_on
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")

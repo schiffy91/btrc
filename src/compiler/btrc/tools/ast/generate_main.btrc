@@ -1,0 +1,435 @@
+import std.bytes;
+import std.fs;
+import std.io;
+import std.map;
+import std.strings;
+import std.vector;
+
+import ./schema.btrc;
+import ../../frontend/models.btrc;
+import ../../frontend/source_io.btrc;
+import ../../cli/driver.btrc;
+
+/* btrc-native AST node generator.
+ *
+ * Reads src/language/ast.asdl, parses it with schema.btrc, and prints the
+ * fat tagged-node AST source (node.btrc) to stdout — byte-identical to the
+ * committed src/compiler/btrc/generated/ast/node.btrc. It has no Python
+ * generator dependency: the compiler's source-I/O and checked-output owners
+ * provide the bounded filesystem seams.
+ *
+ * Faithful port of the self-hosted data renderer in tools/compiler_codegen/ast.py.
+ */
+
+/* A constructor paired with its parent type's attributes. */
+class CtorPlan {
+    public ACtor ctor;
+    public Vector<AField> attrs;
+    public CtorPlan(ACtor ctor, Vector<AField> attrs) {
+        self.ctor = ctor;
+        self.attrs = attrs;
+    }
+}
+
+/* One field's fat-node plan, keyed in declaration order. */
+class FieldDecl2 {
+    public string backing;
+    public string decl;
+    public string init;
+    public FieldDecl2(string backing, string decl, string init) {
+        self.backing = backing;
+        self.decl = decl;
+        self.init = init;
+    }
+}
+
+class AstNodeGenerator {
+    private BtrccOutput output;
+    private FeSourceFileReader sourceFiles;
+
+    public AstNodeGenerator(BtrccOutput output,
+                            FeSourceFileReader sourceFiles) {
+        self.output = output;
+        self.sourceFiles = sourceFiles;
+    }
+
+    private bool charIsUpper(char c) { return c >= 'A' && c <= 'Z'; }
+    private bool charIsLower(char c) { return c >= 'a' && c <= 'z'; }
+    private bool charIsDigit(char c) { return c >= '0' && c <= '9'; }
+
+    private string charToUpper(char c) {
+        if (c >= 'a' && c <= 'z') {
+            char u = (char)((int)c - 32);
+            return f"{u}";
+        }
+        return f"{c}";
+    }
+
+    /* snake_case ASDL type name -> PascalCase class name. */
+    private string toPascal(string name) {
+        string out = "";
+        int i = 0;
+        int n = name.length();
+        bool atStart = true;
+        while (i < n) {
+            char c = name[i];
+            if (c == '_') {
+                atStart = true;
+            } else {
+                if (atStart) {
+                    out = out + self.charToUpper(c);
+                } else {
+                    out = out + f"{c}";
+                }
+                atStart = false;
+            }
+            i = i + 1;
+        }
+        return out;
+    }
+
+    /* PascalCase -> SCREAMING_SNAKE_CASE. */
+    private string toScreamingSnake(string name) {
+        string out = "";
+        int i = 0;
+        int n = name.length();
+        while (i < n) {
+            char ch = name[i];
+            if (self.charIsUpper(ch) && i > 0) {
+                char prev = name[i - 1];
+                bool nextLower =
+                    (i + 1 < n) && self.charIsLower(name[i + 1]);
+                if (self.charIsLower(prev) || self.charIsDigit(prev)
+                        || (nextLower && self.charIsUpper(prev))) {
+                    out = out + "_";
+                }
+            }
+            out = out + self.charToUpper(ch);
+            i = i + 1;
+        }
+        return out;
+    }
+
+    private bool isSumType(AType t) { return t.ctors.len > 1; }
+
+    private bool isSimpleEnum(AType t) {
+        if (t.ctors.len <= 1) { return false; }
+        int i = 0;
+        while (i < t.ctors.len) {
+            if (t.ctors.get(i).fields.len != 0) { return false; }
+            i = i + 1;
+        }
+        return true;
+    }
+
+    /* btrc reserved keywords that collide with field names. The Python side reads
+     * these from the grammar; the only field names in this ASDL that collide are
+     * `default` and `keep`. */
+    private bool isKeyword(string name) {
+        return name == "default" || name == "keep";
+    }
+
+    private string safeName(string name) {
+        if (self.isKeyword(name)) { return name + "_"; }
+        return name;
+    }
+
+    /* ASDL type name -> btrc type name used in field declarations. */
+    private void buildTypeNameMap(Vector<AType> types,
+                                  Map<string, string> nameMap) {
+        nameMap.put("identifier", "string");
+        nameMap.put("string", "string");
+        nameMap.put("int", "int");
+        nameMap.put("float", "float");
+        nameMap.put("bool", "bool");
+        int i = 0;
+        while (i < types.len) {
+            AType t = types.get(i);
+            if (self.isSimpleEnum(t)) {
+                nameMap.put(t.name, "int");
+            } else if (self.isSumType(t)) {
+                nameMap.put(t.name, self.toPascal(t.name));
+            } else {
+                nameMap.put(t.name, t.ctors.get(0).name);
+            }
+            i = i + 1;
+        }
+    }
+
+    private string btrcType(AField f, Map<string, string> nameMap) {
+        string base = f.typeName;
+        if (nameMap.has(f.typeName)) { base = nameMap.get(f.typeName); }
+        if (f.seq) { return f"List<{base}>"; }
+        return base;
+    }
+
+    private bool isScalar(string t) {
+        return t == "int" || t == "bool" || t == "string" || t == "float";
+    }
+
+    /* (category) for a field's fat-node representation. */
+    private string fatCat(string btrcT) {
+        if (self.isScalar(btrcT)) { return "scalar"; }
+        if (btrcT.startsWith("List<")) {
+            string inner = btrcT.substring(5, btrcT.length() - 6);
+            if (inner == "string") { return "strlist"; }
+            return "nodelist";
+        }
+        return "node";
+    }
+
+    /* (declared btrc type) for a field's fat-node representation. */
+    private string fatDecl(string btrcT) {
+        if (self.isScalar(btrcT)) { return btrcT; }
+        if (btrcT.startsWith("List<")) {
+            string inner = btrcT.substring(5, btrcT.length() - 6);
+            if (inner == "string") { return "Vector<string>"; }
+            return "Vector<Node>";
+        }
+        return "Node";
+    }
+
+    private string variantSuffix(string cat, string decl) {
+        if (cat == "scalar") { return decl; }
+        if (cat == "node") { return "node"; }
+        if (cat == "nodelist") { return "nlist"; }
+        return "slist";
+    }
+
+    private string initFor(string decl) {
+        if (decl == "int") { return "0"; }
+        if (decl == "bool") { return "false"; }
+        if (decl == "string") { return "\"\""; }
+        if (decl == "float") { return "0.0"; }
+        if (decl == "Vector<Node>") { return "[]"; }
+        if (decl == "Vector<string>") { return "[]"; }
+        return "null";
+    }
+
+    public int run() {
+        string src = self.sourceFiles.readRequired("src/language/ast.asdl");
+        AsdlParser p = AsdlParser(src);
+        Vector<AType> types = p.parse();
+
+        Map<string, string> nameMap = {};
+        self.buildTypeNameMap(types, nameMap);
+
+        // Constructors excluding simple enums, each with parent attributes.
+        Vector<CtorPlan> ctors = [];
+        int ti = 0;
+        while (ti < types.len) {
+            AType t = types.get(ti);
+            if (!self.isSimpleEnum(t)) {
+                int ci = 0;
+                while (ci < t.ctors.len) {
+                    CtorPlan cp = CtorPlan(t.ctors.get(ci), t.attrs);
+                    ctors.push(cp);
+                    ci = ci + 1;
+                }
+            }
+            ti = ti + 1;
+        }
+
+        // Collect every safe field name -> set of "cat|decl" across constructors.
+        Map<string, Vector<string>> seen = {};
+        Vector<string> seenOrder = [];
+        int pi = 0;
+        while (pi < ctors.len) {
+            CtorPlan cp = ctors.get(pi);
+            Vector<AField> fields = [];
+            int fi = 0;
+            while (fi < cp.ctor.fields.len) { fields.push(cp.ctor.fields.get(fi)); fi = fi + 1; }
+            int ai = 0;
+            while (ai < cp.attrs.len) { fields.push(cp.attrs.get(ai)); ai = ai + 1; }
+            int k = 0;
+            while (k < fields.len) {
+                AField f = fields.get(k);
+                string bt = self.btrcType(f, nameMap);
+                string cat = self.fatCat(bt);
+                string decl = self.fatDecl(bt);
+                string nm = self.safeName(f.name);
+                string tag = f"{cat}|{decl}";
+                if (!seen.has(nm)) {
+                    Vector<string> v = [];
+                    seen.put(nm, v);
+                    seenOrder.push(nm);
+                }
+                Vector<string> tags = seen.get(nm);
+                bool found = false;
+                int x = 0;
+                while (x < tags.len) {
+                    if (tags.get(x) == tag) { found = true; }
+                    x = x + 1;
+                }
+                if (!found) { tags.push(tag); }
+                k = k + 1;
+            }
+            pi = pi + 1;
+        }
+
+        // conflicted: names with >1 distinct (cat,decl).
+        Map<string, bool> conflicted = {};
+        int si = 0;
+        while (si < seenOrder.len) {
+            string nm = seenOrder.get(si);
+            if (seen.get(nm).len > 1) { conflicted.put(nm, true); }
+            si = si + 1;
+        }
+
+        // A string field optional in EVERY use (and not conflicted) becomes string?.
+        Map<string, bool> strSeen = {};        // name -> has any string use
+        Map<string, bool> strAllOpt = {};      // name -> all string uses are opt
+        Vector<string> strOrder = [];
+        int qi = 0;
+        while (qi < ctors.len) {
+            CtorPlan cp = ctors.get(qi);
+            Vector<AField> fields = [];
+            int fi = 0;
+            while (fi < cp.ctor.fields.len) { fields.push(cp.ctor.fields.get(fi)); fi = fi + 1; }
+            int ai = 0;
+            while (ai < cp.attrs.len) { fields.push(cp.attrs.get(ai)); ai = ai + 1; }
+            int k = 0;
+            while (k < fields.len) {
+                AField f = fields.get(k);
+                string bt = self.btrcType(f, nameMap);
+                string cat = self.fatCat(bt);
+                string decl = self.fatDecl(bt);
+                if (cat == "scalar" && decl == "string") {
+                    string nm = self.safeName(f.name);
+                    if (!strSeen.has(nm)) {
+                        strSeen.put(nm, true);
+                        strAllOpt.put(nm, true);
+                        strOrder.push(nm);
+                    }
+                    if (!f.opt) { strAllOpt.put(nm, false); }
+                }
+                k = k + 1;
+            }
+            qi = qi + 1;
+        }
+        Map<string, bool> nullableStr = {};
+        int ri = 0;
+        while (ri < strOrder.len) {
+            string nm = strOrder.get(ri);
+            if (strAllOpt.get(nm) && !conflicted.has(nm)) { nullableStr.put(nm, true); }
+            ri = ri + 1;
+        }
+
+        // Ordered, de-duplicated backing field declarations.
+        Map<string, FieldDecl2> decls = {};
+        Vector<string> order = [];
+        int ki = 0;
+        while (ki < ctors.len) {
+            CtorPlan cp = ctors.get(ki);
+            Vector<AField> fields = [];
+            int fi = 0;
+            while (fi < cp.ctor.fields.len) { fields.push(cp.ctor.fields.get(fi)); fi = fi + 1; }
+            int ai = 0;
+            while (ai < cp.attrs.len) { fields.push(cp.attrs.get(ai)); ai = ai + 1; }
+            int k = 0;
+            while (k < fields.len) {
+                AField f = fields.get(k);
+                string nm = self.safeName(f.name);
+                string bt = self.btrcType(f, nameMap);
+                string cat = self.fatCat(bt);
+                string decl = self.fatDecl(bt);
+                string bn = nm;
+                if (conflicted.has(nm)) {
+                    bn = f"{nm}_{self.variantSuffix(cat, decl)}";
+                }
+                bool optstr = nullableStr.has(bn);
+                if (!decls.has(bn)) {
+                    if (optstr) {
+                        FieldDecl2 fd = FieldDecl2(bn, "string?", "null");
+                        decls.put(bn, fd);
+                    } else {
+                        FieldDecl2 fd =
+                            FieldDecl2(bn, decl, self.initFor(decl));
+                        decls.put(bn, fd);
+                    }
+                    order.push(bn);
+                }
+                k = k + 1;
+            }
+            ki = ki + 1;
+        }
+
+        // ---- emit ----
+        Vector<string> L = [];
+        L.push("/* Self-hosted btrc AST — fat tagged node.");
+        L.push(" *");
+        L.push(" * Auto-generated from src/language/ast.asdl by tools/compiler_codegen/ast.py.");
+        L.push(" * DO NOT EDIT BY HAND. btrc lacks dynamic dispatch/downcast, so the AST");
+        L.push(" * is one Node with a `kind` tag + the union of all fields.");
+        L.push(" * This file contains data/schema declarations only; canonical formatting");
+        L.push(" * belongs to the handwritten owner in syntax/identity.btrc.");
+        L.push(" */");
+        L.push("");
+        L.push("import std.vector;");
+        L.push("");
+
+        // NodeKind enum
+        L.push("enum NodeKind {");
+        L.push("    NK_NONE = 0,");
+        int ei = 0;
+        while (ei < ctors.len) {
+            CtorPlan cp = ctors.get(ei);
+            L.push(f"    NK_{self.toScreamingSnake(cp.ctor.name)},");
+            ei = ei + 1;
+        }
+        L.push("};");
+        L.push("");
+
+        // simple enums
+        int sei = 0;
+        while (sei < types.len) {
+            AType t = types.get(sei);
+            if (self.isSimpleEnum(t)) {
+                L.push(f"enum {self.toPascal(t.name)} {{");
+                int ci = 0;
+                while (ci < t.ctors.len) {
+                    string comma = ",";
+                    if (ci >= t.ctors.len - 1) { comma = ""; }
+                    L.push(
+                        f"    {self.toScreamingSnake(t.ctors.get(ci).name)} = {ci}{comma}");
+                    ci = ci + 1;
+                }
+                L.push("};");
+                L.push("");
+            }
+            sei = sei + 1;
+        }
+
+        // fat Node class
+        L.push("class Node {");
+        L.push("    public int kind;");
+        int di = 0;
+        while (di < order.len) {
+            FieldDecl2 fd = decls.get(order.get(di));
+            L.push(f"    public {fd.decl} {fd.backing};");
+            di = di + 1;
+        }
+        L.push("");
+        L.push("    public Node() {");
+        L.push("        self.kind = NK_NONE;");
+        int di2 = 0;
+        while (di2 < order.len) {
+            FieldDecl2 fd = decls.get(order.get(di2));
+            L.push(f"        self.{fd.backing} = {fd.init};");
+            di2 = di2 + 1;
+        }
+        L.push("    }");
+        L.push("}");
+
+        if (self.output.writeLine(Strings.join(L, "\n"))) { return 0; }
+        fprintf(stderr, "gen_node: error: cannot write standard output\n");
+        return 1;
+    }
+
+}
+
+int main() {
+    return AstNodeGenerator(
+        BtrccOutput(stdout),
+        FeSourceFileReader(FeSourceResolutionPolicy())).run();
+}

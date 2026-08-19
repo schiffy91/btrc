@@ -128,8 +128,8 @@ def test_imported_stdlib_mutex_collection_is_a_registered_managed_class(
 
 
 def test_selfhost_semantic_owner_keeps_unregistered_collection_contract() -> None:
-    source = (REPO / "src/compiler/btrc/semantic_validation_mutex_payloads.btrc").read_text()
+    source = (REPO / "src/compiler/btrc/analyzer/validation/ownership.btrc").read_text()
 
-    assert "query == 4 && semanticMutexRuntimeCollection" in source
-    assert "!state.analyzed.isGenericClass(canonical.base)" in source
+    assert "query == 4 && self.mutexRuntimeCollection" in source
+    assert "!self.state.analyzed.isGenericClass(canonical.base)" in source
     assert "cannot contain runtime-owned collection storage without a " in source

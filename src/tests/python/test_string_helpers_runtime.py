@@ -9,10 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.helpers.alloc import ALLOC
-from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
-from src.compiler.python.ir.helpers.string_pool import STRING_POOL
-from src.compiler.python.ir.helpers.strings import STRING
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+
+RUNTIME_CATALOG = RuntimeHelperCatalog()
+ALLOC = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("alloc")}
+STRING_OWNERSHIP = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string_ownership")}
+STRING_POOL = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string_pool")}
+STRING = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("string")}
 
 CLANG = shutil.which("clang")
 pytestmark = pytest.mark.skipif(CLANG is None, reason="needs Clang")

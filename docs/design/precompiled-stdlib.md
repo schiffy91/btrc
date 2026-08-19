@@ -11,7 +11,7 @@ helpers, and shared runtime state in every program translation unit.
 
 Two existing caches solve different problems:
 
-- `CompilationCache` caches final generated C for an unchanged resolved source.
+- `CompilerCache` caches final generated C for an unchanged resolved source.
 - the frontend stdlib cache stores a schema-validated JSON representation of
   parsed stdlib declarations.
 

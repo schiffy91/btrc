@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.ast_nodes import (
+from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
     BinaryExpr,
     Block,
@@ -61,8 +61,8 @@ from src.compiler.python.ast_nodes import (
     VarDeclStmt,
     WhileStmt,
 )
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser.core import ParseError
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import ParseError
 from src.compiler.python.parser.parser import Parser
 
 
@@ -1549,7 +1549,7 @@ class TestParseErrors:
             parse("void f() { x.; }")
 
     def test_unterminated_string(self):
-        from src.compiler.python.lexer import LexerError
+        from src.compiler.python.lexer.lexer import LexerError
 
         with pytest.raises((ParseError, LexerError)):
             parse('string s = "hello;')

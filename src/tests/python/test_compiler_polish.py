@@ -20,8 +20,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 REPO = Path(__file__).resolve().parents[3]
@@ -98,8 +98,8 @@ class TestPointerDepthMangling:
         assert run_res.stdout.split() == ["30", "187"]
 
     def test_unit_mangling_includes_pointer_suffix(self):
-        from src.compiler.python.ast_nodes import TypeExpr
-        from src.compiler.python.type_identity import TypeIdentity
+        from src.compiler.python.syntax.ast.generated import TypeExpr
+        from src.compiler.python.analyzer.types import TypeIdentity
 
         identity = TypeIdentity()
         plain = identity.symbol_component(TypeExpr(base="int"))

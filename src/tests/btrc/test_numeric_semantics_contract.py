@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.numeric_literals import NumericLiteralSemantics
+from src.compiler.python.analyzer.types import NumericLiteralSemantics
 from src.tests.btrc.test_semantic_validation import (
     _compile_source,
     _strict_build_and_run,

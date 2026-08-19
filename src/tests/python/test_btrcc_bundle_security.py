@@ -13,15 +13,14 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.artifacts.selfhost_bundle.builder as builder_module
-import src.compiler.python.artifacts.selfhost_bundle.copier as copier_module
-import src.compiler.python.artifacts.selfhost_bundle.validator as validation_module
-import src.compiler.python.bundle_archive_source as archive_source_module
-from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
-from src.compiler.python.artifacts.selfhost_bundle.copier import BundleCopier
-from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
-from src.compiler.python.btrcc_bundle_archive import write_tar_gz, write_zip
-from src.compiler.python.bundle_archive_source import BundleArchiveSource
+import src.compiler.python.artifacts.archive as archive_source_module
+import src.compiler.python.artifacts.selfhost as selfhost_module
+from src.compiler.python.artifacts.archive import ArchiveCodec, ArchiveSource
+from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder, SelfhostBundleCopier, SelfhostBundleValidator
+
+ARCHIVE_CODEC = ArchiveCodec()
+write_tar_gz = ARCHIVE_CODEC.write_tar_gz
+write_zip = ARCHIVE_CODEC.write_zip
 from src.tests.python.test_btrcc_bundle import _fixture, _manifest
 
 
@@ -55,7 +54,7 @@ class _MutatingReader:
 def test_bundle_archive_source_behavior_has_one_explicit_owner() -> None:
     module = ast.parse(Path(archive_source_module.__file__).read_text())
     loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    owner = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "BundleArchiveSource")
+    owner = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "ArchiveSource")
     operations = {node.name for node in owner.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
     assert loose_behavior == []
@@ -101,7 +100,7 @@ def test_bundle_copy_rejects_same_inode_same_size_mutation_during_read(
     destination = tmp_path / "destination"
     source.write_bytes(b"a" * (2 * 1024 * 1024))
     initial = source.stat()
-    original_fdopen = copier_module.os.fdopen
+    original_fdopen = selfhost_module.os.fdopen
 
     def mutating_fdopen(descriptor: int, *args, **kwargs):
         stream = original_fdopen(descriptor, *args, **kwargs)
@@ -110,9 +109,9 @@ def test_bundle_copy_rejects_same_inode_same_size_mutation_during_read(
             lambda: _replace_contents_in_place(source, b"b" * initial.st_size, initial.st_mtime_ns),
         )
 
-    monkeypatch.setattr(copier_module.os, "fdopen", mutating_fdopen)
+    monkeypatch.setattr(selfhost_module.os, "fdopen", mutating_fdopen)
     with pytest.raises(ValueError, match="changed while being copied"):
-        BundleCopier().copy(source, destination, 0o644, 0)
+        SelfhostBundleCopier().copy(source, destination, 0o644, 0)
 
     changed = source.stat()
     assert (changed.st_dev, changed.st_ino, changed.st_size) == (
@@ -130,14 +129,14 @@ def test_bundle_copy_accepts_content_neutral_metadata_churn(
     destination = tmp_path / "destination"
     payload = b"stable" * (1024 * 1024)
     source.write_bytes(payload)
-    original_fdopen = copier_module.os.fdopen
+    original_fdopen = selfhost_module.os.fdopen
 
     def touching_fdopen(descriptor: int, *args, **kwargs):
         stream = original_fdopen(descriptor, *args, **kwargs)
         return _MutatingReader(stream, source.touch)
 
-    monkeypatch.setattr(copier_module.os, "fdopen", touching_fdopen)
-    BundleCopier().copy(source, destination, 0o644, 7)
+    monkeypatch.setattr(selfhost_module.os, "fdopen", touching_fdopen)
+    SelfhostBundleCopier().copy(source, destination, 0o644, 7)
 
     assert destination.read_bytes() == payload
 
@@ -149,7 +148,7 @@ def test_artifact_hash_rejects_same_inode_growth(
     artifact = tmp_path / "archive"
     artifact.write_bytes(b"a" * 4096)
     initial = artifact.stat()
-    original_fdopen = validation_module.os.fdopen
+    original_fdopen = selfhost_module.os.fdopen
 
     def append_byte() -> None:
         with artifact.open("ab") as destination:
@@ -162,9 +161,9 @@ def test_artifact_hash_rejects_same_inode_growth(
             return _MutatingReader(stream, append_byte)
         return stream
 
-    monkeypatch.setattr(validation_module.os, "fdopen", mutating_fdopen)
+    monkeypatch.setattr(selfhost_module.os, "fdopen", mutating_fdopen)
     with pytest.raises(ValueError, match="changed size"):
-        BundleValidator()._hash_artifact(artifact)
+        SelfhostBundleValidator()._hash_artifact(artifact)
     assert artifact.stat().st_size == initial.st_size + 1
 
 
@@ -176,7 +175,7 @@ def test_archive_reader_revalidates_same_inode_same_size_source_after_read(
     payload = bundle / "payload"
     payload.write_bytes(b"a" * 4096)
     initial = payload.stat()
-    source = BundleArchiveSource(bundle)
+    source = ArchiveSource(bundle)
     entry = next(item for item in source.discover() if item.path == payload)
 
     with (
@@ -261,11 +260,11 @@ def test_archive_writers_reject_tree_changes_after_entry_emission(
     late = bundle / "late"
     early.write_bytes(b"early-old")
     late.write_bytes(b"late")
-    open_regular = BundleArchiveSource.open_regular
+    open_regular = ArchiveSource.open_regular
     changed = False
 
     @contextmanager
-    def change_after_last_emission(source: BundleArchiveSource, entry):
+    def change_after_last_emission(source: ArchiveSource, entry):
         nonlocal changed
         with open_regular(source, entry) as payload_stream:
             yield payload_stream
@@ -279,7 +278,7 @@ def test_archive_writers_reject_tree_changes_after_entry_emission(
                 (bundle / "added").write_bytes(b"added")
 
     monkeypatch.setattr(
-        BundleArchiveSource,
+        ArchiveSource,
         "open_regular",
         change_after_last_emission,
     )
@@ -363,7 +362,8 @@ def test_archive_is_created_from_private_staging(
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source", target)
     output = tmp_path / "dist"
-    original = builder_module.write_zip if target.startswith("windows-") else builder_module.write_tar_gz
+    codec = ArchiveCodec()
+    original = codec.write_zip if target.startswith("windows-") else codec.write_tar_gz
     observed = False
 
     def observing_writer(bundle: Path, destination: Path, epoch: int) -> None:
@@ -375,8 +375,8 @@ def test_archive_is_created_from_private_staging(
         original(bundle, destination, epoch)
 
     name = "write_zip" if target.startswith("windows-") else "write_tar_gz"
-    monkeypatch.setattr(builder_module, name, observing_writer)
-    result = BundleBuilder().build(
+    monkeypatch.setattr(codec, name, observing_writer)
+    result = SelfhostBundleBuilder(archive_codec=codec).build(
         binary=binary,
         target=target,
         output_dir=output,

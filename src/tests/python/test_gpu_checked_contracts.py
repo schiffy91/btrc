@@ -9,12 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.gpu_errors import (
-    GPU_STATUS_MESSAGES,
-    GPU_TRANSFER_FAILURE_MESSAGE,
-    GPU_UNKNOWN_STATUS_MESSAGE,
-)
-from src.compiler.python.ir.optimizer_walk import IRTree
+from src.compiler.python.analyzer.gpu import GPU_STATUS_MESSAGES, GPU_TRANSFER_FAILURE_MESSAGE, GPU_UNKNOWN_STATUS_MESSAGE
+from src.compiler.python.backend.wgsl_emitter import WgslEmitter
+from src.compiler.python.ir.nodes import IRNode
 from src.tests.python.test_codegen import emit_c
 from src.tests.python.test_gpu_dispatch_failures import (
     COMPILERS,
@@ -30,15 +27,19 @@ def test_shader_declares_lengths_and_final_atomic_status_binding() -> None:
         "int main() { int[] xs = {4}; int[] ys = {3}; int[] out = checked(xs, ys, 2); return out[0]; }"
     )
     [kernel] = module.gpu_kernels
+    shader = WgslEmitter.emit_ir_kernel(kernel)
 
     assert kernel.status_binding == 4
-    assert "btrc_len_0: i32," in kernel.wgsl_source
-    assert "btrc_len_1: i32," in kernel.wgsl_source
-    assert "struct BtrcStatus { code: atomic<u32>, }" in kernel.wgsl_source
-    assert "@group(0) @binding(4) var<storage, read_write> btrc_status" in kernel.wgsl_source
+    assert "btrc_len_0: i32," in shader
+    assert "btrc_len_1: i32," in shader
+    assert "struct BtrcStatus { code: atomic<u32>, }" in shader
+    assert "@group(0) @binding(4) var<storage, read_write> btrc_status" in shader
     for code in GPU_STATUS_MESSAGES:
-        assert f"atomicMax(&btrc_status.code, {code}u)" in kernel.wgsl_source
-    assert not any(type(node).__name__.startswith("IRRaw") for node in IRTree(module))
+        assert f"atomicMax(&btrc_status.code, {code}u)" in shader
+    assert not any(
+        type(node).__name__.startswith("IRRaw")
+        for node in IRNode.walk_value(module)
+    )
 
 
 def test_dispatch_reads_status_before_guarded_user_data_and_cleans_before_failure() -> None:
@@ -204,9 +205,10 @@ def test_checked_shader_validates_with_naga() -> None:
         "return xs[i + 1] / divisor + xs[i] % divisor; } int main() { return 0; }"
     )
     [kernel] = module.gpu_kernels
+    shader = WgslEmitter.emit_ir_kernel(kernel)
     result = subprocess.run(
         [NAGA, "--stdin-file-path", "checked.wgsl"],
-        input=kernel.wgsl_source,
+        input=shader,
         text=True,
         capture_output=True,
     )

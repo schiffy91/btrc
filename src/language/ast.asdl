@@ -2,8 +2,8 @@
 --
 -- This is the single source of truth for AST node types.
 -- Generated code:
---   src/compiler/python/ast/asdl_python.py  -> src/compiler/python/ast_nodes.py
---   src/compiler/python/ast/gen_btrc_ast.py -> src/compiler/btrc/ast/node.btrc
+--   tools/compiler_codegen/ast.py -> src/compiler/python/syntax/ast/generated.py
+--   tools/compiler_codegen/ast.py -> src/compiler/btrc/generated/ast/node.btrc
 --
 -- ASDL modifier semantics:
 --   field        = required (exactly 1)

@@ -1,11 +1,11 @@
-"""Structural ownership contract for selfhost setjmp qualifier validation."""
+"""Structural ownership contract for selfhost setjmp analysis and safety."""
 
 import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
-SOURCE = REPO / "src/compiler/btrc/setjmp_qualifier_safety.btrc"
-CONTROL_FLOW = REPO / "src/compiler/btrc/setjmp_control_flow.btrc"
+ANALYSIS = REPO / "src/compiler/btrc/ir/optimization/setjmp/analysis.btrc"
+SAFETY = REPO / "src/compiler/btrc/ir/optimization/setjmp/safety.btrc"
 
 _TOP_LEVEL_MUTABLE_DECLARATION = re.compile(
     r"^(?!\s)(?!import\b)(?!typedef\b)"
@@ -21,33 +21,34 @@ _TOP_LEVEL_BEHAVIOR = re.compile(
 
 
 def test_setjmp_qualifier_validation_has_no_mutable_ambient_state() -> None:
-    source = SOURCE.read_text()
+    source = SAFETY.read_text()
 
     assert "setjmpQualifierGlobals" not in source
     assert "setjmpVisibleGlobal" not in source
     assert _TOP_LEVEL_MUTABLE_DECLARATION.findall(source) == []
 
 
-def test_setjmp_qualifier_behavior_has_one_instance_owner() -> None:
-    source = SOURCE.read_text()
+def test_setjmp_effect_analysis_has_one_retained_owner() -> None:
+    source = ANALYSIS.read_text()
 
-    assert "class SetjmpQualifierValidator {" in source
-    assert "public void validateGlobals(IRModule module)" in source
-    assert "public void validateFunction(IRFunction definition)" in source
+    assert "class SetjmpEffectAnalysis {" in source
+    assert "private IRModule module;" in source
+    assert "public Map<string, SetjmpCallEffects> analyze(IRModule module)" in source
     assert _TOP_LEVEL_BEHAVIOR.findall(source) == []
 
 
-def test_setjmp_control_flow_reuses_one_qualifier_validator() -> None:
-    source = CONTROL_FLOW.read_text()
-    apply = source[source.index("void applySetjmpVolatility(IRModule module)") :]
+def test_setjmp_safety_has_one_explicit_module_operation() -> None:
+    source = SAFETY.read_text()
+    apply = source[source.index("public void apply(IRModule module)") :]
 
-    construction = "SetjmpQualifierValidator qualifierValidator ="
-    validate_globals = "qualifierValidator.validateGlobals(module);"
-    validate_function = "qualifierValidator.validateFunction(definition);"
+    assert "class SetjmpSafetyPlanner {" in source
+    assert "private void validateGlobals(IRModule module)" in source
+    assert "private void validateFunction(IRFunction definition)" in source
+    assert _TOP_LEVEL_BEHAVIOR.findall(source) == []
 
-    assert apply.count(construction) == 1
-    assert apply.count(validate_globals) == 1
-    assert apply.count(validate_function) == 1
-    assert apply.index(construction) < apply.index(validate_globals)
-    assert apply.index(validate_globals) < apply.index("bool hasSetjmp")
-    assert apply.index("scanSetjmpBlock(") < apply.index(validate_function)
+    assert apply.count("self.validateGlobals(module);") == 1
+    assert apply.count("self.effectAnalysis.analyze(module)") == 1
+    assert apply.count("self.validateFunction(definition);") == 1
+    assert apply.index("self.validateGlobals(module);") < apply.index("bool hasSetjmp")
+    assert apply.index("self.effectAnalysis.analyze(module)") < apply.index("self.scanBlock(")
+    assert apply.index("self.scanBlock(") < apply.index("self.validateFunction(")

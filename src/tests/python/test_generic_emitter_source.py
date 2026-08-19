@@ -1,6 +1,4 @@
-"""Generic-method bodies (monomorphized via the parallel generic emitter) that
-use collection literals, sizeof, and method calls through fields/self — driving
-the user_emitter expression/statement paths."""
+"""Generic-method bodies lowered through the ordinary expression/statement owners."""
 
 from src.tests.python.test_codegen import emit_c
 

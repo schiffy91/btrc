@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.tests.python.test_runtime_helpers_c11 import HEADERS
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -113,7 +113,7 @@ int main(int argc, char** argv) {
 
 
 def _compile(tmp_path: Path, compiler: str) -> Path:
-    helpers = "\n\n".join(declaration.c_source for declaration in RuntimeHelperRegistry().declarations_for(ROOTS))
+    helpers = "\n\n".join(declaration.c_source for declaration in RuntimeHelperCatalog().definitions_for(ROOTS))
     source = tmp_path / "cleanup_reentrancy.c"
     executable = tmp_path / "cleanup_reentrancy"
     source.write_text(f"{HEADERS}\n{helpers}\n\n{RUNTIME}")

@@ -128,7 +128,7 @@ UNKNOWN_AGGREGATE_CASES = (
             return 0;
         }
         """,
-        "bare __fn_ptr parameters accept only borrowed C callbacks",
+        "an erased or opaque value cannot preserve its return ownership ABI",
         id="call-parameter",
     ),
 )
@@ -153,10 +153,16 @@ def test_unknown_callback_aggregate_fails_closed_at_escape_boundaries(
 
 
 @pytest.mark.parametrize(
-    "parameter",
+    ("parameter", "diagnostic"),
     (
-        "__fn_ptr<string> callback = sourceString",
-        "Branch value = {NULL, {sourceString}}",
+        (
+            "__fn_ptr<string> callback = sourceString",
+            "bare __fn_ptr parameters accept only borrowed C callbacks",
+        ),
+        (
+            "Branch value = {NULL, {sourceString}}",
+            "an erased or opaque value cannot preserve its return ownership ABI",
+        ),
     ),
     ids=("direct", "aggregate"),
 )
@@ -164,6 +170,7 @@ def test_omitted_owned_callback_defaults_are_validated(
     semantic_btrcc: Path,
     tmp_path: Path,
     parameter: str,
+    diagnostic: str,
 ) -> None:
     source = f"""
         struct Slot {{ __fn_ptr<string> callback; }};
@@ -174,7 +181,7 @@ def test_omitted_owned_callback_defaults_are_validated(
     """
     for result, _ in _compile_both(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
-        assert "bare __fn_ptr parameters accept only borrowed C callbacks" in (result.stdout + result.stderr)
+        assert diagnostic in result.stdout + result.stderr
 
 
 def test_lexical_function_pointer_signature_enforces_callback_boundary(

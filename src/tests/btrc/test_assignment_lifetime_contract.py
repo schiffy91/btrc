@@ -18,15 +18,25 @@ from src.tests.btrc.test_semantic_validation import (
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
-def test_assignment_boundary_dispatches_directly_to_plain_core() -> None:
+def test_assignment_boundary_uses_the_expression_owner_and_typed_plan() -> None:
     repository = Path(__file__).resolve().parents[3]
-    source = (repository / "src/compiler/btrc/ownership_assignment_boundary.btrc").read_text()
-    start = source.index("IRNode? lowerOwnedAssignment(")
-    end = source.index("IRNode? lowerOwnedUnaryUpdate(", start)
-    boundary = source[start:end]
-    assert "generator.assignments.lowerPlain(" in boundary
-    assert "lowerPlainAssignment(" not in boundary
-    assert "generator.lowerExpr(expression" not in boundary
+    lowering = repository / "src/compiler/btrc/ir/lowering"
+    expressions = (lowering / "expressions.btrc").read_text()
+    assignments = (lowering / "assignments.btrc").read_text()
+    start = expressions.index("private IRNode? lowerOwnedAssignment(")
+    end = expressions.index("public IRNode? lowerOwnedUnaryUpdate(", start)
+    boundary = expressions[start:end]
+    core_start = expressions.index("private IRNode materializeAssignmentCore(")
+    core = expressions[core_start:]
+
+    assert "class AssignmentPlan {" in assignments
+    assert "class AssignmentLowerer {" in assignments
+    assert "public AssignmentPlan plan(" in assignments
+    assert "public IRNode materializePlain(" in assignments
+    assert "self.materializeAssignmentCore(" in boundary
+    assert "self.lowerExpr(" not in boundary
+    assert "return self.assignments.materializePlain(plan, target, value);" in core
+    assert "generator." not in assignments + boundary
 
 
 def test_nested_managed_field_assignment_has_one_result_boundary(

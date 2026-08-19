@@ -1,4 +1,4 @@
-"""Unit tests for the package manager (pkg.py)."""
+"""Unit tests for the package universe."""
 
 import ast
 import json
@@ -10,20 +10,23 @@ import subprocess
 
 import pytest
 
-import src.compiler.python.pkg_git as pkg_git_module
-from src.compiler.python import cache_io, pkg
-from src.compiler.python.pkg import IncludeResolutionError, PackageManifestReader
-from src.compiler.python.pkg_git import GitDependencyCache
+import src.compiler.python.artifacts.cache as artifact_cache
+import src.compiler.python.frontend.packages as packages
+from src.compiler.python.frontend.packages import (
+    GitDependencyCache,
+    IncludeResolutionError,
+    PackageManifestReader,
+)
 
 GIT = GitDependencyCache()
-RESOLVER = pkg.PackageResolver(GIT)
+RESOLVER = packages.PackageUniverse(GIT)
 
 
 def test_git_dependency_behavior_is_owned_by_the_package_resolver(tmp_path):
-    module = ast.parse(pathlib.Path(pkg_git_module.__file__).read_text())
+    module = ast.parse(pathlib.Path(packages.__file__).read_text())
     loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
     git_dependencies = GitDependencyCache(str(tmp_path / "cache"))
-    resolver = pkg.PackageResolver(git_dependencies)
+    resolver = packages.PackageUniverse(git_dependencies)
 
     assert loose_behavior == []
     assert resolver.git_dependencies is git_dependencies
@@ -31,12 +34,12 @@ def test_git_dependency_behavior_is_owned_by_the_package_resolver(tmp_path):
 
 def test_package_resolver_owns_manifest_reads(tmp_path):
     reader = PackageManifestReader(max_bytes=128)
-    resolver = pkg.PackageResolver(manifest_reader=reader)
+    resolver = packages.PackageUniverse(manifest_reader=reader)
 
     assert resolver.manifest_reader is reader
     assert resolver.file_store is reader.file_store
     assert resolver.git_dependencies.file_store is reader.file_store
-    assert not (pathlib.Path(pkg.__file__).with_name("manifest_io.py")).exists()
+    assert not (pathlib.Path(packages.__file__).with_name("manifest_io.py")).exists()
 
 
 def test_find_manifest_walks_up(tmp_path):
@@ -113,7 +116,7 @@ def test_resolve_path_dep_writes_lock(tmp_path):
     # and stamped with the manifest's dependency-table hash.
     assert lock["packages"]["mathx"]["path"] == os.path.join("..", "mathx")
     assert lock["manifest_hash"] == RESOLVER.dependencies_hash({"mathx": {"path": "../mathx"}})
-    assert lock["schema"] == pkg.LOCK_SCHEMA
+    assert lock["schema"] == packages.LOCK_SCHEMA
     if os.name != "nt":
         assert stat.S_IMODE((app / "btrc.lock").stat().st_mode) == 0o644
 
@@ -132,7 +135,7 @@ def test_resolve_uses_existing_lock(tmp_path):
             {
                 "manifest_hash": RESOLVER.dependencies_hash({"x": {"path": "../x"}}),
                 "packages": {"x": {"path": "/pinned/location"}},
-                "schema": pkg.LOCK_SCHEMA,
+                "schema": packages.LOCK_SCHEMA,
             }
         )
     )
@@ -145,10 +148,10 @@ def test_resolved_packages_find_import_modules(tmp_path):
     (dep / "src").mkdir(parents=True)
     (dep / "src" / "mathx.btrc").write_text("class Mathx {}\n")
     (dep / "src" / "vec.btrc").write_text("class Vec {}\n")
-    packages = pkg.ResolvedPackages(None, {"mathx": {"path": str(dep)}})
-    assert packages.paths_for_import("mathx")[0].endswith("src/mathx.btrc")
-    assert packages.paths_for_import("mathx.vec")[0].endswith("src/vec.btrc")
-    assert packages.paths_for_import("not_a_dep") == ()
+    resolved_packages = packages.ResolvedPackages(None, {"mathx": {"path": str(dep)}})
+    assert resolved_packages.paths_for_import("mathx")[0].endswith("src/mathx.btrc")
+    assert resolved_packages.paths_for_import("mathx.vec")[0].endswith("src/vec.btrc")
+    assert resolved_packages.paths_for_import("not_a_dep") == ()
 
 
 # --------------------------------------------------------------------------
@@ -303,7 +306,7 @@ def test_lock_git_entries_have_no_paths(tmp_path, monkeypatch):
     assert lock == {
         "manifest_hash": RESOLVER.dependencies_hash({"net": {"git": url, "rev": "main"}}),
         "packages": {"net": {"commit": commit, "git": url, "rev": "main"}},
-        "schema": pkg.LOCK_SCHEMA,
+        "schema": packages.LOCK_SCHEMA,
     }
     # Loading the lock re-derives the clone path from the cache.
     again = RESOLVER.resolve_manifest(str(app / "btrc.toml")).entries
@@ -405,7 +408,7 @@ def test_legacy_git_lock_migrates_to_schema_two_and_pins_commit(tmp_path, monkey
 
     resolved = RESOLVER.resolve_manifest(str(app / "btrc.toml")).entries
     lock = json.loads((app / "btrc.lock").read_text())
-    assert lock["schema"] == pkg.LOCK_SCHEMA
+    assert lock["schema"] == packages.LOCK_SCHEMA
     assert lock["packages"]["dep"]["rev"] == "main"
     assert lock["packages"]["dep"]["commit"] == resolved["dep"]["commit"]
 
@@ -428,7 +431,7 @@ def test_malformed_schema_two_lock_fails_closed_without_resolving_ref(tmp_path, 
                         "rev": "main",
                     }
                 },
-                "schema": pkg.LOCK_SCHEMA,
+                "schema": packages.LOCK_SCHEMA,
             }
         )
     )
@@ -438,7 +441,7 @@ def test_malformed_schema_two_lock_fails_closed_without_resolving_ref(tmp_path, 
         raise AssertionError("malformed v2 lock must not re-resolve a moving ref")
 
     monkeypatch.setattr(GIT, "resolve", unexpected_resolution)
-    with pytest.raises(pkg.LockfileError, match="invalid locked Git dependency"):
+    with pytest.raises(packages.LockfileError, match="invalid locked Git dependency"):
         RESOLVER.resolve_manifest(str(manifest))
     assert lock_path.read_bytes() == original
 
@@ -451,12 +454,12 @@ def test_future_lock_schema_is_rejected_explicitly(tmp_path):
             {
                 "manifest_hash": RESOLVER.dependencies_hash({}),
                 "packages": {},
-                "schema": pkg.LOCK_SCHEMA + 1,
+                "schema": packages.LOCK_SCHEMA + 1,
             }
         )
     )
 
-    with pytest.raises(pkg.LockfileVersionError, match=r"unsupported btrc\.lock schema"):
+    with pytest.raises(packages.LockfileVersionError, match=r"unsupported btrc\.lock schema"):
         RESOLVER.resolve_manifest(str(manifest))
 
 
@@ -477,7 +480,7 @@ def test_atomic_lock_write_failure_preserves_previous_lock(tmp_path, monkeypatch
     def interrupted(_source, _target):
         raise OSError("simulated crash before lock replace")
 
-    monkeypatch.setattr(cache_io.os, "replace", interrupted)
+    monkeypatch.setattr(artifact_cache.os, "replace", interrupted)
     with pytest.raises(OSError, match="simulated crash"):
         RESOLVER.resolve_manifest(str(manifest))
 
@@ -501,12 +504,12 @@ def test_resolve_for_raises_not_exits(tmp_path):
 def test_missing_resolved_package_module_raises_not_exits(tmp_path):
     root = tmp_path / "dep"
     root.mkdir()
-    packages = pkg.ResolvedPackages(None, {"dep": {"path": str(root)}})
+    resolved_packages = packages.ResolvedPackages(None, {"dep": {"path": str(root)}})
     with pytest.raises(IncludeResolutionError, match="not found"):
-        packages.paths_for_import("dep.missing_module")
+        resolved_packages.paths_for_import("dep.missing_module")
 
 
 def test_error_is_canonical_frontend_exception():
-    from src.compiler.python.pkg import IncludeResolutionError as FrontendError
+    from src.compiler.python.frontend.packages import IncludeResolutionError as FrontendError
 
     assert FrontendError is IncludeResolutionError

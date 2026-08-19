@@ -2,9 +2,9 @@
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -13,12 +13,12 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRLiteral,
     IRModule,
+    IRNode,
     IRStmtExpr,
     IRVar,
     IRVarDecl,
 )
-from src.compiler.python.ir.optimizer_walk import IRTree
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
@@ -45,7 +45,11 @@ def _module(source: str) -> IRModule:
     ],
 )
 def test_generated_setups_are_declarations_only(source):
-    stmt_exprs = [node for node in IRTree(_module(source)) if isinstance(node, IRStmtExpr)]
+    stmt_exprs = [
+        node
+        for node in IRNode.walk_value(_module(source))
+        if isinstance(node, IRStmtExpr)
+    ]
     assert stmt_exprs
     for expression in stmt_exprs:
         assert expression.stmts

@@ -16,19 +16,16 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from src.compiler.python import (
-    stdlib_archive,
-)
-from src.compiler.python.artifacts.cache.compiler_cache import (
+import src.compiler.python.artifacts.stdlib as stdlib_archive
+from src.compiler.python.artifacts.cache import (
     CacheDirectory,
-    CompilationCache,
+    CompilerCache,
     ToolchainFingerprint,
     ToolchainSourceInventory,
 )
-from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
-from src.compiler.python.artifacts.publication.storage import ArtifactStorage
-from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
-from src.compiler.python.frontend.stdlib import StdlibRepository
+from src.compiler.python.artifacts.publication import ArtifactPublisher, ArtifactStorage
+from src.compiler.python.artifacts.stdlib import StdlibArchivePublisher
+from src.compiler.python.frontend.sources import FrontendFingerprint, StdlibRepository
 
 STDLIB = StdlibRepository()
 
@@ -37,8 +34,8 @@ def _archive_publisher() -> StdlibArchivePublisher:
     return StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
 
 
-def _archive_service() -> stdlib_archive.StdlibArchive:
-    return stdlib_archive.StdlibArchive(_archive_publisher())
+def _archive_service() -> stdlib_archive.StdlibArtifactRepository:
+    return stdlib_archive.StdlibArtifactRepository(_archive_publisher())
 
 
 class FixedFingerprint:
@@ -84,15 +81,15 @@ def test_full_scope_covers_codegen_sources():
     assert any(p.startswith("analyzer") for p in extra)
     assert any(p.startswith("ir") for p in extra)
     assert "main.py" in extra
-    assert "cli/compiler_cli.py" in extra
+    assert "cli/compiler.py" in extra
     # Parser sources are in both scopes; grammar + ASDL too.
     assert any(p.endswith("grammar.ebnf") for p in frontend_files)
     assert any(p.endswith("ast.asdl") for p in frontend_files)
-    assert any(p.endswith("ast_nodes.py") for p in frontend_files)
-    assert any(p.endswith("ast_codec.py") for p in frontend_files)
-    assert any(p.endswith("frontend/resolver.py") for p in frontend_files)
-    assert any(p.endswith("frontend/visibility.py") for p in frontend_files)
-    assert any(p.endswith("frontend/source_io.py") for p in frontend_files)
+    assert any(p.endswith("syntax/ast/generated.py") for p in frontend_files)
+    assert any(p.endswith("syntax/ast/codec.py") for p in frontend_files)
+    assert any(p.endswith("frontend/sources.py") for p in frontend_files)
+    assert any(p.endswith("frontend/imports.py") for p in frontend_files)
+    assert any(p.endswith("frontend/stage.py") for p in frontend_files)
 
 
 def test_hash_changes_when_a_source_byte_changes(tmp_path):
@@ -167,8 +164,8 @@ def test_hash_differs_between_scopes():
 
 def test_disk_cache_key_covers_toolchain():
     src = "int main() { return 0; }"
-    k1 = CompilationCache(fingerprint=FixedFingerprint("1" * 16)).key_for(src)
-    k2 = CompilationCache(fingerprint=FixedFingerprint("0" * 16)).key_for(src)
+    k1 = CompilerCache(fingerprint=FixedFingerprint("1" * 16)).key_for(src)
+    k2 = CompilerCache(fingerprint=FixedFingerprint("0" * 16)).key_for(src)
     assert k1 != k2  # a compiler change invalidates cached .c output
 
 
@@ -230,7 +227,7 @@ def test_cache_dir_xdg_respected(tmp_path, monkeypatch):
 
 def test_disk_cache_roundtrip_in_resolved_dir(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_CACHE_DIR", str(tmp_path / "c"))
-    cache = CompilationCache()
+    cache = CompilerCache()
     assert cache.load_text("src-A") is None
     cache.store_text("src-A", "/* c output */")
     assert cache.load_text("src-A") == "/* c output */"
@@ -244,7 +241,7 @@ def test_disk_cache_input_path_anchors_project_root(tmp_path, monkeypatch):
     root.mkdir()
     (root / "btrc.toml").write_text("[package]\nname = 'p'\n")
     monkeypatch.chdir(tmp_path)  # cwd is NOT the project
-    cache = CompilationCache()
+    cache = CompilerCache()
     cache.store_text("src-B", "out", input_path=str(root / "main.btrc"))
     assert os.listdir(root / ".btrc-cache")  # cache landed in the project
     assert not (tmp_path / ".btrc-cache").exists()
@@ -257,7 +254,7 @@ def test_disk_cache_input_path_anchors_project_root(tmp_path, monkeypatch):
 
 
 def test_stdlib_ast_version_is_derived():
-    assert ToolchainFingerprint().digest("frontend") == STDLIB.ast_version
+    assert FrontendFingerprint().digest() == STDLIB.ast_version
 
 
 def test_stale_stdlib_ast_is_not_served_after_toolchain_change(tmp_path, monkeypatch):
@@ -290,7 +287,7 @@ def _archive_manifest(stdlib_source: str, **overrides):
         "stdlib_source": _archive_service().manifest.source_hash(stdlib_source),
         "toolchain": ToolchainFingerprint().digest("full"),
         "macros": [],
-        **{field: [] for field in stdlib_archive._MANIFEST_LIST_FIELDS},
+        **{field: [] for field in stdlib_archive.StdlibArchiveManifest.LIST_FIELDS},
     }
     manifest.update(overrides)
     return manifest

@@ -35,26 +35,27 @@ jobs:
         with:
           node-version: "22.23.1"
           cache: npm
-          cache-dependency-path: src/devex/ext/package-lock.json
+          cache-dependency-path: src/devex/vscode/package-lock.json
 
       - name: Exercise native extension cleanup and package the real VSIX
-        working-directory: src/devex/ext
         run: |
-          python -m pip install ../../..
+          python -m pip install .
+          node src/devex/vscode/packaging/prepare.js
+          cd build/devex/vscode
           npm ci
           npm test
           npm run package
+          cd ../../..
           python - <<'PY'
           from zipfile import ZipFile
 
           required = {
-              "extension/out/client_lifecycle.js",
-              "extension/out/process_tree.js",
-              "extension/out/server_process.js",
-              "extension/server/src/devex/lsp/server.py",
+              "extension/out/extension.js",
+              "extension/server/src/devex/lsp/__main__.py",
+              "extension/server/src/devex/debug/__main__.py",
               "extension/server/vendor/pygls/__init__.py",
           }
-          with ZipFile("btrc.vsix") as archive:
+          with ZipFile("dist/btrc.vsix") as archive:
               names = set(archive.namelist())
           missing = sorted(required - names)
           if missing:
@@ -81,11 +82,11 @@ jobs:
 
       - name: Transpile + build relocatable btrcc bundle (native Windows)
         run: |
-          python -m src.compiler.python.check_generated
+          python -m tools.compiler_codegen.main check
           mkdir -p dist build/btrcc/windows-x64
           python -m src.compiler.python.main src/compiler/btrc/btrcc_main.btrc --no-cache -o dist/btrcc.c
           zig cc -target "$ZIG_TARGET" -std=c11 -O2 -Wall -Wextra -Werror -pedantic -I src/stdlib/win -include "$WIN_COMPAT_HEADER" dist/btrcc.c -o build/btrcc/windows-x64/btrcc.exe -lm
-          python -m src.compiler.python.btrcc_bundle --binary build/btrcc/windows-x64/btrcc.exe --target windows-x64 --output-dir dist --source-root .
+          python -m src.compiler.python.main bundle --binary build/btrcc/windows-x64/btrcc.exe --target windows-x64 --output-dir dist --source-root .
           test -f dist/btrcc-windows-x64/bin/btrcc.exe
           test -f dist/btrcc-windows-x64.zip
           test -f dist/btrcc-windows-x64.zip.sha256

@@ -7,14 +7,14 @@ import subprocess
 
 import pytest
 
-from src.compiler.python import ebnf, pkg, pkg_git
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.pkg import IncludeResolutionError
-from src.compiler.python.pkg_git import GitDependencyCache
-from src.compiler.python.tokens import TokenType, TokenVocabulary
+import src.compiler.python.frontend.packages as pkg
+import src.compiler.python.syntax.grammar as ebnf
+from src.compiler.python.frontend.packages import GitDependencyCache, IncludeResolutionError
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.syntax.tokens import TokenKind, TokenVocabulary
 
 GIT = GitDependencyCache()
-PACKAGE_RESOLVER = pkg.PackageResolver(GIT)
+PACKAGE_RESOLVER = pkg.PackageUniverse(GIT)
 GRAMMAR_PARSER = ebnf.EbnfGrammarParser()
 
 # --------------------------------------------------------------------------
@@ -95,13 +95,13 @@ def test_lexer_uses_its_explicit_immutable_vocabulary():
     tokens = Lexer("class + value", vocabulary=vocabulary).tokenize()
 
     assert [token.type for token in tokens] == [
-        TokenType.CLASS,
-        TokenType.PLUS,
-        TokenType.IDENT,
-        TokenType.EOF,
+        TokenKind.CLASS,
+        TokenKind.PLUS,
+        TokenKind.IDENT,
+        TokenKind.EOF,
     ]
     with pytest.raises(TypeError):
-        vocabulary.keywords["while"] = TokenType.WHILE
+        vocabulary.keywords["while"] = TokenKind.WHILE
 
 
 # --------------------------------------------------------------------------
@@ -179,7 +179,7 @@ def _fake_git_run(calls):
 def test_resolve_git_clones(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     calls = []
-    monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
+    monkeypatch.setattr(pkg.subprocess, "run", _fake_git_run(calls))
     path = GIT.resolve("net", "https://x/n.git", "v1")
     assert os.path.isabs(path) and len(calls) == 3  # clone + checkout + rev-parse
 
@@ -202,7 +202,7 @@ def test_resolve_git_uses_pinned_ref_record(tmp_path, monkeypatch):
 def test_resolve_git_separates_url_from_options(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     calls = []
-    monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
+    monkeypatch.setattr(pkg.subprocess, "run", _fake_git_run(calls))
     GIT.resolve("net", "--upload-pack=untrusted", "v1")
     assert calls[0][0:4] == ["git", "clone", "--quiet", "--"]
     assert calls[0][4] == "--upload-pack=untrusted"
@@ -215,7 +215,7 @@ def test_git_subprocesses_are_noninteractive_and_bounded(monkeypatch):
         observed.update(kwargs)
         return subprocess.CompletedProcess(cmd, 0, "", "")
 
-    monkeypatch.setattr(pkg_git.subprocess, "run", run)
+    monkeypatch.setattr(pkg.subprocess, "run", run)
     GIT._git(["status"])
 
     assert observed["check"] is True
@@ -227,7 +227,7 @@ def test_git_subprocesses_are_noninteractive_and_bounded(monkeypatch):
 def test_resolve_git_rejects_option_revision(tmp_path, monkeypatch):
     monkeypatch.setenv("BTRC_PKG_CACHE", str(tmp_path / "cache"))
     calls = []
-    monkeypatch.setattr(pkg_git.subprocess, "run", _fake_git_run(calls))
+    monkeypatch.setattr(pkg.subprocess, "run", _fake_git_run(calls))
     with pytest.raises(ValueError, match="invalid revision"):
         GIT.resolve("net", "https://x/n.git", "--orphan")
     assert calls == []

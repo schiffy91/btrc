@@ -5,7 +5,7 @@
 BTRC_ROOT := ../..
 BTRC      := python3 -m src.compiler.python.main
 GPU_DIR   := $(BTRC_ROOT)/src/stdlib/gpu
-GPU_BUILD := $(GPU_DIR)/build
+GPU_BUILD := $(BTRC_ROOT)/build/stdlib/gpu
 
 CC      := cc
 GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)

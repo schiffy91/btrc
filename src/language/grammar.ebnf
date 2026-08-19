@@ -30,7 +30,7 @@
   --   union           -- only usable as a `union IDENT` base_type, never as a
   --                      top-level declaration
   -- These remain in @keywords so the keyword/token round-trip stays total
-  -- (every keyword maps to an existing TokenType, and tokens.py validates it).
+  -- (every keyword maps to an existing TokenKind, and syntax/tokens.py validates it).
 
   @keywords {
     -- C keywords

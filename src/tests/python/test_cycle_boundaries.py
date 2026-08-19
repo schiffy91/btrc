@@ -3,14 +3,13 @@
 from copy import deepcopy
 from pathlib import Path
 
-from src.compiler.python.ir.cycle_boundaries import FunctionCycleBoundary
-from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
     IRCall,
     IRExprStmt,
     IRFunctionDef,
+    IRHelperDecl,
     IRLiteral,
     IRModule,
     IRReturn,
@@ -18,8 +17,9 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
-SELF_HOSTED_BOUNDARIES = Path("src/compiler/btrc/cycle_boundaries.btrc")
+SELF_HOSTED_BOUNDARIES = Path("src/compiler/btrc/ir/lowering/ownership/cycle_boundaries.btrc")
 EDGE_RELEASE_HELPERS = (
     "__btrc_arc_release_edge",
     "__btrc_arc_replace_edge",
@@ -61,7 +61,7 @@ def test_return_value_is_evaluated_before_its_forced_cycle_flush() -> None:
         ),
     )
 
-    assert FunctionCycleBoundary(function).install()
+    assert IROptimizer.install_function_cycle_boundary(function)
 
     statements = function.body.stmts
     result_index = next(
@@ -81,7 +81,7 @@ def test_return_value_is_evaluated_before_its_forced_cycle_flush() -> None:
     assert statements[return_index].value == IRVar(name=result.name)
 
     first_rewrite = deepcopy(statements)
-    assert FunctionCycleBoundary(function).install()
+    assert IROptimizer.install_function_cycle_boundary(function)
     assert function.body.stmts == first_rewrite
 
 
@@ -104,7 +104,7 @@ def test_explicit_flush_before_local_return_is_not_mistaken_for_pass_output() ->
         ),
     )
 
-    assert FunctionCycleBoundary(function).install()
+    assert IROptimizer.install_function_cycle_boundary(function)
 
     statements = function.body.stmts
     return_index = next(index for index, statement in enumerate(statements) if isinstance(statement, IRReturn))
@@ -116,7 +116,7 @@ def test_explicit_flush_before_local_return_is_not_mistaken_for_pass_output() ->
     assert _called_name(statements[return_index - 1]) == "__btrc_flush_cycles"
 
     first_rewrite = deepcopy(statements)
-    assert FunctionCycleBoundary(function).install()
+    assert IROptimizer.install_function_cycle_boundary(function)
     assert function.body.stmts == first_rewrite
 
 
@@ -133,7 +133,7 @@ def test_edge_only_releases_receive_forced_cycle_boundaries() -> None:
             ),
         )
 
-        assert FunctionCycleBoundary(function).install(), helper
+        assert IROptimizer.install_function_cycle_boundary(function), helper
         assert [_called_name(statement) for statement in function.body.stmts] == [
             helper,
             "__btrc_flush_cycles",
@@ -144,7 +144,10 @@ def test_edge_only_releases_receive_forced_cycle_boundaries() -> None:
 def test_optimizer_materializes_flush_helper_for_edge_only_program() -> None:
     edge_helper = "__btrc_arc_replace_edge"
     module = IRModule(
-        helper_decls=RuntimeHelperRegistry().declarations_for({edge_helper}),
+        helper_decls=[
+            IRHelperDecl.from_runtime(definition)
+            for definition in RuntimeHelperCatalog().definitions_for({edge_helper})
+        ],
         function_defs=[
             IRFunctionDef(
                 name="main",
@@ -167,13 +170,13 @@ def test_optimizer_materializes_flush_helper_for_edge_only_program() -> None:
 
 def test_self_hosted_cycle_boundary_mirrors_edge_and_return_contracts() -> None:
     source = SELF_HOSTED_BOUNDARIES.read_text()
-    detector = source[source.index("bool irContainsCyclableRelease") : source.index("IRNode irForcedCycleFlush")]
-    rewriter = source[source.index("void rewriteCycleReturns") : source.index("void forceCycleBoundary")]
+    detector = source[source.index("public bool containsCyclableRelease") : source.index("private IRNode forcedFlush")]
+    rewriter = source[source.index("private void rewriteCycleReturns") : source.index("public void forceBoundary")]
 
     for helper in EDGE_RELEASE_HELPERS:
         assert f'node.callee == "{helper}"' in detector
-    assert "generator.freshTemp" in rewriter
-    assert "irIsMaterializedCycleReturn" in rewriter
+    assert "self.context.freshTemporary" in rewriter
+    assert "self.isMaterializedReturn" in rewriter
     assert "is_cycle_return_temp = true" in rewriter
-    assert rewriter.index("statement.value != null") < rewriter.index("irForcedCycleFlush")
-    assert rewriter.index("irVarDecl(") < rewriter.index("irForcedCycleFlush")
+    assert rewriter.index("statement.value != null") < rewriter.index("self.forcedFlush()")
+    assert rewriter.index("IRNode.variableDeclaration(") < rewriter.index("self.forcedFlush()")

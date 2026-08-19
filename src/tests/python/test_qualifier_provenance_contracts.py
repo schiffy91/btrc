@@ -6,17 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import TypeExpr
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.syntax.ast.generated import TypeExpr
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.qualifier_provenance import (
-    effective_outer_volatile,
-    volatile_qualifier_depths,
-)
+from src.compiler.python.analyzer.storage import StorageModel
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -39,11 +36,11 @@ def test_effective_storage_and_decay_provenance_are_distinct():
     pointer = TypeExpr(base="V", pointer_depth=1)
     array = TypeExpr(base="V", is_array=True)
 
-    assert effective_outer_volatile(scalar, typedefs)
-    assert not effective_outer_volatile(pointer, typedefs)
-    assert effective_outer_volatile(array, typedefs)
-    assert volatile_qualifier_depths(pointer, typedefs) == frozenset({1})
-    assert volatile_qualifier_depths(array, typedefs) == frozenset({1})
+    assert StorageModel.effective_outer_volatile(scalar, typedefs)
+    assert not StorageModel.effective_outer_volatile(pointer, typedefs)
+    assert StorageModel.effective_outer_volatile(array, typedefs)
+    assert StorageModel.volatile_qualifier_depths(pointer, typedefs) == frozenset({1})
+    assert StorageModel.volatile_qualifier_depths(array, typedefs) == frozenset({1})
 
 
 @pytest.mark.parametrize(

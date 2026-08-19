@@ -1,0 +1,818 @@
+/* Stateful grammar-driven lexer. Literal scanning stays with the cursor owner. */
+
+import std.strings;
+import std.vector;
+import ../syntax/grammar.btrc;
+import ../syntax/tokens.btrc;
+
+class Lexer {
+    private string source;
+    private int sourceLen;
+    private GrammarInfo grammar;
+    private int pos;
+    private int line;
+    private int col;
+    private Vector<Token> tokens;
+    public bool failed;
+    private bool complete;
+    public string diagnostic;
+
+    public Lexer(string source, GrammarInfo grammar) {
+        self.source = source;
+        self.sourceLen = source.length();
+        self.grammar = grammar;
+        self.pos = 0;
+        self.line = 1;
+        self.col = 1;
+        self.tokens = [];
+        self.failed = false;
+        self.complete = false;
+        self.diagnostic = "";
+    }
+
+    public Vector<Token> tokenize() {
+        if (self.complete) { return self.tokens; }
+        while (!self.atEnd() && !self.failed) {
+            self.skipWsAndComments();
+            if (self.atEnd() || self.failed) { break; }
+            char c = self.peek(0);
+            if (c == '#' && self.atLineStart()) {
+                self.readPreprocessor();
+            } else if (c == '@') {
+                self.readAnnotation();
+            } else if (c == '"') {
+                self.readString();
+            } else if (c == '\'') {
+                self.readChar();
+            } else if (Strings.isDigit(c)) {
+                self.readNumber();
+            } else if (Strings.isAlpha(c) || c == '_') {
+                self.readIdentifier();
+            } else {
+                self.readOperator();
+            }
+        }
+        /* A failed scan must never expose its valid prefix as a usable token
+         * stream. Keep one EOF sentinel so defensive consumers remain safe. */
+        if (self.failed) { self.tokens = []; }
+        self.tokens.push(Token("EOF", "", self.line, self.col));
+        self.complete = true;
+        return self.tokens;
+    }
+
+    private void failLex(string message, int line, int col) {
+        if (self.failed) { return; }
+        self.failed = true;
+        self.diagnostic = f"{message} at {line}:{col}";
+    }
+
+    private bool atEnd() {
+        return self.pos >= self.sourceLen;
+    }
+
+    private char peek(int off) {
+        int p = self.pos + off;
+        if (p < 0 || p >= self.sourceLen) { return '\0'; }
+        return self.source[p];
+    }
+
+    private char advance() {
+        if (self.atEnd()) { return '\0'; }
+        char c = self.source[self.pos];
+        if (c == '\n') {
+            self.line = self.line + 1;
+            self.col = 1;
+        } else {
+            self.col = self.col + 1;
+        }
+        self.pos = self.pos + 1;
+        return c;
+    }
+
+    private bool atLineStart() {
+        int p = self.pos - 1;
+        while (p >= 0) {
+            char c = self.source[p];
+            if (c == '\n') { return true; }
+            if (c != ' ' && c != '\t' && c != '\f'
+                    && c != '\v' && c != '\r') { return false; }
+            p = p - 1;
+        }
+        return true;
+    }
+
+    private void skipWsAndComments() {
+        bool again = true;
+        while (again) {
+            again = false;
+            while (!self.atEnd()) {
+                char c = self.peek(0);
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r'
+                        || c == '\f' || c == '\v') {
+                    self.advance();
+                    again = true;
+                } else {
+                    break;
+                }
+            }
+            if (self.peek(0) == '/' && self.peek(1) == '/') {
+                while (!self.atEnd() && self.peek(0) != '\n') { self.advance(); }
+                again = true;
+            } else if (self.peek(0) == '/' && self.peek(1) == '*') {
+                int line = self.line;
+                int col = self.col;
+                self.advance();
+                self.advance();
+                while (!self.atEnd() && !(self.peek(0) == '*' && self.peek(1) == '/')) {
+                    self.advance();
+                }
+                if (self.atEnd()) {
+                    self.failLex("Unterminated block comment", line, col);
+                    return;
+                }
+                self.advance();
+                self.advance();
+                again = true;
+            }
+        }
+    }
+
+    private void readPreprocessor() {
+        int startPos = self.pos;
+        int line = self.line;
+        int col = self.col;
+        while (!self.atEnd()) {
+            int spliceWidth = self.preprocessorSpliceWidth(
+                self.source, self.pos);
+            if (spliceWidth > 0) {
+                int consumed = 0;
+                while (consumed < spliceWidth) {
+                    self.advance(); consumed = consumed + 1;
+                }
+            } else if (self.peek(0) == '\n') {
+                break;
+            } else {
+                self.advance();
+            }
+        }
+        string value = self.source.substring(startPos, self.pos - startPos);
+        self.tokens.push(Token("PREPROCESSOR", value, line, col));
+    }
+
+    private char preprocessorCharacter(string text, int index) {
+        if (index < 0 || index >= text.length()) { return '\0'; }
+        return text[index];
+    }
+
+    private int preprocessorSpliceWidth(string text, int index) {
+        char first = self.preprocessorCharacter(text, index);
+        int markerWidth = first == '\\' ? 1
+            : (first == '?'
+                && self.preprocessorCharacter(text, index + 1) == '?'
+                && self.preprocessorCharacter(text, index + 2) == '/' ? 3 : 0);
+        if (markerWidth > 0
+                && self.preprocessorCharacter(
+                    text, index + markerWidth) == '\n') {
+            return markerWidth + 1;
+        }
+        if (markerWidth > 0
+                && self.preprocessorCharacter(
+                    text, index + markerWidth) == '\r'
+                && self.preprocessorCharacter(
+                    text, index + markerWidth + 1) == '\n') {
+            return markerWidth + 2;
+        }
+        return 0;
+    }
+
+    private void readAnnotation() {
+        int line = self.line;
+        int col = self.col;
+        self.advance();  // '@'
+        int startPos = self.pos;
+        while (!self.atEnd() && (Strings.isAlnum(self.peek(0)) || self.peek(0) == '_')) {
+            self.advance();
+        }
+        string name = self.source.substring(startPos, self.pos - startPos);
+        string tokenName = self.grammar.vocabulary.annotationToken(name);
+        if (tokenName != "") {
+            self.tokens.push(Token(tokenName, "@" + name, line, col));
+        } else {
+            self.failLex("Unknown annotation '@" + name + "'", line, col);
+        }
+    }
+
+    private void readIdentifier() {
+        int line = self.line;
+        int col = self.col;
+        int startPos = self.pos;
+        while (!self.atEnd() && (Strings.isAlnum(self.peek(0)) || self.peek(0) == '_')) {
+            self.advance();
+        }
+        string value = self.source.substring(startPos, self.pos - startPos);
+        if (value == "f" && self.peek(0) == '"') {
+            self.readFstring(line, col);
+            return;
+        }
+        string type = "IDENT";
+        string keywordToken = self.grammar.vocabulary.keywordToken(value);
+        if (keywordToken != "") { type = keywordToken; }
+        self.tokens.push(Token(type, value, line, col));
+        if (type == "IMPORT") {
+            self.maybeReadImportPath();
+        }
+    }
+
+    private void maybeReadImportPath() {
+        int savePos = self.pos;
+        int saveLine = self.line;
+        int saveCol = self.col;
+        while (!self.atEnd() && (self.peek(0) == ' ' || self.peek(0) == '\t')) {
+            self.advance();
+        }
+        char c = self.peek(0);
+        if (c != '.' && c != '/' && c != '~') {
+            self.pos = savePos;
+            self.line = saveLine;
+            self.col = saveCol;
+            return;
+        }
+        int line = self.line;
+        int col = self.col;
+        int startPos = self.pos;
+        while (!self.atEnd() && self.peek(0) != ';' && self.peek(0) != '\n') {
+            self.advance();
+        }
+        string raw = self.source.substring(startPos, self.pos - startPos);
+        string value = self.trimRight(raw);
+        self.tokens.push(Token("PATH_SPEC", value, line, col));
+    }
+
+    private string trimRight(string value) {
+        int end = value.length();
+        while (end > 0) {
+            char character = value[end - 1];
+            if (character == ' ' || character == '\t'
+                    || character == '\n' || character == '\r') {
+                end--;
+            } else {
+                break;
+            }
+        }
+        return value.substring(0, end);
+    }
+
+    private void readOperator() {
+        int line = self.line;
+        int col = self.col;
+        int i = 0;
+        int n = self.grammar.vocabulary.operatorCount();
+        while (i < n) {
+            string op = self.grammar.vocabulary.operatorAt(i);
+            int oplen = op.length();
+            bool matches = self.pos + oplen <= self.sourceLen;
+            int compared = 0;
+            while (matches && compared < oplen) {
+                if (self.source[self.pos + compared] != op[compared]) {
+                    matches = false;
+                }
+                compared = compared + 1;
+            }
+            if (matches) {
+                int k = 0;
+                while (k < oplen) { self.advance(); k = k + 1; }
+                self.tokens.push(Token(
+                    self.grammar.vocabulary.operatorToken(op), op, line, col));
+                return;
+            }
+            i = i + 1;
+        }
+        int unexpected = (int)self.peek(0);
+        if (unexpected < 0 || unexpected > 127) {
+            self.failLex("Unexpected non-ASCII character", line, col);
+            return;
+        }
+        self.failLex("Unexpected character '" + f"{self.peek(0)}" + "'", line, col);
+    }
+
+    private bool hexDigit(char value) {
+        return Strings.isDigit(value)
+            || (value >= 'a' && value <= 'f')
+            || (value >= 'A' && value <= 'F');
+    }
+
+    private int hexDigitValue(char value) {
+        if (value >= '0' && value <= '9') {
+            return (int)value - (int)'0';
+        }
+        if (value >= 'a' && value <= 'f') {
+            return (int)value - (int)'a' + 10;
+        }
+        return (int)value - (int)'A' + 10;
+    }
+
+    private bool identifierContinuation(char value) {
+        return Strings.isAlnum(value) || value == '_';
+    }
+
+    private bool validIntegerSuffix(string suffix) {
+        int length = suffix.length();
+        if (length == 1) {
+            char one = suffix[0];
+            return one == 'u' || one == 'U' || one == 'l' || one == 'L';
+        }
+        if (length == 2) {
+            char first = suffix[0];
+            char second = suffix[1];
+            bool unsignedLong = (first == 'u' || first == 'U')
+                && (second == 'l' || second == 'L');
+            bool longUnsigned = (first == 'l' || first == 'L')
+                && (second == 'u' || second == 'U');
+            bool longLong = (first == 'l' && second == 'l')
+                || (first == 'L' && second == 'L');
+            return unsignedLong || longUnsigned || longLong;
+        }
+        if (length == 3) {
+            bool unsignedFirst = suffix[0] == 'u' || suffix[0] == 'U';
+            bool unsignedLast = suffix[2] == 'u' || suffix[2] == 'U';
+            bool tailLongLong = (suffix[1] == 'l' && suffix[2] == 'l')
+                || (suffix[1] == 'L' && suffix[2] == 'L');
+            bool headLongLong = (suffix[0] == 'l' && suffix[1] == 'l')
+                || (suffix[0] == 'L' && suffix[1] == 'L');
+            return (unsignedFirst && tailLongLong)
+                || (headLongLong && unsignedLast);
+        }
+        return false;
+    }
+
+    private void consumeIntegerSuffix(int line, int col) {
+        int start = self.pos;
+        char value = self.peek(0);
+        while (value == 'u' || value == 'U'
+                || value == 'l' || value == 'L') {
+            self.advance();
+            value = self.peek(0);
+        }
+        string suffix = self.source.substring(start, self.pos - start);
+        if (suffix.length() > 0 && !self.validIntegerSuffix(suffix)) {
+            self.failLex("Invalid integer suffix '" + suffix + "'", line, col);
+        }
+    }
+
+    private void ensureNumericBoundary(int start, int line, int col) {
+        if (!self.identifierContinuation(self.peek(0))) { return; }
+        int end = self.pos;
+        while (end < self.sourceLen
+                && self.identifierContinuation(self.source[end])) {
+            end++;
+        }
+        string literal = self.source.substring(start, end - start);
+        self.failLex("Invalid numeric literal '" + literal + "'", line, col);
+    }
+
+    private bool simpleEscape(char value) {
+        return value == '\'' || value == '"' || value == '?' || value == '\\'
+            || value == 'a' || value == 'b' || value == 'f' || value == 'n'
+            || value == 'r' || value == 't' || value == 'v';
+    }
+
+    private bool validUniversalCharacter(long long value) {
+        if (value == 0x24 || value == 0x40 || value == 0x60) { return true; }
+        return value >= 0xa0 && value <= 0x10ffff
+            && !(value >= 0xd800 && value <= 0xdfff);
+    }
+
+    private bool narrowCharacterHexEscape(string content) {
+        if (content.length() < 3
+                || content[0] != '\\' || content[1] != 'x') {
+            return false;
+        }
+        int value = 0;
+        int index = 2;
+        while (index < content.length()) {
+            char digit = content[index];
+            if (!self.hexDigit(digit)) { return false; }
+            value = value * 16 + self.hexDigitValue(digit);
+            if (value > 255) { return false; }
+            index++;
+        }
+        return true;
+    }
+
+    private string appendEscape(string content,
+            string literalKind, int line, int col) {
+        string result = content + f"{self.advance()}";
+        if (self.atEnd()) {
+            self.failLex("Unterminated " + literalKind + " literal", line, col);
+            return result;
+        }
+
+        char escaped = self.peek(0);
+        if (escaped == '\n') {
+            return result + f"{self.advance()}";
+        }
+        if (escaped == '\r') {
+            if (self.peek(1) == '\n') {
+                result = result + f"{self.advance()}";
+                return result + f"{self.advance()}";
+            }
+            self.failLex("Unterminated " + literalKind + " literal", line, col);
+            return result;
+        }
+        if (self.simpleEscape(escaped)) {
+            return result + f"{self.advance()}";
+        }
+        if (escaped >= '0' && escaped <= '7') {
+            int octalValue = 0;
+            int count = 0;
+            while (count < 3
+                    && self.peek(0) >= '0' && self.peek(0) <= '7') {
+                char digit = self.advance();
+                result = result + f"{digit}";
+                octalValue = octalValue * 8 + (int)digit - (int)'0';
+                count++;
+            }
+            if (octalValue > 255) {
+                self.failLex(
+                    "Octal escape sequence out of range in "
+                        + literalKind + " literal",
+                    line, col);
+            }
+            return result;
+        }
+        if (escaped == 'x') {
+            result = result + f"{self.advance()}";
+            if (!self.hexDigit(self.peek(0))) {
+                self.failLex(
+                    "Hex escape sequence requires digits in "
+                        + literalKind + " literal",
+                    line, col);
+                return result;
+            }
+            int hexValue = 0;
+            bool outOfRange = false;
+            while (self.hexDigit(self.peek(0))) {
+                char digit = self.advance();
+                result = result + f"{digit}";
+                if (!outOfRange) {
+                    hexValue = hexValue * 16 + self.hexDigitValue(digit);
+                    outOfRange = hexValue > 255;
+                }
+            }
+            if (outOfRange) {
+                self.failLex(
+                    "Hex escape sequence out of range in "
+                        + literalKind + " literal",
+                    line, col);
+            }
+            return result;
+        }
+        if (escaped == 'u' || escaped == 'U') {
+            char prefix = self.advance();
+            result = result + f"{prefix}";
+            int required = prefix == 'u' ? 4 : 8;
+            int index = 0;
+            long long universalValue = 0LL;
+            while (index < required) {
+                if (!self.hexDigit(self.peek(0))) {
+                    self.failLex(
+                        "Invalid universal character escape in "
+                            + literalKind + " literal",
+                        line, col);
+                    return result;
+                }
+                char digit = self.advance();
+                result = result + f"{digit}";
+                universalValue = universalValue * 16LL
+                    + (long long)self.hexDigitValue(digit);
+                index++;
+            }
+            if (!self.validUniversalCharacter(universalValue)) {
+                self.failLex(
+                    "Invalid universal character escape in "
+                        + literalKind + " literal",
+                    line, col);
+            }
+            return result;
+        }
+        if (escaped < ' ' || escaped > '~') {
+            self.failLex(
+                "Invalid non-ASCII escape in " + literalKind + " literal",
+                line, col);
+            return result;
+        }
+        self.failLex(
+            "Invalid escape sequence '\\" + f"{escaped}" + "' in "
+                + literalKind + " literal",
+            line, col);
+        return result;
+    }
+
+    private void readNumber() {
+        int line = self.line;
+        int col = self.col;
+        int startPosition = self.pos;
+        bool isFloat = false;
+
+        if (self.peek(0) == '0'
+                && (self.peek(1) == 'x' || self.peek(1) == 'X')) {
+            self.advance();
+            self.advance();
+            if (!self.hexDigit(self.peek(0))) {
+                self.failLex(
+                    "Invalid hex literal: no digits after '0x'", line, col);
+                return;
+            }
+            while (!self.atEnd() && self.hexDigit(self.peek(0))) {
+                self.advance();
+            }
+            self.consumeIntegerSuffix(line, col);
+            self.ensureNumericBoundary(startPosition, line, col);
+        } else if (self.peek(0) == '0'
+                && (self.peek(1) == 'b' || self.peek(1) == 'B')) {
+            self.advance();
+            self.advance();
+            if (Strings.isDigit(self.peek(0))
+                    && self.peek(0) != '0' && self.peek(0) != '1') {
+                self.failLex(
+                    "Invalid digit '" + f"{self.peek(0)}"
+                        + "' in binary literal",
+                    line, col);
+                return;
+            }
+            if (self.peek(0) != '0' && self.peek(0) != '1') {
+                self.failLex(
+                    "Invalid binary literal: no digits after '0b'", line, col);
+                return;
+            }
+            while (!self.atEnd()
+                    && (self.peek(0) == '0' || self.peek(0) == '1')) {
+                self.advance();
+            }
+            if (Strings.isDigit(self.peek(0))) {
+                self.failLex(
+                    "Invalid digit '" + f"{self.peek(0)}"
+                        + "' in binary literal",
+                    line, col);
+                return;
+            }
+            self.consumeIntegerSuffix(line, col);
+            if (self.failed) { return; }
+            self.ensureNumericBoundary(startPosition, line, col);
+        } else if (self.peek(0) == '0'
+                && (self.peek(1) == 'o' || self.peek(1) == 'O')) {
+            self.advance();
+            self.advance();
+            if (Strings.isDigit(self.peek(0))
+                    && (self.peek(0) < '0' || self.peek(0) > '7')) {
+                self.failLex(
+                    "Invalid digit '" + f"{self.peek(0)}"
+                        + "' in octal literal",
+                    line, col);
+                return;
+            }
+            if (self.peek(0) < '0' || self.peek(0) > '7') {
+                self.failLex(
+                    "Invalid octal literal: no digits after '0o'", line, col);
+                return;
+            }
+            while (!self.atEnd()
+                    && self.peek(0) >= '0' && self.peek(0) <= '7') {
+                self.advance();
+            }
+            if (Strings.isDigit(self.peek(0))) {
+                self.failLex(
+                    "Invalid digit '" + f"{self.peek(0)}"
+                        + "' in octal literal",
+                    line, col);
+                return;
+            }
+            self.consumeIntegerSuffix(line, col);
+            if (self.failed) { return; }
+            self.ensureNumericBoundary(startPosition, line, col);
+        } else {
+            while (!self.atEnd() && Strings.isDigit(self.peek(0))) {
+                self.advance();
+            }
+            int integerEnd = self.pos;
+            if (self.peek(0) == '.' && Strings.isDigit(self.peek(1))) {
+                isFloat = true;
+                self.advance();
+                while (!self.atEnd() && Strings.isDigit(self.peek(0))) {
+                    self.advance();
+                }
+            }
+            if (self.peek(0) == 'e' || self.peek(0) == 'E') {
+                isFloat = true;
+                self.advance();
+                if (self.peek(0) == '+' || self.peek(0) == '-') {
+                    self.advance();
+                }
+                if (!Strings.isDigit(self.peek(0))) {
+                    self.failLex(
+                        "Invalid float literal: no digits in exponent",
+                        line, col);
+                    return;
+                }
+                while (!self.atEnd() && Strings.isDigit(self.peek(0))) {
+                    self.advance();
+                }
+            }
+            if (isFloat && (self.peek(0) == 'f' || self.peek(0) == 'F')) {
+                self.advance();
+            } else if (!isFloat) {
+                if (integerEnd - startPosition > 1
+                        && self.source[startPosition] == '0') {
+                    int digitIndex = startPosition + 1;
+                    while (digitIndex < integerEnd) {
+                        char digit = self.source[digitIndex];
+                        if (digit == '8' || digit == '9') {
+                            self.failLex(
+                                "Invalid digit '" + f"{digit}"
+                                    + "' in octal literal",
+                                line, col);
+                            return;
+                        }
+                        digitIndex++;
+                    }
+                }
+                self.consumeIntegerSuffix(line, col);
+            }
+            if (self.failed) { return; }
+            self.ensureNumericBoundary(startPosition, line, col);
+        }
+
+        if (self.failed) { return; }
+        string value = self.source.substring(
+            startPosition, self.pos - startPosition);
+        string type = isFloat ? "FLOAT_LIT" : "INT_LIT";
+        self.tokens.push(Token(type, value, line, col));
+    }
+
+    private void readString() {
+        int line = self.line;
+        int col = self.col;
+        if (self.peek(1) == '"' && self.peek(2) == '"') {
+            self.readTripleString(line, col);
+            return;
+        }
+
+        self.advance();
+        string content = "";
+        while (!self.atEnd()) {
+            char value = self.peek(0);
+            if (value == '"') {
+                self.advance();
+                self.tokens.push(Token(
+                    "STRING_LIT", "\"" + content + "\"", line, col));
+                return;
+            }
+            if (value == '\\') {
+                content = self.appendEscape(
+                    content, "string", line, col);
+                if (self.failed) { return; }
+            } else if (value == '\r' || value == '\n') {
+                self.failLex("Unterminated string literal", line, col);
+                return;
+            } else {
+                content = content + f"{self.advance()}";
+            }
+        }
+        self.failLex("Unterminated string literal", line, col);
+    }
+
+    private void readTripleString(int line, int col) {
+        self.advance();
+        self.advance();
+        self.advance();
+        string content = "";
+        while (!self.atEnd()) {
+            if (self.peek(0) == '"'
+                    && self.peek(1) == '"' && self.peek(2) == '"') {
+                self.advance();
+                self.advance();
+                self.advance();
+                self.tokens.push(Token(
+                    "STRING_LIT", "\"" + content + "\"", line, col));
+                return;
+            }
+            char value = self.peek(0);
+            if (value == '\n') {
+                content = content + "\\n";
+                self.advance();
+            } else if (value == '\r') {
+                content = content + "\\n";
+                self.advance();
+                if (self.peek(0) == '\n') { self.advance(); }
+            } else if (value == '\\') {
+                content = self.appendEscape(
+                    content, "string", line, col);
+                if (self.failed) { return; }
+            } else {
+                content = content + f"{self.advance()}";
+            }
+        }
+        self.failLex("Unterminated triple-quoted string", line, col);
+    }
+
+    private bool validCharacterContent(string content) {
+        int length = content.length();
+        if (length == 0) { return false; }
+        if (content[0] != '\\') {
+            return length == 1 && content[0] >= ' ' && content[0] <= '~';
+        }
+        if (length == 2) {
+            char simple = content[1];
+            if (self.simpleEscape(simple)) { return true; }
+        }
+        bool octal = length >= 2 && length <= 4;
+        int octalValue = 0;
+        int index = 1;
+        while (octal && index < length) {
+            char digit = content[index];
+            if (digit < '0' || digit > '7') {
+                octal = false;
+            } else {
+                octalValue = octalValue * 8 + (int)digit - (int)'0';
+            }
+            index++;
+        }
+        if (octal) { return octalValue <= 255; }
+        return self.narrowCharacterHexEscape(content);
+    }
+
+    private void readChar() {
+        int line = self.line;
+        int col = self.col;
+        self.advance();
+        string content = "";
+        while (!self.atEnd()) {
+            char value = self.peek(0);
+            if (value == '\'') {
+                self.advance();
+                if (!self.validCharacterContent(content)) {
+                    self.failLex(
+                        "Character literal must contain exactly one character",
+                        line, col);
+                    return;
+                }
+                self.tokens.push(Token(
+                    "CHAR_LIT", "'" + content + "'", line, col));
+                return;
+            }
+            if (value == '\\') {
+                content = content + f"{self.advance()}";
+                if (!self.atEnd()) {
+                    content = content + f"{self.advance()}";
+                }
+            } else if (value == '\r' || value == '\n') {
+                self.failLex("Unterminated character literal", line, col);
+                return;
+            } else {
+                content = content + f"{self.advance()}";
+            }
+        }
+        self.failLex("Unterminated character literal", line, col);
+    }
+
+    private void readFstring(int line, int col) {
+        self.advance();
+        string content = "";
+        int braceDepth = 0;
+        while (!self.atEnd()) {
+            char value = self.peek(0);
+            if (braceDepth == 0 && value == '"') {
+                self.advance();
+                self.tokens.push(Token("FSTRING_LIT", content, line, col));
+                return;
+            }
+            if (value == '{') {
+                if (braceDepth == 0 && self.peek(1) == '{') {
+                    content = content + f"{self.advance()}";
+                    content = content + f"{self.advance()}";
+                } else {
+                    braceDepth++;
+                    content = content + f"{self.advance()}";
+                }
+            } else if (value == '}') {
+                if (braceDepth == 0 && self.peek(1) == '}') {
+                    content = content + f"{self.advance()}";
+                    content = content + f"{self.advance()}";
+                } else {
+                    braceDepth--;
+                    content = content + f"{self.advance()}";
+                }
+            } else if (value == '\\') {
+                content = self.appendEscape(
+                    content, "f-string", line, col);
+                if (self.failed) { return; }
+            } else if (value == '\r' || value == '\n') {
+                self.failLex("Unterminated f-string literal", line, col);
+                return;
+            } else {
+                content = content + f"{self.advance()}";
+            }
+        }
+        self.failLex("Unterminated f-string literal", line, col);
+    }
+}

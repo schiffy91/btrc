@@ -11,13 +11,17 @@ from types import SimpleNamespace
 
 import pytest
 
-import src.compiler.python.artifacts.publication.storage as storage_module
-from src.compiler.python.artifacts.publication.storage import (
+import src.compiler.python.artifacts.publication as storage_module
+from src.compiler.python.artifacts.publication import (
     ArtifactStorage,
     ReparsePointError,
 )
-from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
-from src.compiler.python.btrcc_bundle_archive import write_tar_gz, write_zip
+from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
+from src.compiler.python.artifacts.archive import ArchiveCodec
+
+ARCHIVE_CODEC = ArchiveCodec()
+write_tar_gz = ARCHIVE_CODEC.write_tar_gz
+write_zip = ARCHIVE_CODEC.write_zip
 from src.tests.python.test_btrcc_bundle import _fixture
 
 
@@ -111,7 +115,7 @@ def test_artifact_boundaries_apply_the_shared_reparse_policy(
 
     subject = "bundle source root" if boundary == "source" else "bundle output directory"
     with pytest.raises(ValueError, match=subject):
-        BundleBuilder().build(
+        SelfhostBundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=output,

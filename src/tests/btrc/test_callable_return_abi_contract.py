@@ -41,7 +41,7 @@ def _compile_both(
     "control_flow",
     (
         'if (true) { callback = () => f"managed={1}"; }',
-        'while (false) { callback = () => f"managed={1}"; }',
+        'while (choose) { callback = () => f"managed={1}"; break; }',
         'do { if (choose) { callback = () => f"managed={1}"; break; } } while (false);',
         'switch (1) { case 1: callback = () => f"managed={1}"; break; default: break; }',
         'try { callback = () => f"managed={1}"; } catch (string error) {}',
@@ -72,6 +72,97 @@ def test_mixed_callback_abis_are_rejected_after_control_flow(
     ):
         assert result.returncode != 0
         assert "ambiguous ownership ABI" in result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
+def test_literal_false_while_does_not_join_unreachable_callback_mutation(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    generic: bool,
+) -> None:
+    body = """
+        __fn_ptr<string> callback = foreignString;
+        while (false) { callback = sourceString; }
+        string value = callback();
+        return len(value);
+    """
+    if generic:
+        source = (
+            _PRELUDE
+            + f"""
+            string sourceString() {{ return f"managed={{1}}"; }}
+            class CallbackFlow<T> {{
+                public CallbackFlow() {{}}
+                public int invoke() {{ {body} }}
+            }}
+            int main() {{
+                CallbackFlow<int> flow = new CallbackFlow<int>();
+                return flow.invoke();
+            }}
+            """
+        )
+    else:
+        source = (
+            _PRELUDE
+            + f"""
+            string sourceString() {{ return f"managed={{1}}"; }}
+            int invoke() {{ {body} }}
+            int main() {{ return invoke(); }}
+            """
+        )
+
+    for result, generated in _compile_both(
+        semantic_btrcc,
+        tmp_path,
+        source,
+    ):
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "__btrc_string_retain(value)" in generated.read_text()
+
+
+@pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
+def test_literal_true_while_keeps_repeated_callback_invariant(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    generic: bool,
+) -> None:
+    body = """
+        __fn_ptr<string> callback = foreignString;
+        while (true) { callback = sourceString; }
+        return 0;
+    """
+    if generic:
+        source = (
+            _PRELUDE
+            + f"""
+            string sourceString() {{ return f"managed={{1}}"; }}
+            class CallbackFlow<T> {{
+                public CallbackFlow() {{}}
+                public int invoke() {{ {body} }}
+            }}
+            int main() {{
+                CallbackFlow<int> flow = new CallbackFlow<int>();
+                return flow.invoke();
+            }}
+            """
+        )
+    else:
+        source = (
+            _PRELUDE
+            + f"""
+            string sourceString() {{ return f"managed={{1}}"; }}
+            int invoke() {{ {body} }}
+            int main() {{ return invoke(); }}
+            """
+        )
+
+    for result, _ in _compile_both(
+        semantic_btrcc,
+        tmp_path,
+        source,
+    ):
+        assert result.returncode != 0
+        assert "invariant across a repeated loop back-edge" in result.stdout + result.stderr
 
 
 def test_source_owned_managed_callback_cannot_cross_borrowed_parameter(

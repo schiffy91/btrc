@@ -1,0 +1,373 @@
+/* Hosted-C ABI repository, provenance, and source-runtime namespaces. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../frontend/models.btrc;
+import ../frontend/source_io.btrc;
+import ../generated/ast/node.btrc;
+import ../generated/hosted_abi/tables.btrc;
+import ../generated/runtime/catalog.btrc;
+
+class SourceRuntimeSymbols {
+    private Map<string, bool> helpers;
+
+    public SourceRuntimeSymbols(Vector<GeneratedRuntimeHelperRow> runtimeRows) {
+        self.helpers = {};
+        int index = 0;
+        while (index < runtimeRows.len) {
+            GeneratedRuntimeHelperRow row = runtimeRows.get(index);
+            if (row.source_visible) { self.helpers.put(row.name, true); }
+            index = index + 1;
+        }
+    }
+
+    public bool helper(string name) {
+        return self.helpers.has(name);
+    }
+
+    public bool intrinsic(string name) {
+        return self.helper(name)
+            || name == "__btrc_eq" || name == "__btrc_lt"
+            || name == "__btrc_gt" || name == "__btrc_hash";
+    }
+
+    public bool compilerOwnedUnresolved(string name) {
+        return name.startsWith("__btrc_")
+            || name.startsWith("__BTRC_")
+            || name.startsWith("__gpu_")
+            || name.startsWith("btrc_");
+    }
+}
+
+class HostedAbiRepository {
+    private Map<string, GeneratedHostedFunctionRow> functions;
+    private Map<string, bool> functionNames;
+    private Map<string, bool> macroNames;
+    private Map<string, bool> typeNames;
+    private Map<string, bool> typedefNames;
+    private Map<string, bool> ownedNames;
+    private Map<string, bool> adoptingHelpers;
+    private string stdlibMarker;
+    private string userMarker;
+    private FeSourcePathPolicy sourcePaths;
+
+    private Map<string, bool> indexNames(Vector<string> names) {
+        Map<string, bool> result = {};
+        int index = 0;
+        while (index < names.len) {
+            result.put(names.get(index), true);
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public HostedAbiRepository(GeneratedHostedAbiData data) {
+        self.sourcePaths = FeSourcePathPolicy();
+        self.functions = {};
+        int index = 0;
+        while (index < data.functions.len) {
+            GeneratedHostedFunctionRow row = data.functions.get(index);
+            self.functions.put(row.name, row);
+            index = index + 1;
+        }
+        self.functionNames = self.indexNames(data.function_names);
+        self.macroNames = self.indexNames(data.macro_names);
+        self.typeNames = self.indexNames(data.type_names);
+        self.typedefNames = self.indexNames(data.typedef_names);
+        self.ownedNames = self.indexNames(data.owned_names);
+        self.adoptingHelpers = self.indexNames(data.runtime_adopting_helpers);
+        self.stdlibMarker = data.stdlib_source_marker;
+        self.userMarker = data.user_source_marker;
+    }
+
+    public GeneratedHostedFunctionRow? exactSpec(string name) {
+        if (!self.functions.has(name)) { return null; }
+        return self.functions.get(name);
+    }
+
+    public bool exactFunction(string name) {
+        return self.functions.has(name);
+    }
+
+    public bool functionOwnedName(string name) {
+        return self.functionNames.has(name);
+    }
+
+    public bool macroName(string name) {
+        return self.macroNames.has(name);
+    }
+
+    public bool typeName(string name) {
+        return self.typeNames.has(name);
+    }
+
+    public bool typedefName(string name) {
+        return self.typedefNames.has(name);
+    }
+
+    public bool ownedName(string name) {
+        return self.ownedNames.has(name);
+    }
+
+    public Map<string, bool> sourceFunctionShadows(Node program) {
+        Map<string, bool> result = {};
+        int index = 0;
+        while (index < program.declarations.len) {
+            Node declaration = program.declarations.get(index);
+            if (declaration.kind == NK_FUNCTION_DECL
+                    && self.functionOwnedName(declaration.name)) {
+                result.put(declaration.name, true);
+            }
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public string resultBase(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "" : row.result.base;
+    }
+
+    public int resultPointerDepth(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? 0 : row.result.pointer_depth;
+    }
+
+    public bool resultConst(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row != null && row.result.is_const;
+    }
+
+    public string semanticResultBase(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "" : row.semantic_result.base;
+    }
+
+    public int semanticResultPointerDepth(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? 0 : row.semantic_result.pointer_depth;
+    }
+
+    public bool semanticResultConst(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row != null && row.semantic_result.is_const;
+    }
+
+    public bool variadic(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row != null && row.variadic;
+    }
+
+    public string returnEffect(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "unknown" : row.return_effect;
+    }
+
+    public int returnAliasParameter(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? -1 : row.return_alias_parameter;
+    }
+
+    public string returnAliasNullEffect(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "" : row.return_alias_null_effect;
+    }
+
+    public string returnDeallocator(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "" : row.return_deallocator;
+    }
+
+    public string returnAliasShape(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "" : row.return_alias_shape;
+    }
+
+    public string consumeDeallocator(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "" : row.consume_deallocator;
+    }
+
+    public string returnAliasNullDeallocator(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "" : row.return_alias_null_deallocator;
+    }
+
+    public bool aliasArgumentIsNull(string name, Node call) {
+        int index = self.returnAliasParameter(name);
+        if (index < 0 || index >= call.args.len) { return false; }
+        Node argument = call.args.get(index);
+        while (argument.kind == NK_CAST_EXPR) { argument = argument.expr; }
+        return argument.kind == NK_NULL_LITERAL
+            || (argument.kind == NK_IDENTIFIER && argument.name == "NULL");
+    }
+
+    public string returnEffectForCall(string name, Node call) {
+        if (self.aliasArgumentIsNull(name, call)) {
+            string conditional = self.returnAliasNullEffect(name);
+            if (conditional != "") { return conditional; }
+        }
+        return self.returnEffect(name);
+    }
+
+    public string returnDeallocatorForCall(string name, Node call) {
+        if (self.aliasArgumentIsNull(name, call)) {
+            string conditional = self.returnAliasNullDeallocator(name);
+            if (conditional != "") { return conditional; }
+        }
+        return self.returnDeallocator(name);
+    }
+
+    public int parameterCount(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        if (row == null || !row.parameters_known) { return -1; }
+        return row.parameters.len;
+    }
+
+    public GeneratedHostedParameterRow? parameter(string name, int index) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        if (row == null || !row.parameters_known
+                || index < 0 || index >= row.parameters.len) { return null; }
+        return row.parameters.get(index);
+    }
+
+    public string parameterBase(string name, int index) {
+        GeneratedHostedParameterRow? row = self.parameter(name, index);
+        return row == null ? "" : row.type_shape.base;
+    }
+
+    public int parameterPointerDepth(string name, int index) {
+        GeneratedHostedParameterRow? row = self.parameter(name, index);
+        return row == null ? 0 : row.type_shape.pointer_depth;
+    }
+
+    public bool parameterConst(string name, int index) {
+        GeneratedHostedParameterRow? row = self.parameter(name, index);
+        return row != null && row.type_shape.is_const;
+    }
+
+    public string parameterEffect(string name, int index) {
+        GeneratedHostedParameterRow? row = self.parameter(name, index);
+        return row == null ? "unknown" : row.effect;
+    }
+
+    public bool parameterReadOnlyBorrow(string name, int index) {
+        string effect = self.parameterEffect(name, index);
+        return effect == "read" || (effect == "value"
+            && self.parameterPointerDepth(name, index) == 0);
+    }
+
+    public bool parameterNonescaping(string name, int index) {
+        string effect = self.parameterEffect(name, index);
+        return effect == "read" || effect == "mutate" || effect == "value";
+    }
+
+    public bool macroReferenceRequiresSemanticCall(string name) {
+        if (!self.functionOwnedName(name)) { return false; }
+        if (!self.exactFunction(name) || self.variadic(name)) { return true; }
+        if (self.semanticResultPointerDepth(name) > 0) { return true; }
+        int count = self.parameterCount(name);
+        int index = 0;
+        while (index < count) {
+            string effect = self.parameterEffect(name, index);
+            if (self.parameterPointerDepth(name, index) > 0) {
+                if (effect != "read") { return true; }
+            } else if (effect != "value") {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public int rawLifetimeArity(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        if (row == null || !row.raw_lifetime || !row.parameters_known) { return 0; }
+        return row.parameters.len;
+    }
+
+    public bool sourceAdoptingHelper(string name, int index) {
+        return index == 0 && self.adoptingHelpers.has(name)
+            && self.parameterEffect(name, index) == "consume";
+    }
+
+    public Node? semanticResultType(string name) {
+        string base = self.semanticResultBase(name);
+        if (base == "") { return null; }
+        Node result = Node();
+        result.kind = NK_TYPE_EXPR;
+        result.base = base;
+        result.pointer_depth = self.semanticResultPointerDepth(name);
+        result.is_const = self.semanticResultConst(name);
+        return result;
+    }
+
+    public string sourceFunctionSymbol(string name) {
+        return self.ownedName(name) ? "__btrc_source_" + name : name;
+    }
+
+    public string lexicalBindingCName(
+            string name, bool typeConflict) {
+        return self.macroName(name) || typeConflict
+            ? "__btrc_source_" + name : name;
+    }
+
+    public bool compilerStdlibNode(Node site) {
+        return site.source_file != null && site.source_file == self.stdlibMarker;
+    }
+
+    private void stampNestedDeclarations(Node declaration, string marker) {
+        if (declaration.kind == NK_CLASS_DECL) {
+            int index = 0;
+            while (index < declaration.members.len) {
+                declaration.members.get(index).source_file = marker;
+                index = index + 1;
+            }
+        } else if (declaration.kind == NK_INTERFACE_DECL) {
+            int index = 0;
+            while (index < declaration.methods.len) {
+                declaration.methods.get(index).source_file = marker;
+                index = index + 1;
+            }
+        } else if (declaration.kind == NK_RICH_ENUM_DECL) {
+            int index = 0;
+            while (index < declaration.variants.len) {
+                declaration.variants.get(index).source_file = marker;
+                index = index + 1;
+            }
+        }
+    }
+
+    private bool resolvedStdlibImport(
+            string sourceFile, string rootPath, string stdlibDirectory) {
+        string sourceIdentity = self.sourcePaths.identity(sourceFile);
+        string rootIdentity = self.sourcePaths.identity(rootPath);
+        string stdlibIdentity = self.sourcePaths.identity(stdlibDirectory);
+        return sourceIdentity != rootIdentity
+            && sourceIdentity.startsWith(stdlibIdentity + "/");
+    }
+
+    public void stampProgramSources(Node program, int stdlibLineCount,
+            Vector<FeLine> userLines, string rootPath, string stdlibDirectory) {
+        int index = 0;
+        while (index < program.declarations.len) {
+            Node declaration = program.declarations.get(index);
+            string marker = self.userMarker;
+            if (stdlibLineCount > 0 && declaration.line <= stdlibLineCount) {
+                marker = self.stdlibMarker;
+            } else {
+                int userLine = declaration.line - stdlibLineCount;
+                if (userLine > 0 && userLine <= userLines.len
+                        && self.resolvedStdlibImport(
+                            userLines.get(userLine - 1).sourceFile,
+                            rootPath, stdlibDirectory)) {
+                    marker = self.stdlibMarker;
+                }
+            }
+            declaration.source_file = marker;
+            self.stampNestedDeclarations(declaration, marker);
+            index = index + 1;
+        }
+    }
+}

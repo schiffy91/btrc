@@ -11,28 +11,44 @@ def _source(relative: str) -> str:
 
 
 def test_callable_boundary_behavior_has_one_domain_owner() -> None:
-    policy = _source("callable_boundary_policy.btrc")
+    callables = _source("ir/lowering/callables.btrc")
+    lowerer = _source("ir/lowering/lowerer.btrc")
     stage = _source("ir/stage.btrc")
 
-    assert "class CallableBoundaryContext {" in policy
-    assert "class CallableBoundaryPolicy {" in policy
-    assert "private Analyzed analysis;" in policy
-    assert "IRGen" not in policy
-    assert not (SELFHOST / "callable_boundary_lowering.btrc").exists()
-    assert not (SELFHOST / "callable_argument_boundaries.btrc").exists()
-    assert '#include "../callable_argument_boundaries.btrc"' not in stage
-    assert stage.index('#include "../callable_boundary_policy.btrc"') < stage.index('#include "../irgen.btrc"')
+    assert "class CallableBoundaryContext {" in callables
+    assert "class CallableValueSemantics {" in callables
+    assert "class CallableBoundaryPolicy {" in callables
+    assert "import ./lowering/callables.btrc;" in stage
+    assert "import ./lowering/callable_flow.btrc;" in stage
+    assert "CallableValueSemantics callableValues =" in lowerer
+    assert "CallableBoundaryPolicy callableBoundaries =" in lowerer
+    assert "CallableBoundaryPolicy(callableValues);" in lowerer
 
-    for owned_operation in (
+    for value_operation in (
         "public int expressionAbi(",
         "public bool lexicalIdentifier(",
+        "public bool managedReturnCallable(",
+        "public Node? canonicalType(",
+        "public Node arrayElement(",
+        "public Node? structDeclaration(",
+        "public Vector<string> captureNames(",
+    ):
+        assert value_operation in callables
+    for boundary_operation in (
         "public void rejectPersistentStorage(",
         "public void rejectAggregateInitializer(",
         "public void rejectAssignment(",
-        "public Vector<Node> functionPointerParameters(",
         "public void rejectUnsafeArguments(",
     ):
-        assert owned_operation in policy
+        assert boundary_operation in callables
+    for duplicated_value_policy in (
+        "private Node? canonicalType(",
+        "private bool managedValueType(",
+        "private Node arrayElement(",
+        "private Node? structDeclaration(",
+    ):
+        policy = callables.split("class CallableBoundaryPolicy {", 1)[1]
+        assert duplicated_value_policy not in policy
 
     combined = "\n".join(path.read_text() for path in SELFHOST.rglob("*.btrc"))
     for obsolete_loose_behavior in (
@@ -49,27 +65,59 @@ def test_callable_boundary_behavior_has_one_domain_owner() -> None:
         assert obsolete_loose_behavior not in combined
 
 
-def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() -> None:
-    policy = _source("callable_boundary_policy.btrc")
-    flow = _source("callable_flow_state.btrc")
-    stage = _source("ir/stage.btrc")
-    irgen = _source("irgen.btrc")
-    context = policy.split("class CallableBoundaryContext {", 1)[1].split("class CallableBoundaryPolicy {", 1)[0]
-    owner = policy.split("class CallableBoundaryPolicy {", 1)[1]
+def test_callable_environment_classification_uses_registered_receiver_domains() -> None:
+    analyzed = _source("analyzer/models.btrc")
+    declarations = _source("analyzer/declarations.btrc")
+    values = _source("ir/lowering/callables.btrc")
 
-    assert "public CallableBoundaryPolicy callableBoundaries;" in irgen
-    assert irgen.count("self.callableBoundaries = CallableBoundaryPolicy(analyzed);") == 1
-    assert "public CallableFlowState callableFlow;" in irgen
-    assert irgen.count("self.callableFlow = CallableFlowState();") == 1
-    assert "public CallableBoundaryContext callableBoundaryContext(" not in irgen
+    assert "public Map<string, Node> interfaceTable;" in analyzed
+    assert "public Node? interfaceMethod(" in analyzed
+    assert "self.analyzed.interfaceTable.put(d.name, d);" in declarations
+    assert "self.analysis.interfaceMethod(" in values
+    assert "private bool builtinMethodRequiresEnvironment(" in values
+    for exact_builtin in (
+        'receiverType.base == "Thread"',
+        'methodName == "join"',
+        'receiverType.base == "Mutex"',
+        'methodName == "get"',
+        'methodName == "set"',
+        'methodName == "destroy"',
+        "SemanticTypeSystem.stringMethodResult(methodName) != null",
+    ):
+        assert exact_builtin in values
+
+
+def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() -> None:
+    callables = _source("ir/lowering/callables.btrc")
+    flow = _source("ir/lowering/callable_flow.btrc")
+    stage = _source("ir/stage.btrc")
+    lowerer = _source("ir/lowering/lowerer.btrc")
+    context = callables.split("class CallableBoundaryContext {", 1)[1].split(
+        "class CallableValueSemantics {", 1
+    )[0]
+    owner = callables.split("class CallableBoundaryPolicy {", 1)[1].split(
+        "class CallableLambdaPlan {", 1
+    )[0]
+    composition_state = lowerer.split("public IRLowerer(", 1)[0]
+
+    assert lowerer.count("CallableValueSemantics callableValues =") == 1
+    assert "CallableFlowState" not in lowerer
+    assert lowerer.count("CallableBoundaryPolicy callableBoundaries =") == 1
+    assert "private CallableValueSemantics" not in composition_state
+    assert "private CallableFlowState" not in composition_state
+    assert "private CallableBoundaryPolicy" not in composition_state
     assert "public CallableBoundaryContext boundaryContext(" in flow
     assert "self.ownedBindings," in flow
     assert "self.ambiguousBindings," in flow
-    assert "self.declarations);" in flow
-    assert stage.index('#include "../callable_boundary_policy.btrc"') < stage.index(
-        '#include "../callable_flow_state.btrc"'
+    assert "self.declarations," in flow
+    assert "self.environmentFunctions," in flow
+    assert "self.environmentStorage);" in flow
+    assert stage.index("import ./lowering/callables.btrc;") < stage.index(
+        "import ./lowering/callable_flow.btrc;"
     )
-    assert stage.index('#include "../callable_flow_state.btrc"') < stage.index('#include "../irgen.btrc"')
+    assert stage.index("import ./lowering/callable_flow.btrc;") < stage.index(
+        "import ./lowering/lowerer.btrc;"
+    )
 
     for operation_evidence in (
         "private Map<string, Node> variableTypes;",
@@ -81,7 +129,8 @@ def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() 
     ):
         assert operation_evidence in context
     for context_operation in (
-        "public Node resolveType(",
+        "public bool resolvesParameters()",
+        "public Map<string, Node> parameterTypes()",
         "public bool hasVariable(",
         "public Node variableType(",
         "public int abiFor(",
@@ -89,23 +138,24 @@ def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() 
     ):
         assert context_operation in context
 
-    # The reusable policy keeps only its immutable semantic environment. All
-    # mutable lowering evidence is supplied by an operation-local context, so
-    # two IRGen instances cannot share callback provenance through ambient state.
+    # The reusable policy keeps immutable classification only. Per-body facts
+    # live on the explicitly constructed CallableFlowState.
     private_state = [
         line.strip() for line in owner.splitlines() if line.startswith("    private ") and line.rstrip().endswith(";")
     ]
-    assert private_state == ["private Analyzed analysis;"]
+    assert private_state == ["private CallableValueSemantics values;"]
     assert "private Map<" not in owner
 
 
 def test_callable_flow_state_exclusively_owns_mutable_provenance() -> None:
-    flow = _source("callable_flow_state.btrc")
-    irgen = _source("irgen.btrc")
+    flow = _source("ir/lowering/callable_flow.btrc")
+    lowerer = _source("ir/lowering/lowerer.btrc")
 
     for state in (
         "private Map<string, bool> ownedBindings;",
         "private Map<string, bool> ambiguousBindings;",
+        "private Map<string, string> environmentFunctions;",
+        "private Map<string, string> environmentStorage;",
         "private Vector<string> declarations;",
         "private Vector<int> scopeStarts;",
         "private Vector<CallableExceptionalCapture> exceptionCaptures;",
@@ -120,14 +170,15 @@ def test_callable_flow_state_exclusively_owns_mutable_provenance() -> None:
         "public CallableExceptionalCapture beginExceptionalCapture(",
         "public void recordExceptional()",
         "public CallableLoopCapture beginLoopCapture()",
-        "public void recordLoopExit(",
+        "public CallableSwitchCapture beginSwitchCapture(",
+        "public void recordControlExit(",
         "public CallableFlowSnapshot beginScope()",
         "public void declare(string name)",
         "public void finishScope(CallableFlowSnapshot enclosing)",
     ):
         assert operation in flow
 
-    for obsolete_irgen_state in (
+    for composition_root_state in (
         "ownedCallableBindings",
         "ambiguousCallableBindings",
         "callableScopeDeclarations",
@@ -135,33 +186,23 @@ def test_callable_flow_state_exclusively_owns_mutable_provenance() -> None:
         "callableExceptionCaptures",
         "callableLoopCaptures",
     ):
-        assert obsolete_irgen_state not in irgen
-
-    for obsolete_irgen_behavior in (
-        "snapshotCallableFlow(",
-        "restoreCallableFlow(",
-        "joinCallableFlows(",
-        "beginExceptionalCallableCapture(",
-        "recordExceptionalCallableFlow(",
-        "beginCallableLoopCapture(",
-        "recordCallableLoopExit(",
-        "beginCallableScope(",
-        "recordCallableDeclaration(",
-        "finishCallableScope(",
-    ):
-        assert obsolete_irgen_behavior not in irgen
+        assert composition_root_state not in lowerer
 
 
-def test_callable_flow_isolation_is_owner_local_and_reentrant() -> None:
-    flow = _source("callable_flow_state.btrc")
-    irgen = _source("irgen.btrc")
+def test_callable_flow_is_per_function_and_reentrant() -> None:
+    flow = _source("ir/lowering/callable_flow.btrc")
+    functions = _source("ir/lowering/functions.btrc")
 
-    assert "class CallableFlowStateSnapshot {" in flow
-    assert "public void isolateInto(CallableFlowStateSnapshot snapshot)" in flow
-    assert "public void restoreIsolated(CallableFlowStateSnapshot snapshot)" in flow
-    assert "self.callableFlow.isolateInto(snap.callableFlow);" in irgen
-    assert "self.callableFlow.restoreIsolated(snap.callableFlow);" in irgen
+    assert "public CallableFlowState() {" in flow
+    assert "class CallableEvaluationPlan {" not in flow
+    assert "class CallableFlowStateSnapshot {" not in flow
+    assert "isolateInto(" not in flow
+    assert "restoreIsolated(" not in flow
+    assert "CallableFlowState" not in functions.split("class FunctionLowerer {", 1)[0]
+    assert functions.count(
+        "CallableFlowState callableFlow = CallableFlowState();"
+    ) == 2
+    assert "self.callableFlow" not in functions
 
     owner = flow.split("class CallableFlowState {", 1)[1]
     assert not any(line.startswith(("Map<", "Vector<", "CallableFlow")) for line in owner.splitlines())
-    assert "IRGen" not in flow

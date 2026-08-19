@@ -40,7 +40,7 @@ def selfhost_lexer(tmp_path_factory: pytest.TempPathFactory) -> Path:
             "python3",
             "-m",
             "src.compiler.python.main",
-            "src/compiler/btrc/lex_main.btrc",
+            "src/compiler/btrc/tools/lex_main.btrc",
             "--no-cache",
             "-o",
             str(generated),
@@ -95,7 +95,7 @@ def test_operator_scan_scales_linearly(
 
 
 def test_lexer_cursor_does_not_rescan_source_text() -> None:
-    source = (REPO / "src/compiler/btrc/lexer.btrc").read_text()
+    source = (REPO / "src/compiler/btrc/lexer/lexer.btrc").read_text()
     assert "self.sourceLen = source.length();" in source
     assert "self.source.length()" not in source
     assert "self.source.substring(self.pos, oplen)" not in source

@@ -1,0 +1,1450 @@
+/* Managed, aggregate, mutex, thread, and deallocation ownership contracts. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../../generated/ast/node.btrc;
+import ../../syntax/identity.btrc;
+import ../../syntax/types.btrc;
+import ../declarations.btrc;
+import ../hosted_abi.btrc;
+import ../models.btrc;
+import ../operators.btrc;
+import ../types.btrc;
+import ./storage.btrc;
+import ./types.btrc;
+
+class OwnershipValidator {
+    private SemanticValidationState state;
+    private HostedAbiRepository hostedAbi;
+    private OperatorSemantics operators;
+    private TypeValidator types;
+    private StorageValidator storage;
+
+    public OwnershipValidator(
+            SemanticValidationState state,
+            HostedAbiRepository hostedAbi,
+            OperatorSemantics operators,
+            TypeValidator types,
+            StorageValidator storage) {
+        self.state = state;
+        self.hostedAbi = hostedAbi;
+        self.operators = operators;
+        self.types = types;
+        self.storage = storage;
+    }
+
+    private int parameterIndex(Vector<Node> parameters, string name) {
+        int index = 0;
+        while (index < parameters.len) {
+            if (parameters.get(index).name == name) { return index; }
+            index = index + 1;
+        }
+        return -1;
+    }
+
+    private bool hostedCallBypassesSourceDefinition(string name) {
+        if (!self.hostedAbi.functionOwnedName(name)
+                || !self.state.analyzed.funcTable.has(name)
+                || self.state.callable == null
+                || !self.hostedAbi.compilerStdlibNode(
+                    self.state.callable)) {
+            return false;
+        }
+        Node declaration = self.state.analyzed.funcTable.get(name);
+        return declaration.body_node != null
+            && !self.hostedAbi.compilerStdlibNode(declaration);
+    }
+
+    public bool hostedCallUsesOwnedSymbol(string name,
+            Map<string, Node> variables) {
+        if (!self.hostedAbi.functionOwnedName(name)
+                || variables.has(name)) { return false; }
+        if (!self.state.analyzed.funcTable.has(name)) {
+            return !self.state.analyzed.isClass(name);
+        }
+        Node declaration = self.state.analyzed.funcTable.get(name);
+        return declaration.body_node == null
+            || self.hostedCallBypassesSourceDefinition(name);
+    }
+
+    private Node? hostedReturnAliasArgument(Node? expression,
+            Map<string, Node> variables) {
+        if (expression == null || expression.kind != NK_CALL_EXPR
+                || expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER
+                || !self.hostedCallUsesOwnedSymbol(
+                    expression.callee.name, variables)) {
+            return null;
+        }
+        int parameter = self.hostedAbi.returnAliasParameter(
+            expression.callee.name);
+        if (parameter < 0 || parameter >= expression.args.len) { return null; }
+        return expression.args.get(parameter);
+    }
+
+    private bool opaqueManagedType(Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null || canonical.is_array) { return false; }
+        return self.types.managedOwnershipType(canonical)
+            || canonical.base == "Thread" || canonical.base == "Vector"
+            || canonical.base == "List" || canonical.base == "Map"
+            || canonical.base == "Set" || canonical.base == "Array";
+    }
+
+    private Node? opaqueManagedOrigin(Node? expression,
+            Map<string, Node> variables) {
+        if (expression == null || expression.kind == NK_STRING_LITERAL) {
+            return null;
+        }
+        Node? direct = self.types.inferType(expression, variables);
+        if (self.opaqueManagedType(direct)) { return direct; }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.opaqueManagedOrigin(expression.expr, variables);
+        }
+        Node? alias = self.hostedReturnAliasArgument(expression, variables);
+        if (alias != null) {
+            return self.opaqueManagedOrigin(alias, variables);
+        }
+        return null;
+    }
+
+    public bool containsThreadStorage(
+            Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null) { return false; }
+        if (canonical.base == "Thread") { return true; }
+        int index = canonical.base == "__fn_ptr" ? 1 : 0;
+        while (index < canonical.generic_args.len) {
+            if (self.containsThreadStorage(
+                    canonical.generic_args.get(index))) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public bool containsMutexStorageImpl(Node? typeExpr,
+            Map<string, bool> visiting) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null) { return false; }
+        if (canonical.base == "Mutex") { return true; }
+        int index = canonical.base == "__fn_ptr" ? 1 : 0;
+        while (index < canonical.generic_args.len) {
+            if (self.containsMutexStorageImpl(
+                    canonical.generic_args.get(index), visiting)) {
+                return true;
+            }
+            index = index + 1;
+        }
+        if (canonical.pointer_depth > 0) { return false; }
+
+        string name = canonical.base;
+        if (name.startsWith("struct ")) {
+            name = name.substring(7, name.length() - 7);
+        }
+        string kind = self.state.analyzed.structTable.has(name)
+            ? "struct:" : "rich-enum:";
+        string visitKey = kind + name;
+        if (visiting.has(visitKey)) { return false; }
+        Map<string, bool> nested = self.types.cloneFlags(visiting);
+        nested.put(visitKey, true);
+        if (self.state.analyzed.structTable.has(name)) {
+            Node declaration = self.state.analyzed.structTable.get(name);
+            if (!declaration.is_forward) {
+                int fieldIndex = 0;
+                while (fieldIndex < declaration.fields.len) {
+                    if (self.containsMutexStorageImpl(
+                            declaration.fields.get(fieldIndex).type,
+                            nested)) {
+                        return true;
+                    }
+                    fieldIndex = fieldIndex + 1;
+                }
+            }
+        }
+        if (self.state.analyzed.richEnumTable.has(name)) {
+            Node richEnum = self.state.analyzed.richEnumTable.get(name);
+            int variantIndex = 0;
+            while (variantIndex < richEnum.variants.len) {
+                Node variant = richEnum.variants.get(variantIndex);
+                int parameterIndex = 0;
+                while (parameterIndex < variant.params.len) {
+                    if (self.containsMutexStorageImpl(
+                            variant.params.get(parameterIndex).type,
+                            nested)) {
+                        return true;
+                    }
+                    parameterIndex = parameterIndex + 1;
+                }
+                variantIndex = variantIndex + 1;
+            }
+        }
+        return false;
+    }
+
+    public bool containsMutexStorage(
+            Node? typeExpr) {
+        Map<string, bool> visiting = {};
+        return self.containsMutexStorageImpl(typeExpr, visiting);
+    }
+
+    public bool directManagedThreadResult(
+            Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null || canonical.is_array) { return false; }
+        bool scalarString = TypeComposition.isSemanticScalarString(canonical);
+        bool classReference = canonical.pointer_depth <= 1
+            && (self.state.analyzed.isClass(canonical.base)
+                || (canonical.generic_args.len > 0
+                    && self.state.analyzed.isGenericClass(canonical.base)));
+        return scalarString || classReference;
+    }
+
+    public bool threadAggregateHasManagedReference(Node? typeExpr,
+            Map<string, bool> visiting) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null) { return false; }
+        if (canonical.is_array) {
+            Node element = TypeShape.withoutOuterArray(canonical);
+            return self.threadAggregateHasManagedReference(
+                element, visiting);
+        }
+        if (self.directManagedThreadResult(canonical)) { return true; }
+        if (canonical.pointer_depth > 0) { return false; }
+        if (canonical.base == "Tuple") {
+            int argumentIndex = 0;
+            while (argumentIndex < canonical.generic_args.len) {
+                if (self.threadAggregateHasManagedReference(
+                        canonical.generic_args.get(argumentIndex),
+                        visiting)) {
+                    return true;
+                }
+                argumentIndex = argumentIndex + 1;
+            }
+            return false;
+        }
+
+        string name = canonical.base;
+        if (name.startsWith("struct ")) {
+            name = name.substring(7, name.length() - 7);
+        }
+        string kind = self.state.analyzed.structTable.has(name)
+            ? "struct:" : "rich-enum:";
+        string visitKey = kind + name;
+        if (visiting.has(visitKey)) { return false; }
+        Map<string, bool> nested = self.types.cloneFlags(visiting);
+        nested.put(visitKey, true);
+        if (self.state.analyzed.structTable.has(name)) {
+            Node declaration = self.state.analyzed.structTable.get(name);
+            if (!declaration.is_forward) {
+                int fieldIndex = 0;
+                while (fieldIndex < declaration.fields.len) {
+                    if (self.threadAggregateHasManagedReference(
+                            declaration.fields.get(fieldIndex).type,
+                            nested)) {
+                        return true;
+                    }
+                    fieldIndex = fieldIndex + 1;
+                }
+            }
+        }
+        if (self.state.analyzed.richEnumTable.has(name)) {
+            Node richEnum = self.state.analyzed.richEnumTable.get(name);
+            int variantIndex = 0;
+            while (variantIndex < richEnum.variants.len) {
+                Node variant = richEnum.variants.get(variantIndex);
+                int parameterIndex = 0;
+                while (parameterIndex < variant.params.len) {
+                    if (self.threadAggregateHasManagedReference(
+                            variant.params.get(parameterIndex).type,
+                            nested)) {
+                        return true;
+                    }
+                    parameterIndex = parameterIndex + 1;
+                }
+                variantIndex = variantIndex + 1;
+            }
+        }
+        return false;
+    }
+
+    public bool threadResultHasUnsizedArray(Node? typeExpr,
+            Map<string, bool> visiting) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null) { return false; }
+        if (canonical.is_array) {
+            if (canonical.array_size == null) { return true; }
+            Node element = TypeShape.withoutOuterArray(canonical);
+            return self.threadResultHasUnsizedArray(
+                element, visiting);
+        }
+        if (canonical.pointer_depth > 0) { return false; }
+        if (canonical.base == "Tuple") {
+            int argumentIndex = 0;
+            while (argumentIndex < canonical.generic_args.len) {
+                if (self.threadResultHasUnsizedArray(
+                        canonical.generic_args.get(argumentIndex),
+                        visiting)) {
+                    return true;
+                }
+                argumentIndex = argumentIndex + 1;
+            }
+            return false;
+        }
+
+        string name = canonical.base;
+        if (name.startsWith("struct ")) {
+            name = name.substring(7, name.length() - 7);
+        }
+        string kind = self.state.analyzed.structTable.has(name)
+            ? "struct:" : "rich-enum:";
+        string visitKey = kind + name;
+        if (visiting.has(visitKey)) { return false; }
+        Map<string, bool> nested = self.types.cloneFlags(visiting);
+        nested.put(visitKey, true);
+        if (self.state.analyzed.structTable.has(name)) {
+            Node declaration = self.state.analyzed.structTable.get(name);
+            if (!declaration.is_forward) {
+                int fieldIndex = 0;
+                while (fieldIndex < declaration.fields.len) {
+                    if (self.threadResultHasUnsizedArray(
+                            declaration.fields.get(fieldIndex).type,
+                            nested)) {
+                        return true;
+                    }
+                    fieldIndex = fieldIndex + 1;
+                }
+            }
+        }
+        if (self.state.analyzed.richEnumTable.has(name)) {
+            Node richEnum = self.state.analyzed.richEnumTable.get(name);
+            int variantIndex = 0;
+            while (variantIndex < richEnum.variants.len) {
+                Node variant = richEnum.variants.get(variantIndex);
+                int parameterIndex = 0;
+                while (parameterIndex < variant.params.len) {
+                    if (self.threadResultHasUnsizedArray(
+                            variant.params.get(parameterIndex).type,
+                            nested)) {
+                        return true;
+                    }
+                    parameterIndex = parameterIndex + 1;
+                }
+                variantIndex = variantIndex + 1;
+            }
+        }
+        return false;
+    }
+
+    public void rejectThreadOwnerShadow(string name, Node? newType,
+            Map<string, Node> vars, Node site) {
+        if (!vars.has(name)) { return; }
+        Node existing = vars.get(name);
+        if (self.containsThreadStorage(existing)) {
+            TypeValidator.fail(
+                "Binding '" + name
+                    + "' cannot shadow an active Thread owner",
+                site);
+        }
+        if (self.containsThreadStorage(newType)) {
+            TypeValidator.fail(
+                "Thread owner '" + name
+                    + "' cannot shadow another active binding",
+                site);
+        }
+    }
+
+    public bool mutexRuntimeCollection(string base) {
+        return base == "Array" || base == "List" || base == "Map"
+            || base == "Set" || base == "Vector";
+    }
+
+    public bool mutexUnresolvedParameter(
+            Node typeExpr) {
+        return self.state.typeParams.has(typeExpr.base)
+            && typeExpr.generic_args.len == 0
+            && typeExpr.pointer_depth == 0 && !typeExpr.is_array;
+    }
+
+    public bool mutexDirectManagedValue(
+            Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null || canonical.is_array) { return false; }
+        return TypeComposition.isSemanticScalarString(canonical)
+            || (canonical.pointer_depth <= 1
+                && (self.state.analyzed.isClass(canonical.base)
+                    || (canonical.generic_args.len > 0
+                        && self.state.analyzed.isGenericClass(canonical.base))));
+    }
+
+    public bool mutexPayloadMatches(Node? typeExpr, int query,
+            Map<string, bool> visiting) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null
+                || self.mutexUnresolvedParameter(canonical)) {
+            return false;
+        }
+        if (query == 1 && canonical.base == "Thread") { return true; }
+        if (query == 2 && canonical.base == "Mutex") { return true; }
+        if (query == 3 && canonical.is_array) { return true; }
+        if (query == 4 && self.mutexRuntimeCollection(canonical.base)
+                && !self.state.analyzed.isGenericClass(canonical.base)) {
+            return true;
+        }
+        if (query == 5 && self.mutexDirectManagedValue(canonical)) {
+            return true;
+        }
+        if (canonical.base == "__fn_ptr") { return false; }
+
+        bool inspectArguments = query != 5 || canonical.base == "Tuple";
+        if (inspectArguments) {
+            int argumentIndex = 0;
+            while (argumentIndex < canonical.generic_args.len) {
+                if (self.mutexPayloadMatches(
+                        canonical.generic_args.get(argumentIndex), query,
+                        visiting)) {
+                    return true;
+                }
+                argumentIndex = argumentIndex + 1;
+            }
+        }
+        if (canonical.pointer_depth > 0) { return false; }
+
+        string name = canonical.base;
+        if (name.startsWith("struct ")) {
+            name = name.substring(7, name.length() - 7);
+        }
+        string kind = self.state.analyzed.structTable.has(name)
+            ? "struct:" : "rich-enum:";
+        string visitKey = kind + name;
+        if (visiting.has(visitKey)) { return false; }
+        Map<string, bool> nested = self.types.cloneFlags(visiting);
+        nested.put(visitKey, true);
+        if (self.state.analyzed.structTable.has(name)) {
+            Node declaration = self.state.analyzed.structTable.get(name);
+            if (!declaration.is_forward) {
+                int fieldIndex = 0;
+                while (fieldIndex < declaration.fields.len) {
+                    if (self.mutexPayloadMatches(
+                            declaration.fields.get(fieldIndex).type, query,
+                            nested)) {
+                        return true;
+                    }
+                    fieldIndex = fieldIndex + 1;
+                }
+            }
+        }
+        if (self.state.analyzed.richEnumTable.has(name)) {
+            Node richEnum = self.state.analyzed.richEnumTable.get(name);
+            int variantIndex = 0;
+            while (variantIndex < richEnum.variants.len) {
+                Node variant = richEnum.variants.get(variantIndex);
+                int parameterIndex = 0;
+                while (parameterIndex < variant.params.len) {
+                    if (self.mutexPayloadMatches(
+                            variant.params.get(parameterIndex).type, query,
+                            nested)) {
+                        return true;
+                    }
+                    parameterIndex = parameterIndex + 1;
+                }
+                variantIndex = variantIndex + 1;
+            }
+        }
+        return false;
+    }
+
+    public string mutexPayloadProblem(
+            Node payload) {
+        Map<string, bool> visiting = {};
+        if (self.mutexPayloadMatches(payload, 1, visiting)) {
+            return "cannot contain a Thread handle";
+        }
+        visiting = {};
+        if (self.mutexPayloadMatches(payload, 2, visiting)) {
+            return "cannot contain a Mutex handle";
+        }
+        visiting = {};
+        if (self.mutexPayloadMatches(payload, 3, visiting)) {
+            return "cannot contain array storage";
+        }
+        visiting = {};
+        if (self.mutexPayloadMatches(payload, 4, visiting)) {
+            return "cannot contain runtime-owned collection storage without a "
+                + "registered managed class declaration";
+        }
+        if (!self.mutexDirectManagedValue(payload)) {
+            visiting = {};
+            if (self.mutexPayloadMatches(payload, 5, visiting)) {
+                return "aggregate cannot contain string or class references";
+            }
+        }
+        return "";
+    }
+
+    public void validateMutexPayloadsInType(Node? typeExpr, Node site) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null) { return; }
+        if (canonical.base == "Mutex" && canonical.generic_args.len == 1) {
+            string problem = self.mutexPayloadProblem(
+                canonical.generic_args.get(0));
+            if (problem != "") {
+                TypeValidator.fail(
+                    "Mutex<T> payload type " + problem, site);
+            }
+        }
+        int argumentIndex = 0;
+        while (argumentIndex < canonical.generic_args.len) {
+            self.validateMutexPayloadsInType(
+                canonical.generic_args.get(argumentIndex), site);
+            argumentIndex = argumentIndex + 1;
+        }
+    }
+
+    public void validateConcreteMutexType(Node? declared,
+            Map<string, Node> substitutions, Node site) {
+        if (declared == null) { return; }
+        self.validateMutexPayloadsInType(
+            SemanticTypeSystem.resolveGenericType(declared, substitutions,
+                self.state.analyzed), site);
+    }
+
+    public void validateConcreteMutexInstances(
+            ) {
+        int instanceIndex = 0;
+        while (instanceIndex < self.state.analyzed.genericInstances.len) {
+            GenInstance instance =
+                self.state.analyzed.genericInstances.get(instanceIndex);
+            if (self.state.analyzed.genericClassTable.has(instance.base)) {
+                Node declaration =
+                    self.state.analyzed.genericClassTable.get(instance.base);
+                Map<string, Node> substitutions = self.types.genericClassMap(
+                    declaration, instance.args);
+                int memberIndex = 0;
+                while (memberIndex < declaration.members.len) {
+                    Node member = declaration.members.get(memberIndex);
+                    if (member.kind == NK_FIELD_DECL
+                            || member.kind == NK_PROPERTY_DECL) {
+                        self.validateConcreteMutexType(
+                            member.type, substitutions, member);
+                    } else if (member.kind == NK_METHOD_DECL) {
+                        self.validateConcreteMutexType(
+                            member.return_type, substitutions, member);
+                        int parameterIndex = 0;
+                        while (parameterIndex < member.params.len) {
+                            Node parameter = member.params.get(parameterIndex);
+                            self.validateConcreteMutexType(
+                                parameter.type, substitutions, parameter);
+                            parameterIndex = parameterIndex + 1;
+                        }
+                    }
+                    memberIndex = memberIndex + 1;
+                }
+            }
+            instanceIndex = instanceIndex + 1;
+        }
+    }
+
+    public bool managedOwnershipType(
+            Node? typeExpr) {
+        if (typeExpr == null) { return false; }
+        if (self.state.typeParams.has(typeExpr.base)) {
+            return !typeExpr.is_array
+                && (typeExpr.pointer_depth == 0
+                    || (typeExpr.is_nullable && typeExpr.pointer_depth == 1));
+        }
+        return !typeExpr.is_array && typeExpr.pointer_depth <= 1
+            && (SemanticTypeSystem.isString(typeExpr)
+                || (typeExpr.base == "Mutex"
+                    && typeExpr.generic_args.len == 1
+                    && typeExpr.pointer_depth == 0)
+                || self.state.analyzed.isClass(typeExpr.base)
+                || self.state.analyzed.isGenericClass(typeExpr.base));
+    }
+
+    public bool rawDeleteType(
+            Node? typeExpr) {
+        if (typeExpr == null || typeExpr.is_array) { return false; }
+        if (self.state.analyzed.isClass(typeExpr.base)
+                || self.state.analyzed.isGenericClass(typeExpr.base)) { return true; }
+        if (typeExpr.base == "Mutex" && typeExpr.pointer_depth == 0
+                && typeExpr.generic_args.len == 1) { return true; }
+        return typeExpr.pointer_depth > 0
+            && typeExpr.base != "__fn_ptr";
+    }
+
+    public bool threadJoinReceiverConsumable(Node receiver) {
+        if (receiver.kind == NK_IDENTIFIER || receiver.kind == NK_SPAWN_EXPR
+                || receiver.kind == NK_CALL_EXPR) {
+            return true;
+        }
+        if (receiver.kind == NK_TERNARY_EXPR) {
+            return !self.types.threadCopySource(receiver);
+        }
+        return false;
+    }
+
+    public void validateThreadJoinReceiver(Node call) {
+        Node callee = call.callee;
+        if (callee.optional
+                || !self.threadJoinReceiverConsumable(callee.obj)) {
+            TypeValidator.fail(
+                "Thread.join() receiver must be a unique local owner or a "
+                    + "fresh Thread result",
+                call);
+        }
+    }
+
+    public void rejectThreadHandleCopy(Node? target, Node? source,
+            Node? value, Node site) {
+        Node? resolvedTarget = self.types.resolveAliases(target);
+        Node? resolvedSource = self.types.resolveAliases(source);
+        if (resolvedTarget == null || resolvedTarget.base != "Thread"
+                || resolvedSource == null || resolvedSource.base != "Thread"
+                || value == null || !self.types.threadCopySource(value)) {
+            return;
+        }
+        TypeValidator.fail(
+            "Thread handles cannot be copied; transfer a fresh spawn() or "
+                + "function-call result instead",
+            site);
+    }
+
+    public bool ownershipUsesIndirectLvalue(Node expression,
+             Map<string, Node> vars) {
+        return self.storage.isVirtualUpdateTarget(expression,  vars);
+    }
+
+    public string ownershipName(Node statement) {
+        if (statement.kind == NK_DELETE_STMT) { return "delete"; }
+        if (statement.kind == NK_KEEP_STMT) { return "keep"; }
+        return "release";
+    }
+
+    public int currentParameterIndex(
+             string name) {
+        if (self.state.callable == null) { return -1; }
+        int index = 0;
+        while (index < self.state.callable.params.len) {
+            if (self.state.callable.params.get(index).name == name) { return index; }
+            index = index + 1;
+        }
+        return -1;
+    }
+
+    public bool releaseBalancesKeep(
+            Node statement) {
+        /* Adjacency proves no intervening statement can exit before releasing the
+         * guard reference supplied by keep. */
+        Node? previous = self.state.previousStatement;
+        return statement.kind == NK_RELEASE_STMT
+            && previous != null
+            && previous.kind == NK_KEEP_STMT
+            && previous.expr.kind == NK_IDENTIFIER
+            && previous.expr.name == statement.expr.name;
+    }
+
+    public void validateManagedParameterConsumption(Node statement,
+            Node operand) {
+        if (statement.kind == NK_KEEP_STMT
+                || statement.expr.kind != NK_IDENTIFIER
+                || !self.state.borrowedBindings.has(statement.expr.name)
+                || !(self.managedOwnershipType(operand)
+                    || self.types.typeContainsParams(operand, self.state.typeParams))) {
+            return;
+        }
+        if (self.releaseBalancesKeep(statement)) { return; }
+        if (!self.state.parameterNames.has(statement.expr.name)) {
+            TypeValidator.fail(
+                "Borrowed managed receiver, capture, or loop bindings cannot be "
+                    + "released or deleted; bind an owned local first",
+                statement);
+        }
+        if (self.state.callable == null) { return; }
+        int index = self.currentParameterIndex(
+             statement.expr.name);
+        Node callable = self.state.callable;
+        bool virtualSetterValue = index >= 0
+            && ((callable.name == "set" && index == 1)
+                || (callable.name.startsWith("set_") && index == 0));
+        if (virtualSetterValue) {
+            TypeValidator.fail(
+                "Property/index setter value parameters cannot consume their "
+                    + "argument because assignment results must remain valid",
+                statement);
+        }
+        Map<int, bool> transferred = DeclarationRegistry.ownedTransferParameters(
+            callable);
+        if (index < 0 || !transferred.has(index)) {
+            TypeValidator.fail(
+                "Managed parameter consumption must be an unconditional leading "
+                    + "release/delete so callers can prove ownership transfer",
+                statement);
+        }
+    }
+
+    public void validateOwnership(Node statement,
+             Map<string, Node> vars) {
+        string operation = self.ownershipName(statement);
+        if (statement.kind != NK_KEEP_STMT
+                && statement.expr.kind == NK_SELF_EXPR) {
+            TypeValidator.fail(
+                "Managed method receiver 'self' is borrowed and cannot be consumed",
+                statement);
+        }
+        if (!self.storage.isLvalue(statement.expr,  vars)) {
+            TypeValidator.fail(operation
+                + " requires an assignable value", statement);
+        }
+        Node? operand = self.types.inferType(statement.expr,  vars);
+        if (operand == null) {
+            TypeValidator.fail("Cannot determine operand type for "
+                + operation, statement);
+            return;
+        }
+        if (self.ownershipUsesIndirectLvalue(
+                statement.expr,  vars)) {
+            TypeValidator.fail(operation
+                + " cannot target a property or protocol index; "
+                + "store it in a direct lvalue first", statement);
+        }
+        if (!self.storage.isLifetimeStableStorage(
+                statement.expr,  vars)) {
+            TypeValidator.fail(operation
+                + " requires storage rooted in a stable owner; "
+                + "bind temporary owners to a local first", statement);
+        }
+        if (self.types.typeContainsParams(operand, self.state.typeParams)) {
+            /* keep/release are intentionally parametric: monomorphization turns
+             * them into ARC operations for managed T and no-ops otherwise.  A
+             * generic class instance such as ListNode<T> also has a concrete
+             * allocation family: monomorphization selects its destroy function.
+             * Only a bare type parameter leaves delete's allocation kind unknown. */
+            if (statement.kind == NK_DELETE_STMT) {
+                if (self.state.typeParams.has(operand.base)
+                        || !self.managedOwnershipType(operand)) {
+                    TypeValidator.fail(
+                        "delete requires a concrete allocation type", statement);
+                }
+            } else {
+                self.validateManagedParameterConsumption(
+                    statement, operand);
+                return;
+            }
+        }
+        bool valid = self.managedOwnershipType(operand);
+        if (statement.kind == NK_DELETE_STMT) {
+            valid = self.rawDeleteType(operand);
+        }
+        if (!valid) {
+            TypeValidator.fail(operation + " is not valid for type '"
+                + self.types.formatType(operand) + "'", statement);
+        }
+        self.validateManagedParameterConsumption(
+            statement, operand);
+        if (statement.kind != NK_KEEP_STMT) {
+            self.storage.validateTargetReceiverMutability(
+                statement.expr,  vars, statement);
+            self.storage.validateMutableTarget(operand,  statement, false);
+        }
+    }
+
+    public bool managedResultType(Node? typeExpr) {
+        if (typeExpr == null) { return false; }
+        if (typeExpr.is_array) { return false; }
+        if (self.state.typeParams.has(typeExpr.base)) {
+            /* A bare T may specialize to a scalar, so its source expression is not
+             * proven to return a fresh managed owner.  Raw-storage validation has
+             * a separate fail-closed classifier for possibly managed T values. */
+            return false;
+        }
+        if (typeExpr.pointer_depth > 1) { return false; }
+        return SemanticTypeSystem.isString(typeExpr)
+            || self.state.analyzed.isClass(typeExpr.base)
+            || (typeExpr.generic_args.len > 0
+                && self.state.analyzed.isGenericClass(typeExpr.base));
+    }
+
+    public bool stringCallOwnsResult(Node call,
+             Map<string, Node> vars) {
+        if (self.knownLanguageCall(call,  vars)) { return true; }
+        Node callee = call.callee;
+        if (callee == null) { return false; }
+        if (callee.kind == NK_IDENTIFIER) {
+            return callee.name == "__btrc_str_track"
+                || callee.name == "__btrc_string_adopt"
+                || callee.name == "__btrc_string_alloc";
+        }
+        if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+        Node? receiver = self.types.inferType(callee.obj,  vars);
+        if (SemanticTypeSystem.isString(receiver)) {
+            return SemanticTypeSystem.stringResultIsTracked(callee.field);
+        }
+        if (receiver == null || callee.field != "toString") { return false; }
+        return receiver.base != "bool"
+            && !self.state.analyzed.enumTable.has(receiver.base);
+    }
+
+    public bool ownershipBranchPromotable(Node branch,
+             Map<string, Node> vars) {
+        if (branch.kind == NK_NULL_LITERAL
+                || self.expressionOwnsResult(branch,  vars)) {
+            return true;
+        }
+        return self.managedResultType(
+            self.types.inferType(branch,  vars));
+    }
+
+    public bool conditionalOwnsResult(Node expression, Node left, Node right,
+             Map<string, Node> vars) {
+        if (!self.managedResultType(
+                self.types.inferType(expression,  vars))) {
+            return false;
+        }
+        bool ownsBranch = self.expressionOwnsResult(left,  vars)
+            || self.expressionOwnsResult(right,  vars);
+        return ownsBranch
+            && self.ownershipBranchPromotable(left,  vars)
+            && self.ownershipBranchPromotable(right,  vars);
+    }
+
+    public bool knownLanguageCall(Node call,
+             Map<string, Node> vars) {
+        Node callee = call.callee;
+        if (callee == null) { return false; }
+        if (callee.kind == NK_IDENTIFIER) {
+            if (vars.has(callee.name)
+                    || self.state.analyzed.hostedCallKeys.has(AstIdentity.key(call))) {
+                return false;
+            }
+            return self.state.analyzed.funcTable.has(callee.name)
+                || self.state.analyzed.isClass(callee.name)
+                || self.state.analyzed.isGenericClass(callee.name);
+        }
+        if (callee.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+        if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER) {
+            string owner = callee.obj.name;
+            if (self.state.analyzed.isClass(owner)) {
+                Node? method = self.state.analyzed.classMethod(owner, callee.field);
+                if (method != null && method.kind == NK_METHOD_DECL) {
+                    return true;
+                }
+            }
+            if (self.state.analyzed.isGenericClass(owner)) {
+                Node? method = self.state.analyzed.genericClassMethod(
+                    owner, callee.field);
+                if (method != null && method.kind == NK_METHOD_DECL) {
+                    return true;
+                }
+            }
+        }
+        Node? receiver = self.types.inferType(callee.obj,  vars);
+        if (receiver == null) { return false; }
+        if (self.state.analyzed.isClass(receiver.base)) {
+            Node? method = self.state.analyzed.classMethod(
+                receiver.base, callee.field);
+            return method != null && method.kind == NK_METHOD_DECL;
+        }
+        if (self.state.analyzed.isGenericClass(receiver.base)) {
+            Node? method = self.state.analyzed.genericClassMethod(
+                receiver.base, callee.field);
+            return method != null && method.kind == NK_METHOD_DECL;
+        }
+        return false;
+    }
+
+    public bool expressionOwnsResult(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        Node? result = self.types.inferType(expression,  vars);
+        bool managedResult = self.managedResultType(result);
+        if (expression.kind == NK_NEW_EXPR
+                || expression.kind == NK_LIST_LITERAL
+                || expression.kind == NK_MAP_LITERAL
+                || expression.kind == NK_BRACE_INITIALIZER) {
+            return managedResult;
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            return managedResult
+                && self.expressionOwnsResult(expression.expr,  vars);
+        }
+        if (expression.kind == NK_F_STRING_LITERAL) {
+            int index = 0;
+            while (index < expression.parts.len) {
+                if (expression.parts.get(index).kind == NK_F_STRING_EXPR) {
+                    return true;
+                }
+                index = index + 1;
+            }
+            return false;
+        }
+        if (expression.kind == NK_CALL_EXPR) {
+            if (!managedResult) { return false; }
+            if (SemanticTypeSystem.isString(result)) {
+                return self.stringCallOwnsResult(expression,  vars);
+            }
+            return self.knownLanguageCall(expression,  vars);
+        }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR
+                || expression.kind == NK_INDEX_EXPR) {
+            if (!managedResult) { return false; }
+            if (self.expressionOwnsResult(
+                    expression.obj,  vars)) { return true; }
+            if (expression.kind == NK_INDEX_EXPR) {
+                Node? receiver = self.types.inferType(
+                    expression.obj,  vars);
+                return receiver != null
+                    && !self.storage.rawIndexedPointerInState(receiver)
+                    && StorageValidator.validIndexedGetter(self.storage.indexedMethodInState(
+                        receiver, "get"));
+            }
+            return false;
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.conditionalOwnsResult(expression,
+                expression.true_expr, expression.false_expr,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+            return self.conditionalOwnsResult(expression,
+                expression.left, expression.right,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR && managedResult) {
+            if (expression.op == "+" && SemanticTypeSystem.isString(result)) { return true; }
+            Node? left = self.types.inferType(expression.left,  vars);
+            if (left == null) { return false; }
+            string magic = self.operators.binaryMethodName(expression.op);
+            if (magic == "") { return false; }
+            if (self.state.analyzed.isClass(left.base)) {
+                return self.state.analyzed.classMethod(left.base, magic) != null;
+            }
+            if (self.state.analyzed.isGenericClass(left.base)) {
+                return self.state.analyzed.genericClassMethod(left.base, magic) != null;
+            }
+        }
+        if (expression.kind == NK_UNARY_EXPR && managedResult
+                && expression.op == "-") {
+            Node? operand = self.types.inferType(expression.operand,  vars);
+            if (operand == null) { return false; }
+            if (self.state.analyzed.isClass(operand.base)) {
+                return self.state.analyzed.classMethod(
+                    operand.base, "__neg__") != null;
+            }
+            if (self.state.analyzed.isGenericClass(operand.base)) {
+                return self.state.analyzed.genericClassMethod(
+                    operand.base, "__neg__") != null;
+            }
+        }
+        return false;
+    }
+
+    public void rejectOwnedElements(Vector<Node> elements, string aggregate,
+             Map<string, Node> vars) {
+        int index = 0;
+        while (index < elements.len) {
+            Node element = elements.get(index);
+            if (self.expressionOwnsResult(element,  vars)) {
+                TypeValidator.fail("caller-owned temporary cannot be embedded in "
+                    + aggregate + "; aggregate class elements are shallow borrowed "
+                    + "references, so bind the owner to a local first", element);
+            }
+            index = index + 1;
+        }
+    }
+
+    public Node? shallowElementType(Node aggregate, int index) {
+        if (aggregate.is_array) {
+            return self.types.arrayElementType(aggregate);
+        }
+        if (aggregate.base == "Tuple") {
+            if (index < aggregate.generic_args.len) {
+                return aggregate.generic_args.get(index);
+            }
+            return null;
+        }
+        string structName = StorageValidator.structTypeName(
+            aggregate, self.state.analyzed);
+        if (structName == "" || !self.state.analyzed.structTable.has(structName)) {
+            return null;
+        }
+        Node declaration = self.state.analyzed.structTable.get(structName);
+        if (declaration.is_forward || index >= declaration.fields.len) {
+            return null;
+        }
+        return declaration.fields.get(index).type;
+    }
+
+    public void rejectConvertedShallowElements(Node aggregate,
+            Vector<Node> elements,
+            Map<string, Node> vars) {
+        int index = 0;
+        while (index < elements.len) {
+            Node element = elements.get(index);
+            Node? expected = self.shallowElementType(
+                aggregate, index);
+            Node? actual = self.types.inferType(element,  vars);
+            if (self.types.requiresTargetStringConversion(
+                    expected, actual)) {
+                TypeValidator.fail(
+                    "implicit class-to-string conversion cannot be embedded "
+                        + "in a shallow aggregate because conversion creates "
+                        + "a caller-owned temporary; bind the converted string "
+                        + "to an owner first",
+                    element);
+            }
+            self.rejectShallowInitializer(
+                expected, element,  vars);
+            index = index + 1;
+        }
+    }
+
+    public void rejectShallowInitializer(Node? expected, Node initializer,
+             Map<string, Node> vars) {
+        if (expected == null || (initializer.kind != NK_BRACE_INITIALIZER
+                && initializer.kind != NK_LIST_LITERAL
+                && initializer.kind != NK_TUPLE_LITERAL)) { return; }
+        Node? canonical = self.types.resolveAliases(expected);
+        if (canonical == null) { return; }
+        string structName = StorageValidator.structTypeName(
+            canonical, self.state.analyzed);
+        bool shallow = canonical.is_array || canonical.base == "Tuple"
+            || (structName != "" && canonical.pointer_depth == 0);
+        if (shallow) {
+            self.rejectConvertedShallowElements(
+                canonical, initializer.elements,  vars);
+            self.rejectOwnedElements(initializer.elements,
+                "a shallow aggregate",  vars);
+        }
+    }
+
+    public void rejectShallowStore(Node assignment,
+             Map<string, Node> vars) {
+        if (assignment.target == null
+                || assignment.target.kind != NK_FIELD_ACCESS_EXPR
+                || !self.expressionOwnsResult(
+                    assignment.value_node,  vars)) { return; }
+        Node? receiver = self.types.inferType(
+            assignment.target.obj,  vars);
+        receiver = self.types.resolveAliases(receiver);
+        if (receiver == null) { return; }
+        string structName = StorageValidator.structTypeName(
+            receiver, self.state.analyzed);
+        if (receiver.base == "Tuple"
+                || (structName != "" && receiver.pointer_depth == 0)) {
+            TypeValidator.fail("caller-owned temporary cannot be stored in a "
+                + "shallow aggregate; bind the owner to a local and store only "
+                + "its borrowed reference", assignment.value_node);
+        }
+    }
+
+    public Map<string, bool> richEnumSuppliedParameters(
+            Node variant, Node call) {
+        Map<string, bool> supplied = {};
+        int positional = 0;
+        int argumentIndex = 0;
+        while (argumentIndex < call.args.len) {
+            string argumentName = "";
+            if (argumentIndex < call.arg_names.len) {
+                argumentName = call.arg_names.get(argumentIndex);
+            }
+            int parameterIndex = positional;
+            if (argumentName != "") {
+                parameterIndex = self.parameterIndex(
+                    variant.params, argumentName);
+            } else {
+                positional = positional + 1;
+            }
+            if (parameterIndex >= 0 && parameterIndex < variant.params.len) {
+                supplied.put(Strings.fromInt(parameterIndex), true);
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+        return supplied;
+    }
+
+    public Map<string, Node> richEnumDefaultTypes(
+            Node variant, int parameterIndex) {
+        Map<string, Node> vars = TypeValidator.cloneTypes(self.state.analyzed.globalVarTypes);
+        int prior = 0;
+        while (prior < parameterIndex) {
+            Node parameter = variant.params.get(prior);
+            vars.put(parameter.name, parameter.type);
+            prior = prior + 1;
+        }
+        return vars;
+    }
+
+    public bool richEnumPayloadRequiresOwner(Node parameter, Node value,
+             Map<string, Node> vars) {
+        Node? actual = self.types.inferType(value,  vars);
+        return self.expressionOwnsResult(value,  vars)
+            || self.types.requiresTargetStringConversion(
+                parameter.type, actual);
+    }
+
+    public void rejectRichEnumOwnedArgs(Node call,
+             Map<string, Node> vars) {
+        Node callee = call.callee;
+        if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR
+                || callee.obj == null || callee.obj.kind != NK_IDENTIFIER
+                || vars.has(callee.obj.name)
+                || !self.state.analyzed.isRichEnum(callee.obj.name)) { return; }
+        Node? resolved = self.types.richEnumVariant(
+            callee.obj.name, callee.field);
+        if (resolved == null) { return; }
+        Node variant = resolved;
+        string payload = callee.obj.name + "." + variant.name;
+        self.rejectOwnedElements(call.args,
+            "rich-enum payload '" + payload + "'",  vars);
+
+        int positional = 0;
+        int argumentIndex = 0;
+        while (argumentIndex < call.args.len) {
+            string argumentName = "";
+            if (argumentIndex < call.arg_names.len) {
+                argumentName = call.arg_names.get(argumentIndex);
+            }
+            int parameterIndex = positional;
+            if (argumentName != "") {
+                parameterIndex = self.parameterIndex(
+                    variant.params, argumentName);
+            } else {
+                positional = positional + 1;
+            }
+            if (parameterIndex >= 0 && parameterIndex < variant.params.len) {
+                Node parameter = variant.params.get(parameterIndex);
+                Node argument = call.args.get(argumentIndex);
+                if (self.richEnumPayloadRequiresOwner(
+                        parameter, argument,  vars)) {
+                    TypeValidator.fail("caller-owned temporary cannot be "
+                        + "embedded in rich-enum payload '" + payload
+                        + "'; aggregate class elements are shallow borrowed "
+                        + "references, so bind the owner to a local first",
+                        argument);
+                }
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+
+        Map<string, bool> supplied =
+            self.richEnumSuppliedParameters(variant, call);
+        int parameterIndex = 0;
+        while (parameterIndex < variant.params.len) {
+            Node parameter = variant.params.get(parameterIndex);
+            if (!supplied.has(Strings.fromInt(parameterIndex))
+                    && parameter.default_ != null) {
+                Map<string, Node> defaultVars = self.richEnumDefaultTypes(
+                    variant, parameterIndex);
+                if (self.richEnumPayloadRequiresOwner(
+                        parameter, parameter.default_,  defaultVars)) {
+                    TypeValidator.fail("Omitted default for rich-enum payload '"
+                        + payload + "." + parameter.name + "' produces a "
+                        + "caller-owned temporary; rich-enum payloads are shallow "
+                        + "borrowed references, so pass a prebound owner explicitly",
+                        call);
+                }
+            }
+            parameterIndex = parameterIndex + 1;
+        }
+    }
+
+    public void validateTransferredArguments(Node declaration, Node call,
+             Map<string, Node> vars) {
+        Map<int, bool> transferred = DeclarationRegistry.ownedTransferParameters(declaration);
+        if (transferred.len == 0) { return; }
+        Map<int, bool> supplied = {};
+        int positional = 0;
+        int argumentIndex = 0;
+        while (argumentIndex < call.args.len) {
+            string argumentName = "";
+            if (argumentIndex < call.arg_names.len) {
+                argumentName = call.arg_names.get(argumentIndex);
+            }
+            int parameterIndex = positional;
+            if (argumentName != "") {
+                parameterIndex = self.parameterIndex(
+                    declaration.params, argumentName);
+            } else {
+                positional = positional + 1;
+            }
+            supplied.put(parameterIndex, true);
+            Node argument = call.args.get(argumentIndex);
+            if (transferred.has(parameterIndex)
+                    && !self.expressionOwnsResult(
+                        argument,  vars)) {
+                TypeValidator.fail("Argument to consuming parameter '"
+                    + declaration.params.get(parameterIndex).name
+                    + "' must be a fresh caller-owned managed value", argument);
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+        int parameterIndex = 0;
+        while (parameterIndex < declaration.params.len) {
+            Node parameter = declaration.params.get(parameterIndex);
+            if (transferred.has(parameterIndex)
+                    && !supplied.has(parameterIndex)
+                    && (parameter.default_ == null
+                        || !self.expressionOwnsResult(
+                            parameter.default_,  vars))) {
+                TypeValidator.fail("Default for consuming parameter '"
+                    + parameter.name
+                    + "' must produce a fresh managed value", parameter);
+            }
+            parameterIndex = parameterIndex + 1;
+        }
+    }
+
+    public void validateMutexDestroyReceiver(Node call, Node receiver,
+             Map<string, Node> vars) {
+        Node callee = call.callee;
+        if (self.state.standaloneExpression == null
+                || self.state.standaloneExpression != call) {
+            TypeValidator.fail(
+                "Mutex.destroy() must be a standalone expression statement",
+                call);
+        }
+        if (callee.optional) {
+            TypeValidator.fail(
+                "Mutex.destroy() cannot use optional chaining; release a physical owned slot",
+                call);
+        }
+        if (self.storage.isVirtualUpdateTarget(receiver,  vars)
+                || !self.storage.isLifetimeStableStorage(receiver,  vars)) {
+            TypeValidator.fail(
+                "Mutex.destroy() requires a physical owned slot; bind projections or temporaries to a local first",
+                call);
+        }
+        Node? receiverType = self.types.inferType(receiver,  vars);
+        self.storage.validateTargetReceiverMutability(
+            receiver,  vars, call);
+        self.storage.validateMutableTarget(receiverType,  call, false);
+        if (receiver.kind == NK_IDENTIFIER
+                && self.state.borrowedBindings.has(receiver.name)) {
+            TypeValidator.fail(
+                "Borrowed Mutex bindings cannot be destroyed; bind an owned local first",
+                call);
+        }
+    }
+
+    public void validateMutexCall(Node call, Node receiverType,
+             Map<string, Node> vars) {
+        Node callee = call.callee;
+        string method = callee.field;
+        int expected = 0;
+        if (method == "set") {
+            expected = 1;
+        } else if (method != "get" && method != "destroy") {
+            TypeValidator.fail("Mutex<T> has no method '" + method + "'", call);
+        }
+        if (call.args.len != expected) {
+            TypeValidator.fail("'Mutex." + method + "()' expects "
+                + Strings.fromInt(expected) + " argument(s) but got "
+                + Strings.fromInt(call.args.len), call);
+        }
+        if (method == "set" && receiverType.generic_args.len == 1) {
+            Node expectedType = receiverType.generic_args.get(0);
+            Node argument = call.args.get(0);
+            self.types.validateTypedInitializer(expectedType, argument,
+                "Argument 'value' to 'Mutex.set()'",  vars);
+            Node? actualType = self.types.inferType(argument,  vars);
+            if (actualType != null
+                    && !self.types.contextualAggregateInitializer(argument)
+                    && !self.types.assignmentCompatible(
+                        expectedType, actualType)) {
+                TypeValidator.fail("Argument 'value' to 'Mutex.set()' expects '"
+                    + self.types.formatType(expectedType) + "' but got '"
+                    + self.types.formatType(actualType) + "'", call.args.get(0));
+            }
+        }
+        if (method == "destroy") {
+            self.validateMutexDestroyReceiver(
+                call, callee.obj,  vars);
+        }
+    }
+
+    public int rawLifetimeArity(string name) {
+        return self.hostedAbi.rawLifetimeArity(name);
+    }
+
+    public bool hostedRawLifetimeValue(string name,
+             Map<string, Node> vars) {
+        if (self.rawLifetimeArity(name) == 0 || vars.has(name)) { return false; }
+        if (self.state.analyzed.funcTable.has(name)) {
+            return self.state.analyzed.funcTable.get(name).body_node == null
+                || self.hostedCallBypassesSourceDefinition(name);
+        }
+        return true;
+    }
+
+    public bool rawLifetimeCall(Node call,
+             Map<string, Node> vars) {
+        if (call.callee == null || call.callee.kind != NK_IDENTIFIER
+                || self.rawLifetimeArity(call.callee.name) == 0) {
+            return false;
+        }
+        string name = call.callee.name;
+        return self.hostedCallUsesOwnedSymbol(name,  vars);
+    }
+
+    public bool rawLifetimeUsesStaticString(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_STRING_LITERAL) { return true; }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.rawLifetimeUsesStaticString(
+                expression.expr,  vars);
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            return self.rawLifetimeUsesStaticString(
+                expression.operand,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            return self.rawLifetimeUsesStaticString(
+                    expression.left,  vars)
+                || self.rawLifetimeUsesStaticString(
+                    expression.right,  vars);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.rawLifetimeUsesStaticString(
+                    expression.true_expr,  vars)
+                || self.rawLifetimeUsesStaticString(
+                    expression.false_expr,  vars);
+        }
+        Node? aliasArgument = self.hostedReturnAliasArgument(
+            expression,  vars);
+        if (aliasArgument != null) {
+            return self.rawLifetimeUsesStaticString(
+                aliasArgument,  vars);
+        }
+        return false;
+    }
+
+    public int hostedDeallocatorCompatibility(Node expression,
+            string family,
+            Map<string, Node> vars) {
+        while (expression.kind == NK_CAST_EXPR) {
+            expression = expression.expr;
+        }
+        if (expression.kind == NK_UNARY_EXPR && expression.op == "&") {
+            return -1;
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            int left = self.hostedDeallocatorCompatibility(
+                expression.true_expr, family,  vars);
+            int right = self.hostedDeallocatorCompatibility(
+                expression.false_expr, family,  vars);
+            if (left < 0 || right < 0) { return -1; }
+            return left > 0 && right > 0 ? 1 : 0;
+        }
+        if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+            int left = self.hostedDeallocatorCompatibility(
+                expression.left, family,  vars);
+            int right = self.hostedDeallocatorCompatibility(
+                expression.right, family,  vars);
+            if (left < 0 || right < 0) { return -1; }
+            return left > 0 && right > 0 ? 1 : 0;
+        }
+        Node? inferred = self.types.resolveAliases(
+            self.types.inferType(expression,  vars));
+        if (expression.kind == NK_BINARY_EXPR
+                && (expression.op == "+" || expression.op == "-")
+                && inferred != null && inferred.pointer_depth > 0) {
+            return -1;
+        }
+        if (inferred != null && inferred.is_array) { return -1; }
+        if (expression.kind != NK_CALL_EXPR || expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER
+                || !self.state.analyzed.hostedCallKeys.has(AstIdentity.key(expression))) {
+            return 0;
+        }
+        string name = expression.callee.name;
+        bool nullAlias = self.hostedAbi.aliasArgumentIsNull(name, expression);
+        string deallocator = self.hostedAbi.returnDeallocator(name);
+        if (nullAlias) {
+            string conditional = self.hostedAbi.returnAliasNullDeallocator(name);
+            if (conditional != "") { deallocator = conditional; }
+        }
+        if (deallocator != "") {
+            return deallocator == family ? 1 : -1;
+        }
+        if (self.hostedAbi.returnEffectForCall(name, expression) != "alias"
+                || self.hostedAbi.returnAliasShape(name) != "exact") {
+            return -1;
+        }
+        int aliasIndex = self.hostedAbi.returnAliasParameter(name);
+        if (aliasIndex < 0 || aliasIndex >= expression.args.len) { return -1; }
+        return self.hostedDeallocatorCompatibility(
+            expression.args.get(aliasIndex), family,  vars);
+    }
+
+    public void validateRawLifetimeCall(Node call,
+             Map<string, Node> vars) {
+        string name = call.callee.name;
+        int expected = self.rawLifetimeArity(name);
+        if (call.args.len != expected) {
+            TypeValidator.fail("'" + name + "()' expects "
+                + Strings.fromInt(expected) + " argument(s) but got "
+                + Strings.fromInt(call.args.len), call);
+        }
+        int nameIndex = 0;
+        while (nameIndex < call.arg_names.len) {
+            if (call.arg_names.get(nameIndex) != "") {
+                TypeValidator.fail(
+                    "'" + name + "()' does not accept named arguments", call);
+            }
+            nameIndex = nameIndex + 1;
+        }
+
+        Node argument = call.args.get(0);
+        if (self.rawLifetimeUsesStaticString(argument,  vars)) {
+            TypeValidator.fail(name
+                + "() cannot consume static string storage; only heap memory "
+                + "owned by a raw allocator may be consumed", argument);
+        }
+        Node lifetimeSource = argument;
+        while (lifetimeSource.kind == NK_CAST_EXPR) {
+            lifetimeSource = lifetimeSource.expr;
+        }
+        Node? inferred = self.opaqueManagedOrigin(argument,  vars);
+        Node? argumentType = self.types.resolveAliases(inferred);
+        if (argumentType != null && !argumentType.is_array) {
+            Node concreteType = argumentType;
+            bool unresolvedValue = self.state.typeParams.has(concreteType.base)
+                && concreteType.pointer_depth == 0;
+            bool managedValue = self.opaqueManagedType(concreteType);
+            bool runtimeHandle = concreteType.base == "Thread"
+                && concreteType.pointer_depth == 0;
+            if (managedValue || runtimeHandle || unresolvedValue) {
+                bool indirect = self.ownershipUsesIndirectLvalue(
+                    lifetimeSource,  vars);
+                string guidance =
+                    "use 'delete' so the owning slot is cleared safely";
+                if (name != "free") {
+                    guidance = "raw resizing is only valid for raw pointer buffers";
+                } else if (indirect) {
+                    guidance = "bind an owned direct local before managed destruction";
+                } else if (runtimeHandle) {
+                    guidance = "join the Thread or let its owning scope clean it up";
+                } else if (unresolvedValue) {
+                    guidance = "use a pointer-typed raw buffer or a managed ownership operation";
+                } else if (SemanticTypeSystem.isString(concreteType)) {
+                    guidance = "release the string or let its owning scope clean it up";
+                } else if (concreteType.base == "Mutex") {
+                    guidance = "call Mutex.destroy() or let its owning scope clean it up";
+                }
+                TypeValidator.fail(
+                    name + "() cannot consume managed value of type '"
+                        + self.types.formatType(concreteType) + "'; " + guidance,
+                    argument);
+            }
+        }
+        string family = self.hostedAbi.consumeDeallocator(name);
+        if (self.hostedDeallocatorCompatibility(
+                argument, family,  vars) < 0) {
+            TypeValidator.fail(name
+                + "() cannot consume storage because it is not compatible with "
+                + "the '" + family + "' deallocator family", argument);
+        }
+    }
+}

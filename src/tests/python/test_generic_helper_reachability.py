@@ -9,7 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.helpers.hash import HASH
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+
+HASH = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("hash")}
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))

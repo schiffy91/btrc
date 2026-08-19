@@ -27,10 +27,9 @@ import tempfile
 import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.source_provenance import make_ir_source_maps
 from src.tests.corpus_files import language_test_files
 from src.tests.runner_capabilities import (
     darwin_gpu_flags,
@@ -43,7 +42,7 @@ BTRC_TEST_DIR = os.path.dirname(__file__)
 _REPO_ROOT = os.path.dirname(os.path.dirname(BTRC_TEST_DIR))
 _TRAY_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "tray")
 _GPU_DIR = os.path.join(BTRC_TEST_DIR, "..", "stdlib", "gpu")
-_GPU_BUILD = os.path.join(_GPU_DIR, "build")
+_GPU_BUILD = os.path.join(_REPO_ROOT, "build", "stdlib", "gpu")
 
 # Compiler and flags configurable via environment.
 # Default to "cc" (the system C compiler), which resolves to the nix
@@ -105,15 +104,13 @@ def _transpile_python(btrc_path, btrc_file):
     )
     analyzed = frontend.analyzed
     assert not analyzed.errors, f"Analyzer errors: {analyzed.errors}"
-    line_map, declaration_line_map = make_ir_source_maps(
-        frontend.source_bundle,
+    source_map = frontend.source_bundle.source_map(
         split_spaces=bool(frontend.stdlib_source and frontend.user_program is not None),
     )
     ir_module = IRLowerer(
         analyzed,
         source_file=os.path.basename(btrc_file),
-        line_map=line_map,
-        declaration_line_map=declaration_line_map,
+        source_map=source_map,
     ).lower()
     ir_module = IROptimizer(ir_module).optimize()
     return CEmitter().emit(ir_module)

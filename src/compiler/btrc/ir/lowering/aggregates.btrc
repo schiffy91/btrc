@@ -1,0 +1,287 @@
+import std.map;
+import std.vector;
+import ../../analyzer/models.btrc;
+import ../../analyzer/ownership/values.btrc;
+import ../../analyzer/types.btrc;
+import ../../analyzer/validation/storage.btrc;
+import ../../generated/ast/node.btrc;
+import ../../syntax/identity.btrc;
+import ../../syntax/types.btrc;
+import ../model.btrc;
+import ./ownership/operands.btrc;
+
+/* Aggregate construction and raw indexing are C expression domains
+ * where source operands are otherwise exposed to unspecified evaluation
+ * order. This per-generation owner detects those boundaries and reuses the
+ * same typed operand/ARC machinery as calls and operators. */
+
+class AggregateDeclarationPlan {
+    public Vector<IRNode> declarations;
+    public Vector<IRNode> prefix;
+    public IRNode initializer;
+    public Vector<IRNode> suffix;
+
+    public AggregateDeclarationPlan() {
+        self.declarations = [];
+        self.prefix = [];
+        self.initializer = IRNode.literal("0");
+        self.suffix = [];
+    }
+
+    public void emitBefore(Vector<IRNode> statements) {
+        int declarationIndex = 0;
+        while (declarationIndex < self.declarations.len) {
+            statements.push(self.declarations.get(declarationIndex));
+            declarationIndex = declarationIndex + 1;
+        }
+        int prefixIndex = 0;
+        while (prefixIndex < self.prefix.len) {
+            statements.push(IRNode.expressionStatement(self.prefix.get(prefixIndex)));
+            prefixIndex = prefixIndex + 1;
+        }
+    }
+
+    public void emitAfter(Vector<IRNode> statements) {
+        int suffixIndex = 0;
+        while (suffixIndex < self.suffix.len) {
+            statements.push(IRNode.expressionStatement(self.suffix.get(suffixIndex)));
+            suffixIndex = suffixIndex + 1;
+        }
+    }
+}
+
+class AggregateOperandPlan {
+    public Node expression;
+    public Node? contextualType;
+    public Node? effectiveType;
+    public bool pinBorrowed;
+
+    public AggregateOperandPlan(
+            Node expression, Node? contextualType) {
+        self.expression = expression;
+        self.contextualType = contextualType;
+        self.effectiveType = null;
+        self.pinBorrowed = false;
+    }
+}
+
+class AggregateEvaluationPlan {
+    public Vector<AggregateOperandPlan> operands;
+    public bool ordered;
+    public Node? resultType;
+
+    public AggregateEvaluationPlan() {
+        self.operands = [];
+        self.ordered = false;
+        self.resultType = null;
+    }
+}
+
+class AggregateValueLowerer {
+    private Analyzed analyzed;
+    private ManagedValueSemantics managedValues;
+    private OwnershipOperandPlanner operandPlanner;
+    private int buildingDepth;
+
+    public AggregateValueLowerer(
+            Analyzed analyzed, ManagedValueSemantics managedValues,
+            OwnershipOperandPlanner operandPlanner) {
+        self.analyzed = analyzed;
+        self.managedValues = managedValues;
+        self.operandPlanner = operandPlanner;
+        self.buildingDepth = 0;
+    }
+
+    public bool isBuilding() {
+        return self.buildingDepth > 0;
+    }
+
+    public void beginBuild() {
+        self.buildingDepth = self.buildingDepth + 1;
+    }
+
+    public void endBuild() {
+        self.buildingDepth = self.buildingDepth - 1;
+        if (self.buildingDepth < 0) {
+            print("internal compiler error: aggregate build depth underflow");
+            exit(1);
+        }
+    }
+
+    public AggregateEvaluationPlan plan(
+            Node expression, Node? expected,
+            OwnershipOperandEnvironment environment) {
+        AggregateEvaluationPlan plan = AggregateEvaluationPlan();
+        self.collectOperands(
+            expression, expected, environment, plan.operands);
+        Vector<Node> expressions = [];
+        int expressionIndex = 0;
+        while (expressionIndex < plan.operands.len) {
+            expressions.push(
+                plan.operands.get(expressionIndex).expression);
+            expressionIndex = expressionIndex + 1;
+        }
+        plan.ordered = self.operandPlanner.requiresOrder(
+            expressions, environment);
+        plan.resultType = expected;
+        if (plan.resultType == null) {
+            plan.resultType = self.operandPlanner.expressionType(
+                expression, environment);
+        }
+        if (!plan.ordered) { return plan; }
+
+        int index = 0;
+        while (index < plan.operands.len) {
+            AggregateOperandPlan operand = plan.operands.get(index);
+            operand.effectiveType = self.operandPlanner.expressionType(
+                operand.expression, environment);
+            if (operand.effectiveType == null) {
+                operand.effectiveType = operand.contextualType;
+            }
+            self.operandPlanner.requireType(
+                operand.effectiveType, operand.expression);
+            Node concreteType = operand.effectiveType;
+            bool laterEffect = false;
+            int later = index + 1;
+            while (later < plan.operands.len) {
+                if (self.operandPlanner.hasEffect(
+                        plan.operands.get(later).expression,
+                        environment)) {
+                    laterEffect = true;
+                }
+                later = later + 1;
+            }
+            operand.pinBorrowed = laterEffect
+                && operand.expression.kind != NK_SELF_EXPR
+                && operand.expression.kind != NK_SUPER_EXPR
+                && self.managedValues.isManaged(
+                    self.operandPlanner.resolveType(
+                        concreteType, environment));
+            index = index + 1;
+        }
+        return plan;
+    }
+
+    public void rejectHeapClassBrace(
+            Node expression, Node? expected,
+            OwnershipOperandEnvironment environment) {
+        if (expected == null || expression.elements.len == 0) {
+            return;
+        }
+        Node resolved = self.operandPlanner.resolveType(expected, environment);
+        if (!self.analyzed.isGenericClass(resolved.base)
+                || self.collectionClass(resolved.base)) {
+            return;
+        }
+        fprintf(stderr,
+            "error: cannot use a non-empty brace initializer for "
+            + "heap class '%s'; use an explicit constructor call at %d:%d\n",
+            resolved.base, expression.line, expression.col);
+        exit(1);
+    }
+
+    private bool collectionClass(string name) {
+        return name == "Array" || name == "List" || name == "Map"
+            || name == "Set" || name == "Vector";
+    }
+
+    public void rejectVariableArrayInitializer(
+            Node? typeExpr, Node? initializer,
+            bool gpuResult, string subject) {
+        if (typeExpr == null || initializer == null || gpuResult) {
+            return;
+        }
+        Node arrayType = typeExpr;
+        if (!arrayType.is_array || arrayType.array_size == null
+                || self.analyzed.constantArrayBoundKeys.has(
+                    AstIdentity.key(arrayType.array_size))) {
+            return;
+        }
+        fprintf(stderr,
+            "error: %s is a variable-length array and cannot have "
+            + "an initializer at %d:%d\n",
+            subject, initializer.line, initializer.col);
+        exit(1);
+    }
+
+    private Node? contextualElementType(
+            Node? aggregateType, int index,
+            OwnershipOperandEnvironment environment) {
+        if (aggregateType == null) { return null; }
+        Node concrete = self.operandPlanner.resolveType(
+            aggregateType, environment);
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            concrete, self.analyzed.typedefTable);
+        if (resolved != null) { concrete = resolved; }
+        if (concrete.is_array) {
+            return TypeShape.withoutOuterArray(concrete);
+        }
+        if (concrete.base == "Tuple"
+                && index < concrete.generic_args.len) {
+            return concrete.generic_args.get(index);
+        }
+        if ((concrete.base == "Array"
+                || concrete.base == "List"
+                || concrete.base == "Set"
+                || concrete.base == "Vector")
+                && concrete.generic_args.len == 1) {
+            return concrete.generic_args.get(0);
+        }
+        string structName = StorageValidator.structTypeName(
+            concrete, self.analyzed);
+        if (structName == ""
+                || !self.analyzed.structTable.has(structName)) {
+            return null;
+        }
+        Node declaration = self.analyzed.structTable.get(structName);
+        if (declaration.is_forward
+                || index >= declaration.fields.len) {
+            return null;
+        }
+        return declaration.fields.get(index).type;
+    }
+
+    private void collectOperands(
+            Node aggregate, Node? aggregateType,
+            OwnershipOperandEnvironment environment,
+            Vector<AggregateOperandPlan> operands) {
+        int index = 0;
+        while (index < aggregate.elements.len) {
+            Node element = aggregate.elements.get(index);
+            Node? contextualType = self.contextualElementType(
+                aggregateType, index, environment);
+            Node? elementType = self.operandPlanner.expressionType(
+                element, environment);
+            if (elementType == null) {
+                elementType = contextualType;
+            }
+            bool nested = (element.kind == NK_BRACE_INITIALIZER
+                    || element.kind == NK_TUPLE_LITERAL
+                    || element.kind == NK_LIST_LITERAL)
+                && self.valueAggregate(elementType, environment);
+            if (nested) {
+                self.collectOperands(
+                    element, elementType, environment, operands);
+            } else {
+                operands.push(AggregateOperandPlan(
+                    element, contextualType));
+            }
+            index = index + 1;
+        }
+    }
+
+    private bool valueAggregate(
+            Node? typeExpr,
+            OwnershipOperandEnvironment environment) {
+        if (typeExpr == null) { return false; }
+        Node resolved = self.operandPlanner.resolveType(typeExpr, environment);
+        if (resolved.pointer_depth > 0) { return false; }
+        if (resolved.is_array || resolved.base == "Tuple") {
+            return true;
+        }
+        string structName = StorageValidator.structTypeName(
+            resolved, self.analyzed);
+        return structName != ""
+            && self.analyzed.structTable.has(structName);
+    }
+}

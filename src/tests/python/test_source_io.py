@@ -7,15 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.cache_io import AtomicFileStore
-from src.compiler.python.cli import file_io
-from src.compiler.python.cli.file_io import CompilerFileIO
-from src.compiler.python.frontend.source_io import SourceFileReader, SourceReadError
+import src.compiler.python.cli.compiler as file_io
+from src.compiler.python.cli.compiler import CompilerFileIO
+from src.compiler.python.frontend.sources import SourceFileReader, SourceReadError
 
 
 def test_source_and_cli_io_behavior_is_instance_owned():
     compiler_root = Path(__file__).resolve().parents[2] / "compiler/python"
-    for relative_path in ("frontend/source_io.py", "cli/file_io.py"):
+    for relative_path in ("frontend/sources.py", "cli/compiler.py"):
         module = ast.parse((compiler_root / relative_path).read_text())
         loose_behavior = [
             node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -67,10 +66,10 @@ def test_write_if_missing_publishes_complete_content_without_temp_files(tmp_path
 def test_write_if_missing_fsyncs_parent_after_temp_cleanup(tmp_path, monkeypatch):
     path = tmp_path / "btrc_rt.h"
     observed = []
-    file_store = AtomicFileStore()
-    monkeypatch.setattr(file_store, "sync_parent", lambda target: observed.append(target))
+    compiler_io = CompilerFileIO()
+    monkeypatch.setattr(compiler_io, "_sync_parent", lambda target: observed.append(target))
 
-    assert CompilerFileIO(file_store=file_store).write_output_if_missing(
+    assert compiler_io.write_output_if_missing(
         str(path),
         "generated",
     )
@@ -110,10 +109,10 @@ def test_atomic_output_uses_normal_umask_permissions(tmp_path):
 def test_atomic_output_fsyncs_parent_after_replacement(tmp_path, monkeypatch):
     output = tmp_path / "program.c"
     observed = []
-    file_store = AtomicFileStore()
-    monkeypatch.setattr(file_store, "sync_parent", lambda target: observed.append(target))
+    compiler_io = CompilerFileIO()
+    monkeypatch.setattr(compiler_io, "_sync_parent", lambda target: observed.append(target))
 
-    CompilerFileIO(file_store=file_store).write_output(str(output), "generated")
+    compiler_io.write_output(str(output), "generated")
 
     assert observed == [str(output)]
 

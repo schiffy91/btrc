@@ -4,24 +4,20 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.helpers.process import PROCESS
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 ROOT = Path(__file__).resolve().parents[3]
 PROCESS_STDLIB = ROOT / "src" / "stdlib" / "process.btrc"
-SELFHOST_CLOSE = ROOT / "src" / "compiler" / "btrc" / "process_runtime_close.btrc"
-SELFHOST_HELPERS = ROOT / "src" / "compiler" / "btrc" / "process_runtime_helpers.btrc"
+PROCESS = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("process")}
 
 
-def test_standard_descriptor_remap_is_shared_by_both_frontends() -> None:
+def test_standard_descriptor_remap_is_shared_by_the_stdlib_and_runtime_spec() -> None:
     name = "__btrc_move_descriptor_outside_stdio"
     source = PROCESS_STDLIB.read_text()
-    mirror = SELFHOST_CLOSE.read_text()
-    routing = SELFHOST_HELPERS.read_text()
 
     assert name in PROCESS
     assert name in source
-    assert name in mirror
-    assert name in routing
+    assert name in PROCESS[name].c_source
     remap = source.split("class int moveOutsideStandardStreams", 1)[1]
     remap = remap.split("class int childSourceOutsideStandardStreams", 1)[0]
     assert "int* descriptor" in remap
@@ -31,21 +27,15 @@ def test_standard_descriptor_remap_is_shared_by_both_frontends() -> None:
     assert "&nullDescriptor" in source
 
 
-def test_multi_descriptor_close_is_shared_by_both_frontends() -> None:
+def test_multi_descriptor_close_is_shared_by_the_stdlib_and_runtime_spec() -> None:
     name = "__btrc_close_descriptors_except_many"
     source = PROCESS_STDLIB.read_text()
-    mirror = SELFHOST_CLOSE.read_text()
-    routing = SELFHOST_HELPERS.read_text()
 
     assert name in PROCESS
     assert name in source
-    assert name in mirror
-    assert name in routing
     helper = PROCESS[name].c_source
     assert "const int* preserved" in helper
-    assert helper.index("descriptor <= previous") < helper.index(
-        "__btrc_close_descriptor_range("
-    )
+    assert helper.index("descriptor <= previous") < helper.index("__btrc_close_descriptor_range(")
 
 
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])

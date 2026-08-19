@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.ast_nodes import (
+from src.compiler.python.syntax.ast.generated import (
     BinaryExpr,
     CastExpr,
     Identifier,
@@ -11,7 +11,7 @@ from src.compiler.python.ast_nodes import (
     SizeofExpr,
     UnaryExpr,
 )
-from src.compiler.python.lexer import Lexer, LexerError
+from src.compiler.python.lexer.lexer import Lexer, LexerError
 from src.compiler.python.parser.parser import Parser
 
 

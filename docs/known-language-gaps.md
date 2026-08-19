@@ -9,11 +9,11 @@ gap ID.
 
 | # | Feature | Symptom | Where |
 |---|---------|---------|-------|
-| — | Generic class inheritance | A generic class cannot extend another class, and inherited generic properties are not lowered. Both analyzers reject these declarations before code generation. | `python/analyzer/hierarchy.py`, `btrc/semantic_validation_interfaces.btrc`, `btrc/semantic_validation_storage.btrc` |
-| — | Static storage on generic classes | Static fields and properties do not yet have a per-definition versus per-specialization storage model. Both backends reject them explicitly. | `python/analyzer/storage_contracts.py`, `btrc/semantic_validation_storage.btrc` |
-| — | Static methods on generic classes | A class-qualified static method call or method value has no specialization target for the class type parameters. Both analyzers reject the declaration instead of emitting an ambiguous unspecialized symbol. | `python/analyzer/declaration_contracts.py`, `btrc/semantic_validation_storage.btrc` |
-| — | Lambda expressions inside generic declarations | Generic-body lowering does not yet lift lambda declarations and their capture environments for each specialization. Inline lambdas passed to an ordinary generic method are supported; a lambda declared inside a generic class or method body is rejected. | `python/analyzer/expressions.py`, `btrc/semantic_validation_expr_children.btrc` |
-| — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/semantic_validation_expr_children.btrc` |
+| — | Generic class inheritance | A generic class cannot extend another class, and inherited generic properties are not lowered. Both analyzers reject these declarations before code generation. | `python/analyzer/declarations.py`, `btrc/analyzer/validation/declarations.btrc`, `btrc/analyzer/validation/storage.btrc` |
+| — | Static storage on generic classes | Static fields and properties do not yet have a per-definition versus per-specialization storage model. Both backends reject them explicitly. | `python/analyzer/storage.py`, `btrc/analyzer/validation/storage.btrc` |
+| — | Static methods on generic classes | A class-qualified static method call or method value has no specialization target for the class type parameters. Both analyzers reject the declaration instead of emitting an ambiguous unspecialized symbol. | `python/analyzer/declarations.py`, `btrc/analyzer/validation/storage.btrc` |
+| — | Lambda expressions inside generic declarations | Generic-body lowering does not yet lift lambda declarations and their capture environments for each specialization. Inline lambdas passed to an ordinary generic method are supported; a lambda declared inside a generic class or method body is rejected. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/expressions.btrc` |
+| — | `spawn` expressions inside generic declarations | Generic-body lowering does not yet specialize the thread entry and capture boundary. Both analyzers reject the expression before code generation. | `python/analyzer/expressions.py`, `btrc/analyzer/validation/expressions.btrc` |
 
 ## Intentional syntax limits
 

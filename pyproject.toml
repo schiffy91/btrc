@@ -17,7 +17,7 @@ dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.1.0"]
 
 [project.scripts]
 btrcpy = "src.compiler.python.main:main"
-btrc-lsp = "src.devex.lsp.server:main"
+btrc-lsp = "src.devex.lsp.__main__:main"
 
 # The project intentionally imports through the repository-level `src`
 # namespace (for example, `src.compiler.python.main`).  Setuptools' implicit
@@ -29,10 +29,7 @@ where = ["."]
 include = ["src*"]
 exclude = [
     "src.tests*",
-    "src.compiler.python.tests*",
-    "src.devex.debug.tests*",
-    "src.devex.ext*",
-    "src.devex.lsp.tests*",
+    "src.devex.vscode*",
 ]
 namespaces = true
 
@@ -50,17 +47,12 @@ namespaces = true
     "*.m",
     "*.md",
     "*.sh",
+    "*.toml",
     "*.txt",
 ]
 
-# These names are explicitly local scratch inputs (and are gitignored).  Data
-# file discovery otherwise admits them merely because they end in `.btrc`,
-# making a wheel depend on whichever debug files happen to exist locally.
-[tool.setuptools.exclude-package-data]
-"src.compiler.btrc" = ["fe_debug*.btrc"]
-
 [tool.pytest.ini_options]
-testpaths = ["src/tests", "src/devex/lsp/tests", "src/devex/debug/tests"]
+testpaths = ["src/tests"]
 pythonpath = ["."]
 # Test directories are namespace-package-free by design, so prepend mode would
 # import duplicate basenames as the same top-level module. Importlib mode gives
@@ -78,8 +70,10 @@ extend-exclude = [
     # Generated verbatim from the ASDL and stdlib specifications. Keeping the
     # checked-in files byte-identical to their generators is more important
     # than applying a second, non-authoritative formatting pass.
-    "src/compiler/python/ast_nodes.py",
-    "src/devex/lsp/builtins.py",
+    "src/compiler/python/syntax/ast/generated.py",
+    "src/compiler/python/runtime/generated.py",
+    "src/compiler/btrc/generated/runtime/catalog.btrc",
+    "src/devex/lsp/catalog/generated.py",
 ]
 
 [tool.ruff.lint]

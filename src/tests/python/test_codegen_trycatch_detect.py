@@ -1,5 +1,5 @@
-"""Drives the generator's try/catch-detection walk (_block_uses_trycatch /
-_stmt_uses_trycatch) through every branch. The walk short-circuits on the first
+"""Drives TranslationUnitLowerer.uses_trycatch through every branch.
+The walk short-circuits on the first
 try/catch, so each branch is isolated in its own function with the try/catch
 reachable only via that one control-structure path."""
 

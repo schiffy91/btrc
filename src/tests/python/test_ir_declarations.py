@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir import nodes as ir_nodes
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+import src.compiler.python.ir.nodes as ir_nodes
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.types import CodegenError
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -34,7 +34,9 @@ from src.compiler.python.ir.nodes import (
     IRTypedefDef,
     IRVarDecl,
 )
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.ir.verifier import IRVerifier
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -72,8 +74,9 @@ def test_ir_schema_has_no_raw_c_escape_nodes():
     ),
 )
 def test_ir_declaration_lists_reject_raw_strings(field_name: str):
+    module = IRModule(**{field_name: ["int untyped;"]})
     with pytest.raises(TypeError, match=rf"IRModule\.{field_name} requires"):
-        IRModule(**{field_name: ["int untyped;"]})
+        IRVerifier(module).validate()
 
     module = IRModule()
     getattr(module, field_name).append("int untyped;")
@@ -186,6 +189,7 @@ def test_aggregate_fields_and_typedefs_keep_volatile_ir_metadata():
     assert source_fields
     assert all(field.is_volatile for field in source_fields)
 
+    IROptimizer.refresh_type_declarations(module)
     emitted = CEmitter().emit(module)
     assert "typedef volatile int VolatileInt;" in emitted
     assert "typedef int* volatile VolatilePointer;" in emitted
@@ -241,6 +245,7 @@ def test_source_macros_lower_to_typed_shapes():
         ),
         IRMacroDef(name="EMPTY", params=[]),
     ]
+    IROptimizer.refresh_type_declarations(module)
     emitted = CEmitter().emit(module)
     assert emitted.index("#define _DEFAULT_SOURCE") < emitted.index("#include <stdio.h>")
     assert emitted.index("#include <stdio.h>") < emitted.index("#define MAXN 10")
@@ -349,11 +354,9 @@ def test_freestanding_system_include_replacement_keeps_source_position():
         ],
     )
 
-    from src.compiler.python.ir.runtime_dependencies import (
-        RuntimeDependencyMaterializer,
-    )
+    from src.compiler.python.ir.optimizer import IROptimizer
 
-    RuntimeDependencyMaterializer(module).refresh()
+    IROptimizer.materialize_runtime_dependencies(module)
     emitted = CEmitter().emit(module)
     assert emitted.index("#define CONFIG_VALUE 37") < emitted.index('#include "btrc_rt.h"')
     assert emitted.index('#include "btrc_rt.h"') < emitted.index('#include "local_contract.h"')
@@ -386,6 +389,7 @@ def test_typed_typedef_and_tagged_union_precede_function_prototypes():
         ],
     )
 
+    IROptimizer.refresh_type_declarations(module)
     emitted = CEmitter().emit(module)
     assert "typedef int Score;" in emitted
     assert "typedef struct Payload_Number_Data" in emitted
@@ -425,6 +429,7 @@ def test_callback_type_aliases_precede_source_aliases_and_payload_fields():
         ],
     )
 
+    IROptimizer.refresh_type_declarations(module)
     emitted = CEmitter().emit(module)
     callback = emitted.index("typedef int (*Callback)(int);")
     assert callback < emitted.index("typedef Callback Handler;")
@@ -475,6 +480,7 @@ def test_typed_declaration_order_is_strict_c11(
             )
         ],
     )
+    IROptimizer.refresh_type_declarations(module)
     source = tmp_path / "typed_declarations.c"
     source.write_text(CEmitter().emit(module))
 

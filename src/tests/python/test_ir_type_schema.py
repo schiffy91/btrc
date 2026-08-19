@@ -1,28 +1,58 @@
 """Resolved-type and symbolic-expression contracts for structured IR."""
 
+import ast
 from dataclasses import FrozenInstanceError
+from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.cycle_symbols import cycle_visitor_symbol
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.analyzer.generated_symbols import GeneratedSymbolRegistry
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
     IRCall,
     IRCast,
+    IRCommaExpr,
     IRFieldAccess,
     IRLiteral,
     IRModule,
+    IRNode,
     IRSizeof,
     IRVar,
+    IRVarDecl,
 )
-from src.compiler.python.ir.optimizer_walk import IRTree
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.ir.verifier import IRVerifier
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+
+IR_ROOT = Path(__file__).parents[2] / "compiler/python/ir"
+
+
+def _self_attribute_chain(node: ast.AST) -> tuple[str, ...]:
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name) and node.id == "self":
+        return tuple(reversed(parts))
+    return ()
+
+
+def test_ir_domain_owners_do_not_reach_through_module_private_state() -> None:
+    reachthrough: list[str] = []
+    for path in sorted(IR_ROOT.glob("*.py")):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute) or not node.attr.startswith("_"):
+                continue
+            chain = _self_attribute_chain(node.value)
+            if chain:
+                reachthrough.append(f"{path.name}:{node.lineno}:self.{'.'.join((*chain, node.attr))}")
+    assert reachthrough == []
 
 
 def _analyze(source: str):
@@ -103,7 +133,7 @@ def test_module_rejects_raw_top_level_declarations(field_name: str):
     setattr(module, field_name, ["raw C"])
 
     with pytest.raises(TypeError, match=field_name):
-        module.validate_declarations()
+        IRVerifier(module).validate()
 
 
 def test_generic_registry_uses_lexical_identity_not_parameter_spelling():
@@ -144,7 +174,7 @@ def test_generic_allocation_uses_structured_sizeof_type_operands():
         int main() { Crate<int> crate = Crate(1); return 0; }
     """)
     constructor = next(function for function in module.function_defs if function.name == "btrc_Crate_int_new")
-    nodes = list(IRTree(constructor))
+    nodes = list(IRNode.walk_value(constructor))
     size_operands = [node.operand for node in nodes if isinstance(node, IRSizeof)]
 
     assert size_operands == [CType(text="btrc_Crate_int")]
@@ -157,7 +187,7 @@ def test_enum_constants_and_tags_are_symbol_references_not_literals():
         enum class Payload { Number(int value), Empty }
         int main() { Color color = RED; return color == GREEN ? 0 : 1; }
     """)
-    nodes = list(IRTree(module))
+    nodes = list(IRNode.walk_value(module))
     symbols = {node.name for node in nodes if isinstance(node, IRVar)}
     symbolic_names = {
         "Color_RED",
@@ -175,8 +205,8 @@ def test_cycle_visitor_calls_its_function_pointer_as_an_expression():
         class Node { public Node next; }
         int main() { return 0; }
     """)
-    visitor = next(function for function in module.function_defs if function.name == cycle_visitor_symbol("Node"))
-    calls = [node for node in IRTree(visitor) if isinstance(node, IRCall)]
+    visitor = next(function for function in module.function_defs if function.name == GeneratedSymbolRegistry.cycle_visitor_symbol("Node"))
+    calls = [node for node in IRNode.walk_value(visitor) if isinstance(node, IRCall)]
 
     assert len(calls) == 1
     assert calls[0].callee == IRVar(name="fn")
@@ -199,20 +229,53 @@ def test_complex_function_pointer_member_calls_preserve_receiver_structure():
     ):
         materialized = next(
             node
-            for node in IRTree(functions[function_name])
+            for node in IRNode.walk_value(functions[function_name])
             if isinstance(node, IRBinOp) and isinstance(node.right, IRFieldAccess)
         )
         assert isinstance(materialized.left, IRVar)
-        assert materialized.left.name.startswith("__btrc_callable_")
         assert materialized.right.arrow is arrow
         assert materialized.right.field == "apply"
         assert materialized.right.obj == IRCall(callee=factory_name, args=[])
+        declarations = {
+            node.name: node
+            for node in IRNode.walk_value(functions[function_name])
+            if isinstance(node, IRVarDecl)
+        }
+        assert declarations[materialized.left.name].c_type == CType("__btrc_fn_int_int")
+
+        factory_calls = [
+            node
+            for node in IRNode.walk_value(functions[function_name])
+            if isinstance(node, IRCall) and node.callee == factory_name
+        ]
+        assert factory_calls == [materialized.right.obj]
         member_call = next(
             node
-            for node in IRTree(functions[function_name])
+            for node in IRNode.walk_value(functions[function_name])
             if isinstance(node, IRCall) and node.callee == materialized.left
         )
-        assert member_call.args == [IRLiteral(text="1")]
+        assert len(member_call.args) == 1
+        argument = member_call.args[0]
+        assert isinstance(argument, IRVar)
+        assert declarations[argument.name].c_type == CType("int")
+
+        argument_materialized = next(
+            node
+            for node in IRNode.walk_value(functions[function_name])
+            if isinstance(node, IRBinOp) and node.left == argument and node.right == IRLiteral(text="1")
+        )
+        invocation = next(
+            node
+            for node in IRNode.walk_value(functions[function_name])
+            if isinstance(node, IRBinOp) and node.right is member_call
+        )
+        sequence = next(
+            node
+            for node in IRNode.walk_value(functions[function_name])
+            if isinstance(node, IRCommaExpr) and materialized in node.expressions and invocation in node.expressions
+        )
+        assert sequence.expressions.index(materialized) < sequence.expressions.index(argument_materialized)
+        assert sequence.expressions.index(argument_materialized) < sequence.expressions.index(invocation)
 
 
 def test_unresolved_generic_constructor_never_guesses_a_registered_instance():

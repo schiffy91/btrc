@@ -14,29 +14,36 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.compiler.python import stdlib_archive as sa
-from src.compiler.python.artifacts.publication.publisher import ArtifactPublisher
-from src.compiler.python.artifacts.publication.storage import ArtifactStorage
-from src.compiler.python.artifacts.stdlib.publisher import StdlibArchivePublisher
-from src.compiler.python.cli.compiler_cli import CompilerCLI
-from src.compiler.python.cli_archive import StdlibArchiveBuilder
-from src.compiler.python.frontend.stdlib import StdlibRepository
+import src.compiler.python.application.pipeline as application_pipeline
+import src.compiler.python.artifacts.stdlib as sa
+from src.compiler.python.application.compiler import Compiler
+from src.compiler.python.application.pipeline import CompilationPipeline, StdlibArchiveError
+from src.compiler.python.artifacts.publication import ArtifactPublisher, ArtifactStorage
+from src.compiler.python.artifacts.stdlib import StdlibArchivePublisher
+from src.compiler.python.cli.compiler import CompilerCommand
+from src.compiler.python.frontend.sources import StdlibRepository
 
 
 def _archive_publisher() -> StdlibArchivePublisher:
     return StdlibArchivePublisher(ArtifactPublisher(ArtifactStorage()))
 
 
+def _archive_adapter():
+    repository = sa.StdlibArtifactRepository(_archive_publisher())
+    return CompilationPipeline(archive_repository=repository).stdlib_archive
+
+
+def _archive_compiler() -> Compiler:
+    repository = sa.StdlibArtifactRepository(_archive_publisher())
+    return Compiler(CompilationPipeline(archive_repository=repository))
+
+
 def run_main(monkeypatch, argv):
-    CompilerCLI().run(argv)
+    CompilerCommand(_archive_compiler()).run(argv)
 
 
 def test_archive_build_workflow_is_instance_owned():
-    import src.compiler.python.cli_archive as cli_archive
-    import src.compiler.python.stdlib_archive_validation as archive_validation
-    import src.compiler.python.stdlib_shared_state as shared_state
-
-    for owner_module in (cli_archive, sa, archive_validation, shared_state):
+    for owner_module in (application_pipeline, sa):
         module = ast.parse(Path(owner_module.__file__).read_text())
         loose_behavior = [
             node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -44,7 +51,8 @@ def test_archive_build_workflow_is_instance_owned():
         assert loose_behavior == []
 
     assert not Path(sa.__file__).with_name("stdlib_archive_helpers.py").exists()
-    assert callable(StdlibArchiveBuilder().build)
+    assert _archive_compiler().stdlib_archive_available
+    assert callable(_archive_compiler().build_stdlib_archive)
 
 
 # A program that crosses the archive boundary in the ways that matter: temp
@@ -103,7 +111,7 @@ int main() {
 
 def test_externize_toplevel_strips_only_leading_static():
     src = "static int g = 0;\nstatic inline int f(void) {\n    static int local = 1;\n    return local;\n}"
-    out = sa.StdlibArchive(_archive_publisher()).shared_state.externize_toplevel(src)
+    out = _archive_adapter().externize_toplevel(src)
     assert out.startswith("int g = 0;")
     assert "\nint f(void) {" in out
     # An indented `static` inside the body must be preserved.
@@ -156,8 +164,15 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
             )
         ],
     )
-    archive = sa.StdlibArchive(_archive_publisher())
-    manifest = archive.create_manifest(archive_module, [], "stdlib source")
+    archive = _archive_adapter()
+    metadata = archive.metadata(archive_module, [])
+    manifest = {
+        **metadata,
+        "artifacts": {sa.HEADER_NAME: "0" * 64, sa.IMPL_NAME: "0" * 64},
+        "schema": sa.MANIFEST_SCHEMA,
+        "stdlib_source": "0" * 64,
+        "toolchain": "test",
+    }
     assert manifest["schema"] == sa.MANIFEST_SCHEMA == 5
     assert set(manifest["artifacts"]) == {sa.HEADER_NAME, sa.IMPL_NAME}
 
@@ -236,7 +251,7 @@ def test_archive_manifest_roundtrip_preserves_typed_declarations():
 
 
 def test_archive_header_excludes_private_ir_function_declarations():
-    from src.compiler.python.ir.emitter import CEmitter
+    from src.compiler.python.backend.c_emitter import CEmitter
     from src.compiler.python.ir.nodes import (
         CType,
         IRFunctionDecl,
@@ -282,11 +297,11 @@ def test_archive_override_check_distinguishes_imports_from_user_code(tmp_path):
         name="CliArgs",
         source_file=str(Path(sa.__file__).parents[2] / "stdlib" / "cli.btrc"),
     )
-    archive = sa.StdlibArchive(_archive_publisher())
+    archive = _archive_adapter()
     archive.reject_user_overrides(SimpleNamespace(declarations=[stdlib_decl]), manifest)
 
     user_decl = SimpleNamespace(name="CliArgs", source_file=str(tmp_path / "program.btrc"))
-    with pytest.raises(sa.ArchiveVersionError, match=r"overrides.*CliArgs"):
+    with pytest.raises(StdlibArchiveError, match=r"overrides.*CliArgs"):
         archive.reject_user_overrides(SimpleNamespace(declarations=[user_decl]), manifest)
 
 
@@ -301,7 +316,7 @@ def test_build_stdlib_writes_archive(tmp_path, monkeypatch, capsys):
     assert "Built stdlib archive" in capsys.readouterr().out
     for name in (sa.HEADER_NAME, sa.IMPL_NAME, sa.MANIFEST_NAME):
         assert (out / name).exists(), name
-    manifest = sa.StdlibArchive(_archive_publisher()).load(str(out), StdlibRepository().source(""))
+    manifest = sa.StdlibArtifactRepository(_archive_publisher()).load(str(out), StdlibRepository().source(""))
     # The archive must provide a substantial, real interface.
     assert len(manifest["functions"]) > 100
     assert {macro["name"] for macro in manifest["macros"]} >= {

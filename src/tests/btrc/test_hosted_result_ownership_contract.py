@@ -5,30 +5,16 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
-from src.compiler.python.ast_nodes import CallExpr, Identifier, TypeExpr
-from src.compiler.python.frontend.resolver import SourceResolver
-from src.compiler.python.frontend.stdlib import StdlibRepository
-from src.compiler.python.hosted_abi import HOSTED_FUNCTIONS
-from src.compiler.python.hosted_abi_model import (
-    CHAR_PTR,
-    DEALLOC_FREE,
-    RETURN_FRESH,
-    function,
-)
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.hosted_result_conversion import (
-    ADOPT,
-    REJECT,
-    hosted_string_conversion_mode,
-)
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.frontend.sources import StdlibRepository
+from src.compiler.python.frontend.stage import FrontendStage
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.pipeline.models import CompilerOptions
-from src.compiler.python.pipeline.pipeline import CompilerPipeline
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair, run_strict_pair
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
@@ -123,8 +109,8 @@ def _compile_hosted_shadow_pair(
     assert selfhost.returncode == 0, selfhost.stderr
     selfhost_c.write_text(selfhost.stdout)
 
-    pipeline = CompilerPipeline(
-        resolver=SourceResolver(
+    pipeline = CompilationPipeline(
+        frontend=FrontendStage(
             StdlibRepository(directory=str(stdlib)),
         )
     )
@@ -154,37 +140,6 @@ def _compile_hosted_shadow_pair(
         )
     )
     return ("selfhost", selfhost_c), ("reference", reference_c)
-
-
-def test_fresh_raw_string_adoption_requires_free_deallocator(monkeypatch) -> None:
-    call = CallExpr(callee=Identifier(name="test_fresh_string"), args=[])
-    analyzed = SimpleNamespace(
-        hosted_call_ids={id(call)},
-        typedef_table={},
-    )
-    generator = SimpleNamespace(analyzed=analyzed)
-    target = TypeExpr(base="string")
-    source = TypeExpr(base="char", pointer_depth=1)
-    monkeypatch.setitem(
-        HOSTED_FUNCTIONS,
-        "test_fresh_string",
-        function(
-            CHAR_PTR,
-            return_effect=RETURN_FRESH,
-            return_deallocator="custom_release",
-        ),
-    )
-    assert hosted_string_conversion_mode(generator, call, target, source) == REJECT
-    monkeypatch.setitem(
-        HOSTED_FUNCTIONS,
-        "test_fresh_string",
-        function(
-            CHAR_PTR,
-            return_effect=RETURN_FRESH,
-            return_deallocator=DEALLOC_FREE,
-        ),
-    )
-    assert hosted_string_conversion_mode(generator, call, target, source) == ADOPT
 
 
 def test_non_free_managed_helper_raw_result_is_rejected_by_both_analyzers(

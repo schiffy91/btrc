@@ -11,10 +11,13 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.btrcc_bundle_validation_archive as archive_validation_module
-from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
-from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
-from src.compiler.python.btrcc_bundle_archive import write_checksum
+import src.compiler.python.artifacts.archive as archive_validation_module
+from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
+from src.compiler.python.artifacts.selfhost import SelfhostBundleValidator
+from src.compiler.python.artifacts.archive import ArchiveCodec
+
+ARCHIVE_CODEC = ArchiveCodec()
+write_checksum = ARCHIVE_CODEC.write_checksum
 from src.tests.python.test_btrcc_bundle import _fixture
 
 
@@ -22,7 +25,7 @@ def test_bundle_archive_validation_behavior_has_one_explicit_owner() -> None:
     module = ast.parse(Path(archive_validation_module.__file__).read_text())
     loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
     owner = next(
-        node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "BundleArchiveValidator"
+        node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "ArchiveValidator"
     )
     operations = {node.name for node in owner.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
@@ -39,7 +42,7 @@ def test_bundle_archive_validation_behavior_has_one_explicit_owner() -> None:
 
 def _bundle(tmp_path: Path, target: str):
     source_root, binary = _fixture(tmp_path / "source", target)
-    return BundleBuilder().build(
+    return SelfhostBundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=tmp_path / "dist",
@@ -48,7 +51,7 @@ def _bundle(tmp_path: Path, target: str):
 
 
 def _validate(result) -> None:
-    BundleValidator().validate_generation(
+    SelfhostBundleValidator().validate_generation(
         result.bundle,
         result.archive,
         result.checksum,

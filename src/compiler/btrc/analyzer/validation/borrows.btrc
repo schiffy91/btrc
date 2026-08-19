@@ -1,0 +1,932 @@
+/* Opaque borrow effects and raw projection-carrier contracts. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../../generated/ast/node.btrc;
+import ../../syntax/identity.btrc;
+import ../expressions.btrc;
+import ../hosted_abi.btrc;
+import ../models.btrc;
+import ../types.btrc;
+import ./ownership.btrc;
+import ./storage.btrc;
+import ./types.btrc;
+
+class BorrowValidator {
+    private SemanticValidationState state;
+    private HostedAbiRepository hostedAbi;
+    private TypeValidator types;
+    private StorageValidator storage;
+    private OwnershipValidator ownership;
+
+    public BorrowValidator(
+            SemanticValidationState state,
+            HostedAbiRepository hostedAbi,
+            TypeValidator types,
+            StorageValidator storage,
+            OwnershipValidator ownership) {
+        self.state = state;
+        self.hostedAbi = hostedAbi;
+        self.types = types;
+        self.storage = storage;
+        self.ownership = ownership;
+    }
+
+    private int parameterIndex(Vector<Node> parameters, string name) {
+        int index = 0;
+        while (index < parameters.len) {
+            if (parameters.get(index).name == name) { return index; }
+            index = index + 1;
+        }
+        return -1;
+    }
+
+    public Node? hostedReturnAliasArgument(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null || expression.kind != NK_CALL_EXPR
+                || expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER) { return null; }
+        string name = expression.callee.name;
+        if (!self.ownership.hostedCallUsesOwnedSymbol(name,  vars)) { return null; }
+        int parameter = self.hostedAbi.returnAliasParameter(name);
+        if (parameter < 0 || parameter >= expression.args.len) { return null; }
+        return expression.args.get(parameter);
+    }
+
+    public bool opaqueManagedType(Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null || canonical.is_array) { return false; }
+        Node typeValue = canonical;
+        if (self.ownership.managedOwnershipType(typeValue)) { return true; }
+        if (self.state.typeParams.has(typeValue.base)
+                && (typeValue.pointer_depth == 0
+                    || (typeValue.is_nullable
+                        && typeValue.pointer_depth == 1))) { return true; }
+        if (typeValue.pointer_depth != 0) { return false; }
+        return typeValue.base == "Thread" || typeValue.base == "Vector"
+            || typeValue.base == "List" || typeValue.base == "Map"
+            || typeValue.base == "Set" || typeValue.base == "Array";
+    }
+
+    public bool opaqueRawCarrierType(Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null
+                || self.opaqueManagedType(canonical)) { return false; }
+        Node typeValue = canonical;
+        if (typeValue.pointer_depth > 0) { return true; }
+        return typeValue.base != "bool"
+            && NumericSemantics.isType(typeValue, self.state.analyzed);
+    }
+
+    public bool opaqueProjectionCarrierType(Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        return canonical != null && (canonical.is_array
+            || canonical.pointer_depth > 0
+            || canonical.base == "intptr_t" || canonical.base == "uintptr_t");
+    }
+
+    public bool hasTemporaryProjectionStorage(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        if (self.storage.hasTemporaryManagedOwner(expression,  vars)) {
+            return true;
+        }
+        Node? resultType = self.types.resolveAliases(
+            self.types.inferType(expression,  vars));
+        string structName = "";
+        if (resultType != null) {
+            structName = resultType.base;
+            if (structName.startsWith("struct ")) {
+                structName = structName.substring(
+                    7, structName.length() - 7);
+            }
+        }
+        bool temporaryStruct = resultType != null
+            && resultType.pointer_depth == 0 && !resultType.is_array
+            && self.state.analyzed.structTable.has(structName);
+        if (expression.kind == NK_CALL_EXPR
+                || expression.kind == NK_BRACE_INITIALIZER) {
+            return temporaryStruct;
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.hasTemporaryProjectionStorage(
+                expression.expr,  vars);
+        }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR
+                || expression.kind == NK_INDEX_EXPR) {
+            return self.hasTemporaryProjectionStorage(
+                expression.obj,  vars);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.hasTemporaryProjectionStorage(
+                    expression.true_expr,  vars)
+                || self.hasTemporaryProjectionStorage(
+                    expression.false_expr,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+            return self.hasTemporaryProjectionStorage(
+                    expression.left,  vars)
+                || self.hasTemporaryProjectionStorage(
+                    expression.right,  vars);
+        }
+        return expression.kind == NK_NEW_EXPR && temporaryStruct;
+    }
+
+    public Node? opaqueManagedOrigin(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return null; }
+        if (expression.kind == NK_STRING_LITERAL) { return null; }
+        Node? direct = self.types.inferType(expression,  vars);
+        if (self.opaqueManagedType(direct)) { return direct; }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.opaqueManagedOrigin(expression.expr,  vars);
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            if (expression.op == "*") {
+                if (self.opaqueProjectionCarrierType(
+                        self.types.inferType(expression,  vars))
+                        && self.expressionCarriesOpaqueBorrow(
+                            expression.operand,  vars)) {
+                    return self.opaqueManagedOrigin(
+                        expression.operand,  vars);
+                }
+                return null;
+            }
+            return self.opaqueManagedOrigin(expression.operand,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            if (self.opaqueNonCarryingBinary(expression.op)) { return null; }
+            Node? left = self.opaqueManagedOrigin(
+                expression.left,  vars);
+            if (left != null) { return left; }
+            return self.opaqueManagedOrigin(expression.right,  vars);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            Node? first = self.opaqueManagedOrigin(
+                expression.true_expr,  vars);
+            if (first != null) { return first; }
+            return self.opaqueManagedOrigin(
+                expression.false_expr,  vars);
+        }
+        if (expression.kind == NK_INDEX_EXPR
+                || expression.kind == NK_FIELD_ACCESS_EXPR) {
+            Node? origin = self.opaqueManagedOrigin(
+                expression.obj,  vars);
+            bool carries = self.expressionCarriesOpaqueBorrow(
+                expression.obj,  vars);
+            bool embedded = self.storage.arrayProjectionEmbedsBacking(
+                expression, vars);
+            if (self.opaqueProjectionCarrierType(
+                    self.types.inferType(expression,  vars))
+                    && (carries || (embedded
+                        && (origin != null
+                            || self.hasTemporaryProjectionStorage(
+                                expression.obj,  vars))))) {
+                return origin;
+            }
+            return null;
+        }
+        Node? aliasArgument = self.hostedReturnAliasArgument(
+            expression,  vars);
+        if (aliasArgument != null) {
+            return self.opaqueManagedOrigin(aliasArgument,  vars);
+        }
+        return null;
+    }
+
+    public bool opaqueNonCarryingBinary(string op) {
+        return op == "==" || op == "!=" || op == "<" || op == "<="
+            || op == ">" || op == ">=" || op == "&&" || op == "||";
+    }
+
+    public bool expressionCarriesOpaqueBorrow(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_CAST_EXPR) {
+            if (!self.opaqueRawCarrierType(
+                    expression.target_type)) { return false; }
+            if (expression.expr.kind == NK_STRING_LITERAL) { return false; }
+            return self.opaqueManagedOrigin(
+                    expression.expr,  vars) != null
+                || self.expressionCarriesOpaqueBorrow(
+                    expression.expr,  vars);
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            if (expression.op == "!") { return false; }
+            if (expression.op == "&") {
+                Node? operand = expression.operand;
+                Node? projectionReceiver = null;
+                if (operand != null
+                        && (operand.kind == NK_FIELD_ACCESS_EXPR
+                            || operand.kind == NK_INDEX_EXPR)) {
+                    projectionReceiver = operand.obj;
+                }
+                return self.opaqueProjectionCarrierType(
+                        self.types.inferType(expression,  vars))
+                    && (self.expressionCarriesOpaqueBorrow(
+                            operand,  vars)
+                        || (projectionReceiver != null
+                            && (self.opaqueManagedOrigin(
+                                    projectionReceiver,  vars) != null
+                                || self.expressionCarriesOpaqueBorrow(
+                                    projectionReceiver,  vars)
+                                || self.hasTemporaryProjectionStorage(
+                                    projectionReceiver,  vars))));
+            }
+            if (expression.op == "*") {
+                return self.opaqueProjectionCarrierType(
+                        self.types.inferType(expression,  vars))
+                    && self.expressionCarriesOpaqueBorrow(
+                        expression.operand,  vars);
+            }
+            return self.expressionCarriesOpaqueBorrow(
+                expression.operand,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            if (self.opaqueNonCarryingBinary(expression.op)) { return false; }
+            Node? leftType = self.types.resolveAliases(
+                self.types.inferType(expression.left,  vars));
+            Node? rightType = self.types.resolveAliases(
+                self.types.inferType(expression.right,  vars));
+            if (expression.op == "-" && leftType != null && rightType != null
+                    && (leftType.pointer_depth > 0 || SemanticTypeSystem.isString(leftType))
+                    && (rightType.pointer_depth > 0 || SemanticTypeSystem.isString(rightType))) {
+                return false;
+            }
+            return self.expressionCarriesOpaqueBorrow(
+                    expression.left,  vars)
+                || self.expressionCarriesOpaqueBorrow(
+                    expression.right,  vars);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.expressionCarriesOpaqueBorrow(
+                    expression.true_expr,  vars)
+                || self.expressionCarriesOpaqueBorrow(
+                    expression.false_expr,  vars);
+        }
+        if (expression.kind == NK_INDEX_EXPR
+                || expression.kind == NK_FIELD_ACCESS_EXPR) {
+            bool embedded = self.storage.arrayProjectionEmbedsBacking(
+                expression, vars);
+            return self.opaqueProjectionCarrierType(
+                    self.types.inferType(expression,  vars))
+                && (self.expressionCarriesOpaqueBorrow(
+                        expression.obj,  vars)
+                    || (embedded
+                        && (self.opaqueManagedOrigin(
+                                expression.obj,  vars) != null
+                            || self.hasTemporaryProjectionStorage(
+                                expression.obj,  vars))));
+        }
+        Node? aliasArgument = self.hostedReturnAliasArgument(
+            expression,  vars);
+        if (aliasArgument != null) {
+            return self.expressionIsOpaqueBorrow(
+                aliasArgument,  vars);
+        }
+        return false;
+    }
+
+    public bool expressionIsOpaqueBorrow(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_STRING_LITERAL) { return false; }
+        return self.opaqueManagedType(
+                self.types.inferType(expression,  vars))
+            || self.expressionCarriesOpaqueBorrow(expression,  vars);
+    }
+
+    public void validateOpaqueBorrowStorage(Node? expected, Node? value,
+            string subject,
+            Map<string, Node> vars) {
+        if (self.state.allowOwnedOpaqueVariable
+                && self.ownership.expressionOwnsResult(value,  vars)) { return; }
+        if (!self.opaqueRawCarrierType(expected)
+                || !self.expressionIsOpaqueBorrow(value,  vars)) {
+            return;
+        }
+        TypeValidator.fail(subject
+            + " cannot persist a managed value as a raw representation; use it "
+            + "only in a non-persisting expression or a proven borrow-only FFI call",
+            value);
+    }
+
+    public string rawBorrowOwner(Node declaration) {
+        string declarationKey = AstIdentity.key(declaration);
+        Vector<string> classes = self.state.analyzed.classTable.keys();
+        int classIndex = 0;
+        while (classIndex < classes.len) {
+            string className = classes.get(classIndex);
+            Node classDeclaration = self.state.analyzed.classTable.get(className);
+            int memberIndex = 0;
+            while (memberIndex < classDeclaration.members.len) {
+                Node member = classDeclaration.members.get(memberIndex);
+                if (member.kind == NK_METHOD_DECL
+                        && AstIdentity.key(member) == declarationKey) {
+                    return className;
+                }
+                memberIndex = memberIndex + 1;
+            }
+            classIndex = classIndex + 1;
+        }
+        return "";
+    }
+
+    public void rawCollectLocalNames(Node? node, Map<string, bool> names) {
+        if (node == null) { return; }
+        if (node.kind == NK_BLOCK) {
+            int index = 0;
+            while (index < node.statements.len) {
+                self.rawCollectLocalNames(node.statements.get(index), names);
+                index = index + 1;
+            }
+            return;
+        }
+        if (node.kind == NK_VAR_DECL_STMT) {
+            names.put(node.name, true);
+        } else if (node.kind == NK_IF_STMT) {
+            self.rawCollectLocalNames(node.then_block, names);
+            self.rawCollectLocalNames(node.else_block, names);
+        } else if (node.kind == NK_ELSE_BLOCK) {
+            self.rawCollectLocalNames(node.body_node, names);
+        } else if (node.kind == NK_ELSE_IF) {
+            self.rawCollectLocalNames(node.if_stmt, names);
+        } else if (node.kind == NK_WHILE_STMT
+                || node.kind == NK_DO_WHILE_STMT
+                || node.kind == NK_C_FOR_STMT
+                || node.kind == NK_FOR_IN_STMT
+                || node.kind == NK_PARALLEL_FOR_STMT) {
+            self.rawCollectLocalNames(node.body_node, names);
+        } else if (node.kind == NK_TRY_CATCH_STMT) {
+            self.rawCollectLocalNames(node.try_block, names);
+            self.rawCollectLocalNames(node.catch_block, names);
+            self.rawCollectLocalNames(node.finally_block, names);
+        }
+    }
+
+    public bool rawExpressionMentionsParam(Node? expression, string name) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_IDENTIFIER) { return expression.name == name; }
+        if (expression.kind == NK_LAMBDA_EXPR) {
+            int parameter = 0;
+            while (parameter < expression.params.len) {
+                if (expression.params.get(parameter).name == name) { return false; }
+                parameter = parameter + 1;
+            }
+            Map<string, bool> used = {};
+            ExpressionTypeResolver.collectIdentifiers(expression.body_node, used);
+            return used.has(name);
+        }
+        if (expression.kind == NK_SPAWN_EXPR) {
+            return self.rawExpressionMentionsParam(expression.fn, name);
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.rawExpressionMentionsParam(expression.expr, name);
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            return self.rawExpressionMentionsParam(expression.operand, name);
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            return self.rawExpressionMentionsParam(expression.left, name)
+                || self.rawExpressionMentionsParam(expression.right, name);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.rawExpressionMentionsParam(expression.condition, name)
+                || self.rawExpressionMentionsParam(expression.true_expr, name)
+                || self.rawExpressionMentionsParam(expression.false_expr, name);
+        }
+        if (expression.kind == NK_ASSIGN_EXPR) {
+            return self.rawExpressionMentionsParam(expression.target, name)
+                || self.rawExpressionMentionsParam(expression.value_node, name);
+        }
+        if (expression.kind == NK_INDEX_EXPR) {
+            return self.rawExpressionMentionsParam(expression.obj, name)
+                || self.rawExpressionMentionsParam(expression.index, name);
+        }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            return self.rawExpressionMentionsParam(expression.obj, name);
+        }
+        if (expression.kind == NK_CALL_EXPR || expression.kind == NK_NEW_EXPR) {
+            int index = 0;
+            while (index < expression.args.len) {
+                if (self.rawExpressionMentionsParam(
+                        expression.args.get(index), name)) { return true; }
+                index = index + 1;
+            }
+            return expression.kind == NK_CALL_EXPR
+                && self.rawExpressionMentionsParam(expression.callee, name);
+        }
+        if (expression.kind == NK_LIST_LITERAL
+                || expression.kind == NK_BRACE_INITIALIZER
+                || expression.kind == NK_TUPLE_LITERAL) {
+            int index = 0;
+            while (index < expression.elements.len) {
+                if (self.rawExpressionMentionsParam(
+                        expression.elements.get(index), name)) { return true; }
+                index = index + 1;
+            }
+        }
+        if (expression.kind == NK_MAP_LITERAL) {
+            int index = 0;
+            while (index < expression.entries.len) {
+                Node entry = expression.entries.get(index);
+                if (self.rawExpressionMentionsParam(entry.key, name)
+                        || self.rawExpressionMentionsParam(
+                            entry.value_node, name)) { return true; }
+                index = index + 1;
+            }
+        }
+        return false;
+    }
+
+    public bool rawExpressionCarriesParam(Node? expression, string name,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_IDENTIFIER) { return expression.name == name; }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.rawExpressionCarriesParam(
+                expression.expr, name,  vars);
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            if (expression.op == "&") {
+                return self.rawExpressionMentionsParam(expression.operand, name);
+            }
+            if (expression.op == "!") { return false; }
+            if (expression.op == "*") {
+                return self.opaqueProjectionCarrierType(
+                        self.types.inferType(expression,  vars))
+                    && self.rawExpressionMentionsParam(
+                        expression.operand, name);
+            }
+            return self.rawExpressionCarriesParam(
+                expression.operand, name,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            if (self.opaqueNonCarryingBinary(expression.op)) { return false; }
+            return self.rawExpressionCarriesParam(
+                    expression.left, name,  vars)
+                || self.rawExpressionCarriesParam(
+                    expression.right, name,  vars);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.rawExpressionCarriesParam(
+                    expression.true_expr, name,  vars)
+                || self.rawExpressionCarriesParam(
+                    expression.false_expr, name,  vars);
+        }
+        if (expression.kind == NK_INDEX_EXPR
+                || expression.kind == NK_FIELD_ACCESS_EXPR) {
+            return self.opaqueProjectionCarrierType(
+                    self.types.inferType(expression,  vars))
+                && self.rawExpressionMentionsParam(expression, name);
+        }
+        if (expression.kind == NK_CALL_EXPR) {
+            if (expression.callee != null
+                    && expression.callee.kind == NK_IDENTIFIER) {
+                if (!self.ownership.hostedCallUsesOwnedSymbol(
+                        expression.callee.name,  vars)) {
+                    return false;
+                }
+                int parameter = self.hostedAbi.returnAliasParameter(
+                    expression.callee.name);
+                return parameter >= 0 && parameter < expression.args.len
+                    && self.rawExpressionCarriesParam(
+                        expression.args.get(parameter), name,  vars);
+            }
+            return false;
+        }
+        if (expression.kind == NK_NEW_EXPR) {
+            int index = 0;
+            while (index < expression.args.len) {
+                if (self.rawExpressionCarriesParam(
+                        expression.args.get(index), name,
+                         vars)) { return true; }
+                index = index + 1;
+            }
+            return false;
+        }
+        if (expression.kind == NK_LIST_LITERAL
+                || expression.kind == NK_BRACE_INITIALIZER
+                || expression.kind == NK_TUPLE_LITERAL) {
+            int index = 0;
+            while (index < expression.elements.len) {
+                if (self.rawExpressionCarriesParam(
+                        expression.elements.get(index), name,
+                         vars)) { return true; }
+                index = index + 1;
+            }
+        }
+        if (expression.kind == NK_MAP_LITERAL) {
+            int index = 0;
+            while (index < expression.entries.len) {
+                Node entry = expression.entries.get(index);
+                if (self.rawExpressionCarriesParam(
+                        entry.key, name,  vars)
+                        || self.rawExpressionCarriesParam(
+                            entry.value_node, name,  vars)) { return true; }
+                index = index + 1;
+            }
+        }
+        return false;
+    }
+
+    public int rawBorrowArgumentParameter(Node declaration, Node call,
+            int argumentIndex) {
+        if (argumentIndex < call.arg_names.len
+                && call.arg_names.get(argumentIndex) != "") {
+            return self.parameterIndex(
+                declaration.params, call.arg_names.get(argumentIndex));
+        }
+        return argumentIndex;
+    }
+
+    public bool rawUnresolvedCallBorrowOnly(Node callee, int argumentIndex) {
+        return callee != null && callee.kind == NK_IDENTIFIER
+            && self.hostedAbi.parameterReadOnlyBorrow(callee.name, argumentIndex);
+    }
+
+    public bool rawParamCallSafe(Node call, string parameterName, string owner,
+            Map<string, bool> locals, Map<string, Node> vars) {
+        Node callee = call.callee;
+        if (self.rawExpressionMentionsParam(callee, parameterName)) {
+            return false;
+        }
+        Node? target = null;
+        bool unresolved = false;
+        if (callee != null && callee.kind == NK_IDENTIFIER) {
+            if (locals.has(callee.name)) { return false; }
+            if (self.ownership.hostedCallUsesOwnedSymbol(
+                    callee.name,  vars)) {
+                unresolved = true;
+            } else if (self.state.analyzed.funcTable.has(callee.name)) {
+                Node concreteTarget = self.state.analyzed.funcTable.get(callee.name);
+                target = concreteTarget;
+                unresolved = concreteTarget.body_node == null;
+            } else {
+                unresolved = true;
+            }
+        } else if (callee != null && callee.kind == NK_FIELD_ACCESS_EXPR
+                && callee.obj != null && callee.obj.kind == NK_SELF_EXPR
+                && owner != "") {
+            target = self.state.analyzed.classMethod(owner, callee.field);
+        }
+        int argumentIndex = 0;
+        while (argumentIndex < call.args.len) {
+            Node argument = call.args.get(argumentIndex);
+            if (self.rawExpressionCarriesParam(
+                    argument, parameterName,  vars)) {
+                if (callee != null && callee.kind == NK_IDENTIFIER
+                        && self.ownership.rawLifetimeCall(call,  vars)
+                        && argumentIndex == 0) { return false; }
+                if (unresolved && !self.rawUnresolvedCallBorrowOnly(
+                        callee, argumentIndex)) { return false; }
+                if (!unresolved) {
+                    if (target == null) { return false; }
+                    int targetIndex = self.rawBorrowArgumentParameter(
+                        target, call, argumentIndex);
+                    if (targetIndex < 0 || !self.rawParameterBorrowOnly(
+                            target, targetIndex)) { return false; }
+                }
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+        return true;
+    }
+
+    public bool rawParamExprSafe(Node? expression, string parameterName,
+            string owner, Map<string, bool> locals,
+            Map<string, Node> vars) {
+        if (expression == null) { return true; }
+        if (expression.kind == NK_ASSIGN_EXPR
+                && (self.rawExpressionMentionsParam(
+                        expression.target, parameterName)
+                    || self.rawExpressionCarriesParam(
+                        expression.value_node, parameterName,
+                         vars))) { return false; }
+        if (expression.kind == NK_UNARY_EXPR
+                && (expression.op == "++" || expression.op == "--")
+                && self.rawExpressionMentionsParam(
+                    expression.operand, parameterName)) { return false; }
+        if (expression.kind == NK_CALL_EXPR
+                && !self.rawParamCallSafe(
+                    expression, parameterName, owner, locals, vars)) {
+            return false;
+        }
+        if ((expression.kind == NK_LIST_LITERAL
+                || expression.kind == NK_BRACE_INITIALIZER
+                || expression.kind == NK_TUPLE_LITERAL
+                || expression.kind == NK_MAP_LITERAL
+                || expression.kind == NK_LAMBDA_EXPR
+                || expression.kind == NK_SPAWN_EXPR
+                || expression.kind == NK_NEW_EXPR)
+                && self.rawExpressionMentionsParam(
+                    expression, parameterName)) { return false; }
+        if (expression.kind == NK_BINARY_EXPR) {
+            return self.rawParamExprSafe(expression.left, parameterName,
+                    owner, locals, vars)
+                && self.rawParamExprSafe(expression.right, parameterName,
+                    owner, locals, vars);
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            return self.rawParamExprSafe(expression.operand, parameterName,
+                owner, locals, vars);
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.rawParamExprSafe(expression.expr, parameterName,
+                owner, locals, vars);
+        }
+        if (expression.kind == NK_CALL_EXPR || expression.kind == NK_NEW_EXPR) {
+            int index = 0;
+            while (index < expression.args.len) {
+                if (!self.rawParamExprSafe(expression.args.get(index),
+                        parameterName, owner, locals,
+                        vars)) { return false; }
+                index = index + 1;
+            }
+        }
+        return true;
+    }
+
+    public bool rawParamStmtSafe(Node statement, string parameterName,
+            string owner, Map<string, bool> locals,
+            Map<string, Node> vars) {
+        if (statement.kind == NK_VAR_DECL_STMT) {
+            if (self.rawExpressionCarriesParam(
+                    statement.initializer, parameterName,
+                     vars)) { return false; }
+            return self.rawParamExprSafe(statement.initializer,
+                parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_RETURN_STMT) {
+            if (self.rawExpressionCarriesParam(
+                    statement.value_node, parameterName,
+                     vars)) { return false; }
+            return self.rawParamExprSafe(statement.value_node,
+                parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_EXPR_STMT) {
+            return self.rawParamExprSafe(statement.expr,
+                parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_IF_STMT) {
+            return self.rawParamExprSafe(statement.condition,
+                    parameterName, owner, locals, vars)
+                && self.rawParamBlockSafe(statement.then_block,
+                    parameterName, owner, locals, vars)
+                && (statement.else_block == null
+                    || self.rawParamStmtSafe(statement.else_block,
+                        parameterName, owner, locals, vars));
+        }
+        if (statement.kind == NK_ELSE_BLOCK) {
+            return self.rawParamBlockSafe(statement.body_node,
+                parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_ELSE_IF) {
+            return self.rawParamStmtSafe(statement.if_stmt,
+                parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_WHILE_STMT
+                || statement.kind == NK_DO_WHILE_STMT) {
+            return self.rawParamExprSafe(statement.condition,
+                    parameterName, owner, locals, vars)
+                && self.rawParamBlockSafe(statement.body_node,
+                    parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_FOR_IN_STMT
+                || statement.kind == NK_PARALLEL_FOR_STMT) {
+            return self.rawParamExprSafe(statement.iterable,
+                    parameterName, owner, locals, vars)
+                && self.rawParamBlockSafe(statement.body_node,
+                    parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_C_FOR_STMT) {
+            bool initSafe = true;
+            if (statement.init != null) {
+                if (statement.init.kind == NK_FOR_INIT_VAR) {
+                    initSafe = self.rawParamStmtSafe(statement.init.var_decl,
+                        parameterName, owner, locals, vars);
+                } else {
+                    initSafe = self.rawParamExprSafe(
+                        statement.init.expression,
+                        parameterName, owner, locals, vars);
+                }
+            }
+            return initSafe
+                && self.rawParamExprSafe(statement.condition,
+                    parameterName, owner, locals, vars)
+                && self.rawParamExprSafe(statement.update,
+                    parameterName, owner, locals, vars)
+                && self.rawParamBlockSafe(statement.body_node,
+                    parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_SWITCH_STMT) {
+            if (!self.rawParamExprSafe(statement.value_node,
+                    parameterName, owner, locals, vars)) { return false; }
+            int caseIndex = 0;
+            while (caseIndex < statement.cases.len) {
+                Node caseClause = statement.cases.get(caseIndex);
+                if (!self.rawParamExprSafe(caseClause.value_node,
+                        parameterName, owner, locals, vars)) { return false; }
+                int bodyIndex = 0;
+                while (bodyIndex < caseClause.body_nlist.len) {
+                    if (!self.rawParamStmtSafe(
+                            caseClause.body_nlist.get(bodyIndex), parameterName,
+                            owner, locals, vars)) { return false; }
+                    bodyIndex = bodyIndex + 1;
+                }
+                caseIndex = caseIndex + 1;
+            }
+            return true;
+        }
+        if (statement.kind == NK_TRY_CATCH_STMT) {
+            return self.rawParamBlockSafe(statement.try_block,
+                    parameterName, owner, locals, vars)
+                && self.rawParamBlockSafe(statement.catch_block,
+                    parameterName, owner, locals, vars)
+                && self.rawParamBlockSafe(statement.finally_block,
+                    parameterName, owner, locals, vars);
+        }
+        if (statement.kind == NK_DELETE_STMT
+                || statement.kind == NK_RELEASE_STMT
+                || statement.kind == NK_KEEP_STMT
+                || statement.kind == NK_THROW_STMT) {
+            if (self.rawExpressionMentionsParam(
+                    statement.expr, parameterName)) { return false; }
+            return self.rawParamExprSafe(statement.expr,
+                parameterName, owner, locals, vars);
+        }
+        return true;
+    }
+
+    public bool rawParamBlockSafe(Node? block, string parameterName,
+            string owner, Map<string, bool> locals,
+            Map<string, Node> vars) {
+        if (block == null) { return false; }
+        int index = 0;
+        while (index < block.statements.len) {
+            if (!self.rawParamStmtSafe(block.statements.get(index),
+                    parameterName, owner, locals, vars)) { return false; }
+            index = index + 1;
+        }
+        return true;
+    }
+
+    public bool rawParameterBorrowOnly(Node declaration, int parameterIndex) {
+        if (declaration.body_node == null
+                || parameterIndex < 0
+                || parameterIndex >= declaration.params.len) { return false; }
+        string provenance = declaration.source_file == null
+            ? "none" : declaration.source_file;
+        string key = AstIdentity.key(declaration) + "#"
+            + Strings.fromInt(parameterIndex) + "#" + provenance;
+        if (self.state.rawBorrowEffectKnown.has(key)) {
+            return self.state.rawBorrowEffects.has(key);
+        }
+        if (self.state.rawBorrowVisiting.has(key)) { return false; }
+        self.state.rawBorrowVisiting.put(key, true);
+        Map<string, bool> locals = {};
+        Map<string, Node> vars = {};
+        int paramIndex = 0;
+        while (paramIndex < declaration.params.len) {
+            locals.put(declaration.params.get(paramIndex).name, true);
+            vars.put(declaration.params.get(paramIndex).name,
+                declaration.params.get(paramIndex).type);
+            paramIndex = paramIndex + 1;
+        }
+        self.rawCollectLocalNames(declaration.body_node, locals);
+        Node? previousCallable = self.state.callable;
+        self.state.callable = declaration;
+        bool safe = self.rawParamBlockSafe(
+            declaration.body_node,
+            declaration.params.get(parameterIndex).name,
+            self.rawBorrowOwner(declaration), locals, vars);
+        self.state.callable = previousCallable;
+        self.state.rawBorrowVisiting.remove(key);
+        self.state.rawBorrowEffectKnown.put(key, true);
+        if (safe) { self.state.rawBorrowEffects.put(key, true); }
+        return safe;
+    }
+
+    public bool explicitOpaqueStorageAddress(Node? expression) {
+        Node? current = expression;
+        while (current != null && current.kind == NK_CAST_EXPR) {
+            current = current.expr;
+        }
+        return current != null && current.kind == NK_UNARY_EXPR
+            && current.op == "&" && current.operand != null
+            && (current.operand.kind == NK_FIELD_ACCESS_EXPR
+                || current.operand.kind == NK_INDEX_EXPR);
+    }
+
+    public void validateOpaqueCallArgument(Node? declaration,
+            int parameterIndex, Node? expected, Node argument, string label,
+            bool bodylessFfi,
+            Map<string, Node> vars) {
+        if (!self.opaqueRawCarrierType(expected)
+                || !self.expressionIsOpaqueBorrow(argument,  vars)) {
+            return;
+        }
+        bool hostedBorrow = bodylessFfi
+            && (self.hostedAbi.parameterReadOnlyBorrow(label, parameterIndex)
+                || (self.explicitOpaqueStorageAddress(argument)
+                    && self.hostedAbi.parameterNonescaping(
+                        label, parameterIndex)));
+        if (hostedBorrow
+                || (declaration != null
+                && self.rawParameterBorrowOnly(
+                    declaration, parameterIndex))) { return; }
+        TypeValidator.fail("Argument to '" + label
+            + "()' cannot forward a managed value as a raw representation "
+            + "because the parameter is not proven borrow-only", argument);
+    }
+
+    public void validateOpaqueCallArguments(Node? declaration,
+            Vector<Node> params, Node call, string label,
+            Map<string, Node> substitutions, bool bodylessFfi,
+             Map<string, Node> vars) {
+        int argumentIndex = 0;
+        while (argumentIndex < call.args.len) {
+            int parameterIndex = argumentIndex;
+            if (argumentIndex < call.arg_names.len
+                    && call.arg_names.get(argumentIndex) != "") {
+                parameterIndex = self.parameterIndex(
+                    params, call.arg_names.get(argumentIndex));
+            }
+            if (parameterIndex >= 0 && parameterIndex < params.len) {
+                Node expected = params.get(parameterIndex).type;
+                if (substitutions.len > 0) {
+                    expected = SemanticTypeSystem.resolveGenericType(
+                        expected, substitutions, self.state.analyzed);
+                }
+                self.validateOpaqueCallArgument(
+                    declaration, parameterIndex, expected,
+                    call.args.get(argumentIndex), label, bodylessFfi,
+                     vars);
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+    }
+
+    private void prepareRawProjectionExpression(
+            RawProjectionCarrierContext context, Node? expression,
+            Map<string, Node> vars) {
+        if (expression == null || context.prepared(expression)) { return; }
+        Node? typeExpr = self.types.resolveAliases(
+            self.types.inferType(expression, vars));
+        context.recordExpression(
+            expression, typeExpr, self.opaqueManagedType(typeExpr), false);
+        if (expression.kind == NK_CALL_EXPR
+                && expression.callee != null
+                && expression.callee.kind == NK_IDENTIFIER) {
+            Node? alias = self.hostedReturnAliasArgument(expression, vars);
+            if (alias != null) {
+                context.recordAlias(expression, alias);
+                self.prepareRawProjectionExpression(context, alias, vars);
+            }
+        }
+        self.prepareRawProjectionExpression(context, expression.expr, vars);
+        self.prepareRawProjectionExpression(context, expression.operand, vars);
+        self.prepareRawProjectionExpression(context, expression.left, vars);
+        self.prepareRawProjectionExpression(context, expression.right, vars);
+        self.prepareRawProjectionExpression(
+            context, expression.true_expr, vars);
+        self.prepareRawProjectionExpression(
+            context, expression.false_expr, vars);
+        self.prepareRawProjectionExpression(context, expression.obj, vars);
+        int argument = 0;
+        while (argument < expression.args.len) {
+            self.prepareRawProjectionExpression(
+                context, expression.args.get(argument), vars);
+            argument++;
+        }
+    }
+
+    private RawProjectionCarrierContext rawProjectionContext(
+            Node? expression, Map<string, Node> vars) {
+        RawProjectionCarrierContext context =
+            RawProjectionCarrierContext(self.state.analyzed);
+        self.prepareRawProjectionExpression(context, expression, vars);
+        return context;
+    }
+
+    public void validateConditionalRawProjectionCall(Node call,
+             Map<string, Node> vars) {
+        int index = 0;
+        while (index < call.args.len) {
+            RawProjectionCarrierContext context =
+                self.rawProjectionContext(call.args.get(index), vars);
+            RawProjectionCarrier? carrier = ExpressionTypeResolver.rawProjectionCarrier(
+                call.args.get(index), context);
+            Node? choice = ExpressionTypeResolver.rawProjectionFirstBranchStorageChoice(
+                carrier, context);
+            if (choice != null) {
+                TypeValidator.fail(
+                    "Conditional raw projection call arguments require "
+                        + "branch-local backing storage",
+                    choice);
+            }
+            index = index + 1;
+        }
+    }
+}

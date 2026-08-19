@@ -7,13 +7,12 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import ast_nodes as ast
-from src.compiler.python.cli.compiler_cli import CompilerCLI
-from src.compiler.python.frontend.dependencies import SourceDependencyGraph
-from src.compiler.python.frontend.source_io import SourceDirectiveScanner
-from src.compiler.python.frontend.stdlib import StdlibRepository
-from src.compiler.python.frontend.visibility import ImportVisibilityChecker
-from src.compiler.python.lexer import Lexer
+import src.compiler.python.syntax.ast.generated as ast
+from src.compiler.python import Compiler
+from src.compiler.python.cli.compiler import CompilerCommand
+from src.compiler.python.frontend.imports import ImportVisibilityChecker
+from src.compiler.python.frontend.sources import SourceDependencyGraph, SourceDirectiveScanner, StdlibRepository
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 REPO = Path(__file__).resolve().parents[3]
@@ -30,18 +29,17 @@ STDLIB_GLOB_EXCLUSIONS = {
 # consumer trees.
 SUPPORTING_CONSUMERS = frozenset(
     {
-        "src/compiler/btrc/ast/asdl_dump.btrc",
-        "src/compiler/btrc/ast/gen_node.btrc",
-        "src/compiler/btrc/ast/node.btrc",
-        "src/compiler/btrc/ebnf.btrc",
-        "src/compiler/btrc/frontend_paths.btrc",
-        "src/compiler/btrc/lexer.btrc",
+        "src/compiler/btrc/tools/ast/dump_main.btrc",
+        "src/compiler/btrc/tools/ast/generate_main.btrc",
+        "src/compiler/btrc/tools/ast/schema.btrc",
+        "src/compiler/btrc/generated/ast/node.btrc",
+        "src/compiler/btrc/syntax/grammar.btrc",
+        "src/compiler/btrc/frontend/source_io.btrc",
+        "src/compiler/btrc/lexer/lexer.btrc",
         "src/compiler/btrc/lexer/stage.btrc",
-        "src/compiler/btrc/lexer_literal_rules.btrc",
-        "src/compiler/btrc/lexer_literals.btrc",
-        "src/compiler/btrc/runtime_paths.btrc",
-        "src/compiler/btrc/type_identity.btrc",
-        "src/compiler/btrc/type_shapes.btrc",
+        "src/compiler/btrc/cli/driver.btrc",
+        "src/compiler/btrc/syntax/identity.btrc",
+        "src/compiler/btrc/syntax/types.btrc",
         "src/stdlib/daemon.btrc",
         "src/stdlib/graph.btrc",
         "src/stdlib/gui/view.btrc",
@@ -170,7 +168,7 @@ def corpus_import_audit() -> CorpusImportAuditResult:
 def test_corpus_declares_every_direct_stdlib_owner(
     corpus_import_audit: CorpusImportAuditResult,
 ) -> None:
-    assert corpus_import_audit.source_count == 1114
+    assert corpus_import_audit.source_count == 1116
     assert corpus_import_audit.duplicate_modules == ()
     assert corpus_import_audit.unknown_modules == ()
     assert corpus_import_audit.direct_owner_diagnostics == ()
@@ -185,5 +183,5 @@ def test_only_the_import_syntax_fixture_uses_stdlib_glob(
 @pytest.mark.parametrize("flags", ((), ("--strict-imports",)), ids=("default", "explicit"))
 def test_real_corpus_source_parses_in_both_strict_cli_modes(capsys, flags) -> None:
     source = TEST_ROOT / "collections/test_vector_bool.btrc"
-    CompilerCLI().run([str(source), "--emit-ast", "--no-cache", *flags])
+    CompilerCommand(Compiler()).run([str(source), "--emit-ast", "--no-cache", *flags])
     assert "Program" in capsys.readouterr().out

@@ -1,0 +1,946 @@
+/* Statement, loop, switch, return, and termination contracts. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../../generated/ast/node.btrc;
+import ../../syntax/identity.btrc;
+import ../../syntax/types.btrc;
+import ../models.btrc;
+import ../operators.btrc;
+import ../types.btrc;
+import ./borrows.btrc;
+import ./constants.btrc;
+import ./expressions.btrc;
+import ./names.btrc;
+import ./ownership.btrc;
+import ./storage.btrc;
+import ./types.btrc;
+
+class ControlFlowValidator {
+    private SemanticValidationState state;
+    private OperatorSemantics operators;
+    private TypeValidator types;
+    private ConstantValidator constants;
+    private NameValidator names;
+    private StorageValidator storage;
+    private OwnershipValidator ownership;
+    private BorrowValidator borrows;
+    private ExpressionValidator expressions;
+
+    public ControlFlowValidator(
+            SemanticValidationState state,
+            OperatorSemantics operators,
+            TypeValidator types,
+            ConstantValidator constants,
+            NameValidator names,
+            StorageValidator storage,
+            OwnershipValidator ownership,
+            BorrowValidator borrows,
+            ExpressionValidator expressions) {
+        self.state = state;
+        self.operators = operators;
+        self.types = types;
+        self.constants = constants;
+        self.names = names;
+        self.storage = storage;
+        self.ownership = ownership;
+        self.borrows = borrows;
+        self.expressions = expressions;
+    }
+
+    public bool scalarConditionType(
+            Node? typeExpr) {
+        if (typeExpr == null) { return false; }
+        return NumericSemantics.isType(typeExpr, self.state.analyzed)
+            || self.operators.isReferenceType(typeExpr);
+    }
+
+    public bool threadCopySource(Node value) {
+        if (value.kind == NK_SPAWN_EXPR || value.kind == NK_CALL_EXPR
+                || value.kind == NK_NULL_LITERAL) {
+            return false;
+        }
+        if (value.kind == NK_TERNARY_EXPR) {
+            return self.threadCopySource(value.true_expr)
+                || self.threadCopySource(value.false_expr);
+        }
+        return true;
+    }
+
+    public bool freshThreadResult(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null || self.threadCopySource(expression)) {
+            return false;
+        }
+        Node? resultType = self.types.inferType(expression,  vars);
+        return resultType != null && resultType.base == "Thread";
+    }
+
+    public bool threadValue(Node? expression,
+             Map<string, Node> vars) {
+        Node? valueType = self.types.inferType(expression,  vars);
+        return valueType != null && valueType.base == "Thread";
+    }
+
+    public void rejectFreshThreadResult(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return; }
+        if (!self.freshThreadResult(expression,  vars)) { return; }
+        TypeValidator.fail(
+            "Fresh Thread result must be joined, returned, discarded directly, "
+                + "or bound to a direct Thread<T> owner",
+            expression);
+    }
+
+    public void rejectThreadObservation(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null
+                || !self.threadValue(expression,  vars)
+                || expression.kind == NK_IDENTIFIER) {
+            return;
+        }
+        if (self.freshThreadResult(expression,  vars)) {
+            self.rejectFreshThreadResult(expression,  vars);
+            return;
+        }
+        TypeValidator.fail(
+            "Thread-producing expression must be a direct spawn() or "
+                + "Thread-returning call before it can be consumed",
+            expression);
+    }
+
+    public void validateThreadTransferSource(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null
+                || !self.threadValue(expression,  vars)
+                || expression.kind == NK_IDENTIFIER
+                || self.freshThreadResult(expression,  vars)) {
+            return;
+        }
+        TypeValidator.fail(
+            "Thread transfer must use one unique local owner or a direct fresh "
+                + "result",
+            expression);
+    }
+
+    public void validateThreadExpressionDiscard(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null
+                || !self.threadValue(expression,  vars)
+                || expression.kind == NK_IDENTIFIER
+                || self.freshThreadResult(expression,  vars)) {
+            return;
+        }
+        TypeValidator.fail(
+            "Only a direct fresh Thread result can be discarded safely",
+            expression);
+    }
+
+    public void rejectThreadValueEscape(Node? expression, string destination,
+             Map<string, Node> vars) {
+        if (expression == null
+                || !self.threadValue(expression,  vars)) { return; }
+        TypeValidator.fail("Thread handles cannot be " + destination
+            + "; join or return the unique owner instead", expression);
+    }
+
+    public void validateCondition(Node? expression, string subject,
+             Map<string, Node> vars) {
+        if (expression == null) { return; }
+        self.rejectThreadObservation(expression,  vars);
+        Node? conditionType = self.types.inferType(expression,  vars);
+        if (conditionType == null
+                || self.types.typeContainsParams(
+                    conditionType, self.state.typeParams)) {
+            return;
+        }
+        if (!self.scalarConditionType(conditionType)) {
+            TypeValidator.fail(subject + " requires a scalar condition, got '"
+                + self.types.formatType(conditionType) + "'", expression);
+        }
+    }
+
+    class bool statementSequenceTerminates(Vector<Node> statements) {
+        int index = 0;
+        while (index < statements.len) {
+            if (ControlFlowValidator.statementTerminates(statements.get(index))) { return true; }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    class bool blockTerminates(Node? block) {
+        if (block == null) { return false; }
+        return ControlFlowValidator.statementSequenceTerminates(block.statements);
+    }
+
+    class bool elseTerminates(Node? elseNode) {
+        if (elseNode == null) { return false; }
+        if (elseNode.kind == NK_ELSE_BLOCK) {
+            return ControlFlowValidator.blockTerminates(elseNode.body_node);
+        }
+        if (elseNode.kind == NK_ELSE_IF) {
+            return ControlFlowValidator.statementTerminates(elseNode.if_stmt);
+        }
+        return false;
+    }
+
+    class bool switchTerminates(Node statement) {
+        if (statement.cases.len == 0) { return false; }
+        bool hasDefault = false;
+        int index = 0;
+        while (index < statement.cases.len) {
+            Node caseClause = statement.cases.get(index);
+            if (caseClause.value_node == null) { hasDefault = true; }
+            if (!ControlFlowValidator.statementSequenceTerminates(caseClause.body_nlist)) {
+                return false;
+            }
+            index = index + 1;
+        }
+        return hasDefault;
+    }
+
+    class bool containsLoopBreak(Node? node) {
+        if (node == null) { return false; }
+        if (node.kind == NK_BREAK_STMT) { return true; }
+        if (node.kind == NK_WHILE_STMT
+                || node.kind == NK_DO_WHILE_STMT
+                || node.kind == NK_C_FOR_STMT
+                || node.kind == NK_FOR_IN_STMT
+                || node.kind == NK_PARALLEL_FOR_STMT
+                || node.kind == NK_SWITCH_STMT) {
+            return false;
+        }
+        if (node.kind == NK_BLOCK) {
+            int index = 0;
+            while (index < node.statements.len) {
+                if (ControlFlowValidator.containsLoopBreak(node.statements.get(index))) {
+                    return true;
+                }
+                index = index + 1;
+            }
+            return false;
+        }
+        if (node.kind == NK_IF_STMT) {
+            if (ControlFlowValidator.containsLoopBreak(node.then_block)) { return true; }
+            if (node.else_block == null) { return false; }
+            if (node.else_block.kind == NK_ELSE_BLOCK) {
+                return ControlFlowValidator.containsLoopBreak(node.else_block.body_node);
+            }
+            if (node.else_block.kind == NK_ELSE_IF) {
+                return ControlFlowValidator.containsLoopBreak(node.else_block.if_stmt);
+            }
+            return false;
+        }
+        if (node.kind == NK_TRY_CATCH_STMT) {
+            return ControlFlowValidator.containsLoopBreak(node.try_block)
+                || ControlFlowValidator.containsLoopBreak(node.catch_block)
+                || ControlFlowValidator.containsLoopBreak(node.finally_block);
+        }
+        return false;
+    }
+
+    class bool statementTerminates(Node statement) {
+        if (statement.kind == NK_RETURN_STMT
+                || statement.kind == NK_THROW_STMT) {
+            return true;
+        }
+        if (statement.kind == NK_BLOCK) {
+            return ControlFlowValidator.blockTerminates(statement);
+        }
+        if (statement.kind == NK_IF_STMT) {
+            return ControlFlowValidator.blockTerminates(statement.then_block)
+                && ControlFlowValidator.elseTerminates(statement.else_block);
+        }
+        if (statement.kind == NK_SWITCH_STMT) {
+            return ControlFlowValidator.switchTerminates(statement);
+        }
+        if (statement.kind == NK_TRY_CATCH_STMT) {
+            if (ControlFlowValidator.blockTerminates(statement.finally_block)) { return true; }
+            bool tryTerminates = ControlFlowValidator.blockTerminates(statement.try_block);
+            if (statement.catch_block == null) { return tryTerminates; }
+            return tryTerminates
+                && ControlFlowValidator.blockTerminates(statement.catch_block);
+        }
+        if (statement.kind == NK_DO_WHILE_STMT) {
+            return !ControlFlowValidator.containsLoopBreak(statement.body_node)
+                && ControlFlowValidator.blockTerminates(statement.body_node);
+        }
+        if (statement.kind == NK_WHILE_STMT
+                && statement.condition != null
+                && statement.condition.kind == NK_BOOL_LITERAL
+                && statement.condition.value_bool) {
+            return !ControlFlowValidator.containsLoopBreak(statement.body_node)
+                && ControlFlowValidator.blockTerminates(statement.body_node);
+        }
+        if (statement.kind == NK_C_FOR_STMT
+                && statement.condition == null) {
+            return !ControlFlowValidator.containsLoopBreak(statement.body_node)
+                && ControlFlowValidator.blockTerminates(statement.body_node);
+        }
+        return false;
+    }
+
+    public bool knownSwitchValue(
+            Vector<long long> values, long long candidate) {
+        int index = 0;
+        while (index < values.len) {
+            if (values.get(index) == candidate) { return true; }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public void validateSwitchContracts(Node statement,
+             Map<string, Node> vars) {
+        Node? subjectType = self.types.inferType(
+            statement.value_node,  vars);
+        if (subjectType != null
+                && !self.types.integralType(subjectType, self.state.analyzed)) {
+            TypeValidator.fail("Switch subject must be integral, got '"
+                + self.types.formatType(subjectType) + "'", statement);
+        }
+        Map<string, bool> unrestricted = {};
+        Vector<long long> knownValues = [];
+        int defaults = 0;
+        int index = 0;
+        while (index < statement.cases.len) {
+            Node clause = statement.cases.get(index);
+            if (clause.value_node == null) {
+                defaults = defaults + 1;
+            } else {
+                Node? caseType = self.types.inferType(
+                    clause.value_node,  vars);
+                if (caseType != null
+                        && !self.types.integralType(caseType, self.state.analyzed)) {
+                    TypeValidator.fail(
+                        "Switch case must be integral, got '"
+                            + self.types.formatType(caseType) + "'",
+                        clause.value_node);
+                }
+                SemanticIntegerConstant constant = self.constants.integerConstant(
+                    clause.value_node,  false, "", unrestricted);
+                if (!constant.valid) {
+                    TypeValidator.fail(
+                        "Switch case requires an integral constant expression",
+                        clause.value_node);
+                }
+                if (constant.known) {
+                    if (self.knownSwitchValue(
+                            knownValues, constant.value)) {
+                        TypeValidator.fail("Duplicate switch case value",
+                            clause.value_node);
+                    }
+                    knownValues.push(constant.value);
+                }
+            }
+            index = index + 1;
+        }
+        if (defaults > 1) {
+            TypeValidator.fail(
+                "Switch cannot contain more than one default case", statement);
+        }
+    }
+
+    class bool isRangeForm(Node? expression) {
+        return expression != null && expression.kind == NK_CALL_EXPR
+            && expression.callee != null
+            && expression.callee.kind == NK_IDENTIFIER
+            && expression.callee.name == "range";
+    }
+
+    public void validateRangeForm(Node call,
+            Map<string, Node> vars) {
+        if (call.args.len < 1 || call.args.len > 3) {
+            TypeValidator.fail("range expects 1 to 3 arguments, got "
+                + Strings.fromInt(call.args.len), call);
+        }
+        int index = 0;
+        while (index < call.arg_names.len) {
+            if (call.arg_names.get(index) != "") {
+                TypeValidator.fail(
+                    "range does not accept named arguments", call);
+            }
+            index = index + 1;
+        }
+        index = 0;
+        while (index < call.args.len) {
+            Node argument = call.args.get(index);
+            self.expressions.validateExpr(argument,  vars);
+            self.rejectThreadValueEscape(
+                argument, "passed as range arguments",  vars);
+            Node? argumentType = self.types.inferType(argument,  vars);
+            if (argumentType == null
+                    || !self.types.integralType(
+                        argumentType, self.state.analyzed)
+                    || argumentType.base == "bool") {
+                string actual = "unknown";
+                if (argumentType != null) {
+                    actual = self.types.formatType(argumentType);
+                }
+                TypeValidator.fail("range argument "
+                    + Strings.fromInt(index + 1)
+                    + " must have an integral non-bool type, got '"
+                    + actual + "'", argument);
+            }
+            index = index + 1;
+        }
+        if (call.args.len == 3) {
+            Map<string, bool> unrestricted = {};
+            SemanticIntegerConstant step = self.constants.integerConstant(
+                call.args.get(2),  false, "", unrestricted);
+            if (step.known && step.value == 0) {
+                TypeValidator.fail("range step cannot be zero",
+                    call.args.get(2));
+            }
+        }
+    }
+
+    class Node? iterableMethod(
+            Node iterableType, string name, Analyzed analyzed) {
+        if (analyzed.isGenericClass(iterableType.base)
+                && iterableType.pointer_depth <= 1) {
+            return analyzed.genericClassMethod(iterableType.base, name);
+        }
+        if (analyzed.isClass(iterableType.base)
+                && iterableType.pointer_depth <= 1) {
+            return analyzed.classMethod(iterableType.base, name);
+        }
+        return null;
+    }
+
+    class Node iterableResolvedType(
+            Node declared, Node iterableType, Analyzed analyzed) {
+        if (analyzed.isGenericClass(iterableType.base)
+                && iterableType.generic_args.len > 0) {
+            return SemanticTypeSystem.resolveGenericType(
+                declared, SemanticTypeSystem.genericTypeMap(analyzed, iterableType),
+                analyzed);
+        }
+        return declared;
+    }
+
+    public Node validateIterableMethod(Node iterableType, string methodName,
+            int arity,  Node site) {
+        Node? found = ControlFlowValidator.iterableMethod(
+            iterableType, methodName, self.state.analyzed);
+        if (found == null || found.access == "class"
+                || found.params.len != arity) {
+            TypeValidator.fail("Type '" + self.types.formatType(iterableType)
+                + "' does not satisfy the for-in protocol: instance "
+                + methodName + "() must take " + Strings.fromInt(arity)
+                + " argument(s)", site);
+        }
+        Node method = found;
+        return method;
+    }
+
+    public Node iterableElementType(Node iterableType,
+             Node site, bool second) {
+        Node lenMethod = self.validateIterableMethod(
+            iterableType, "iterLen", 0,  site);
+        Node lenType = ControlFlowValidator.iterableResolvedType(
+            lenMethod.return_type, iterableType, self.state.analyzed);
+        if (!self.types.integralType(lenType, self.state.analyzed)
+                || lenType.base == "bool") {
+            TypeValidator.fail("for-in iterLen() must return an integral "
+                + "non-bool type", lenMethod);
+        }
+        string methodName = second ? "iterValueAt" : "iterGet";
+        Node valueMethod = self.validateIterableMethod(
+            iterableType, methodName, 1,  site);
+        Node indexType = ControlFlowValidator.iterableResolvedType(
+            valueMethod.params.get(0).type, iterableType, self.state.analyzed);
+        if (!self.types.integralType(indexType, self.state.analyzed)
+                || indexType.base == "bool") {
+            TypeValidator.fail("for-in " + methodName
+                + "() index must have an integral non-bool type", valueMethod);
+        }
+        Node valueType = ControlFlowValidator.iterableResolvedType(
+            valueMethod.return_type, iterableType, self.state.analyzed);
+        if (TypeValidator.scalarVoid(valueType)) {
+            TypeValidator.fail("for-in " + methodName
+                + "() cannot return void", valueMethod);
+        }
+        return valueType;
+    }
+
+    public void validateForIn(Node statement,
+            Map<string, Node> vars) {
+        Map<string, Node> bodyVars = TypeValidator.cloneTypes(vars);
+        Map<string, bool> loopNames = {};
+        self.names.validateLexicalBindingName(
+            statement.var_name, "Loop variable", statement);
+        loopNames.put(statement.var_name, true);
+
+        Node first = SemanticTypeSystem.primitive("int");
+        Node? iterableType = null;
+        bool protocolOwnsFirst = false;
+        if (ControlFlowValidator.isRangeForm(statement.iterable)) {
+            self.validateRangeForm(statement.iterable,  vars);
+            if (statement.var_name2 != null) {
+                TypeValidator.fail(
+                    "range iteration has exactly one loop variable", statement);
+            }
+        } else {
+            self.expressions.validateExpr(statement.iterable,  vars);
+            iterableType = self.types.inferType(statement.iterable,  vars);
+            if (iterableType == null) {
+                TypeValidator.fail(
+                    "Cannot determine a for-in iterable protocol", statement);
+            }
+            if (SemanticTypeSystem.isString(iterableType)) {
+                first = SemanticTypeSystem.primitive("char");
+                if (statement.var_name2 != null) {
+                    TypeValidator.fail(
+                        "String iteration has exactly one loop variable", statement);
+                }
+            } else if (iterableType != null && iterableType.is_array) {
+                if (!self.storage.arrayTargetHasCapacity(
+                        statement.iterable, iterableType,  vars)) {
+                    TypeValidator.fail(
+                        "Array for-in iterable has no provable element capacity",
+                        statement);
+                }
+                self.state.analyzed.arrayIterationCapacityKeys.put(
+                    AstIdentity.key(statement.iterable), true);
+                first = TypeShape.withoutOuterArray(iterableType);
+                if (statement.var_name2 != null) {
+                    TypeValidator.fail(
+                        "Array iteration has exactly one loop variable", statement);
+                }
+            } else {
+                first = self.iterableElementType(
+                    iterableType,  statement, false);
+                protocolOwnsFirst = true;
+            }
+        }
+        self.ownership.rejectThreadOwnerShadow(
+            statement.var_name, first, vars, statement);
+        if (self.ownership.containsThreadStorage(first)) {
+            TypeValidator.fail(
+                "for-in loop variables cannot own a Thread handle; declare a "
+                    + "fresh local owner inside the loop",
+                statement);
+        }
+        bodyVars.put(statement.var_name, first);
+        Map<string, bool> previousBorrowedBindings =
+            self.types.cloneFlags(self.state.borrowedBindings);
+        Map<string, bool> previousLocalBindings =
+            self.types.cloneFlags(self.state.localBindings);
+        self.state.localBindings.put(statement.var_name, true);
+        if (self.ownership.managedOwnershipType(first)
+                && !protocolOwnsFirst) {
+            self.state.borrowedBindings.put(statement.var_name, true);
+        } else {
+            self.state.borrowedBindings.remove(statement.var_name);
+        }
+
+        if (statement.var_name2 != null) {
+            self.names.validateLexicalBindingName(
+                statement.var_name2, "Loop variable", statement);
+            if (loopNames.has(statement.var_name2)) {
+                TypeValidator.fail("Duplicate loop variable name '"
+                    + statement.var_name2 + "'", statement);
+            }
+            loopNames.put(statement.var_name2, true);
+            Node second = self.iterableElementType(
+                iterableType,  statement, true);
+            self.ownership.rejectThreadOwnerShadow(
+                statement.var_name2, second, vars, statement);
+            if (self.ownership.containsThreadStorage(second)) {
+                TypeValidator.fail(
+                    "for-in loop variables cannot own a Thread handle; declare "
+                        + "a fresh local owner inside the loop",
+                    statement);
+            }
+            bodyVars.put(statement.var_name2, second);
+            self.state.borrowedBindings.remove(statement.var_name2);
+            self.state.localBindings.put(statement.var_name2, true);
+        }
+
+        self.names.validateDirectLocalNames(statement.body_node, loopNames);
+        int previousLoop = self.state.loopDepth;
+        int previousBreak = self.state.breakDepth;
+        self.state.loopDepth = previousLoop + 1;
+        self.state.breakDepth = previousBreak + 1;
+        self.validateBlock(statement.body_node,  bodyVars);
+        self.state.borrowedBindings = previousBorrowedBindings;
+        self.state.localBindings = previousLocalBindings;
+        self.state.loopDepth = previousLoop;
+        self.state.breakDepth = previousBreak;
+    }
+
+    public void validateLoop(Node statement,
+            Map<string, Node> vars) {
+        bool isDoWhile = statement.kind == NK_DO_WHILE_STMT;
+        if (!isDoWhile) {
+            self.expressions.validateExpr(statement.condition,  vars);
+            self.validateCondition(
+                statement.condition, "Loop",  vars);
+        }
+        int previousLoop = self.state.loopDepth;
+        int previousBreak = self.state.breakDepth;
+        self.state.loopDepth = previousLoop + 1;
+        self.state.breakDepth = previousBreak + 1;
+        self.validateBlock(statement.body_node,  vars);
+        self.state.loopDepth = previousLoop;
+        self.state.breakDepth = previousBreak;
+        if (isDoWhile) {
+            self.expressions.validateExpr(statement.condition,  vars);
+            self.validateCondition(
+                statement.condition, "Loop",  vars);
+        }
+    }
+
+    public void validateSwitch(Node statement,
+            Map<string, Node> vars) {
+        self.expressions.validateExpr(statement.value_node,  vars);
+        self.validateSwitchContracts(statement,  vars);
+        int previousBreak = self.state.breakDepth;
+        self.state.breakDepth = previousBreak + 1;
+        int caseIndex = 0;
+        while (caseIndex < statement.cases.len) {
+            Node caseClause = statement.cases.get(caseIndex);
+            self.expressions.validateExpr(caseClause.value_node,  vars);
+            Map<string, Node> caseVars = TypeValidator.cloneTypes(vars);
+            Map<string, bool> previousCaseLocals =
+                self.types.cloneFlags(self.state.localBindings);
+            Map<string, bool> previousCaseBorrowed =
+                self.types.cloneFlags(self.state.borrowedBindings);
+            Node? previousStatement = self.state.previousStatement;
+            self.state.previousStatement = null;
+            int statementIndex = 0;
+            bool terminal = false;
+            while (statementIndex < caseClause.body_nlist.len) {
+                Node bodyStatement = caseClause.body_nlist.get(statementIndex);
+                if (terminal) {
+                    TypeValidator.fail(
+                        "Unreachable code after return/throw/break/continue",
+                        bodyStatement);
+                }
+                self.validateStmt(bodyStatement,  caseVars);
+                self.state.previousStatement = bodyStatement;
+                terminal = self.directTerminal(bodyStatement);
+                statementIndex = statementIndex + 1;
+            }
+            self.state.localBindings = previousCaseLocals;
+            self.state.borrowedBindings = previousCaseBorrowed;
+            self.state.previousStatement = previousStatement;
+            caseIndex = caseIndex + 1;
+        }
+        self.state.breakDepth = previousBreak;
+    }
+
+    public bool directTerminal(Node statement) {
+        return statement.kind == NK_RETURN_STMT
+            || statement.kind == NK_THROW_STMT
+            || statement.kind == NK_BREAK_STMT
+            || statement.kind == NK_CONTINUE_STMT;
+    }
+
+    public void validateBlock(Node? block,
+            Map<string, Node> outerVars) {
+        if (block == null) { return; }
+        Map<string, bool> previousBorrowedBindings =
+            self.types.cloneFlags(self.state.borrowedBindings);
+        Map<string, bool> previousLocalBindings =
+            self.types.cloneFlags(self.state.localBindings);
+        Node? previousStatement = self.state.previousStatement;
+        self.state.previousStatement = null;
+        Map<string, bool> noReservedNames = {};
+        self.names.validateDirectLocalNames(block, noReservedNames);
+        Map<string, Node> vars = TypeValidator.cloneTypes(outerVars);
+        bool terminal = false;
+        int index = 0;
+        while (index < block.statements.len) {
+            Node statement = block.statements.get(index);
+            if (terminal) {
+                TypeValidator.fail(
+                    "Unreachable code after return/throw/break/continue", statement);
+            }
+            self.validateStmt(statement,  vars);
+            self.state.previousStatement = statement;
+            terminal = self.directTerminal(statement);
+            index = index + 1;
+        }
+        self.state.borrowedBindings = previousBorrowedBindings;
+        self.state.localBindings = previousLocalBindings;
+        self.state.previousStatement = previousStatement;
+    }
+
+    public void validateVariable(Node declaration,
+             Map<string, Node> vars) {
+        if (self.state.owner == "") {
+            self.names.validateDeclaredName(
+                declaration.name, "Variable", declaration);
+        } else {
+            self.names.validateLexicalBindingName(
+                declaration.name, "Variable", declaration);
+        }
+        Node? preliminaryType = declaration.type;
+        if (preliminaryType == null && declaration.initializer != null) {
+            preliminaryType = self.types.inferType(
+                declaration.initializer,  vars);
+        }
+        if (self.state.owner != "") {
+            self.ownership.rejectThreadOwnerShadow(
+                declaration.name, preliminaryType, vars, declaration);
+        }
+        self.ownership.validateMutexPayloadsInType(
+            preliminaryType, declaration);
+        self.storage.validateThreadVariableOwner(
+            declaration, preliminaryType, self.state.owner == "");
+        self.storage.validateVariableStorage(
+            declaration, self.state.owner == "",  vars);
+        self.types.rejectRuntimeInterfaceType(declaration.type, declaration);
+        self.expressions.contextualizeGenericConstructor(
+            declaration.type, declaration.initializer,  vars);
+        self.expressions.validateGpuArrayInitializer(
+            declaration.initializer, declaration.type,  vars);
+        bool previousOwnedOpaqueVariable = self.state.allowOwnedOpaqueVariable;
+        self.state.allowOwnedOpaqueVariable = self.ownership.expressionOwnsResult(
+            declaration.initializer,  vars);
+        Node? declared = self.types.arrayValueType(
+            declaration.type);
+        Node? sourceDeclared = self.types.resolveAliases(
+            declaration.type);
+        Node? representedDeclared = self.types.resolveAliases(declared);
+        if (self.expressions.gpuArrayResultCall(
+                declaration.initializer,  vars)
+                && sourceDeclared != null && sourceDeclared.is_array
+                && representedDeclared != null
+                && !representedDeclared.is_array) {
+            TypeValidator.fail("Initializer for '" + declaration.name
+                + "' cannot materialize an array-returning @gpu result through "
+                + "a pointer-valued array alias", declaration);
+        }
+        self.expressions.validateTypedInitializer(declared, declaration.initializer,
+            "Initializer for '" + declaration.name + "'",  vars);
+        /* Typed initializer validation owns qualifier loss before its opaque
+         * representation check.  Keep the preliminary-type check afterward for
+         * inferred `var` bindings whose target type is not available yet. */
+        self.borrows.validateOpaqueBorrowStorage(
+            preliminaryType, declaration.initializer,
+            "Variable '" + declaration.name + "'",  vars);
+        self.state.allowOwnedOpaqueVariable = previousOwnedOpaqueVariable;
+        Node? actual = self.types.inferType(
+            declaration.initializer,  vars);
+        if (TypeValidator.scalarVoid(actual)) {
+            TypeValidator.fail("Cannot assign void expression to variable '"
+                + declaration.name + "'", declaration);
+        }
+        if (declared == null) {
+            if (declaration.initializer == null) {
+                TypeValidator.fail("'var' declaration of '" + declaration.name
+                    + "' requires an initializer", declaration);
+            }
+            if (declaration.initializer.kind == NK_BRACE_INITIALIZER) {
+                TypeValidator.fail("Cannot infer array storage for 'var' from "
+                    + "a brace initializer; use an explicit array declaration",
+                    declaration);
+            }
+            if (actual == null) {
+                TypeValidator.fail("Cannot infer type for 'var' declaration of '"
+                    + declaration.name + "'", declaration);
+            }
+            declared = self.storage.inferredBindingValueType(
+                actual, declaration.initializer,  vars);
+        } else if (actual != null
+                && !self.types.assignmentCompatible(declared, actual)
+                && !self.expressions.contextualAggregateInitializer(
+                    declaration.initializer)) {
+            TypeValidator.fail("Cannot assign '" + self.types.formatType(actual)
+                + "' to variable '" + declaration.name + "' of type '"
+                + self.types.formatType(declared) + "'", declaration);
+        }
+        self.ownership.rejectThreadHandleCopy(
+            declared, actual, declaration.initializer, declaration);
+        vars.put(declaration.name, declared);
+        self.state.borrowedBindings.remove(declaration.name);
+        if (self.state.owner != "") {
+            self.state.localBindings.put(declaration.name, true);
+        }
+    }
+
+    public void validateReturn(Node statement,
+            Map<string, Node> vars) {
+        self.expressions.contextualizeGenericConstructor(
+            self.state.returnType, statement.value_node,  vars);
+        self.expressions.validateExpr(statement.value_node,  vars);
+        self.validateThreadTransferSource(statement.value_node,  vars);
+        if (self.state.returnType == null) { return; }
+        Node expectedReturn = self.state.returnType;
+        self.borrows.validateOpaqueBorrowStorage(
+            expectedReturn, statement.value_node, "Return value",  vars);
+        self.storage.validateVolatileReferenceConversion(
+            expectedReturn, statement.value_node,
+            "Return value",  vars);
+        if (!self.state.gpuCallable || !expectedReturn.is_array) {
+            self.expressions.validateTypedInitializer(expectedReturn, statement.value_node,
+                "Return value",  vars);
+        }
+        bool returnsVoid = TypeValidator.scalarVoid(expectedReturn);
+        if (statement.value_node == null) {
+            if (!returnsVoid) {
+                TypeValidator.fail("Non-void function or method must return '"
+                    + self.types.formatType(expectedReturn) + "'", statement);
+            }
+            return;
+        }
+        if (returnsVoid) {
+            TypeValidator.fail(
+                "Void function or method cannot return a value", statement);
+        }
+        Node? actual = self.types.inferType(statement.value_node,  vars);
+        bool compatible = self.expressions.contextualAggregateInitializer(
+                statement.value_node)
+            || actual == null
+            || self.types.assignmentCompatible(expectedReturn, actual);
+        if (!compatible && self.state.gpuCallable && expectedReturn.is_array) {
+            Node elementType = TypeShape.withoutOuterArray(expectedReturn);
+            compatible = self.types.assignmentCompatible(
+                elementType, actual);
+        }
+        if (!compatible) {
+            TypeValidator.fail("Return type mismatch: expected '"
+                + self.types.formatType(expectedReturn) + "' but got '"
+                + self.types.formatType(actual) + "'", statement);
+        }
+    }
+
+    public void validateCFor(Node statement,
+            Map<string, Node> vars) {
+        Map<string, bool> previousLocalBindings =
+            self.types.cloneFlags(self.state.localBindings);
+        Map<string, Node> loopVars = TypeValidator.cloneTypes(vars);
+        if (statement.init != null) {
+            if (statement.init.kind == NK_FOR_INIT_VAR) {
+                Node declaration = statement.init.var_decl;
+                self.validateVariable(declaration,  loopVars);
+                Node? declarationType = declaration.type;
+                if (declarationType == null) {
+                    declarationType = self.types.inferType(
+                        declaration.initializer,  loopVars);
+                }
+                if (declaration.type != null
+                        && (declaration.type.is_static
+                            || declaration.type.is_extern)) {
+                    TypeValidator.fail("C-style for initializer cannot use "
+                        + "static or extern storage", declaration);
+                }
+                if (declarationType != null && declarationType.is_array) {
+                    TypeValidator.fail("C-style for initializer cannot "
+                        + "declare an array", declaration);
+                }
+            } else if (statement.init.kind == NK_FOR_INIT_EXPR) {
+                self.expressions.validateExpr(statement.init.expression,  loopVars);
+                self.rejectThreadObservation(
+                    statement.init.expression,  loopVars);
+            }
+        }
+        self.expressions.validateExpr(statement.condition,  loopVars);
+        self.validateCondition(
+            statement.condition, "C-style for loop",  loopVars);
+        int previousLoop = self.state.loopDepth;
+        int previousBreak = self.state.breakDepth;
+        self.state.loopDepth = previousLoop + 1;
+        self.state.breakDepth = previousBreak + 1;
+        self.validateBlock(statement.body_node,  loopVars);
+        self.expressions.validateExpr(statement.update,  loopVars);
+        self.rejectThreadObservation(statement.update,  loopVars);
+        self.state.loopDepth = previousLoop;
+        self.state.breakDepth = previousBreak;
+        self.state.localBindings = previousLocalBindings;
+    }
+
+    public void validateTry(Node statement,
+            Map<string, Node> vars) {
+        self.validateBlock(statement.try_block,  vars);
+        if (statement.catch_block != null) {
+            Map<string, bool> previousCatchLocals =
+                self.types.cloneFlags(self.state.localBindings);
+            Map<string, Node> catchVars = TypeValidator.cloneTypes(vars);
+            Map<string, bool> catchNames = {};
+            Node catchType = statement.catch_type;
+            if (catchType == null) { catchType = SemanticTypeSystem.primitive("string"); }
+            if (statement.catch_var != "") {
+                self.names.validateLexicalBindingName(
+                    statement.catch_var, "Catch variable", statement);
+                self.ownership.rejectThreadOwnerShadow(
+                    statement.catch_var, catchType, vars, statement);
+                catchNames.put(statement.catch_var, true);
+                catchVars.put(statement.catch_var, catchType);
+                self.state.localBindings.put(statement.catch_var, true);
+            }
+            self.names.validateDirectLocalNames(
+                statement.catch_block, catchNames);
+            self.validateBlock(statement.catch_block,  catchVars);
+            self.state.localBindings = previousCatchLocals;
+        }
+        if (statement.finally_block != null) {
+            self.validateBlock(statement.finally_block,  vars);
+        }
+    }
+
+    public void validateStmt(Node statement,
+            Map<string, Node> vars) {
+        if (statement.kind == NK_VAR_DECL_STMT) {
+            self.validateVariable(statement,  vars);
+        } else if (statement.kind == NK_RETURN_STMT) {
+            self.validateReturn(statement,  vars);
+        } else if (statement.kind == NK_EXPR_STMT) {
+            Node? previousStandalone = self.state.standaloneExpression;
+            self.state.standaloneExpression = statement.expr;
+            self.expressions.validateGpuResultStatement(
+                statement.expr,  vars);
+            self.state.standaloneExpression = previousStandalone;
+            self.validateThreadExpressionDiscard(
+                statement.expr,  vars);
+        } else if (statement.kind == NK_IF_STMT) {
+            self.expressions.validateExpr(statement.condition,  vars);
+            self.validateCondition(
+                statement.condition, "If statement",  vars);
+            self.validateBlock(statement.then_block,  vars);
+            if (statement.else_block != null) {
+                self.validateStmt(statement.else_block,  vars);
+            }
+        } else if (statement.kind == NK_ELSE_BLOCK) {
+            self.validateBlock(statement.body_node,  vars);
+        } else if (statement.kind == NK_ELSE_IF) {
+            self.validateStmt(statement.if_stmt,  vars);
+        } else if (statement.kind == NK_WHILE_STMT
+                || statement.kind == NK_DO_WHILE_STMT) {
+            self.validateLoop(statement,  vars);
+        } else if (statement.kind == NK_FOR_IN_STMT
+                || statement.kind == NK_PARALLEL_FOR_STMT) {
+            self.validateForIn(statement,  vars);
+        } else if (statement.kind == NK_C_FOR_STMT) {
+            self.validateCFor(statement,  vars);
+        } else if (statement.kind == NK_SWITCH_STMT) {
+            self.validateSwitch(statement,  vars);
+        } else if (statement.kind == NK_TRY_CATCH_STMT) {
+            self.validateTry(statement,  vars);
+        } else if (statement.kind == NK_DELETE_STMT
+                || statement.kind == NK_KEEP_STMT
+                || statement.kind == NK_RELEASE_STMT) {
+            self.ownership.validateOwnership(statement,  vars);
+        } else if (statement.kind == NK_THROW_STMT) {
+            self.expressions.validateExpr(statement.expr,  vars);
+            self.rejectThreadObservation(statement.expr,  vars);
+        } else if (statement.kind == NK_BREAK_STMT) {
+            if (self.state.breakDepth == 0) {
+                TypeValidator.fail("'break' statement outside of loop or switch",
+                    statement);
+            }
+        } else if (statement.kind == NK_CONTINUE_STMT) {
+            if (self.state.loopDepth == 0) {
+                TypeValidator.fail("'continue' statement outside of loop",
+                    statement);
+            }
+        } else if (statement.kind == NK_BLOCK) {
+            self.validateBlock(statement,  vars);
+        }
+    }
+}

@@ -1,0 +1,2481 @@
+/* Stage 2 — recursive-descent parser (fat-node AST).
+ *
+ * Builds Node trees whose canon() reproduces the Python parser's AST
+ * (verified via tools.compiler_codegen.main verify-ast). Node positions come from
+ * the same tokens the Python parser uses. Faithful port of the cohesive
+ * src/compiler/python/parser/parser.py owner.
+ *
+ * FIELD-ASSIGN DOUBLE-EVAL: `node.field = self.parseX()` evaluates parseX()
+ * TWICE under btrc's ARC field-assign keep. Every such site hoists to a local
+ * first: `Node v = self.parseX(); node.field = v;`.
+ */
+
+import std.vector;
+import ../generated/ast/node.btrc;
+import ../syntax/grammar.btrc;
+import ../syntax/literals.btrc;
+import ../syntax/tokens.btrc;
+import ../lexer/lexer.btrc;
+
+class Parser {
+    public Vector<Token> tokens;
+    public int pos;
+    public GrammarInfo grammar;
+    public bool failed;
+    public string diagnostic;
+
+    public Parser(Vector<Token> tokens, GrammarInfo grammar) {
+        self.tokens = tokens;
+        self.pos = 0;
+        self.grammar = grammar;
+        self.failed = false;
+        self.diagnostic = "";
+    }
+
+    /* ---- Token helpers ---- */
+
+    public Token peekAt(int offset) {
+        int p = self.pos + offset;
+        if (p < self.tokens.len) {
+            return self.tokens.get(p);
+        }
+        return self.tokens.get(self.tokens.len - 1);  // EOF
+    }
+
+    public Token peek() {
+        return self.peekAt(0);
+    }
+
+    public bool check(string ty) {
+        return self.peek().type == ty;
+    }
+
+
+    public bool atEnd() {
+        return self.peek().type == "EOF";
+    }
+
+    public Token advance() {
+        Token t = self.peek();
+        if (self.pos < self.tokens.len - 1) {
+            self.pos = self.pos + 1;
+        }
+        return t;
+    }
+
+    public Token expect(string ty) {
+        Token tok = self.peek();
+        if (tok.type == ty) {
+            return self.advance();
+        }
+        self.failExpected(ty, tok);
+        return tok;
+    }
+
+    /* Record only the first parser failure, then move to EOF so every nested
+     * parse loop unwinds without manufacturing more AST from bad input. The
+     * driver owns presentation and exit status; token helpers never terminate
+     * the process. */
+    public void failExpected(string expected, Token actual) {
+        if (self.failed) { return; }
+        self.failed = true;
+        string message = f"Expected {expected}, got {actual.type} {actual.valueRepr()} at {actual.line}:{actual.col}";
+        self.diagnostic = message;
+        self.pos = self.tokens.len - 1;
+    }
+
+    public void failAt(string message, Token actual) {
+        if (self.failed) { return; }
+        self.failed = true;
+        self.diagnostic = message + f" at {actual.line}:{actual.col}";
+        self.pos = self.tokens.len - 1;
+    }
+
+    public bool matchTok(string ty) {
+        if (self.peek().type == ty) {
+            self.advance();
+            return true;
+        }
+        return false;
+    }
+
+    /* expect a '>' — handles splitting '>>' and '>>=' tokens. */
+    public Token expectGt() {
+        Token tok = self.peek();
+        if (tok.type == "GT") {
+            return self.advance();
+        }
+        if (tok.type == "GT_GT") {
+            self.advance();
+            Token synth = Token("GT", ">", tok.line, tok.col + 1);
+            self.tokens.insert(self.pos, synth);
+            return Token("GT", ">", tok.line, tok.col);
+        }
+        if (tok.type == "GT_EQ") {
+            self.advance();
+            Token synthEq = Token("EQ", "=", tok.line, tok.col + 1);
+            self.tokens.insert(self.pos, synthEq);
+            return Token("GT", ">", tok.line, tok.col);
+        }
+        if (tok.type == "GT_GT_EQ") {
+            self.advance();
+            Token synth2 = Token("GT_EQ", ">=", tok.line, tok.col + 1);
+            self.tokens.insert(self.pos, synth2);
+            return Token("GT", ">", tok.line, tok.col);
+        }
+        self.failExpected("'>'", tok);
+        return tok;
+    }
+
+    public bool isTypeKeyword(string t) {
+        return t == "VOID" || t == "INT" || t == "FLOAT" || t == "DOUBLE"
+            || t == "CHAR" || t == "SHORT" || t == "LONG" || t == "UNSIGNED"
+            || t == "SIGNED" || t == "STRING" || t == "BOOL"
+            || t == "STRUCT" || t == "ENUM" || t == "UNION"
+            || t == "CONST" || t == "STATIC" || t == "EXTERN" || t == "VOLATILE";
+    }
+
+    /* ---- Top level ---- */
+
+    public Node parseProgram() {
+        Node prog = Node();
+        prog.kind = NK_PROGRAM;
+        while (!self.atEnd() && !self.failed) {
+            Node d = self.parseTopLevelItem();
+            if (!self.failed) {
+                prog.declarations.push(d);
+            }
+        }
+        return prog;
+    }
+
+    public Node parseTopLevelItem() {
+        Token tok = self.peek();
+
+        if (tok.type == "PREPROCESSOR") {
+            return self.parsePreprocessor();
+        }
+
+        if (tok.type == "IMPORT") {
+            return self.parseImportDecl();
+        }
+
+        bool is_gpu = false;
+        bool keep_return = false;
+        if (tok.type == "AT_GPU") {
+            is_gpu = true;
+            self.advance();
+            tok = self.peek();
+        }
+        if (tok.type == "KEEP") {
+            keep_return = true;
+            self.advance();
+            tok = self.peek();
+        }
+
+        if (tok.type == "INTERFACE" && !is_gpu && !keep_return) {
+            return self.parseInterfaceDecl();
+        }
+
+        if (tok.type == "ABSTRACT" && !is_gpu && !keep_return) {
+            if (self.peekAt(1).type == "CLASS") {
+                return self.parseClassDecl(true);
+            }
+        }
+
+        if (tok.type == "CLASS" && !is_gpu && !keep_return) {
+            if (self.peekAt(1).type == "IDENT") {
+                string after = self.peekAt(2).type;
+                if (after == "LBRACE" || after == "LT" || after == "EXTENDS" || after == "IMPLEMENTS") {
+                    return self.parseClassDecl(false);
+                }
+            }
+        }
+
+        if (tok.type == "STRUCT" && !is_gpu && !keep_return) {
+            string nt = self.peekAt(1).type;
+            if (nt == "IDENT") {
+                string after2 = self.peekAt(2).type;
+                if (after2 == "LBRACE" || after2 == "SEMICOLON") {
+                    return self.parseStructDecl();
+                }
+            } else if (nt == "LBRACE") {
+                return self.parseStructDecl();
+            }
+        }
+
+        if (tok.type == "ENUM" && !is_gpu && !keep_return) {
+            if (self.peekAt(1).type == "CLASS") {
+                return self.parseRichEnumDecl();
+            }
+            return self.parseEnumDecl();
+        }
+
+        if (tok.type == "TYPEDEF" && !is_gpu && !keep_return) {
+            return self.parseTypedefDecl();
+        }
+
+        if (self.isTypeStartTok(tok)) {
+            return self.parseFunctionOrVarDecl(is_gpu, keep_return);
+        }
+
+        // Fallback: treat as function/var.
+        return self.parseFunctionOrVarDecl(is_gpu, keep_return);
+    }
+
+    /* ---- Import declaration ---- */
+
+    public Node parseImportDecl() {
+        Token tok = self.expect("IMPORT");
+        Node spec = self.parseImportSpec();
+        self.matchTok("SEMICOLON");
+        Node n = Node();
+        n.kind = NK_IMPORT_DECL;
+        n.spec = spec;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public Node parseImportSpec() {
+        if (self.check("PATH_SPEC")) {
+            Node n = Node();
+            n.kind = NK_RELATIVE_PATH;
+            n.path = self.advance().value;
+            return n;
+        }
+        if (self.check("STRING_LIT")) {
+            string raw = self.advance().value;
+            int rn = raw.length();
+            if (rn >= 2) {
+                char q = raw[0];
+                if ((q == '"' || q == '\'') && raw[rn - 1] == q) {
+                    raw = raw.substring(1, rn - 2);
+                }
+            }
+            Node n = Node();
+            n.kind = NK_QUOTED_PATH;
+            n.path = raw;
+            return n;
+        }
+        Token ident = self.expect("IDENT");
+        if (ident.value == "std" && self.check("DOT")) {
+            self.advance();
+            return self.parseStdSpec();
+        }
+        Node n = Node();
+        n.kind = NK_PACKAGE_PATH;
+        n.segments.push(ident.value);
+        while (self.matchTok("DOT")) {
+            n.segments.push(self.expect("IDENT").value);
+        }
+        return n;
+    }
+
+    public Node parseStdSpec() {
+        if (self.check("STAR")) {
+            self.advance();
+            bool recursive = self.matchTok("STAR");
+            Node n = Node();
+            n.kind = NK_STD_GLOB;
+            n.recursive = recursive;
+            return n;
+        }
+        if (self.matchTok("LBRACE")) {
+            Node n = Node();
+            n.kind = NK_STD_MODULES;
+            n.names.push(self.expect("IDENT").value);
+            while (self.matchTok("COMMA")) {
+                if (self.check("RBRACE")) { break; }
+                n.names.push(self.expect("IDENT").value);
+            }
+            self.expect("RBRACE");
+            return n;
+        }
+        Node n = Node();
+        n.kind = NK_STD_MODULES;
+        n.names.push(self.expect("IDENT").value);
+        return n;
+    }
+
+    /* ---- Class declaration ---- */
+
+    public Node parseClassDecl(bool is_abstract) {
+        if (is_abstract) {
+            self.expect("ABSTRACT");
+        }
+        Token tok = self.expect("CLASS");
+        Token nameTok = self.expect("IDENT");
+        Node n = Node();
+        n.kind = NK_CLASS_DECL;
+        n.name = nameTok.value;
+        n.is_abstract = is_abstract;
+        n.line = tok.line;
+        n.col = tok.col;
+        n.name_line = nameTok.line;
+        n.name_col = nameTok.col;
+
+        if (self.matchTok("LT")) {
+            n.generic_params.push(self.expect("IDENT").value);
+            while (self.matchTok("COMMA")) {
+                n.generic_params.push(self.expect("IDENT").value);
+            }
+            self.expectGt();
+        }
+
+        if (self.matchTok("EXTENDS")) {
+            n.parent = self.expect("IDENT").value;
+        }
+
+        if (self.matchTok("IMPLEMENTS")) {
+            n.interfaces.push(self.expect("IDENT").value);
+            while (self.matchTok("COMMA")) {
+                n.interfaces.push(self.expect("IDENT").value);
+            }
+        }
+
+        self.expect("LBRACE");
+        while (!self.check("RBRACE") && !self.atEnd()) {
+            Node m = self.parseClassMember(is_abstract);
+            n.members.push(m);
+        }
+        self.expect("RBRACE");
+        return n;
+    }
+
+    public Node parseClassMember(bool allow_abstract) {
+        Token tok = self.peek();
+        string access = "";
+        if (tok.type == "PUBLIC") {
+            access = "public";
+            self.advance();
+        } else if (tok.type == "PRIVATE") {
+            access = "private";
+            self.advance();
+        } else if (tok.type == "CLASS" || tok.type == "STATIC") {
+            access = "class";
+            self.advance();
+        }
+
+        bool is_abstract_method = false;
+        if (allow_abstract && self.check("ABSTRACT")) {
+            is_abstract_method = true;
+            self.advance();
+        }
+
+        bool is_gpu = false;
+        if (self.check("AT_GPU")) {
+            is_gpu = true;
+            self.advance();
+        }
+
+        bool keep_return = false;
+        if (self.check("KEEP")) {
+            keep_return = true;
+            self.advance();
+        }
+
+        Node type_expr = self.parseType();
+
+        // Constructor: next is '(' -> the "type" is the name.
+        if (self.check("LPAREN")) {
+            Node constructor = self.parseMethodRest(
+                access, type_expr, type_expr.base, is_gpu,
+                tok.line, tok.col, type_expr.line, type_expr.col,
+                is_abstract_method, keep_return);
+            constructor.is_constructor = true;
+            return constructor;
+        }
+
+        Token nameTok = self.expect("IDENT");
+        string name = nameTok.value;
+
+        if (self.check("LT") || self.check("LPAREN")) {
+            return self.parseMethodRest(access, type_expr, name, is_gpu,
+                                        tok.line, tok.col,
+                                        nameTok.line, nameTok.col,
+                                        is_abstract_method, keep_return);
+        }
+        self.parseDeclaratorArraySuffix(type_expr);
+        if (self.check("LBRACE") && self.isPropertyStart()) {
+            return self.parseProperty(access, type_expr, name, tok.line, tok.col,
+                                      nameTok.line, nameTok.col);
+        } else {
+            Node fd = Node();
+            fd.kind = NK_FIELD_DECL;
+            fd.access = access;
+            fd.type = type_expr;
+            fd.name = name;
+            fd.line = tok.line;
+            fd.col = tok.col;
+            fd.name_line = nameTok.line;
+            fd.name_col = nameTok.col;
+            if (self.matchTok("EQ")) {
+                Node init = self.parseExpression();
+                fd.initializer = init;
+            }
+            self.expect("SEMICOLON");
+            return fd;
+        }
+    }
+
+    public Node parseMethodRest(string access, Node return_type, string name,
+                                bool is_gpu, int line, int col,
+                                int name_line, int name_col,
+                                bool is_abstract, bool keep_return) {
+        Node n = Node();
+        n.kind = NK_METHOD_DECL;
+        n.access = access;
+        n.return_type = return_type;
+        n.name = name;
+        n.is_gpu = is_gpu;
+        n.is_abstract = is_abstract;
+        n.keep_return = keep_return;
+        n.line = line;
+        n.col = col;
+        n.name_line = name_line;
+        n.name_col = name_col;
+
+        if (self.matchTok("LT")) {
+            n.generic_params.push(self.expect("IDENT").value);
+            while (self.matchTok("COMMA")) {
+                n.generic_params.push(self.expect("IDENT").value);
+            }
+            self.expectGt();
+        }
+        self.expect("LPAREN");
+        Vector<Node> params = self.parseParamList();
+        self.expect("RPAREN");
+        n.params = params;
+        if (is_abstract) {
+            self.expect("SEMICOLON");
+            n.body_node = null;
+        } else {
+            Node body = self.parseBlock();
+            n.body_node = body;
+        }
+        return n;
+    }
+
+    public bool isPropertyStart() {
+        int save = self.pos;
+        self.pos = self.pos + 1;
+        Token tok = self.peek();
+        bool result = tok.type == "IDENT" && (tok.value == "get" || tok.value == "set");
+        self.pos = save;
+        return result;
+    }
+
+    public Node parseProperty(string access, Node type_expr, string name,
+                              int line, int col, int name_line, int name_col) {
+        self.expect("LBRACE");
+        Node n = Node();
+        n.kind = NK_PROPERTY_DECL;
+        n.access = access;
+        n.type = type_expr;
+        n.name = name;
+        n.line = line;
+        n.col = col;
+        n.name_line = name_line;
+        n.name_col = name_col;
+        while (!self.check("RBRACE") && !self.atEnd()) {
+            Token tok = self.peek();
+            if (tok.type == "IDENT" && tok.value == "get") {
+                if (n.has_getter) {
+                    self.failAt("Duplicate property getter", tok);
+                    return n;
+                }
+                self.advance();
+                n.has_getter = true;
+                if (self.matchTok("SEMICOLON")) {
+                    n.getter_body = null;
+                } else if (self.check("LBRACE")) {
+                    Node gb = self.parseBlock();
+                    n.getter_body = gb;
+                }
+            } else if (tok.type == "IDENT" && tok.value == "set") {
+                if (n.has_setter) {
+                    self.failAt("Duplicate property setter", tok);
+                    return n;
+                }
+                self.advance();
+                n.has_setter = true;
+                if (self.matchTok("SEMICOLON")) {
+                    n.setter_body = null;
+                } else if (self.check("LBRACE")) {
+                    Node sb = self.parseBlock();
+                    n.setter_body = sb;
+                }
+            } else {
+                self.advance();
+            }
+        }
+        self.expect("RBRACE");
+        return n;
+    }
+
+    /* ---- Struct declaration ---- */
+
+    public Node parseStructDecl() {
+        Token tok = self.expect("STRUCT");
+        Node n = Node();
+        n.kind = NK_STRUCT_DECL;
+        n.name = "";
+        n.line = tok.line;
+        n.col = tok.col;
+        n.name_line = tok.line;
+        n.name_col = tok.col;
+        if (self.check("IDENT")) {
+            Token nameTok = self.advance();
+            n.name = nameTok.value;
+            n.name_line = nameTok.line;
+            n.name_col = nameTok.col;
+        }
+        if (self.matchTok("LBRACE")) {
+            n.is_forward = false;
+            while (!self.check("RBRACE") && !self.atEnd()) {
+                Node fdef = self.parseStructField();
+                n.fields.push(fdef);
+            }
+            self.expect("RBRACE");
+            self.expect("SEMICOLON");
+        } else {
+            n.is_forward = true;
+            self.expect("SEMICOLON");
+        }
+        return n;
+    }
+
+    public Node parseStructField() {
+        Node ftype = self.parseType();
+        Token fnameTok = self.expect("IDENT");
+        self.parseDeclaratorArraySuffix(ftype);
+        Node fd = Node();
+        fd.kind = NK_FIELD_DEF;
+        fd.type = ftype;
+        fd.name = fnameTok.value;
+        fd.line = fnameTok.line;
+        fd.col = fnameTok.col;
+        self.expect("SEMICOLON");
+        return fd;
+    }
+
+    /* ---- Interface declaration ---- */
+
+    public Node parseInterfaceDecl() {
+        Token tok = self.expect("INTERFACE");
+        Token nameTok = self.expect("IDENT");
+        Node n = Node();
+        n.kind = NK_INTERFACE_DECL;
+        n.name = nameTok.value;
+        n.line = tok.line;
+        n.col = tok.col;
+        n.name_line = nameTok.line;
+        n.name_col = nameTok.col;
+
+        if (self.matchTok("LT")) {
+            n.generic_params.push(self.expect("IDENT").value);
+            while (self.matchTok("COMMA")) {
+                n.generic_params.push(self.expect("IDENT").value);
+            }
+            self.expectGt();
+        }
+
+        if (self.matchTok("EXTENDS")) {
+            n.parent = self.expect("IDENT").value;
+        }
+        self.expect("LBRACE");
+        while (!self.check("RBRACE") && !self.atEnd()) {
+            Node sig = self.parseMethodSig();
+            n.methods.push(sig);
+        }
+        self.expect("RBRACE");
+        return n;
+    }
+
+    public Node parseMethodSig() {
+        bool sig_keep = false;
+        if (self.check("KEEP")) {
+            sig_keep = true;
+            self.advance();
+        }
+        Node ret_type = self.parseType();
+        Token mnameTok = self.expect("IDENT");
+        self.expect("LPAREN");
+        Vector<Node> params = self.parseParamList();
+        self.expect("RPAREN");
+        self.expect("SEMICOLON");
+        Node n = Node();
+        n.kind = NK_METHOD_SIG;
+        n.return_type = ret_type;
+        n.name = mnameTok.value;
+        n.params = params;
+        n.keep_return = sig_keep;
+        n.line = ret_type.line;
+        n.col = ret_type.col;
+        n.name_line = mnameTok.line;
+        n.name_col = mnameTok.col;
+        return n;
+    }
+
+    /* ---- Enum declaration ---- */
+
+    public Node parseEnumDecl() {
+        Token tok = self.expect("ENUM");
+        Node n = Node();
+        n.kind = NK_ENUM_DECL;
+        n.name = "";
+        n.line = tok.line;
+        n.col = tok.col;
+        n.name_line = tok.line;
+        n.name_col = tok.col;
+        if (self.check("IDENT")) {
+            Token nameTok = self.advance();
+            n.name = nameTok.value;
+            n.name_line = nameTok.line;
+            n.name_col = nameTok.col;
+        }
+        self.expect("LBRACE");
+        while (!self.check("RBRACE") && !self.atEnd()) {
+            Node ev = self.parseEnumValue();
+            n.values.push(ev);
+            if (!self.matchTok("COMMA")) { break; }
+        }
+        self.expect("RBRACE");
+        self.expect("SEMICOLON");
+        return n;
+    }
+
+    public Node parseEnumValue() {
+        Token vnameTok = self.expect("IDENT");
+        Node ev = Node();
+        ev.kind = NK_ENUM_VALUE;
+        ev.name = vnameTok.value;
+        ev.line = vnameTok.line;
+        ev.col = vnameTok.col;
+        if (self.matchTok("EQ")) {
+            Node v = self.parseExpression();
+            ev.value_node = v;
+        }
+        return ev;
+    }
+
+    public Node parseRichEnumDecl() {
+        Token tok = self.expect("ENUM");
+        self.expect("CLASS");
+        Token nameTok = self.expect("IDENT");
+        Node n = Node();
+        n.kind = NK_RICH_ENUM_DECL;
+        n.name = nameTok.value;
+        n.line = tok.line;
+        n.col = tok.col;
+        n.name_line = nameTok.line;
+        n.name_col = nameTok.col;
+        self.expect("LBRACE");
+        while (!self.check("RBRACE") && !self.atEnd()) {
+            Node v = self.parseRichEnumVariant();
+            n.variants.push(v);
+            if (!self.matchTok("COMMA")) { break; }
+        }
+        self.expect("RBRACE");
+        return n;
+    }
+
+    public Node parseRichEnumVariant() {
+        Token vnameTok = self.expect("IDENT");
+        Node v = Node();
+        v.kind = NK_RICH_ENUM_VARIANT;
+        v.name = vnameTok.value;
+        v.line = vnameTok.line;
+        v.col = vnameTok.col;
+        if (self.matchTok("LPAREN")) {
+            if (!self.check("RPAREN")) {
+                Vector<Node> params = self.parseParamList();
+                v.params = params;
+            }
+            self.expect("RPAREN");
+        }
+        return v;
+    }
+
+    /* ---- Typedef declaration ---- */
+
+    public Node parseTypedefDecl() {
+        Token tok = self.expect("TYPEDEF");
+        Node original = self.parseType();
+        Token aliasTok = self.expect("IDENT");
+        self.expect("SEMICOLON");
+        Node n = Node();
+        n.kind = NK_TYPEDEF_DECL;
+        n.original = original;
+        n.alias = aliasTok.value;
+        n.line = tok.line;
+        n.col = tok.col;
+        n.name_line = aliasTok.line;
+        n.name_col = aliasTok.col;
+        return n;
+    }
+
+    public Node parsePreprocessor() {
+        Token tok = self.advance();
+        Node n = Node();
+        n.kind = NK_PREPROCESSOR_DIRECTIVE;
+        n.text = tok.value;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public Node parseFunctionOrVarDecl(bool is_gpu, bool keep_return) {
+        Token start = self.peek();
+
+        if (self.check("VAR")) {
+            self.advance();
+            Token nameTok = self.expect("IDENT");
+            self.expect("EQ");
+            Node init = self.parseExpression();
+            self.expect("SEMICOLON");
+            Node vd = Node();
+            vd.kind = NK_VAR_DECL_STMT;
+            vd.type = null;
+            vd.name = nameTok.value;
+            vd.initializer = init;
+            vd.line = start.line;
+            vd.col = start.col;
+            vd.name_line = nameTok.line;
+            vd.name_col = nameTok.col;
+            return vd;
+        }
+
+        Node type_expr = self.parseType();
+        Token nameTok = self.expect("IDENT");
+        string name = nameTok.value;
+        self.parseDeclaratorArraySuffix(type_expr);
+
+        if (self.check("LPAREN")) {
+            self.expect("LPAREN");
+            Vector<Node> params = self.parseParamList();
+            self.expect("RPAREN");
+            Node fn = Node();
+            fn.kind = NK_FUNCTION_DECL;
+            fn.return_type = type_expr;
+            fn.name = name;
+            fn.params = params;
+            fn.is_gpu = is_gpu;
+            fn.keep_return = keep_return;
+            fn.line = start.line;
+            fn.col = start.col;
+            fn.name_line = nameTok.line;
+            fn.name_col = nameTok.col;
+            if (self.matchTok("SEMICOLON")) {
+                fn.body_node = null;
+                return fn;
+            }
+            Node body = self.parseBlock();
+            fn.body_node = body;
+            return fn;
+        } else {
+            Node vd = Node();
+            vd.kind = NK_VAR_DECL_STMT;
+            vd.type = type_expr;
+            vd.name = name;
+            vd.line = start.line;
+            vd.col = start.col;
+            vd.name_line = nameTok.line;
+            vd.name_col = nameTok.col;
+            if (self.matchTok("EQ")) {
+                Node init = self.parseExpression();
+                vd.initializer = init;
+            }
+            self.expect("SEMICOLON");
+            return vd;
+        }
+    }
+
+    /* ---- Types ---- */
+
+    public bool isTypeStartTok(Token tok) {
+        if (tok.type == "VAR") { return true; }
+        if (self.isTypeKeyword(tok.type)) { return true; }
+        if (tok.type == "IDENT") { return true; }
+        if (tok.type == "LPAREN") { return self.isTupleTypeStart(); }
+        return false;
+    }
+
+    public string tokenTypeAt(int p) {
+        if (p < 0 || p >= self.tokens.len) { return "EOF"; }
+        return self.tokens.get(p).type;
+    }
+
+    public bool isTypeQualifier(string tt) {
+        return tt == "CONST" || tt == "STATIC"
+            || tt == "EXTERN" || tt == "VOLATILE";
+    }
+
+    public bool isSimpleTypeBase(string tt) {
+        return tt == "VOID" || tt == "INT" || tt == "FLOAT"
+            || tt == "DOUBLE" || tt == "CHAR" || tt == "BOOL"
+            || tt == "STRING" || tt == "IDENT";
+    }
+
+    public bool isGenericFollow(string tt) {
+        return tt == "IDENT" || tt == "STAR" || tt == "LPAREN"
+            || tt == "RPAREN" || tt == "LBRACKET" || tt == "RBRACKET"
+            || tt == "COMMA" || tt == "GT" || tt == "GT_GT"
+            || tt == "SEMICOLON" || tt == "LBRACE" || tt == "EQ"
+            || tt == "QUESTION" || tt == "FUNCTION" || tt == "EOF";
+    }
+
+    /* Return the position after a balanced <...> group, or -1. */
+    public int scanAngleGroup(int p) {
+        if (self.tokenTypeAt(p) != "LT") { return -1; }
+        int depth = 1;
+        p = p + 1;
+        while (p < self.tokens.len) {
+            string tt = self.tokenTypeAt(p);
+            if (tt == "LT") { depth = depth + 1; }
+            else if (tt == "GT") { depth = depth - 1; }
+            else if (tt == "GT_GT") { depth = depth - 2; }
+            else if (tt == "SEMICOLON" || tt == "LBRACE"
+                     || tt == "RBRACE" || tt == "EOF") {
+                return -1;
+            }
+            p = p + 1;
+            if (depth <= 0) { return p; }
+        }
+        return -1;
+    }
+
+    public bool isGenericStartAt(int p) {
+        int end = self.scanAngleGroup(p);
+        return end >= 0 && self.isGenericFollow(self.tokenTypeAt(end));
+    }
+
+    /* Return the position after a C-compatible integer base, or -1. */
+    public int scanIntegerBase(int p) {
+        string tt = self.tokenTypeAt(p);
+        if (tt == "UNSIGNED" || tt == "SIGNED") {
+            p = p + 1;
+            tt = self.tokenTypeAt(p);
+            if (tt == "INT" || tt == "CHAR") { return p + 1; }
+            if (tt == "SHORT") {
+                p = p + 1;
+                if (self.tokenTypeAt(p) == "INT") { return p + 1; }
+                return p;
+            }
+            if (tt == "LONG") {
+                p = p + 1;
+                if (self.tokenTypeAt(p) == "LONG") { p = p + 1; }
+                if (self.tokenTypeAt(p) == "INT") { return p + 1; }
+                return p;
+            }
+            return p;
+        }
+        if (tt == "SHORT") {
+            p = p + 1;
+            if (self.tokenTypeAt(p) == "INT") { return p + 1; }
+            return p;
+        }
+        if (tt == "LONG") {
+            p = p + 1;
+            if (self.tokenTypeAt(p) == "DOUBLE") { return p + 1; }
+            if (self.tokenTypeAt(p) == "LONG") { p = p + 1; }
+            if (self.tokenTypeAt(p) == "INT") { return p + 1; }
+            return p;
+        }
+        return -1;
+    }
+
+    public int scanTupleType(int p) {
+        if (self.tokenTypeAt(p) != "LPAREN") { return -1; }
+        p = self.scanTypeEnd(p + 1);
+        if (p < 0 || self.tokenTypeAt(p) != "COMMA") { return -1; }
+        while (self.tokenTypeAt(p) == "COMMA") {
+            p = self.scanTypeEnd(p + 1);
+            if (p < 0) { return -1; }
+        }
+        if (self.tokenTypeAt(p) != "RPAREN") { return -1; }
+        return p + 1;
+    }
+
+    /* Non-mutating recognizer shared by declarations, casts, and lambdas. */
+    public int scanTypeEnd(int p) {
+        while (self.isTypeQualifier(self.tokenTypeAt(p))) { p = p + 1; }
+
+        int base_end = self.scanIntegerBase(p);
+        if (base_end >= 0) {
+            p = base_end;
+        } else if (self.tokenTypeAt(p) == "STRUCT"
+                   || self.tokenTypeAt(p) == "ENUM"
+                   || self.tokenTypeAt(p) == "UNION") {
+            if (self.tokenTypeAt(p + 1) != "IDENT") { return -1; }
+            p = p + 2;
+        } else if (self.isSimpleTypeBase(self.tokenTypeAt(p))) {
+            p = p + 1;
+        } else if (self.tokenTypeAt(p) == "LPAREN") {
+            int tuple_end = self.scanTupleType(p);
+            if (tuple_end < 0) { return -1; }
+            p = tuple_end;
+        } else {
+            return -1;
+        }
+
+        if (self.tokenTypeAt(p) == "LT" && self.isGenericStartAt(p)) {
+            p = self.scanAngleGroup(p);
+        }
+        if (self.tokenTypeAt(p) == "LBRACKET"
+            && self.tokenTypeAt(p + 1) == "RBRACKET") {
+            p = p + 2;
+        }
+        while (self.tokenTypeAt(p) == "STAR") { p = p + 1; }
+        if (self.tokenTypeAt(p) == "QUESTION") { p = p + 1; }
+        return p;
+    }
+
+    public Node parseType() {
+        Token tok = self.peek();
+        int line = tok.line;
+        int col = tok.col;
+
+        bool has_const = false;
+        bool has_static = false;
+        bool has_extern = false;
+        bool has_volatile = false;
+        while (self.check("CONST") || self.check("STATIC") || self.check("EXTERN") || self.check("VOLATILE")) {
+            string qt = self.peek().type;
+            if (qt == "CONST") { has_const = true; }
+            else if (qt == "STATIC") { has_static = true; }
+            else if (qt == "EXTERN") { has_extern = true; }
+            else if (qt == "VOLATILE") { has_volatile = true; }
+            self.advance();
+        }
+
+        string base = "";
+        Vector<Node> generic_args = [];
+
+        if (self.check("UNSIGNED") || self.check("SIGNED")) {
+            base = self.advance().value;
+            if (self.check("INT") || self.check("CHAR")) {
+                base = base + " " + self.advance().value;
+            } else if (self.check("SHORT")) {
+                base = base + " " + self.advance().value;
+                if (self.check("INT")) {
+                    base = base + " " + self.advance().value;
+                }
+            } else if (self.check("LONG")) {
+                base = base + " " + self.advance().value;
+                if (self.check("LONG")) {
+                    base = base + " " + self.advance().value;
+                }
+                if (self.check("INT")) {
+                    base = base + " " + self.advance().value;
+                }
+            }
+        } else if (self.check("LONG")) {
+            base = self.advance().value;
+            if (self.check("LONG")) {
+                base = base + " " + self.advance().value;
+                if (self.check("INT")) {
+                    base = base + " " + self.advance().value;
+                }
+            } else if (self.check("INT") || self.check("DOUBLE")) {
+                base = base + " " + self.advance().value;
+            }
+        } else if (self.check("SHORT")) {
+            base = self.advance().value;
+            if (self.check("INT")) {
+                base = base + " " + self.advance().value;
+            }
+        } else if (self.check("STRUCT")) {
+            self.advance();
+            Token idt = self.expect("IDENT");
+            base = "struct " + idt.value;
+        } else if (self.check("ENUM")) {
+            self.advance();
+            Token idt2 = self.expect("IDENT");
+            base = "enum " + idt2.value;
+        } else if (self.check("UNION")) {
+            self.advance();
+            Token idt3 = self.expect("IDENT");
+            base = "union " + idt3.value;
+        } else if (self.check("LPAREN")) {
+            self.expect("LPAREN");
+            base = "Tuple";
+            Node t0 = self.parseType();
+            generic_args.push(t0);
+            self.expect("COMMA");
+            Node t1 = self.parseType();
+            generic_args.push(t1);
+            while (self.matchTok("COMMA")) {
+                Node tN = self.parseType();
+                generic_args.push(tN);
+            }
+            self.expect("RPAREN");
+        } else {
+            Token baseTok = self.advance();
+            base = baseTok.value;
+        }
+
+        Node ty = Node();
+        ty.kind = NK_TYPE_EXPR;
+        ty.base = base;
+        ty.line = line;
+        ty.col = col;
+        ty.is_const = has_const;
+        ty.is_static = has_static;
+        ty.is_extern = has_extern;
+        ty.is_volatile = has_volatile;
+        ty.generic_args = generic_args;
+
+        // Generic arguments
+        if (self.check("LT") && self.isGenericStart()) {
+            self.advance();
+            Node g0 = self.parseType();
+            ty.generic_args.push(g0);
+            while (self.matchTok("COMMA")) {
+                Node gN = self.parseType();
+                ty.generic_args.push(gN);
+            }
+            self.expectGt();
+        }
+
+        // Array suffix []
+        if (self.check("LBRACKET") && self.peekAt(1).type == "RBRACKET") {
+            self.advance();
+            self.advance();
+            ty.is_array = true;
+        }
+
+        // Pointers
+        int pd = 0;
+        while (self.matchTok("STAR")) {
+            pd = pd + 1;
+        }
+
+        // Nullable
+        if (self.matchTok("QUESTION")) {
+            pd = pd + 1;
+            ty.is_nullable = true;
+        }
+        ty.pointer_depth = pd;
+        return ty;
+    }
+
+    public bool isTupleTypeStart() {
+        return self.scanTupleType(self.pos) >= 0;
+    }
+
+    public bool isGenericStart() {
+        return self.isGenericStartAt(self.pos);
+    }
+
+    public void parseDeclaratorArraySuffix(Node type_expr) {
+        if (!self.check("LBRACKET")) { return; }
+        if (type_expr.is_array) {
+            self.failExpected("one array dimension (AST/IR cannot represent another)", self.peek());
+            return;
+        }
+        self.advance();
+        if (self.check("RBRACKET")) {
+            self.advance();
+        } else {
+            Node size_expr = self.parseExpression();
+            self.expect("RBRACKET");
+            type_expr.array_size = size_expr;
+        }
+        type_expr.is_array = true;
+        if (type_expr.is_nullable) {
+            type_expr.nullable_outer_depth =
+                type_expr.nullable_outer_depth + 1;
+        }
+        if (self.check("LBRACKET")) {
+            self.failExpected("one array dimension (AST/IR cannot represent another)", self.peek());
+        }
+    }
+
+    /* ---- Parameters ---- */
+
+    public Vector<Node> parseParamList() {
+        Vector<Node> params = [];
+        if (self.check("RPAREN")) { return params; }
+        Node p0 = self.parseParam();
+        params.push(p0);
+        while (self.matchTok("COMMA")) {
+            Node pN = self.parseParam();
+            params.push(pN);
+        }
+        return params;
+    }
+
+    public Node parseParam() {
+        Token tok = self.peek();
+        bool has_keep = false;
+        if (self.check("KEEP")) {
+            has_keep = true;
+            self.advance();
+        }
+        Node type_expr = self.parseType();
+        Token nameTok = self.expect("IDENT");
+        Node p = Node();
+        p.kind = NK_PARAM;
+        p.type = type_expr;
+        p.name = nameTok.value;
+        p.keep_ = has_keep;
+        p.line = tok.line;
+        p.col = tok.col;
+        p.name_line = nameTok.line;
+        p.name_col = nameTok.col;
+        self.parseDeclaratorArraySuffix(type_expr);
+        if (self.matchTok("EQ")) {
+            Node def = self.parseExpression();
+            p.default_ = def;
+        }
+        return p;
+    }
+
+    /* ---- Statements ---- */
+
+    public Node parseBlock() {
+        Token lb = self.expect("LBRACE");
+        Node blk = Node();
+        blk.kind = NK_BLOCK;
+        blk.line = lb.line;
+        blk.col = lb.col;
+        while (!self.check("RBRACE") && !self.atEnd()) {
+            Node s = self.parseStatement();
+            blk.statements.push(s);
+        }
+        self.expect("RBRACE");
+        return blk;
+    }
+
+    public Node parseStatement() {
+        Token tok = self.peek();
+
+        if (tok.type == "LBRACE") { return self.parseBlock(); }
+        if (tok.type == "RETURN") { return self.parseReturnStmt(); }
+        if (tok.type == "IF") { return self.parseIfStmt(); }
+        if (tok.type == "WHILE") { return self.parseWhileStmt(); }
+        if (tok.type == "DO") { return self.parseDoWhileStmt(); }
+        if (tok.type == "FOR") { return self.parseForStmt(); }
+        if (tok.type == "PARALLEL") { return self.parseParallelForStmt(); }
+        if (tok.type == "SWITCH") { return self.parseSwitchStmt(); }
+        if (tok.type == "BREAK") {
+            self.advance();
+            self.expect("SEMICOLON");
+            Node n = Node();
+            n.kind = NK_BREAK_STMT;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tok.type == "CONTINUE") {
+            self.advance();
+            self.expect("SEMICOLON");
+            Node n = Node();
+            n.kind = NK_CONTINUE_STMT;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tok.type == "TRY") { return self.parseTryCatch(); }
+        if (tok.type == "THROW") { return self.parseThrow(); }
+        if (tok.type == "DELETE") {
+            self.advance();
+            Node e = self.parseExpression();
+            self.expect("SEMICOLON");
+            Node n = Node();
+            n.kind = NK_DELETE_STMT;
+            n.expr = e;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tok.type == "RELEASE") {
+            self.advance();
+            Node e = self.parseExpression();
+            self.expect("SEMICOLON");
+            Node n = Node();
+            n.kind = NK_RELEASE_STMT;
+            n.expr = e;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tok.type == "KEEP") {
+            self.advance();
+            Node e = self.parseExpression();
+            self.expect("SEMICOLON");
+            Node n = Node();
+            n.kind = NK_KEEP_STMT;
+            n.expr = e;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+
+        if (self.isVarDeclStart()) {
+            return self.parseVarDeclStmt();
+        }
+
+        return self.parseExprStmt();
+    }
+
+    public Node parseReturnStmt() {
+        Token tok = self.expect("RETURN");
+        Node r = Node();
+        r.kind = NK_RETURN_STMT;
+        r.line = tok.line;
+        r.col = tok.col;
+        if (!self.check("SEMICOLON")) {
+            Node v = self.parseExpression();
+            r.value_node = v;
+        }
+        self.expect("SEMICOLON");
+        return r;
+    }
+
+    public Node parseExprStmt() {
+        Token tok = self.peek();
+        Node e = self.parseExpression();
+        self.expect("SEMICOLON");
+        Node es = Node();
+        es.kind = NK_EXPR_STMT;
+        es.expr = e;
+        es.line = tok.line;
+        es.col = tok.col;
+        return es;
+    }
+
+    public Node parseThrow() {
+        Token tok = self.expect("THROW");
+        Node e = self.parseExpression();
+        self.expect("SEMICOLON");
+        Node n = Node();
+        n.kind = NK_THROW_STMT;
+        n.expr = e;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    /* ---- var-decl detection ---- */
+
+    public bool isVarDeclStart() {
+        if (self.check("VAR")) { return true; }
+        return self.lookaheadIsVarDecl();
+    }
+
+    public bool lookaheadIsVarDecl() {
+        int type_end = self.scanTypeEnd(self.pos);
+        if (type_end < 0 || self.tokenTypeAt(type_end) != "IDENT") {
+            return false;
+        }
+        string after_name = self.tokenTypeAt(type_end + 1);
+        return after_name == "EQ" || after_name == "SEMICOLON"
+            || after_name == "LBRACKET";
+    }
+
+    public Node parseVarDeclStmt() {
+        Token tok = self.peek();
+
+        if (self.check("VAR")) {
+            self.advance();
+            Token nameTok = self.expect("IDENT");
+            self.expect("EQ");
+            Node init = self.parseExpression();
+            self.expect("SEMICOLON");
+            Node vd = Node();
+            vd.kind = NK_VAR_DECL_STMT;
+            vd.type = null;
+            vd.name = nameTok.value;
+            vd.initializer = init;
+            vd.line = tok.line;
+            vd.col = tok.col;
+            vd.name_line = nameTok.line;
+            vd.name_col = nameTok.col;
+            return vd;
+        }
+
+        Node type_expr = self.parseType();
+        Token nameTok = self.expect("IDENT");
+        Node vd = Node();
+        vd.kind = NK_VAR_DECL_STMT;
+        vd.type = type_expr;
+        vd.name = nameTok.value;
+        vd.line = tok.line;
+        vd.col = tok.col;
+        vd.name_line = nameTok.line;
+        vd.name_col = nameTok.col;
+        self.parseDeclaratorArraySuffix(type_expr);
+        if (self.matchTok("EQ")) {
+            Node init = self.parseExpression();
+            vd.initializer = init;
+        }
+        self.expect("SEMICOLON");
+        return vd;
+    }
+
+    /* ---- Control flow ---- */
+
+    public Node parseIfStmt() {
+        Token tok = self.expect("IF");
+        self.expect("LPAREN");
+        Node cond = self.parseExpression();
+        self.expect("RPAREN");
+        Node then_block = self.parseBlock();
+        Node n = Node();
+        n.kind = NK_IF_STMT;
+        n.condition = cond;
+        n.then_block = then_block;
+        n.line = tok.line;
+        n.col = tok.col;
+        if (self.matchTok("ELSE")) {
+            if (self.check("IF")) {
+                Node innerIf = self.parseIfStmt();
+                Node eb = Node();
+                eb.kind = NK_ELSE_IF;
+                eb.if_stmt = innerIf;
+                n.else_block = eb;
+            } else {
+                Node body = self.parseBlock();
+                Node eb2 = Node();
+                eb2.kind = NK_ELSE_BLOCK;
+                eb2.body_node = body;
+                n.else_block = eb2;
+            }
+        }
+        return n;
+    }
+
+    public Node parseWhileStmt() {
+        Token tok = self.expect("WHILE");
+        self.expect("LPAREN");
+        Node cond = self.parseExpression();
+        self.expect("RPAREN");
+        Node body = self.parseBlock();
+        Node n = Node();
+        n.kind = NK_WHILE_STMT;
+        n.condition = cond;
+        n.body_node = body;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public Node parseDoWhileStmt() {
+        Token tok = self.expect("DO");
+        Node body = self.parseBlock();
+        self.expect("WHILE");
+        self.expect("LPAREN");
+        Node cond = self.parseExpression();
+        self.expect("RPAREN");
+        self.expect("SEMICOLON");
+        Node n = Node();
+        n.kind = NK_DO_WHILE_STMT;
+        n.body_node = body;
+        n.condition = cond;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public Node parseForStmt() {
+        Token tok = self.expect("FOR");
+
+        // for-in: 'for' IDENT 'in' expr block
+        if (self.check("IDENT") && self.peekAt(1).type == "IN") {
+            string var_name = self.advance().value;
+            self.expect("IN");
+            Node iterable = self.parseExpression();
+            Node body = self.parseBlock();
+            Node n = Node();
+            n.kind = NK_FOR_IN_STMT;
+            n.var_name = var_name;
+            n.iterable = iterable;
+            n.body_node = body;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+
+        // for-in (map): 'for' IDENT ',' IDENT 'in' expr block
+        if (self.check("IDENT") && self.peekAt(1).type == "COMMA"
+            && self.peekAt(2).type == "IDENT" && self.peekAt(3).type == "IN") {
+            string var_name = self.advance().value;
+            self.expect("COMMA");
+            string var_name2 = self.advance().value;
+            self.expect("IN");
+            Node iterable = self.parseExpression();
+            Node body = self.parseBlock();
+            Node n = Node();
+            n.kind = NK_FOR_IN_STMT;
+            n.var_name = var_name;
+            n.var_name2 = var_name2;
+            n.iterable = iterable;
+            n.body_node = body;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+
+        // C for: 'for' '(' init ';' cond ';' update ')' block
+        self.expect("LPAREN");
+
+        Node n = Node();
+        n.kind = NK_C_FOR_STMT;
+        n.line = tok.line;
+        n.col = tok.col;
+
+        if (!self.check("SEMICOLON")) {
+            if (self.isVarDeclStart()) {
+                Token start = self.peek();
+                if (self.check("VAR")) {
+                    self.advance();
+                    Token nameTok = self.expect("IDENT");
+                    self.expect("EQ");
+                    Node init_val = self.parseExpression();
+                    Node vd = Node();
+                    vd.kind = NK_VAR_DECL_STMT;
+                    vd.type = null;
+                    vd.name = nameTok.value;
+                    vd.initializer = init_val;
+                    vd.line = start.line;
+                    vd.col = start.col;
+                    vd.name_line = nameTok.line;
+                    vd.name_col = nameTok.col;
+                    Node iv = Node();
+                    iv.kind = NK_FOR_INIT_VAR;
+                    iv.var_decl = vd;
+                    n.init = iv;
+                } else {
+                    Node type_expr = self.parseType();
+                    Token nameTok = self.expect("IDENT");
+                    Node vd = Node();
+                    vd.kind = NK_VAR_DECL_STMT;
+                    vd.type = type_expr;
+                    vd.name = nameTok.value;
+                    vd.line = start.line;
+                    vd.col = start.col;
+                    vd.name_line = nameTok.line;
+                    vd.name_col = nameTok.col;
+                    if (self.matchTok("EQ")) {
+                        Node iv2 = self.parseExpression();
+                        vd.initializer = iv2;
+                    }
+                    Node ivar = Node();
+                    ivar.kind = NK_FOR_INIT_VAR;
+                    ivar.var_decl = vd;
+                    n.init = ivar;
+                }
+            } else {
+                Node e = self.parseExpression();
+                Node ie = Node();
+                ie.kind = NK_FOR_INIT_EXPR;
+                ie.expression = e;
+                n.init = ie;
+            }
+        }
+        self.expect("SEMICOLON");
+
+        if (!self.check("SEMICOLON")) {
+            Node cond = self.parseExpression();
+            n.condition = cond;
+        }
+        self.expect("SEMICOLON");
+
+        if (!self.check("RPAREN")) {
+            Node upd = self.parseExpression();
+            n.update = upd;
+        }
+        self.expect("RPAREN");
+
+        Node body = self.parseBlock();
+        n.body_node = body;
+        return n;
+    }
+
+    public Node parseParallelForStmt() {
+        Token tok = self.expect("PARALLEL");
+        self.expect("FOR");
+        string var_name = self.expect("IDENT").value;
+        self.expect("IN");
+        Node iterable = self.parseExpression();
+        Node body = self.parseBlock();
+        Node n = Node();
+        n.kind = NK_PARALLEL_FOR_STMT;
+        n.var_name = var_name;
+        n.iterable = iterable;
+        n.body_node = body;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public Node parseSwitchStmt() {
+        Token tok = self.expect("SWITCH");
+        self.expect("LPAREN");
+        Node value = self.parseExpression();
+        self.expect("RPAREN");
+        self.expect("LBRACE");
+        Node n = Node();
+        n.kind = NK_SWITCH_STMT;
+        n.value_node = value;
+        n.line = tok.line;
+        n.col = tok.col;
+        while (!self.check("RBRACE") && !self.atEnd()) {
+            Node c = self.parseCaseClause();
+            n.cases.push(c);
+        }
+        self.expect("RBRACE");
+        return n;
+    }
+
+    public Node parseCaseClause() {
+        Token tok = self.peek();
+        Node n = Node();
+        n.kind = NK_CASE_CLAUSE;
+        n.line = tok.line;
+        n.col = tok.col;
+        if (self.matchTok("CASE")) {
+            Node v = self.parseExpression();
+            n.value_node = v;
+        } else if (self.matchTok("DEFAULT")) {
+            n.value_node = null;
+        }
+        self.expect("COLON");
+        while (!self.check("CASE") && !self.check("DEFAULT")
+               && !self.check("RBRACE") && !self.atEnd()) {
+            Node s = self.parseStatement();
+            n.body_nlist.push(s);
+        }
+        return n;
+    }
+
+    public Node parseTryCatch() {
+        Token tok = self.expect("TRY");
+        Node try_block = self.parseBlock();
+        Node n = Node();
+        n.kind = NK_TRY_CATCH_STMT;
+        n.try_block = try_block;
+        n.catch_var = "";
+        n.line = tok.line;
+        n.col = tok.col;
+        if (self.matchTok("CATCH")) {
+            self.expect("LPAREN");
+            if (self.isTypeStartTok(self.peek()) && self.peekAt(1).type == "IDENT") {
+                Node ct = self.parseType();
+                n.catch_type = ct;
+            }
+            n.catch_var = self.expect("IDENT").value;
+            self.expect("RPAREN");
+            Node cb = self.parseBlock();
+            n.catch_block = cb;
+        }
+        if (self.matchTok("FINALLY")) {
+            Node fb = self.parseBlock();
+            n.finally_block = fb;
+        }
+        return n;
+    }
+
+    /* ---- Expressions ---- */
+
+    public Node parseExpression() {
+        return self.parseAssignment();
+    }
+
+    public bool isAssignOp(string t) {
+        return t == "EQ" || t == "PLUS_EQ" || t == "MINUS_EQ"
+            || t == "STAR_EQ" || t == "SLASH_EQ" || t == "PERCENT_EQ"
+            || t == "AMP_EQ" || t == "PIPE_EQ" || t == "CARET_EQ"
+            || t == "LT_LT_EQ" || t == "GT_GT_EQ";
+    }
+
+    public Node parseAssignment() {
+        Node left = self.parseTernary();
+        if (self.isAssignOp(self.peek().type)) {
+            Token op_tok = self.advance();
+            Node right = self.parseAssignment();
+            Node n = Node();
+            n.kind = NK_ASSIGN_EXPR;
+            n.target = left;
+            n.op = op_tok.value;
+            n.value_node = right;
+            n.line = left.line;
+            n.col = left.col;
+            return n;
+        }
+        return left;
+    }
+
+    public Node parseTernary() {
+        Node expr = self.parseNullCoalesce();
+        if (self.matchTok("QUESTION")) {
+            Node true_expr = self.parseExpression();
+            self.expect("COLON");
+            Node false_expr = self.parseTernary();
+            Node n = Node();
+            n.kind = NK_TERNARY_EXPR;
+            n.condition = expr;
+            n.true_expr = true_expr;
+            n.false_expr = false_expr;
+            n.line = expr.line;
+            n.col = expr.col;
+            return n;
+        }
+        return expr;
+    }
+
+    public Node makeBinary(Node left, string op, Node right) {
+        Node n = Node();
+        n.kind = NK_BINARY_EXPR;
+        n.left = left;
+        n.op = op;
+        n.right = right;
+        n.line = left.line;
+        n.col = left.col;
+        return n;
+    }
+
+    public Node parseNullCoalesce() {
+        Node left = self.parseLogicalOr();
+        while (self.matchTok("QUESTION_QUESTION")) {
+            Node right = self.parseLogicalOr();
+            left = self.makeBinary(left, "??", right);
+        }
+        return left;
+    }
+
+    public Node parseLogicalOr() {
+        Node left = self.parseLogicalAnd();
+        while (self.matchTok("PIPE_PIPE")) {
+            Node right = self.parseLogicalAnd();
+            left = self.makeBinary(left, "||", right);
+        }
+        return left;
+    }
+
+    public Node parseLogicalAnd() {
+        Node left = self.parseBitwiseOr();
+        while (self.matchTok("AMP_AMP")) {
+            Node right = self.parseBitwiseOr();
+            left = self.makeBinary(left, "&&", right);
+        }
+        return left;
+    }
+
+    public Node parseBitwiseOr() {
+        Node left = self.parseBitwiseXor();
+        while (self.matchTok("PIPE")) {
+            Node right = self.parseBitwiseXor();
+            left = self.makeBinary(left, "|", right);
+        }
+        return left;
+    }
+
+    public Node parseBitwiseXor() {
+        Node left = self.parseBitwiseAnd();
+        while (self.matchTok("CARET")) {
+            Node right = self.parseBitwiseAnd();
+            left = self.makeBinary(left, "^", right);
+        }
+        return left;
+    }
+
+    public Node parseBitwiseAnd() {
+        Node left = self.parseEquality();
+        while (self.matchTok("AMP")) {
+            Node right = self.parseEquality();
+            left = self.makeBinary(left, "&", right);
+        }
+        return left;
+    }
+
+    public Node parseEquality() {
+        Node left = self.parseRelational();
+        while (self.check("EQ_EQ") || self.check("BANG_EQ")) {
+            string op = self.advance().value;
+            Node right = self.parseRelational();
+            left = self.makeBinary(left, op, right);
+        }
+        return left;
+    }
+
+    public Node parseRelational() {
+        Node left = self.parseShift();
+        while (self.check("LT") || self.check("GT") || self.check("LT_EQ") || self.check("GT_EQ")) {
+            string op = self.advance().value;
+            Node right = self.parseShift();
+            left = self.makeBinary(left, op, right);
+        }
+        return left;
+    }
+
+    public Node parseShift() {
+        Node left = self.parseAdditive();
+        while (self.check("LT_LT") || self.check("GT_GT")) {
+            string op = self.advance().value;
+            Node right = self.parseAdditive();
+            left = self.makeBinary(left, op, right);
+        }
+        return left;
+    }
+
+    public Node parseAdditive() {
+        Node left = self.parseMultiplicative();
+        while (self.check("PLUS") || self.check("MINUS")) {
+            string op = self.advance().value;
+            Node right = self.parseMultiplicative();
+            left = self.makeBinary(left, op, right);
+        }
+        return left;
+    }
+
+    public Node parseMultiplicative() {
+        Node left = self.parseUnary();
+        while (self.check("STAR") || self.check("SLASH") || self.check("PERCENT")) {
+            string op = self.advance().value;
+            Node right = self.parseUnary();
+            left = self.makeBinary(left, op, right);
+        }
+        return left;
+    }
+
+    public Node makeUnaryPrefix(string op, Token tok) {
+        Node operand = self.parseUnary();
+        Node n = Node();
+        n.kind = NK_UNARY_EXPR;
+        n.op = op;
+        n.operand = operand;
+        n.prefix = true;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public Node parseUnary() {
+        Token tok = self.peek();
+        string tt = tok.type;
+
+        if (tt == "BANG" || tt == "TILDE" || tt == "PLUS" || tt == "MINUS") {
+            self.advance();
+            return self.makeUnaryPrefix(tok.value, tok);
+        }
+        if (tt == "PLUS_PLUS") {
+            self.advance();
+            return self.makeUnaryPrefix("++", tok);
+        }
+        if (tt == "MINUS_MINUS") {
+            self.advance();
+            return self.makeUnaryPrefix("--", tok);
+        }
+        if (tt == "STAR") {
+            self.advance();
+            return self.makeUnaryPrefix("*", tok);
+        }
+        if (tt == "AMP") {
+            self.advance();
+            return self.makeUnaryPrefix("&", tok);
+        }
+        if (tt == "SIZEOF") {
+            return self.parseSizeof();
+        }
+        if (tt == "LPAREN" && self.isCast()) {
+            return self.parseCast();
+        }
+        return self.parsePostfix();
+    }
+
+    /* ---- Cast / sizeof ---- */
+
+    public bool isCastFollow(string tt) {
+        return tt == "IDENT" || tt == "INT_LIT" || tt == "FLOAT_LIT"
+            || tt == "STRING_LIT" || tt == "CHAR_LIT" || tt == "FSTRING_LIT"
+            || tt == "LPAREN" || tt == "SIZEOF"
+            || tt == "STAR" || tt == "AMP" || tt == "BANG" || tt == "TILDE"
+            || tt == "PLUS" || tt == "MINUS" || tt == "PLUS_PLUS" || tt == "MINUS_MINUS"
+            || tt == "SELF" || tt == "TRUE" || tt == "FALSE" || tt == "NULL"
+            || tt == "NEW" || tt == "SPAWN";
+    }
+
+    public bool isBareIdentCastFollow(string tt) {
+        if (tt == "PLUS" || tt == "MINUS" || tt == "STAR" || tt == "AMP") {
+            return false;
+        }
+        return self.isCastFollow(tt);
+    }
+
+    public bool isCast() {
+        int type_start = self.pos + 1;
+        int type_end = self.scanTypeEnd(type_start);
+        if (type_end < 0 || self.tokenTypeAt(type_end) != "RPAREN") {
+            return false;
+        }
+        string follow = self.tokenTypeAt(type_end + 1);
+        bool bare_ident = self.tokenTypeAt(type_start) == "IDENT"
+            && type_end == type_start + 1;
+        if (bare_ident) { return self.isBareIdentCastFollow(follow); }
+        return self.isCastFollow(follow);
+    }
+
+    public Node parseCast() {
+        Token tok = self.expect("LPAREN");
+        Node target_type = self.parseType();
+        self.expect("RPAREN");
+        Node expr = self.parseUnary();
+        Node n = Node();
+        n.kind = NK_CAST_EXPR;
+        n.target_type = target_type;
+        n.expr = expr;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public bool isSizeofType() {
+        int type_end = self.scanTypeEnd(self.pos);
+        return type_end >= 0 && self.tokenTypeAt(type_end) == "RPAREN";
+    }
+
+    public Node parseSizeof() {
+        Token tok = self.expect("SIZEOF");
+        self.expect("LPAREN");
+        Node n = Node();
+        n.kind = NK_SIZEOF_EXPR;
+        n.line = tok.line;
+        n.col = tok.col;
+        if (self.isTypeStartTok(self.peek()) && self.isSizeofType()) {
+            Node operand = self.makeSizeofType();
+            n.operand = operand;
+        } else {
+            Node operand = self.makeSizeofExprOp();
+            n.operand = operand;
+        }
+        self.expect("RPAREN");
+        return n;
+    }
+
+    public Node makeSizeofType() {
+        Node ty = self.parseType();
+        Node st = Node();
+        st.kind = NK_SIZEOF_TYPE;
+        st.type = ty;
+        return st;
+    }
+
+    public Node makeSizeofExprOp() {
+        Node e = self.parseExpression();
+        Node se = Node();
+        se.kind = NK_SIZEOF_EXPR_OP;
+        se.expr = e;
+        return se;
+    }
+
+    /* ---- Postfix ---- */
+
+    public Node parsePostfix() {
+        Node expr = self.parsePrimary();
+
+        bool more = true;
+        while (more) {
+            Token tok = self.peek();
+            string tt = tok.type;
+
+            // Each postfix node is built in a helper that takes `expr` by
+            // value and returns the new node. Building the wrapper inline and
+            // reassigning `expr = wrapper` inside the loop triggers a btrc ARC
+            // bug: the loop-body scope cleanup destroys the freshly-allocated
+            // node that `expr` now aliases, leaving `expr` dangling. Returning
+            // it from a method keeps the reference with the caller.
+            if (tt == "LPAREN") {
+                expr = self.postfixCall(expr);
+            } else if (tt == "LBRACKET") {
+                expr = self.postfixIndex(expr);
+            } else if (tt == "DOT") {
+                expr = self.postfixDot(expr);
+            } else if (tt == "QUESTION_DOT") {
+                expr = self.postfixQuestionDot(expr);
+            } else if (tt == "ARROW") {
+                expr = self.postfixArrow(expr);
+            } else if (tt == "PLUS_PLUS") {
+                expr = self.postfixIncDec(expr, "++");
+            } else if (tt == "MINUS_MINUS") {
+                expr = self.postfixIncDec(expr, "--");
+            } else {
+                more = false;
+            }
+        }
+        return expr;
+    }
+
+    public Node postfixCall(Node expr) {
+        self.advance();
+        Node call = Node();
+        call.kind = NK_CALL_EXPR;
+        call.callee = expr;
+        call.line = expr.line;
+        call.col = expr.col;
+        self.parseArgListInto(call);
+        self.expect("RPAREN");
+        return call;
+    }
+
+    public Node postfixIndex(Node expr) {
+        self.advance();
+        Node index = self.parseExpression();
+        self.expect("RBRACKET");
+        Node ix = Node();
+        ix.kind = NK_INDEX_EXPR;
+        ix.obj = expr;
+        ix.index = index;
+        ix.line = expr.line;
+        ix.col = expr.col;
+        return ix;
+    }
+
+    public Node postfixDot(Node expr) {
+        self.advance();
+        string field_name = "";
+        if (self.check("INT_LIT")) {
+            Token idx_tok = self.advance();
+            field_name = "_" + idx_tok.value;
+        } else {
+            field_name = self.expect("IDENT").value;
+        }
+        Node fa = Node();
+        fa.kind = NK_FIELD_ACCESS_EXPR;
+        fa.obj = expr;
+        fa.field = field_name;
+        fa.arrow = false;
+        fa.line = expr.line;
+        fa.col = expr.col;
+        return fa;
+    }
+
+    public Node postfixQuestionDot(Node expr) {
+        self.advance();
+        string field_name = self.expect("IDENT").value;
+        Node fa = Node();
+        fa.kind = NK_FIELD_ACCESS_EXPR;
+        fa.obj = expr;
+        fa.field = field_name;
+        fa.arrow = true;
+        fa.optional = true;
+        fa.line = expr.line;
+        fa.col = expr.col;
+        return fa;
+    }
+
+    public Node postfixArrow(Node expr) {
+        self.advance();
+        string field_name = self.expect("IDENT").value;
+        Node fa = Node();
+        fa.kind = NK_FIELD_ACCESS_EXPR;
+        fa.obj = expr;
+        fa.field = field_name;
+        fa.arrow = true;
+        fa.line = expr.line;
+        fa.col = expr.col;
+        return fa;
+    }
+
+    public Node postfixIncDec(Node expr, string op) {
+        self.advance();
+        Node u = Node();
+        u.kind = NK_UNARY_EXPR;
+        u.op = op;
+        u.operand = expr;
+        u.prefix = false;
+        u.line = expr.line;
+        u.col = expr.col;
+        return u;
+    }
+
+    /* Parse call/constructor args plus optional names into target node's
+     * args / arg_names. */
+    public void parseArgListInto(Node target) {
+        if (self.check("RPAREN")) { return; }
+        bool more = true;
+        while (more) {
+            string name = "";
+            if (self.check("IDENT") && self.peekAt(1).type == "EQ") {
+                name = self.advance().value;
+                self.advance();
+            }
+            Node a = self.parseExpression();
+            target.args.push(a);
+            target.arg_names.push(name);
+            if (!self.matchTok("COMMA")) {
+                more = false;
+            }
+        }
+    }
+
+    /* ---- Primary ---- */
+
+    public Node parsePrimary() {
+        Token tok = self.peek();
+        string tt = tok.type;
+
+        if (tt == "INT_LIT") {
+            self.advance();
+            IntegerLiteral literal = IntegerLiteral(tok.value);
+            if (literal.typeName() == "") {
+                self.failAt(
+                    "Invalid integer literal '" + tok.value + "'", tok);
+            }
+            Node n = Node();
+            n.kind = NK_INT_LITERAL;
+            n.value_int = literal.storedValue();
+            n.raw = tok.value;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "FLOAT_LIT") {
+            self.advance();
+            FloatLiteral literal = FloatLiteral(tok.value);
+            string problem = literal.problem();
+            if (problem != "") { self.failAt(problem, tok); }
+            Node n = Node();
+            n.kind = NK_FLOAT_LITERAL;
+            n.value_float = (float)literal.doubleValue();
+            n.raw = tok.value;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "STRING_LIT") {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_STRING_LITERAL;
+            n.value_string = tok.value;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "CHAR_LIT") {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_CHAR_LITERAL;
+            n.value_string = tok.value;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "FSTRING_LIT") {
+            self.advance();
+            return self.parseFString(tok);
+        }
+        if (tt == "TRUE") {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_BOOL_LITERAL;
+            n.value_bool = true;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "FALSE") {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_BOOL_LITERAL;
+            n.value_bool = false;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "NULL") {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_NULL_LITERAL;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "SELF") {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_SELF_EXPR;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "SUPER") {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_SUPER_EXPR;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+        if (tt == "NEW") {
+            return self.parseNewExpr();
+        }
+        if (tt == "SPAWN") {
+            return self.parseSpawnExpr();
+        }
+
+        // Verbose lambda: type function(params) { body }
+        if (self.isTypeStartTok(tok) && self.isVerboseLambda()) {
+            return self.parseVerboseLambda();
+        }
+
+        // Parenthesized expr, tuple literal, or arrow lambda
+        if (tt == "LPAREN") {
+            if (self.isArrowLambda()) {
+                return self.parseArrowLambda();
+            }
+            self.advance();
+            Node expr = self.parseExpression();
+            if (self.matchTok("COMMA")) {
+                Node tl = Node();
+                tl.kind = NK_TUPLE_LITERAL;
+                tl.line = tok.line;
+                tl.col = tok.col;
+                tl.elements.push(expr);
+                Node e2 = self.parseExpression();
+                tl.elements.push(e2);
+                while (self.matchTok("COMMA")) {
+                    Node eN = self.parseExpression();
+                    tl.elements.push(eN);
+                }
+                self.expect("RPAREN");
+                return tl;
+            }
+            self.expect("RPAREN");
+            return expr;
+        }
+
+        if (tt == "LBRACKET") {
+            return self.parseListLiteral();
+        }
+
+        if (tt == "LBRACE") {
+            return self.parseMapOrBraceInitializer();
+        }
+
+        if (tt == "IDENT") {
+            self.advance();
+            Node n = Node();
+            n.kind = NK_IDENTIFIER;
+            n.name = tok.value;
+            n.line = tok.line;
+            n.col = tok.col;
+            return n;
+        }
+
+        self.failExpected("expression", tok);
+        Node none = Node();
+        return none;
+    }
+
+    public Node parseNewExpr() {
+        Token tok = self.expect("NEW");
+        Node type_expr = self.parseType();
+        self.expect("LPAREN");
+        Node n = Node();
+        n.kind = NK_NEW_EXPR;
+        n.type = type_expr;
+        n.line = tok.line;
+        n.col = tok.col;
+        self.parseArgListInto(n);
+        self.expect("RPAREN");
+        return n;
+    }
+
+    public Node parseSpawnExpr() {
+        Token tok = self.expect("SPAWN");
+        self.expect("LPAREN");
+        Node fn = self.parseExpression();
+        self.expect("RPAREN");
+        Node n = Node();
+        n.kind = NK_SPAWN_EXPR;
+        n.fn = fn;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public Node parseListLiteral() {
+        Token tok = self.expect("LBRACKET");
+        Node n = Node();
+        n.kind = NK_LIST_LITERAL;
+        n.line = tok.line;
+        n.col = tok.col;
+        if (!self.check("RBRACKET")) {
+            Node e0 = self.parseExpression();
+            n.elements.push(e0);
+            while (self.matchTok("COMMA")) {
+                if (self.check("RBRACKET")) { break; }
+                Node eN = self.parseExpression();
+                n.elements.push(eN);
+            }
+        }
+        self.expect("RBRACKET");
+        return n;
+    }
+
+    public Node parseMapOrBraceInitializer() {
+        Token tok = self.expect("LBRACE");
+        if (self.matchTok("RBRACE")) {
+            Node empty = Node();
+            empty.kind = NK_BRACE_INITIALIZER;
+            empty.line = tok.line;
+            empty.col = tok.col;
+            return empty;
+        }
+
+        Node first = self.parseExpression();
+        if (self.matchTok("COLON")) {
+            Node map = Node();
+            map.kind = NK_MAP_LITERAL;
+            map.line = tok.line;
+            map.col = tok.col;
+            Node first_value = self.parseExpression();
+            Node first_entry = self.makeMapEntry(first, first_value);
+            map.entries.push(first_entry);
+            while (self.matchTok("COMMA")) {
+                if (self.check("RBRACE")) { break; }
+                Node entN = self.parseMapEntry();
+                map.entries.push(entN);
+            }
+            self.expect("RBRACE");
+            return map;
+        }
+
+        Node brace = Node();
+        brace.kind = NK_BRACE_INITIALIZER;
+        brace.line = tok.line;
+        brace.col = tok.col;
+        brace.elements.push(first);
+        while (self.matchTok("COMMA")) {
+            if (self.check("RBRACE")) { break; }
+            Node eN = self.parseExpression();
+            brace.elements.push(eN);
+        }
+        self.expect("RBRACE");
+        return brace;
+    }
+
+    public Node makeMapEntry(Node key, Node value) {
+        Node ent = Node();
+        ent.kind = NK_MAP_ENTRY;
+        ent.key = key;
+        ent.value_node = value;
+        return ent;
+    }
+
+    public Node parseMapEntry() {
+        Node key = self.parseExpression();
+        self.expect("COLON");
+        Node value = self.parseExpression();
+        return self.makeMapEntry(key, value);
+    }
+
+    /* ---- Lambdas ---- */
+
+    public bool isVerboseLambda() {
+        int type_end = self.scanTypeEnd(self.pos);
+        return type_end >= 0 && self.tokenTypeAt(type_end) == "FUNCTION";
+    }
+
+    public Node parseVerboseLambda() {
+        Token tok = self.peek();
+        Node return_type = self.parseType();
+        self.expect("FUNCTION");
+        self.expect("LPAREN");
+        Vector<Node> params = self.parseParamList();
+        self.expect("RPAREN");
+        Node body = self.parseBlock();
+        Node lb = Node();
+        lb.kind = NK_LAMBDA_BLOCK;
+        lb.body_node = body;
+        Node n = Node();
+        n.kind = NK_LAMBDA_EXPR;
+        n.return_type = return_type;
+        n.params = params;
+        n.body_node = lb;
+        n.line = tok.line;
+        n.col = tok.col;
+        return n;
+    }
+
+    public bool isArrowLambda() {
+        if (!self.check("LPAREN")) { return false; }
+        int depth = 0;
+        int p = self.pos;
+        while (p < self.tokens.len) {
+            string tt = self.tokenTypeAt(p);
+            if (tt == "LPAREN") {
+                depth = depth + 1;
+            } else if (tt == "RPAREN") {
+                depth = depth - 1;
+                if (depth == 0) {
+                    return self.tokenTypeAt(p + 1) == "FAT_ARROW";
+                }
+            } else if (tt == "EOF") {
+                return false;
+            }
+            p = p + 1;
+        }
+        return false;
+    }
+
+    public Node parseArrowLambda() {
+        Token tok = self.peek();
+        self.expect("LPAREN");
+        Vector<Node> params = self.parseParamList();
+        self.expect("RPAREN");
+        self.expect("FAT_ARROW");
+        Node n = Node();
+        n.kind = NK_LAMBDA_EXPR;
+        n.return_type = null;
+        n.params = params;
+        n.line = tok.line;
+        n.col = tok.col;
+        if (self.check("LBRACE")) {
+            Node body = self.parseBlock();
+            Node lb = Node();
+            lb.kind = NK_LAMBDA_BLOCK;
+            lb.body_node = body;
+            n.body_node = lb;
+        } else {
+            Node expr = self.parseExpression();
+            Node eb = Node();
+            eb.kind = NK_LAMBDA_EXPR_BODY;
+            eb.expression = expr;
+            n.body_node = eb;
+        }
+        return n;
+    }
+
+    /* ---- F-string ---- */
+
+    public Node parseFString(Token tok) {
+        string raw = tok.value;
+        Node n = Node();
+        n.kind = NK_F_STRING_LITERAL;
+        n.line = tok.line;
+        n.col = tok.col;
+
+        int i = 0;
+        int rn = raw.length();
+        string text_buf = "";
+        bool has_text = false;
+        while (i < rn) {
+            char ch = raw[i];
+            if (ch == '{') {
+                if (i + 1 < rn && raw[i + 1] == '{') {
+                    text_buf = text_buf + "{";
+                    has_text = true;
+                    i = i + 2;
+                } else {
+                    if (has_text) {
+                        Node tnode = Node();
+                        tnode.kind = NK_F_STRING_TEXT;
+                        tnode.text = text_buf;
+                        n.parts.push(tnode);
+                        text_buf = "";
+                        has_text = false;
+                    }
+                    i = i + 1;
+                    int depth = 1;
+                    string expr_chars = "";
+                    bool done = false;
+                    while (i < rn && depth > 0 && !done) {
+                        char c2 = raw[i];
+                        if (c2 == '{') { depth = depth + 1; }
+                        else if (c2 == '}') {
+                            depth = depth - 1;
+                            if (depth == 0) { done = true; }
+                        }
+                        if (!done) {
+                            expr_chars = expr_chars + f"{c2}";
+                            i = i + 1;
+                        }
+                    }
+                    i = i + 1;
+                    string expr_src = self.replaceEscQuote(expr_chars);
+                    Node enode = Node();
+                    enode.kind = NK_F_STRING_EXPR;
+                    Node sub = self.parseSubExpr(expr_src);
+                    enode.expression = sub;
+                    n.parts.push(enode);
+                }
+            } else if (ch == '}') {
+                if (i + 1 < rn && raw[i + 1] == '}') {
+                    text_buf = text_buf + "}";
+                    has_text = true;
+                    i = i + 2;
+                } else {
+                    text_buf = text_buf + "}";
+                    has_text = true;
+                    i = i + 1;
+                }
+            } else if (ch == '\\') {
+                text_buf = text_buf + "\\";
+                has_text = true;
+                if (i + 1 < rn) {
+                    i = i + 1;
+                    char ec = raw[i];   // hoist: f"{string[i]}" formats the index as an int code
+                    text_buf = text_buf + f"{ec}";
+                }
+                i = i + 1;
+            } else {
+                text_buf = text_buf + f"{ch}";
+                has_text = true;
+                i = i + 1;
+            }
+        }
+        if (has_text) {
+            Node tnode2 = Node();
+            tnode2.kind = NK_F_STRING_TEXT;
+            tnode2.text = text_buf;
+            n.parts.push(tnode2);
+        }
+        return n;
+    }
+
+    /* Replace \" with " in an f-string interpolation source. */
+    public string replaceEscQuote(string s) {
+        string out = "";
+        int i = 0;
+        int sn = s.length();
+        while (i < sn) {
+            char c = s[i];
+            if (c == '\\' && i + 1 < sn && s[i + 1] == '"') {
+                out = out + "\"";
+                i = i + 2;
+            } else {
+                out = out + f"{c}";
+                i = i + 1;
+            }
+        }
+        return out;
+    }
+
+    public Node parseSubExpr(string exprSrc) {
+        Lexer lx = Lexer(exprSrc + ";", self.grammar);
+        Vector<Token> subToks = lx.tokenize();
+        if (lx.failed) {
+            if (!self.failed) {
+                self.failed = true;
+                self.diagnostic = lx.diagnostic;
+                self.pos = self.tokens.len - 1;
+            }
+            return Node();
+        }
+        Parser sub = Parser(subToks, self.grammar);
+        Node expr = sub.parseExpression();
+        sub.expect("SEMICOLON");
+        if (sub.failed && !self.failed) {
+            self.failed = true;
+            self.diagnostic = sub.diagnostic;
+            self.pos = self.tokens.len - 1;
+        }
+        return expr;
+    }
+
+}

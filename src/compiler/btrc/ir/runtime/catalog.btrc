@@ -1,0 +1,158 @@
+/* Runtime-helper lookup and canonical selection over generated specifications. */
+
+import std.map;
+import std.vector;
+import ../../generated/runtime/catalog.btrc;
+import ../model.btrc;
+
+class RuntimeHelperCatalog {
+    private Vector<GeneratedRuntimeHelperRow> rows;
+    private Map<string, int> indices;
+    private Map<string, string> materializedSources;
+
+    public RuntimeHelperCatalog(
+            Vector<GeneratedRuntimeHelperRow> rows) {
+        self.rows = rows;
+        self.indices = {};
+        self.materializedSources = {};
+
+        int index = 0;
+        while (index < self.rows.len) {
+            GeneratedRuntimeHelperRow row = self.rows.get(index);
+            self.indices.put(row.name, index);
+            index = index + 1;
+        }
+    }
+
+    public bool has(string name) {
+        return self.indices.has(name);
+    }
+
+    public bool sourceVisible(string name) {
+        if (!self.indices.has(name)) { return false; }
+        return self.rows.get(self.indices.get(name)).source_visible;
+    }
+
+    private Vector<string> copyStrings(Vector<string> values) {
+        Vector<string> copy = [];
+        int index = 0;
+        while (index < values.len) {
+            copy.push(values.get(index));
+            index = index + 1;
+        }
+        return copy;
+    }
+
+    private string joinSource(Vector<string> chunks) {
+        string source = "";
+        int index = 0;
+        while (index < chunks.len) {
+            source = source + chunks.get(index);
+            index = index + 1;
+        }
+        return source;
+    }
+
+    public string source(string name) {
+        if (!self.indices.has(name)) { return ""; }
+        if (self.materializedSources.has(name)) {
+            return self.materializedSources.get(name);
+        }
+
+        GeneratedRuntimeHelperRow row =
+            self.rows.get(self.indices.get(name));
+        string source = self.joinSource(row.source_chunks);
+        self.materializedSources.put(name, source);
+        return source;
+    }
+
+    public Vector<string> dependencies(string name) {
+        if (!self.indices.has(name)) {
+            Vector<string> none = [];
+            return none;
+        }
+        GeneratedRuntimeHelperRow row =
+            self.rows.get(self.indices.get(name));
+        return self.copyStrings(row.dependencies);
+    }
+
+    public Vector<string> headers(string name) {
+        if (!self.indices.has(name)) {
+            Vector<string> none = [];
+            return none;
+        }
+        GeneratedRuntimeHelperRow row =
+            self.rows.get(self.indices.get(name));
+        return self.copyStrings(row.headers);
+    }
+
+    public Vector<string> order() {
+        Vector<string> names = [];
+        int index = 0;
+        while (index < self.rows.len) {
+            names.push(self.rows.get(index).name);
+            index = index + 1;
+        }
+        return names;
+    }
+
+    public Vector<string> selectedInCanonicalOrder(
+            Map<string, bool> selected) {
+        Vector<string> names = [];
+        int index = 0;
+        while (index < self.rows.len) {
+            string name = self.rows.get(index).name;
+            if (selected.has(name)) { names.push(name); }
+            index = index + 1;
+        }
+        return names;
+    }
+
+    private bool hasSystemInclude(IRModule module, string header) {
+        int index = 0;
+        while (index < module.preprocessor_decls.len) {
+            IRPreprocessorDecl declaration =
+                module.preprocessor_decls.get(index);
+            if (declaration.kind == IR_PREPROCESSOR_INCLUDE
+                    && declaration.is_system
+                    && declaration.header == header) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    /* Replace the runtime seam from the optimizer's live helper set.  Source
+     * bodies remain in canonical manifest order; headers retain discovery
+     * order while structured include nodes prevent duplicate emission. */
+    public void materializeInto(
+            IRModule module, Map<string, bool> selected) {
+        Vector<string> materialized = [];
+        Vector<string> ordered =
+            self.selectedInCanonicalOrder(selected);
+        int helperIndex = 0;
+        while (helperIndex < ordered.len) {
+            materialized.push(self.source(ordered.get(helperIndex)));
+            helperIndex = helperIndex + 1;
+        }
+        module.helpers = materialized;
+
+        Vector<string> names = selected.keys();
+        int nameIndex = 0;
+        while (nameIndex < names.len) {
+            Vector<string> requiredHeaders =
+                self.headers(names.get(nameIndex));
+            int headerIndex = 0;
+            while (headerIndex < requiredHeaders.len) {
+                string header = requiredHeaders.get(headerIndex);
+                if (!self.hasSystemInclude(module, header)) {
+                    module.preprocessor_decls.push(
+                        IRPreprocessorDecl.include(header, true));
+                }
+                headerIndex = headerIndex + 1;
+            }
+            nameIndex = nameIndex + 1;
+        }
+    }
+}

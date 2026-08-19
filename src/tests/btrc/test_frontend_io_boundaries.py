@@ -263,8 +263,8 @@ def test_stdout_flush_failure_returns_nonzero(semantic_btrcc: Path) -> None:
 
 
 def test_frontend_scan_limits_are_wired_before_materialization() -> None:
-    frontend = (REPO / "src/compiler/btrc/frontend.btrc").read_text()
-    source_io = (REPO / "src/compiler/btrc/frontend_source_io.btrc").read_text()
+    frontend = (REPO / "src/compiler/btrc/frontend/resolver.btrc").read_text()
+    source_io = (REPO / "src/compiler/btrc/frontend/source_io.btrc").read_text()
     filesystem = (REPO / "src/stdlib/fs.btrc").read_text()
 
     assert "path, budget.remainingEntries())" in frontend
@@ -316,7 +316,7 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         "            || secondGraphBudget.sourceBytes() != 0\n"
         "            || secondGraphBudget.fileCount() != 0) { return 9; }\n"
         f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
-        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar, sourceFiles, resolutionPolicy);\n"
+        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, sourceFiles, resolutionPolicy);\n"
         "    FeFrontendResolver resolver = FeFrontendResolver(\n"
         "        grammar, stdlib, false, true, resolutionPolicy);\n"
         f"    string firstSource = {json.dumps(first_source)};\n"
@@ -406,7 +406,7 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
         "    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();\n"
         "    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);\n"
         f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
-        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, grammar, sourceFiles, resolutionPolicy);\n"
+        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, sourceFiles, resolutionPolicy);\n"
         "    FeStdlibRootSnapshot snapshot = stdlib.rootSnapshot();\n"
         "    FeSourceDirectoryScanner directories = FeSourceDirectoryScanner(resolutionPolicy);\n"
         "    FeImportResolver resolver = FeImportResolver(\n"
@@ -522,8 +522,8 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         '    if (!firstRead.equals("alpha\\n") || !secondRead.equals("beta\\n")\n'
         "            || !firstReadAgain.equals(firstRead)) { return 1; }\n"
         f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
-        f"    FeStdlibRepository first = FeStdlibRepository({json.dumps(str(stdlib_a))}, grammar, sourceFiles, resolutionPolicy);\n"
-        f"    FeStdlibRepository second = FeStdlibRepository({json.dumps(str(stdlib_b))}, grammar, sourceFiles, resolutionPolicy);\n"
+        f"    FeStdlibRepository first = FeStdlibRepository({json.dumps(str(stdlib_a))}, sourceFiles, resolutionPolicy);\n"
+        f"    FeStdlibRepository second = FeStdlibRepository({json.dumps(str(stdlib_b))}, sourceFiles, resolutionPolicy);\n"
         "    FeStdlibRootSnapshot firstSnapshot = first.rootSnapshot();\n"
         "    FeStdlibRootSnapshot secondSnapshot = second.rootSnapshot();\n"
         "    if (firstSnapshot.count() != 2\n"
@@ -606,8 +606,8 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
         "    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();\n"
         "    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);\n"
         f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
-        f"    FeStdlibRepository repository = FeStdlibRepository({json.dumps(str(stdlib))}, grammar, sourceFiles, resolutionPolicy);\n"
-        "    FeStdlibSymbolIndex index = FeStdlibSymbolIndex(grammar);\n"
+        f"    FeStdlibRepository repository = FeStdlibRepository({json.dumps(str(stdlib))}, sourceFiles, resolutionPolicy);\n"
+        "    FeStdlibSymbolIndex index = FeStdlibSymbolIndex();\n"
         "    Map<string, Vector<string>> firstSymbols = {};\n"
         "    FeStdlibRootSnapshot firstSnapshot = repository.rootSnapshot();\n"
         "    FeStdlibSymbolIndexResult first = index.mergeSnapshotInto(\n"

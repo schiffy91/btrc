@@ -8,7 +8,7 @@ finds the right files via the front-end helpers.
 
 import pytest
 
-from src.compiler.python.ast_nodes import (
+from src.compiler.python.syntax.ast.generated import (
     ImportDecl,
     PackagePath,
     QuotedPath,
@@ -16,12 +16,12 @@ from src.compiler.python.ast_nodes import (
     StdGlob,
     StdModules,
 )
-from src.compiler.python.frontend.resolver import SourceResolver
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.frontend.packages import IncludeResolutionError
+from src.compiler.python.frontend.stage import FrontendStage
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.pkg import IncludeResolutionError
 
-RESOLVER = SourceResolver()
+RESOLVER = FrontendStage().resolver
 
 
 def _parse(src: str):
@@ -112,7 +112,7 @@ def test_line_commented_import_is_not_parsed():
 
 
 def test_import_is_reserved_keyword():
-    from src.compiler.python.parser.core import ParseError
+    from src.compiler.python.parser.parser import ParseError
 
     with pytest.raises(ParseError):
         _parse("int main() { int import = 1; return import; }")
@@ -122,7 +122,7 @@ def test_import_not_first_on_line_is_rejected():
     # An import sharing a line with preceding code is never resolved by the
     # front-end directive scan, so accepting it as a no-op would silently drop
     # the import. The parser rejects it instead.
-    from src.compiler.python.parser.core import ParseError
+    from src.compiler.python.parser.parser import ParseError
 
     with pytest.raises(ParseError) as exc:
         _parse("int x = 0; import ./foo.btrc;\nint main() { return 0; }")
@@ -132,7 +132,7 @@ def test_import_not_first_on_line_is_rejected():
 def test_import_with_trailing_code_on_line_is_rejected():
     # First on its line, but followed by other code — same non-resolution, same
     # rejection.
-    from src.compiler.python.parser.core import ParseError
+    from src.compiler.python.parser.parser import ParseError
 
     with pytest.raises(ParseError):
         _parse("import ./foo.btrc; int y = 5;\nint main() { return 0; }")

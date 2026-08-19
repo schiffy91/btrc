@@ -15,20 +15,22 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.artifacts.publication.publisher as transaction_module
-import src.compiler.python.bundle_archive_source as archive_source_module
-from src.compiler.python.artifacts.publication.publisher import (
+import src.compiler.python.artifacts.publication as transaction_module
+import src.compiler.python.artifacts.archive as archive_source_module
+from src.compiler.python.artifacts.publication import (
     ArtifactPublisher,
     PublishedArtifact,
 )
-from src.compiler.python.artifacts.publication.storage import ArtifactStorage
-from src.compiler.python.artifacts.selfhost_bundle.builder import BundleBuilder
-from src.compiler.python.artifacts.selfhost_bundle.publisher import (
+from src.compiler.python.artifacts.publication import ArtifactStorage
+from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
+from src.compiler.python.artifacts.selfhost import (
     SelfhostBundlePublisher,
 )
-from src.compiler.python.artifacts.selfhost_bundle.validator import BundleValidator
-from src.compiler.python.btrcc_bundle_archive import write_checksum
-from src.compiler.python.btrcc_target_binary import TargetBinaryValidator
+from src.compiler.python.artifacts.selfhost import SelfhostBundleValidator
+from src.compiler.python.artifacts.archive import ArchiveCodec, TargetBinaryValidator
+
+ARCHIVE_CODEC = ArchiveCodec()
+write_checksum = ARCHIVE_CODEC.write_checksum
 from src.tests.python.test_btrcc_bundle import _fixture, _manifest
 
 
@@ -39,7 +41,7 @@ def _hold_publication_lock(
     release,
 ) -> None:
     publication = ArtifactPublisher(ArtifactStorage())
-    with SelfhostBundlePublisher(publication, BundleValidator()).lock(
+    with SelfhostBundlePublisher(publication, SelfhostBundleValidator()).lock(
         Path(output_dir),
         bundle_name,
     ):
@@ -56,7 +58,7 @@ def _wait_for_publication_lock(
 ) -> None:
     attempted.set()
     publication = ArtifactPublisher(ArtifactStorage())
-    with SelfhostBundlePublisher(publication, BundleValidator()).lock(
+    with SelfhostBundlePublisher(publication, SelfhostBundleValidator()).lock(
         Path(output_dir),
         bundle_name,
     ):
@@ -250,7 +252,7 @@ def test_concurrent_same_target_builds_serialize_publication(
 
     monkeypatch.setattr(ArtifactPublisher, "_write_journal", observed_write_journal)
     errors: list[BaseException] = []
-    builder = BundleBuilder()
+    builder = SelfhostBundleBuilder()
 
     def build() -> None:
         try:
@@ -320,7 +322,7 @@ def test_publication_lock_does_not_follow_a_symlink(tmp_path: Path) -> None:
     (output / ".btrcc-linux-x64.publish.lock").symlink_to(sentinel)
 
     with pytest.raises((OSError, ValueError)):
-        BundleBuilder().build(
+        SelfhostBundleBuilder().build(
             binary=binary,
             target="linux-x64",
             output_dir=output,
@@ -335,7 +337,7 @@ def test_final_staged_validation_rejects_post_archive_bundle_mutation(
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     output = tmp_path / "dist"
-    validator = BundleValidator()
+    validator = SelfhostBundleValidator()
     validate = validator.validate_generation
 
     def mutate_then_validate(bundle: Path, *args) -> None:
@@ -344,7 +346,7 @@ def test_final_staged_validation_rejects_post_archive_bundle_mutation(
 
     monkeypatch.setattr(validator, "validate_generation", mutate_then_validate)
     with pytest.raises(ValueError, match=r"changed size|does not match its manifest"):
-        BundleBuilder(validator=validator).build(
+        SelfhostBundleBuilder(validator=validator).build(
             binary=binary,
             target="linux-x64",
             output_dir=output,
@@ -360,7 +362,7 @@ def test_generation_validator_rejects_coherently_rechecksummed_archive_payload(
     tmp_path: Path,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source", "windows-x64")
-    result = BundleBuilder().build(
+    result = SelfhostBundleBuilder().build(
         binary=binary,
         target="windows-x64",
         output_dir=tmp_path / "dist",
@@ -384,7 +386,7 @@ def test_generation_validator_rejects_coherently_rechecksummed_archive_payload(
     write_checksum(result.archive)
 
     with pytest.raises(ValueError, match="does not match the manifest"):
-        BundleValidator().validate_generation(
+        SelfhostBundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -399,7 +401,7 @@ def test_generation_validator_normalizes_malformed_archive_error(
     target: str,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source", target)
-    result = BundleBuilder().build(
+    result = SelfhostBundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=tmp_path / "dist",
@@ -409,7 +411,7 @@ def test_generation_validator_normalizes_malformed_archive_error(
     write_checksum(result.archive)
 
     with pytest.raises(ValueError, match="valid tar or ZIP"):
-        BundleValidator().validate_generation(
+        SelfhostBundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -420,7 +422,7 @@ def test_generation_validator_normalizes_malformed_archive_error(
 
 def test_generation_validator_rejects_backslash_manifest_path(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = BundleBuilder().build(
+    result = SelfhostBundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -432,7 +434,7 @@ def test_generation_validator_rejects_backslash_manifest_path(tmp_path: Path) ->
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
 
     with pytest.raises(ValueError, match="invalid file record"):
-        BundleValidator().validate_generation(
+        SelfhostBundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -446,7 +448,7 @@ def test_generation_validator_bounds_unexpected_sparse_file_before_hashing(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = BundleBuilder().build(
+    result = SelfhostBundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -456,19 +458,19 @@ def test_generation_validator_bounds_unexpected_sparse_file_before_hashing(
     with unexpected.open("wb") as stream:
         stream.truncate(1024 * 1024 * 1024 + 1)
     discovered = []
-    discover = archive_source_module.BundleArchiveSource._discover_regular
+    discover = archive_source_module.ArchiveSource._discover_regular
 
     def observe_discovery(self, path: Path, metadata, expected_size=None):
         discovered.append(path)
         return discover(self, path, metadata, expected_size)
 
     monkeypatch.setattr(
-        archive_source_module.BundleArchiveSource,
+        archive_source_module.ArchiveSource,
         "_discover_regular",
         observe_discovery,
     )
     with pytest.raises(ValueError, match="unexpected entries"):
-        BundleValidator().validate_generation(
+        SelfhostBundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -484,7 +486,7 @@ def test_final_validation_rejects_identical_content_inode_replacement(
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     output = tmp_path / "dist"
-    validator = BundleValidator()
+    validator = SelfhostBundleValidator()
     capture = validator._capture_bundle
     captures = 0
 
@@ -502,7 +504,7 @@ def test_final_validation_rejects_identical_content_inode_replacement(
 
     monkeypatch.setattr(validator, "_capture_bundle", replace_after_capture)
     with pytest.raises(ValueError, match="bundle changed"):
-        BundleBuilder(validator=validator).build(
+        SelfhostBundleBuilder(validator=validator).build(
             binary=binary,
             target="linux-x64",
             output_dir=output,
@@ -512,7 +514,7 @@ def test_final_validation_rejects_identical_content_inode_replacement(
 
 def test_generation_validator_rejects_noncanonical_bundle_mode(tmp_path: Path) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = BundleBuilder().build(
+    result = SelfhostBundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -520,7 +522,7 @@ def test_generation_validator_rejects_noncanonical_bundle_mode(tmp_path: Path) -
     )
     (result.bundle / "README.md").chmod(0o600)
     with pytest.raises(ValueError, match="noncanonical mode"):
-        BundleValidator().validate_generation(
+        SelfhostBundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -547,7 +549,7 @@ def test_generation_validator_uses_host_staging_mode_contract(
     expected: int,
 ) -> None:
     assert (
-        BundleValidator()._expected_staged_mode(
+        SelfhostBundleValidator()._expected_staged_mode(
             is_directory=is_directory,
             is_executable=is_executable,
             host_os_name=host_os_name,
@@ -562,7 +564,7 @@ def test_generation_validator_binds_target_check_to_captured_executable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source")
-    result = BundleBuilder().build(
+    result = SelfhostBundleBuilder().build(
         binary=binary,
         target="linux-x64",
         output_dir=tmp_path / "dist",
@@ -586,7 +588,7 @@ def test_generation_validator_binds_target_check_to_captured_executable(
     )
 
     with pytest.raises(ValueError, match="archive source changed while packaging"):
-        BundleValidator(binary_validator=binary_validator).validate_generation(
+        SelfhostBundleValidator(binary_validator=binary_validator).validate_generation(
             result.bundle,
             result.archive,
             result.checksum,
@@ -601,7 +603,7 @@ def test_generation_validator_rejects_noncanonical_archive_mode(
     target: str,
 ) -> None:
     source_root, binary = _fixture(tmp_path / "source", target)
-    result = BundleBuilder().build(
+    result = SelfhostBundleBuilder().build(
         binary=binary,
         target=target,
         output_dir=tmp_path / "dist",
@@ -646,7 +648,7 @@ def test_generation_validator_rejects_noncanonical_archive_mode(
     os.replace(replacement, result.archive)
     write_checksum(result.archive)
     with pytest.raises(ValueError, match="noncanonical mode"):
-        BundleValidator().validate_generation(
+        SelfhostBundleValidator().validate_generation(
             result.bundle,
             result.archive,
             result.checksum,

@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.helpers.trycatch import TRYCATCH
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+
+TRYCATCH = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("trycatch")}
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))

@@ -2,12 +2,10 @@
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.helpers.cycles import CYCLES
-from src.compiler.python.ir.helpers.registry import HELPERS
-from src.compiler.python.ir.helpers.trycatch import TRYCATCH
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.application.pipeline import StdlibArchiveAdapter
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -18,9 +16,13 @@ from src.compiler.python.ir.nodes import (
     IRModule,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.stdlib_shared_state import SharedStateArchivePolicy
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+
+RUNTIME_CATALOG = RuntimeHelperCatalog()
+CYCLES = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("cycles")}
+TRYCATCH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("trycatch")}
 
 
 def _emit_c(source: str) -> str:
@@ -32,16 +34,7 @@ def _emit_c(source: str) -> str:
 
 
 def _optimized_helper_names(root: str) -> set[str]:
-    helper_decls = [
-        IRHelperDecl(
-            category=category,
-            name=name,
-            c_source=helper.c_source,
-            depends_on=helper.depends_on,
-        )
-        for category, helpers in HELPERS.items()
-        for name, helper in helpers.items()
-    ]
+    helper_decls = [IRHelperDecl.from_runtime(definition) for definition in RUNTIME_CATALOG.definitions]
     main = IRFunctionDef(
         name="main",
         return_type=CType(text="void"),
@@ -73,11 +66,11 @@ def test_destroyed_query_is_separate_from_shared_state():
 
     assert "__btrc_is_destroyed(" not in state.c_source
     assert "static int __btrc_is_destroyed(" in query.c_source
-    assert query.depends_on == [
+    assert query.depends_on == (
         "__btrc_destroyed_tracking",
         "__btrc_arc_mutation_lock",
-    ]
-    shared_helpers = SharedStateArchivePolicy.HELPER_NAMES
+    )
+    shared_helpers = StdlibArchiveAdapter.HELPER_NAMES
     assert "__btrc_destroyed_tracking" in shared_helpers
     assert "__btrc_is_destroyed" not in shared_helpers
     assert "__btrc_is_destroyed" not in CYCLES["__btrc_mark_destroyed"].depends_on

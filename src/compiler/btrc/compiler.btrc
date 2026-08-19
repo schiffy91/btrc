@@ -2,10 +2,6 @@
 
 import ./pipeline/stage.btrc;
 
-#include "runtime_paths.btrc"
-#include "driver_options.btrc"
-#include "driver_output.btrc"
-
 class Compiler {
     private CompilerPipeline pipeline;
 
@@ -19,75 +15,5 @@ class Compiler {
     public BtrccCompilationResult compile(string source, string sourcePath,
                                           BtrccOptions options) {
         return self.pipeline.compile(source, sourcePath, options);
-    }
-}
-
-class BtrccDriver {
-    private BtrccCommandLine commandLine;
-    private BtrccOutput output;
-    private FeSourceResolutionPolicy resolutionPolicy;
-    private FeSourceFileReader sourceFiles;
-
-    public BtrccDriver(int argc, char** argv) {
-        self.commandLine = BtrccCommandLine(argc, argv);
-        self.output = BtrccOutput(stdout);
-        self.resolutionPolicy = FeSourceResolutionPolicy();
-        self.sourceFiles = FeSourceFileReader(self.resolutionPolicy);
-    }
-
-    private int fail(string diagnostic) {
-        fprintf(stderr, "btrcc: error: %s\n", diagnostic);
-        return 1;
-    }
-
-    private int failWithUsage(string diagnostic) {
-        fprintf(stderr, "btrcc: error: %s\n%s\n",
-            diagnostic, self.commandLine.usage());
-        return 1;
-    }
-
-    private int writeLine(string value) {
-        if (self.output.writeLine(value)) { return 0; }
-        return self.fail("cannot write standard output");
-    }
-
-    public int run() {
-        BtrccOptions options = self.commandLine.parse();
-        if (!options.valid) {
-            return self.failWithUsage(options.diagnostic);
-        }
-        if (options.showHelp) {
-            return self.writeLine(self.commandLine.usage());
-        }
-
-        BtrccDataPaths dataPaths = BtrccRuntimePaths.resolve(
-            self.commandLine.executable());
-        if (!dataPaths.valid) { return self.fail(dataPaths.diagnostic); }
-        if (options.showStdlibDirectory) {
-            return self.writeLine(dataPaths.stdlib);
-        }
-
-        string grammarSource = self.sourceFiles.readRequired(dataPaths.grammar);
-        if (grammarSource.isEmpty()) {
-            return self.fail("cannot read grammar: " + dataPaths.grammar);
-        }
-        GrammarInfo grammar = parseGrammar(grammarSource);
-
-        string sourcePath = self.commandLine.argument(options.inputIndex);
-        if (!FileSystem.isFile(sourcePath)) {
-            return self.fail("input file does not exist: " + sourcePath);
-        }
-        string source = self.sourceFiles.readRequired(sourcePath);
-        Compiler compiler = Compiler(
-            grammar, dataPaths.stdlib, self.sourceFiles,
-            self.resolutionPolicy);
-        BtrccCompilationResult result =
-            compiler.compile(source, sourcePath, options);
-        if (!result.success) {
-            fprintf(stderr, "%s\n", result.diagnostic);
-            return 1;
-        }
-        if (self.output.write(result.output)) { return 0; }
-        return self.fail("cannot write standard output");
     }
 }

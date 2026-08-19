@@ -2,9 +2,8 @@
 
 import pytest
 
-from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.setjmp_call_effects import build_setjmp_call_effects
-from src.compiler.python.ir.gen.setjmp_pointer_types import pointer_type_facts
+from src.compiler.python.ir.lowering.exceptions import ExceptionLowerer
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import (
     CType,
     IRFunctionDecl,
@@ -271,10 +270,10 @@ def test_typedef_read_only_closure_is_independent_of_storage_order():
         ]
     )
 
-    facts = pointer_type_facts(module)
+    facts = ExceptionLowerer.pointer_type_facts(module)
 
     assert facts.is_pointer(CType("Layered"))
-    assert not facts.has_read_only_pointee(CType("Layered"))
+    assert "Layered" not in facts.read_only_pointee_aliases
 
 
 def test_custom_extern_and_trusted_hosted_reads_have_distinct_effects():
@@ -290,7 +289,7 @@ def test_custom_extern_and_trusted_hosted_reads_have_distinct_effects():
         function_defs=[probe],
     )
 
-    effects = build_setjmp_call_effects(module)["probe"]
+    effects = ExceptionLowerer.build_setjmp_call_effects(module)["probe"]
 
     assert effects.written_arguments("custom_read", 1) == frozenset({0})
     assert effects.written_arguments("memcmp", 3) == frozenset()

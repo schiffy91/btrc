@@ -1,8 +1,6 @@
 """Contracts for setjmp mutations reached through structured continuations."""
 
-from src.compiler.python.ir.gen.setjmp_call_effects import build_setjmp_call_effects
-from src.compiler.python.ir.gen.setjmp_effect_model import ParameterEffect
-from src.compiler.python.ir.gen.setjmp_volatility import apply_setjmp_volatility
+from src.compiler.python.ir.lowering.exceptions import ExceptionLowerer, ParameterEffect
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -60,7 +58,7 @@ def test_following_sequence_mutation_is_volatile():
         IRAssign(IRVar("value"), IRLiteral("1")),
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert value.is_volatile
 
@@ -82,7 +80,7 @@ def test_switch_case_sequence_mutation_is_volatile():
     )
     module = _module(value, switch)
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert value.is_volatile
 
@@ -106,7 +104,7 @@ def test_switch_fallthrough_mutation_is_volatile():
     )
     module = _module(value, switch)
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert value.is_volatile
 
@@ -135,7 +133,7 @@ def test_loop_backedge_marks_update_and_following_body_mutation():
     )
     module = _module(finally_count, loop)
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert index.is_volatile
     assert finally_count.is_volatile
@@ -156,7 +154,7 @@ def test_future_shadow_mutation_does_not_qualify_outer_aggregate():
         ),
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert not outer.is_volatile
     assert not inner.is_volatile
@@ -189,7 +187,7 @@ def test_lowered_aggregate_store_retains_original_storage_root():
     )
     module = _module(aggregate, branch)
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert aggregate.is_volatile
 
@@ -207,7 +205,7 @@ def test_pointer_index_store_does_not_mark_pointer_object_modified():
     )
     module = _module(pointer, branch)
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert not pointer.is_volatile
 
@@ -236,7 +234,9 @@ def test_call_effect_summary_resolves_pointer_typedefs():
         body=IRBlock(),
     )
 
-    effects = build_setjmp_call_effects(IRModule(typedef_defs=[pointer], function_defs=[mutate, probe]))["probe"]
+    effects = ExceptionLowerer.build_setjmp_call_effects(
+        IRModule(typedef_defs=[pointer], function_defs=[mutate, probe])
+    )["probe"]
 
     assert effects.written_arguments("mutate", 1) == frozenset({0})
 
@@ -262,7 +262,7 @@ def test_custom_external_const_pointer_is_not_a_read_only_contract():
         body=IRBlock(),
     )
 
-    effects = build_setjmp_call_effects(
+    effects = ExceptionLowerer.build_setjmp_call_effects(
         IRModule(
             typedef_defs=[mutable, read_only],
             function_decls=declarations,
@@ -292,7 +292,7 @@ def test_static_shadow_blocks_outer_automatic_qualification():
         IRBlock(stmts=[shadow, branch]),
     )
 
-    apply_setjmp_volatility(module)
+    ExceptionLowerer.apply_setjmp_volatility(module)
 
     assert not outer.is_volatile
     assert not shadow.is_volatile

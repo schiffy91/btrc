@@ -9,13 +9,11 @@ from pathlib import Path
 from threading import Barrier
 from types import SimpleNamespace
 
-from src.compiler.python.ast_nodes import Identifier, TypeExpr
-from src.compiler.python.ir.gen.default_arguments import (
-    DefaultArgumentLoweringContext,
-)
-from src.compiler.python.ir.gen.types import CTypeRenderer
+from src.compiler.python.frontend.sources import SourceMap
+from src.compiler.python.ir.lowering.calls import DefaultArgumentLoweringContext
+from src.compiler.python.syntax.ast.generated import Identifier, TypeExpr
 
-_GEN_DIR = Path(__file__).resolve().parents[2] / "compiler/python/ir/gen"
+_LOWERING_DIR = Path(__file__).resolve().parents[2] / "compiler/python/ir/lowering"
 _LEGACY_NAMES = {
     "call_argument_type",
     "default_argument_scope",
@@ -32,90 +30,92 @@ def _parameter(**substitutions: TypeExpr):
 
 def test_nested_default_scopes_restore_types_and_declaration_provenance():
     context = DefaultArgumentLoweringContext()
-    renderer = CTypeRenderer(default_arguments=context)
     generic_type = TypeExpr(base="T")
 
-    assert renderer.render(generic_type) == "T"
+    assert context.resolve_type(generic_type) == generic_type
     with context.scope(
         _parameter(T=TypeExpr(base="int")),
         function_name="outer",
-        line_map=lambda line: ("mapped.btrc", line + 10),
+        source_file="mapped.btrc",
+        source_map=SourceMap(
+            positions=tuple(("mapped.btrc", line + 10) for line in range(1, 5)),
+            user_line_count=4,
+            stdlib_line_count=0,
+            split_spaces=True,
+        ),
     ):
-        assert renderer.render(generic_type) == "int"
+        assert context.resolve_type(generic_type) == TypeExpr(base="int")
         assert context.predefined_identifier(Identifier(name="__func__")) == '"outer"'
         assert context.predefined_identifier(Identifier(name="__LINE__", line=4)) == "14"
         assert context.predefined_identifier(Identifier(name="__FILE__", line=4)) == '"mapped.btrc"'
 
         # A scope with no replacement inherits the active declaration default.
         with context.scope(None):
-            assert renderer.render(generic_type) == "int"
+            assert context.resolve_type(generic_type) == TypeExpr(base="int")
 
         with context.scope(
             _parameter(T=TypeExpr(base="string")),
             function_name="inner",
             source_file="inner.btrc",
         ):
-            assert renderer.render(generic_type) == "char*"
+            assert context.resolve_type(generic_type) == TypeExpr(base="string")
             assert context.predefined_identifier(Identifier(name="__func__")) == '"inner"'
             assert context.predefined_identifier(Identifier(name="__FILE__")) == '"inner.btrc"'
 
-        assert renderer.render(generic_type) == "int"
+        assert context.resolve_type(generic_type) == TypeExpr(base="int")
         assert context.predefined_identifier(Identifier(name="__func__")) == '"outer"'
 
-    assert renderer.render(generic_type) == "T"
+    assert context.resolve_type(generic_type) == generic_type
     assert context.predefined_identifier(Identifier(name="__func__")) is None
 
 
 def test_one_owner_is_task_local_and_cannot_leak_into_another_owner():
     context = DefaultArgumentLoweringContext()
-    renderer = CTypeRenderer(default_arguments=context)
     independent = DefaultArgumentLoweringContext()
-    independent_renderer = CTypeRenderer(default_arguments=independent)
     generic_type = TypeExpr(base="T")
 
-    async def render_in_scope(base: str) -> str:
+    async def resolve_in_scope(base: str) -> TypeExpr | None:
         with context.scope(_parameter(T=TypeExpr(base=base))):
             await asyncio.sleep(0)
-            assert independent_renderer.render(generic_type) == "T"
+            assert independent.resolve_type(generic_type) == generic_type
             await asyncio.sleep(0)
-            return renderer.render(generic_type)
+            return context.resolve_type(generic_type)
 
-    async def exercise() -> list[str]:
+    async def exercise() -> list[TypeExpr | None]:
         return list(
             await asyncio.gather(
-                render_in_scope("int"),
-                render_in_scope("string"),
+                resolve_in_scope("int"),
+                resolve_in_scope("string"),
             )
         )
 
-    assert asyncio.run(exercise()) == ["int", "char*"]
-    assert renderer.render(generic_type) == "T"
+    assert asyncio.run(exercise()) == [TypeExpr(base="int"), TypeExpr(base="string")]
+    assert context.resolve_type(generic_type) == generic_type
 
 
 def test_one_owner_is_isolated_between_compiler_threads():
     context = DefaultArgumentLoweringContext()
-    renderer = CTypeRenderer(default_arguments=context)
     barrier = Barrier(2)
     generic_type = TypeExpr(base="T")
 
-    def render_in_scope(base: str) -> str:
+    def resolve_in_scope(base: str) -> TypeExpr | None:
         with context.scope(_parameter(T=TypeExpr(base=base))):
             barrier.wait(timeout=10)
-            return renderer.render(generic_type)
+            return context.resolve_type(generic_type)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        integer = executor.submit(render_in_scope, "int")
-        text = executor.submit(render_in_scope, "string")
-        assert integer.result(timeout=20) == "int"
-        assert text.result(timeout=20) == "char*"
+        integer = executor.submit(resolve_in_scope, "int")
+        text = executor.submit(resolve_in_scope, "string")
+        assert integer.result(timeout=20) == TypeExpr(base="int")
+        assert text.result(timeout=20) == TypeExpr(base="string")
 
-    assert renderer.render(generic_type) == "T"
+    assert context.resolve_type(generic_type) == generic_type
 
 
 def test_default_argument_state_has_one_explicit_owner_and_no_legacy_api():
-    assert not (_GEN_DIR / "default_argument_context.py").exists()
+    assert not (_LOWERING_DIR / "default_argument_context.py").exists()
 
-    owner_module = ast.parse((_GEN_DIR / "default_arguments.py").read_text())
+    owner_module = ast.parse((_LOWERING_DIR / "calls.py").read_text())
     loose_functions = [
         node.name for node in owner_module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
     ]
@@ -132,7 +132,7 @@ def test_default_argument_state_has_one_explicit_owner_and_no_legacy_api():
     constructions = []
     legacy_references = []
     reachthrough = []
-    for path in _GEN_DIR.rglob("*.py"):
+    for path in _LOWERING_DIR.rglob("*.py"):
         tree = ast.parse(path.read_text())
         for node in ast.walk(tree):
             if (
@@ -140,7 +140,7 @@ def test_default_argument_state_has_one_explicit_owner_and_no_legacy_api():
                 and isinstance(node.func, ast.Name)
                 and node.func.id == "DefaultArgumentLoweringContext"
             ):
-                constructions.append(path.relative_to(_GEN_DIR))
+                constructions.append(path.relative_to(_LOWERING_DIR))
             if isinstance(node, ast.Name) and node.id in _LEGACY_NAMES:
                 legacy_references.append((path, node.id))
             if isinstance(node, ast.Attribute) and node.attr in _LEGACY_NAMES:

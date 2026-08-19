@@ -5,10 +5,18 @@ from pathlib import Path
 from src.tests.btrc.test_semantic_validation import _compile_source, _strict_build_and_run
 
 REPO = Path(__file__).resolve().parents[3]
-IRGEN = REPO / "src/compiler/btrc/irgen.btrc"
-ANALYZER = REPO / "src/compiler/btrc/analyzer.btrc"
-MEMO = REPO / "src/compiler/btrc/expression_inference_memo.btrc"
-GPU_NUMERIC = REPO / "src/compiler/btrc/gpu_numeric.btrc"
+ANALYZER = REPO / "src/compiler/btrc/analyzer/expressions.btrc"
+MEMO = ANALYZER
+GPU_SEMANTICS = REPO / "src/compiler/btrc/analyzer/gpu.btrc"
+LOWERING = REPO / "src/compiler/btrc/ir/lowering"
+LOWERER = LOWERING / "lowerer.btrc"
+FUNCTIONS = LOWERING / "functions.btrc"
+DECLARATIONS = LOWERING / "declarations.btrc"
+EXPRESSIONS = LOWERING / "expressions.btrc"
+GPU_PIPELINE = REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc"
+OWNERSHIP_OPERAND_PLANNER = (
+    LOWERING / "ownership/operands.btrc"
+)
 
 
 def _function(source: str, signature: str, next_signature: str) -> str:
@@ -18,77 +26,83 @@ def _function(source: str, signature: str, next_signature: str) -> str:
 
 
 def test_cache_is_epoch_scoped_and_bypasses_mutable_contexts() -> None:
-    source = IRGEN.read_text()
+    lowerer = LOWERER.read_text()
+    functions = FUNCTIONS.read_text()
+    declarations = DECLARATIONS.read_text()
+    expressions = EXPRESSIONS.read_text()
     memo_source = MEMO.read_text()
     reset = _function(
-        source,
+        functions,
         "public void resetExpressionInferenceMemo()",
         "public void resetFuncVarDecls()",
     )
-    resolver = _function(
-        source,
-        "public Node? resolvedExpressionType(",
-        "public void typedOperatorFail(",
+    owned_resolver = _function(
+        OWNERSHIP_OPERAND_PLANNER.read_text(),
+        "public Node? expressionType(",
+        "public bool hasEffect(",
     )
     generic = _function(
-        source,
+        declarations,
         "public void emitGenericInstance(",
-        "public void emitMethodGenericInstances(",
+        "public void emitClassDecl(",
     )
     method_generic = _function(
-        source,
+        functions,
         "public void emitOneMethodGenericInstance(",
         "public Map<string, Node> genericMethodVarTypes(",
     )
     isolated = _function(
-        source,
+        functions,
         "public ScopeSnapshot enterIsolatedScope(",
-        "public void maybeRegisterCleanup(",
+        "public void emitOneMethodGenericInstance(",
     )
     uncached = _function(
         memo_source,
-        "Node? inferSpecializationTypeWithoutMemo(",
-        "\n}",
+        "private Node? inferSpecializationTypeWithoutMemo(",
+        "private Node lambdaVoidType()",
     )
-    generate = _function(
-        source,
-        "public IRModule generate(",
-        "public void emitFunctionPointerTypedefs(",
+    lower = lowerer[lowerer.index("public IRModule lower(") :]
+    gpu_fallback = _function(
+        functions,
+        "public void emitGpuCpuFallback(",
+        "public IRFunction lowerFunction(",
     )
-    gpu_lowering = (REPO / "src/compiler/btrc/gpu_lowering.btrc").read_text()
-    gpu_fallback = gpu_lowering[gpu_lowering.index("void emitGpuCpuFallback(") :]
+    gpu_pipeline = GPU_PIPELINE.read_text()
     gpu_return = _function(
-        gpu_lowering,
-        "bool tryLowerGpuCpuReturn(",
-        "IRNode? lowerGpuCpuBuiltin(",
+        gpu_pipeline,
+        "public GpuStatementResult materializeStatement(",
+        "public IRNode dispatchExpression(",
     )
-    gpu_context = _function(
-        GPU_NUMERIC.read_text(),
-        "Node? gpuContextualExprType(",
-        "void gpuValidateFloatLiteral(",
-    )
+    gpu_types = GPU_SEMANTICS.read_text()
+    gpu_context = gpu_types[gpu_types.index("public Node? contextualExprType(") :]
 
-    assert "beginExpressionInferenceMemo(self.analyzed)" in reset
-    assert "if (self.gpuCpu.active)" in resolver
-    assert "if (self.callDefaultTypeDepth > 0)" in resolver
-    assert "inferSpecializationTypeWithoutMemo(" in resolver
+    assert "self.expressionTypes.beginMemo()" in reset
+    assert "if (environment.usesGpuInference())" in owned_resolver
+    assert "self.gpu.contextualExprType(" in owned_resolver
+    assert "if (environment.usesDefaultInference())" in owned_resolver
+    assert "self.expressionTypes.inferSpecializationWithoutMemo(" in owned_resolver
     assert "resetExpressionInferenceMemo();" in generic
     assert "resetExpressionInferenceMemo();" in method_generic
     assert isolated.count("resetExpressionInferenceMemo();") == 2
-    assert "expressionInferenceMemoEnabled = false" in uncached
-    assert "expressionInferenceMemoEnabled = enabled" in uncached
-    assert generate.index("disableExpressionInferenceMemo(self.analyzed)") < generate.index(
-        "registerGpuKernels(self, prog, m)"
+    assert "self.memoEnabled = false" in uncached
+    assert "self.memoEnabled = enabled" in uncached
+    assert lower.index("self.expressionTypes.disableMemo()") < lower.index(
+        "self.gpuPipeline.registerKernels(program, module)"
     )
-    assert generate.rindex("disableExpressionInferenceMemo(self.analyzed)") > generate.index("self.collectHelpers(m)")
-    assert gpu_fallback.index("gen.resetFuncVarDecls();") < gpu_fallback.index(
-        "gen.lowerBlock(declaration.body_node, varTypes)"
+    assert lower.rindex("self.expressionTypes.disableMemo()") > lower.index(
+        "self.cleanupSlots.finalize(module)"
     )
-    assert "expressionInferenceMemoEnabled = false" in gpu_context
-    assert "expressionInferenceMemoEnabled = memoEnabled" in gpu_context
-    assert "gpuContextualExprTypeUnmemoized(" in gpu_context
-    assert "gpuContextualExprType(" in gpu_return
+    assert gpu_fallback.index("self.resetFuncVarDecls();") < gpu_fallback.index(
+        "self.lowerBody("
+    )
+    assert "contextualExprTypeUnmemoized(" in gpu_context
+    assert "self.expressions.inferSpecializationWithoutMemo(" in gpu_types
+    assert "expressionInferenceMemo" not in gpu_types
+    assert "self.semantics.contextualExprType(" in gpu_return
     assert "inferType(" not in gpu_return
+    assert "class GpuStatementPlan {" in gpu_pipeline
+    assert "public GpuStatementPlan planStatement(" in gpu_pipeline
+    assert "tryLowerGpuCpuReturn(" not in expressions
 
 
 def test_recursive_inference_memo_has_one_miss_per_ast_node() -> None:
@@ -96,24 +110,24 @@ def test_recursive_inference_memo_has_one_miss_per_ast_node() -> None:
     memo = MEMO.read_text()
     raw = _function(
         analyzer,
-        "Node? inferTypeRaw(",
-        "Node? inferType(",
+        "private Node? inferTypeRaw(",
+        "private Node? inferType(",
     )
     cached = _function(
         memo,
-        "Node? inferSpecializationType(",
-        "Node? inferSpecializationTypeWithoutMemo(",
+        "private Node? inferSpecializationType(",
+        "private Node? inferSpecializationTypeWithoutMemo(",
     )
 
     # Every recursive child query re-enters the memoized public seam. Once a
     # node is known, the uncached recursive walk is skipped entirely.
     assert raw.count("inferSpecializationType(") >= 10
     assert "inferSpecializationTypeUnmemoized(" not in raw
-    assert cached.index("expressionInferenceMemoKnown.has(key)") < cached.index(
-        "Node? result = inferSpecializationTypeUnmemoized("
+    assert cached.index("self.memoKnown.has(key)") < cached.index(
+        "Node? result = self.inferSpecializationTypeUnmemoized("
     )
-    assert "expressionInferenceMemoKnown.put(key, true)" in cached
-    assert "expressionInferenceMemoValues.put(key, result)" in cached
+    assert "self.memoKnown.put(key, true)" in cached
+    assert "self.memoValues.put(key, result)" in cached
 
 
 def test_shared_generic_ast_is_reinferred_for_each_type_mapping(

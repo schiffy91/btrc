@@ -9,6 +9,12 @@ Both consume `src/language/grammar.ebnf` and `src/language/ast.asdl`, then run
 lexer, parser, analyzer, IR generation, optimization, and C emission. Language
 tests share the same source fixtures and golden runtime output.
 
+The self-hosted destination is an exact 88-file `.btrc` inventory: 82
+compiler/generated files and six explicit developer-tool files. At the package
+root, `compiler.btrc` is the public application object and `btrcc_main.btrc` is
+the only production process entry point. The file-by-file inventory is recorded
+in [Compiler Structure](compiler-structure.md).
+
 ## Bootstrap contract
 
 The Python compiler creates stage 1, which then builds two self-hosted stages:
@@ -28,15 +34,46 @@ self-built binary.
 
 | Stage | Self-host modules | Output |
 |---|---|---|
-| Grammar/lexer | `ebnf.btrc`, `tokens.btrc`, `lexer.btrc` | token stream |
-| Parser | `parser.btrc` | fat tagged `Node` AST |
-| Analyzer | `ast_identity.btrc`, `analyzer.btrc` | symbol/type/generic metadata |
-| IR generation | `ir_nodes.btrc`, `irgen.btrc` | structured fat tagged IR |
-| C emission | `emitter.btrc` | strict C11 text |
+| Grammar/lexer | `syntax/grammar.btrc`, `syntax/tokens.btrc`, `lexer/lexer.btrc` | token stream |
+| Parser | `parser/parser.btrc` | fat tagged `Node` AST |
+| Analyzer | `analyzer/stage.btrc`, `analyzer/analyzer.btrc` | symbol/type/generic metadata |
+| IR generation | `ir/model.btrc`, `ir/lowering/lowerer.btrc` | structured fat tagged IR |
+| Optimization | `ir/optimization/optimizer.btrc` | reachable, normalized IR |
+| C emission | `ir/emitter.btrc` | strict C11 text |
 
-The front end in `frontend.btrc` composes imports and the standard library.
-`btrcc_main.btrc` is the production driver. The small lexer, parser, and
-front-end drivers exist for stage-boundary testing.
+The frontend package composes imports and the standard library through
+`frontend/resolver.btrc`, with source I/O, stdlib, and visibility retained by
+their sibling owners.
+`btrcc_main.btrc` is the thin production entry point; `cli/driver.btrc` owns
+the command. The small lexer, parser, and front-end drivers under `tools/`
+exist for stage-boundary inspection.
+
+The package ownership is exact:
+
+- `pipeline/` contains the imports-only stage manifest, immutable models, and
+  `CompilerPipeline`.
+- `syntax/`, `lexer/`, `frontend/`, and `parser/` own the complete front end;
+  parser source-macro definitions remain with the parser.
+- `analyzer/` owns semantic composition, declarations, types, expressions,
+  generics, operators, hosted ABI, source macros, and GPU policy;
+  `analyzer/ownership/` owns managed values and cycles, while
+  `analyzer/validation/` contains one validator composition owner and ten
+  focused domain validators.
+- `ir/` owns the imports-only stage manifest, complete structured model, and
+  `CEmitter`; `ir/runtime/` owns catalog selection and reference collection.
+- `ir/lowering/` contains `LoweringContext`, `IRLowerer`, and the type,
+  declaration, generic, function, statement, control-flow, expression, call,
+  callable, assignment, aggregate, string, and concurrency lowerers. Its
+  `ownership/` package contains the six ownership-specific lowerers.
+- `ir/gpu/` owns WGSL rendering and GPU pipeline planning;
+  `ir/optimization/` owns reachability/normalization, cleanup validation, and
+  the two setjmp analysis/safety owners.
+- `generated/` contains data-only AST, hosted-ABI, and runtime catalogs.
+  `tools/` contains five developer entry points plus the ASDL schema owner.
+
+Stage manifests contain imports only. Concrete leaves own behavior, and public
+class names remain globally unique because directories do not create btrc
+namespaces.
 
 ## Fat tagged nodes
 
@@ -46,12 +83,29 @@ tag and the union of fields needed by every ASDL variant. The IR follows the
 same representation. Dispatch is explicit and lowering remains isolated in IR
 generation; the emitter only formats structured IR.
 
-`src/compiler/btrc/ast/node.btrc` is generated from
-`src/language/ast.asdl` by `src/compiler/python/ast/gen_btrc_ast.py`.
+`src/compiler/btrc/generated/ast/node.btrc` is generated from
+`src/language/ast.asdl` by `tools/compiler_codegen/ast.py`.
 `make ast-generate-btrc` regenerates and validates it. Never edit the generated
 node file directly.
 
+## Shared runtime contract
+
+`src/runtime/c/manifest.toml` describes helper names, dependencies, headers,
+features, source markers, and deterministic order for the shared pre-authored
+runtime assets: `core.c`, `collections.c`, `cycles.c`, `mutex.c`, `process.c`,
+`strings.c`, `threads.c`, `trycatch.c`, `gpu.c`, and `btrc_rt.h`.
+`src/compiler/btrc/generated/runtime/catalog.btrc` contains immutable generated
+rows; `ir/runtime/catalog.btrc` and `ir/runtime/references.btrc` retain query,
+selection, dependency, and reference behavior. Lowering and C emission do not
+assemble runtime source.
+
 ## Verification
+
+During the architecture-first ownership phase, individual slices use exact-tree
+and stale-path audits, generated-source checks, parse/import and dependency/SCC
+checks, loose-behavior audits, and `git diff --check`. Corpus, parity, bootstrap,
+and broad correctness runs resume only after the destination tree is complete,
+first as focused hill-climb checks and then as the mandatory final matrix:
 
 ```bash
 make test-selfhost          # lexer parity

@@ -7,15 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import IntLiteral
-from src.compiler.python.ir.gen.generics.user_emitter import _UserGenericEmitter
-from src.compiler.python.ir.gen.literal_text import format_c_integer_literal
-from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.gen.types import CTypeRenderer
-from src.compiler.python.ir.nodes import IRBinOp, IRCall, IRLiteral, IRVar
-from src.compiler.python.ir.optimizer_walk import IRTree
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.lowering.types import CTypeLowerer
+from src.compiler.python.ir.nodes import IRBinOp, IRCall, IRLiteral, IRNode, IRVar
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 from src.tests.python.test_typed_operator_contract import COMPILERS
@@ -50,7 +46,7 @@ def test_integer_literal_formatter_produces_c11_text(
     value: int,
     expected: str,
 ):
-    assert format_c_integer_literal(raw, value) == expected
+    assert CTypeLowerer.format_c_integer_literal(raw, value) == expected
 
 
 def test_binary_literal_never_leaks_into_emitted_c():
@@ -65,13 +61,20 @@ def test_binary_literal_never_leaks_into_emitted_c():
 
 
 def test_generic_integer_literal_uses_the_same_c11_formatter():
-    emitter = _UserGenericEmitter({}, "Box_int", CTypeRenderer())
-    literal = IntLiteral(value=10, raw="0B1010ULL")
+    c = emit_c("""
+        class Box<T> {
+            public T value;
+            public Box(T value) { self.value = value; }
+            public unsigned long long mask() { return 0B1010ULL; }
+        }
+        int main() {
+            Box<int> box = new Box<int>(1);
+            return (int)box.mask();
+        }
+    """)
 
-    lowered = emitter.lower_expression(literal)
-
-    assert isinstance(lowered, IRLiteral)
-    assert lowered.text == "0xaULL"
+    assert not re.search(r"\b0[bB]", c)
+    assert "0xaULL" in c
 
 
 def test_all_string_comparisons_are_structured_strcmp_operations():
@@ -91,13 +94,16 @@ def test_all_string_comparisons_are_structured_strcmp_operations():
     module = _generate(source)
     comparisons = [
         node
-        for node in IRTree(module)
+        for node in IRNode.walk_value(module)
         if (
             isinstance(node, IRBinOp)
             and node.op in {"==", "!=", "<", ">", "<=", ">="}
             and isinstance(node.right, IRLiteral)
             and node.right.text == "0"
-            and any(isinstance(inner, IRCall) and inner.callee == "strcmp" for inner in IRTree(node.left))
+            and any(
+                isinstance(inner, IRCall) and inner.callee == "strcmp"
+                for inner in IRNode.walk_value(node.left)
+            )
         )
     ]
 
@@ -123,12 +129,16 @@ def test_string_comparison_evaluates_each_operand_once():
         int main() { return (int)(left_value() < right_value()); }
     """
     module = _generate(source)
-    strcmp_call = next(node for node in IRTree(module) if isinstance(node, IRCall) and node.callee == "strcmp")
+    strcmp_call = next(
+        node
+        for node in IRNode.walk_value(module)
+        if isinstance(node, IRCall) and node.callee == "strcmp"
+    )
 
     assert all(isinstance(argument, IRVar) for argument in strcmp_call.args)
     calls = [
         node.callee
-        for node in IRTree(module)
+        for node in IRNode.walk_value(module)
         if isinstance(node, IRCall) and node.callee in {"left_value", "right_value"}
     ]
     assert calls.count("left_value") == calls.count("right_value") == 1

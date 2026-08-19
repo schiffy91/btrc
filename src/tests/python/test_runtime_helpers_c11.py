@@ -7,14 +7,16 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
-from src.compiler.python.ir.helpers.alloc import ALLOC
-from src.compiler.python.ir.helpers.cycles import CYCLES
-from src.compiler.python.ir.helpers.divmod import DIVMOD
-from src.compiler.python.ir.helpers.hash import HASH
-from src.compiler.python.ir.helpers.math import MATH
-from src.compiler.python.ir.helpers.threads import THREADS
-from src.compiler.python.ir.helpers.trycatch import TRYCATCH
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+
+RUNTIME_CATALOG = RuntimeHelperCatalog()
+ALLOC = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("alloc")}
+CYCLES = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("cycles")}
+DIVMOD = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("divmod")}
+HASH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("hash")}
+MATH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("math")}
+THREADS = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("threads")}
+TRYCATCH = {helper.name: helper for helper in RUNTIME_CATALOG.definitions_in_category("trycatch")}
 
 HEADERS = """\
 #include <stdbool.h>
@@ -68,7 +70,7 @@ NO_C11_RUNTIME = not COMPILERS or sys.platform == "win32"
 
 def _source(main: str) -> str:
     roots = {name for _registry, name in HELPER_ORDER}
-    helpers = "\n\n".join(helper.c_source for helper in RuntimeHelperRegistry().declarations_for(roots))
+    helpers = "\n\n".join(helper.c_source for helper in RUNTIME_CATALOG.definitions_for(roots))
     return f"{HEADERS}\n{helpers}\n\n{main}\n"
 
 
@@ -102,7 +104,7 @@ def _compile(tmp_path: Path, compiler: str, main: str, *, ubsan=False) -> Path:
 
 @pytest.mark.skipif(not CLANG or sys.platform == "win32", reason="requires Clang")
 def test_direct_cleanup_helper_is_warning_clean_without_indirect_wrapper(tmp_path: Path):
-    helpers = RuntimeHelperRegistry().declarations_for({"__btrc_register_direct_cleanup"})
+    helpers = RUNTIME_CATALOG.definitions_for({"__btrc_register_direct_cleanup"})
     names = [helper.name for helper in helpers]
     assert "__btrc_register_cleanup_kind" in names
     assert "__btrc_register_direct_cleanup" in names
@@ -147,7 +149,7 @@ def test_direct_cleanup_helper_is_warning_clean_without_indirect_wrapper(tmp_pat
 
 @pytest.mark.skipif(not CLANG or sys.platform == "win32", reason="requires Clang")
 def test_retain_only_string_registry_is_warning_clean(tmp_path: Path):
-    helpers = RuntimeHelperRegistry().declarations_for({"__btrc_string_retain"})
+    helpers = RUNTIME_CATALOG.definitions_for({"__btrc_string_retain"})
     names = {helper.name for helper in helpers}
     assert "__btrc_string_registry" in names
     assert "__btrc_string_registry_count" not in names

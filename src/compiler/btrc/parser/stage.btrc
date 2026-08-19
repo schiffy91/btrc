@@ -1,10 +1,5 @@
-/* Public manifest for parsing and strict source-level visibility analysis. */
+/* Public manifest for recursive-descent parsing. */
 
-import ../frontend/stage.btrc;
-
-#include "../literal_text.btrc"
-#include "../numeric_literals.btrc"
-#include "../parser.btrc"
-#include "../source_macro_symbols.btrc"
-#include "../source_macro_call_shapes.btrc"
-#include "../import_visibility.btrc"
+import ../lexer/stage.btrc;
+import ./parser.btrc;
+import ./source_macros.btrc;

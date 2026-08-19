@@ -12,7 +12,9 @@ Before changing code for this goal:
 2. Read this file completely.
 3. Inspect `git status` and preserve all existing goal work.
 4. Inspect the progress checklist below.
-5. Establish the smallest relevant behavioral baseline before editing.
+5. Establish the smallest baseline permitted by the current phase: structural,
+   generation, and loadability checks during foundation work; behavioral and
+   parity checks after the architecture checkpoint.
 
 Before ending a session:
 
@@ -52,17 +54,177 @@ Status recorded on 2026-08-18:
 
 - The target architecture below has been reviewed and approved as the
   destination.
-- No destination-tree migration has been implemented yet.
-- The working tree contains a large uncommitted ownership/correctness slice
-  from the preceding refactor. Preserve and migrate that work; do not discard
-  it or mistake it for the finished architecture.
-- The self-hosted compiler currently has 266 tracked `.btrc` files, 249 at the
-  package root. Ninety-seven are under 100 lines. A lexical audit found roughly
-  1,138 probable loose top-level behavior functions in 189 files.
-- The Python compiler currently has 499 tracked production `.py` files,
+- The shared runtime foundation is implemented: one validated manifest, nine
+  cohesive pre-authored C assets, data-only generated catalogs, and retained
+  catalog/selection/reference owners in both compilers.
+- The shared hosted-ABI foundation is implemented: one validated TOML schema,
+  data-only generated Python and btrc tables, retained query/provenance owners
+  in both compilers, and no compatibility layer for the deleted ABI shards.
+- The 46 Python `ir/helpers` modules, `ir/gen/helpers.py`, the old runtime
+  dependency module, and four root freestanding modules are deleted.
+- Thirty-four self-hosted cycle/process/thread/string/IR-runtime shard files
+  are deleted. Runtime source visibility now comes only from generated runtime
+  metadata; analyzer code no longer imports an IR-stage catalog.
+- The self-hosted syntax, lexer, and parser foundations now live under
+  `syntax/`, `lexer/`, and `parser/`. Every analyzer/IR consumer uses the new
+  identity, type-shape, callable-signature, and literal owners directly; the
+  deleted global APIs have no production references or compatibility layer.
+- The self-hosted application root now contains only `Compiler`; command-line
+  parsing, secure runtime-path resolution, checked output, and process
+  orchestration are retained together by `cli/driver.btrc`. The former driver,
+  path, and output fragments are deleted.
+- The self-hosted frontend now has exactly the six destination files. Source
+  models, bounded UTF-8/path I/O, stdlib discovery, dependency resolution, and
+  import visibility have distinct retained owners; the former five root
+  fragments and parser-to-frontend dependency are deleted.
+- The self-hosted generated AST now lives under `generated/ast/`; the native
+  ASDL schema, dump, and generation tools live under `tools/ast/`, and the
+  lexer, parser, and frontend inspection entry points live under `tools/`.
+  `AstCanonicalRenderer` in `syntax/identity.btrc` retains canonical rendering
+  behind one public `render` method and private recursive formatting helpers;
+  generated `Node` owns schema/data fields and initialization only. Each
+  executable has a retained command owner behind a thin `main()`, and the
+  former `ast/` and package-root paths are deleted without facades. The former
+  standalone AST-verification script and lexer-verification shell program are
+  also deleted; canonical AST encoding and raw-byte lexer comparison now belong to
+  `tools.compiler_codegen.verification.CompilerBoundaryVerifier` and are
+  exposed by the unified tool entry point.
+- The Python grammar, token vocabulary, lexer, and parser foundations now live
+  under `syntax/`, `lexer/`, and `parser/`. Literal scanning is retained by
+  `LiteralScanner`, one stateful `Parser` owns all recursive-descent behavior,
+  and the former root modules and parser fragments are deleted without facades.
+- Python ASDL processing and dual-language AST generation now belong to the
+  retained owners in `tools/compiler_codegen/{asdl,ast}.py`; the generated
+  Python model and `AstJsonCodec` live in the exact `syntax/ast/` package. The
+  former generator package, root AST modules, and standalone generated-file
+  checker are deleted, and the unified generator owns both output artifacts.
+- The Python application boundary now has exactly the twelve destination files
+  under `application/`, `cli/`, and `frontend/`, plus the two public package
+  entry files. `CompilationPipeline` owns stage ordering, frontend resolution
+  is split between its retained source/import/package owners, and the former
+  root compiler, package, pipeline, and command modules are deleted without
+  facades. Frontend and artifacts never import application or one another;
+  CLI imports only application owners; application owns narrow structural
+  cache/archive/bundle ports; and `main.py` is the sole concrete composition
+  point for persistent artifact adapters.
+- The Python analyzer now has exactly the sixteen destination files. One
+  `SemanticAnalyzer` wires the session/result, declaration, type, aggregate,
+  expression, call, statement, flow, storage, ownership, generic, GPU, macro,
+  and generated-symbol owners; the former 60-way inheritance braid, 96
+  analyzer fragments, and 21 analyzer-owned root semantic modules are deleted
+  without facades or module-level behavior.
+- Python's top-level IR package now has exactly `__init__.py`, `nodes.py`,
+  `verifier.py`, and `optimizer.py`. The model has no dependency on later
+  stages, `IRVerifier` owns fail-closed schema/cleanup/derived-order checks,
+  and `IROptimizer` owns planning and mutation. `CEmitter` depends only on the
+  IR model and verifier; `WgslEmitter` additionally consumes the structured GPU
+  shader plan and the earlier syntax/analyzer type-value owners needed to
+  render it. The former IR-schema, provenance, walk, reachability,
+  declaration-order, topology, completion, and parameter fragments are gone.
+- Python's former 198-file `ir/gen/` implementation and all 49 generic-emitter
+  copies are deleted. The exact twenty-file `ir/lowering/` destination is
+  physically present and ordinary/generic paths share its domain owners. Its
+  exact import and retained-owner graphs are acyclic; broad
+  `lowerer`/`generator` arguments, legacy `_gen` reach-through, callback bags,
+  late binders, dynamic state fallbacks, and service-location seams are zero.
+- Python artifact handling now has exactly six modules under `artifacts/` plus
+  the thin `cli/bundle.py` command. Archive codecs, caches, publication,
+  standard-library archives, and self-host bundles each have retained owners;
+  the former root utilities and nested micro-packages are deleted without
+  import facades.
+- The 64 self-hosted semantic-validation fragments and two adjacent helper
+  fragments are deleted. The complete validation domain now consists of the
+  eleven retained owners under `analyzer/validation/`; validation run state no
+  longer carries semantic services.
+- The debugger has been repackaged around protocol, toolchain, LLDB, value
+  presentation, and bootstrap owners. Its former flat modules are deleted and
+  its tests live under `src/tests/debug/`.
+- The LSP now consists of the exact 22-file destination package. Its document,
+  resolution, workspace, catalog, protocol, and feature owners form an acyclic
+  dependency graph; `BtrcLanguageServer` retains all mutable server state, the
+  old compatibility modules are deleted, and tests live under `src/tests/lsp/`.
+  Builtin-catalog scanning and rendering are owned by the unified compiler
+  generator rather than LSP-local generator fragments.
+- The VS Code extension now lives only under `src/devex/vscode/` with retained
+  application, launcher, session, process, runtime-probe, and bundler owners.
+  The former `ext/` tree and all source-local payloads are deleted; staging and
+  compiled output live under `build/devex/vscode/`, with VSIX output reserved
+  for `dist/btrc.vsix`.
+- Native GPU and GUI object/archive output now lives under
+  `build/stdlib/{gpu,gui}`. The former `src/stdlib/*/build` directories,
+  package metadata snapshots, `.DS_Store` files, and other source-local native
+  artifacts were removed; build and packaging consumers use the repository
+  build root.
+- Self-hosted source-macro namespace policy and the managed-value/cycle semantic
+  owners now live under `analyzer/`; `CycleSemantics` is injected explicitly and
+  the misleading `CycleMetadata` API and former package-root paths are deleted.
+  `NumericSemantics` and `OperatorSemantics` now share the single analyzer-owned
+  `operators.btrc` module that defines their common type/operator domain.
+- The remainder of the self-hosted analyzer now has the exact destination tree.
+  `SemanticAnalyzer` composes `DeclarationRegistry`, `SemanticTypeSystem`,
+  `ExpressionTypeResolver`, and `GenericSpecializer` over semantic value state;
+  IR lowering receives those narrow collaborators directly and never retains
+  the analyzer composition root. The 21 absorbed root semantic fragments are
+  deleted without facades or loose behavior.
+- Self-hosted C formatting now lives in `ir/emitter.btrc`; `CEmitter.emit()` is
+  its only behavioral API, formatting state/helpers are private, and lowering
+  no longer reaches into an emitter-level whitespace global.
+- Python backend formatting now lives in the exact three-file `backend/`
+  package. One retained `CEmitter` owns translation-unit, archive, debug,
+  declaration, statement, expression, preprocessor, and embedded-shader C
+  formatting; one retained `WgslEmitter` owns complete kernel assembly, typed
+  statement/expression rendering, checked operations, bindings, and type
+  mappings. The former emitter mixins and GPU-WGSL shards are deleted without
+  facades or loose behavior functions.
+- The thirteen self-hosted setjmp fragments are deleted. Pointer provenance,
+  call effects, and fixed-point summaries belong to `SetjmpEffectAnalysis`;
+  capture, mutation, volatility, qualifier, and control-flow policy belong to
+  `SetjmpSafetyPlanner`, under the two-file `ir/optimization/setjmp/` package.
+- The self-hosted GPU fragments are deleted. Analyzer-owned builtin and type
+  policy belongs to `GpuSemantics`, WGSL rendering belongs to
+  `GpuWgslEmitter`, and registration, dispatch, fallback planning, and GPU-only
+  reachability belong to `GpuPipeline`; none retains or accepts `IRGen`.
+- The typed cleanup-registration invariant owner now lives beside the other IR
+  optimization checks in `ir/optimization/cleanup.btrc`; its former root path
+  is deleted without a forwarding include.
+- The self-hosted structured IR schema now lives only in `ir/model.btrc`.
+  `IRNode` and `IRPreprocessorDecl` own their typed constructors, GPU
+  translation-unit records are part of the same schema, and the former
+  `cleanup_ir.btrc`, `ir_nodes.btrc`, and `ir_top_nodes.btrc` files and loose
+  factory functions are gone.
+- Self-hosted whole-module reachability and unused-parameter normalization now
+  belong to one retained `IROptimizer` in `ir/optimization/optimizer.btrc`;
+  GPU reachability is delegated to `GpuPipeline`, and the former global and
+  parameter-reachability fragments are deleted.
+- The self-hosted compiler now has the exact 88-file destination tree. Raw IR
+  construction stops at `IRLowerer`; `CompilerPipeline` invokes the injected
+  `HostedAbiRepository`, setjmp/cleanup validation, `IROptimizer`, runtime
+  materialization, and `CEmitter` as distinct later stages. `CallTargetResolver`
+  centralizes call identity and signatures; `StatementLowerer` owns recursive
+  statement traversal; `CallableValueLowerer` owns lifted callable values;
+  `OwnershipOperandPlanner` owns operand order; and each emitted body receives
+  a fresh `CallableFlowState`. GPU statements cross a typed
+  plan/operands/result boundary rather than reaching through expressions.
+- This revision is the architecture-foundation checkpoint. Exact destination
+  inventories, generated sources, import and retained-owner DAGs, owner-call
+  resolution, test collection, build/config parsing, and source-output hygiene
+  are structurally green. Correctness, parity, bootstrap, strict-C, and broad
+  behavior verification intentionally begin after this checkpoint rather than
+  being inferred from structural success.
+- The final structural audit covers 81 Python compiler modules, 88 self-hosted
+  compiler units, 22 LSP modules, 12 debugger modules, 16 VS Code production
+  inputs, 3 language specs, 11 runtime-C inputs, and 8 code-generation modules.
+  It resolves every compiler import, parses every self-host unit and all 1,081
+  BTRC test/corpus sources, collects 6,927 tests without import errors, and
+  leaves no source-local bytecode, cache, native, build, temporary, or dangling
+  worktree artifacts.
+- At goal start, the self-hosted compiler had 266 tracked `.btrc` files, 249 at
+  the package root. Ninety-seven were under 100 lines, and a lexical audit found
+  roughly 1,138 probable loose top-level behavior functions in 189 files.
+- At goal start, the Python compiler had 499 tracked production `.py` files,
   including 204 IR-lowering modules and 46 runtime-helper modules.
-- Devex currently has 63 tracked production inputs, plus generated extension
-  payloads living incorrectly beneath `src`.
+- At goal start, devex had 63 tracked production inputs, plus generated
+  extension payloads living incorrectly beneath `src`.
 - A subsequent canonical `make test` attempt reached 37 percent with 2,701
   passing and 10 skipped tests before being intentionally stopped. Per the
   user's direction, the destination foundations now take priority over
@@ -110,12 +272,21 @@ syntax -> lexer/parser -> frontend -> analyzer -> ir.lowering
                                   \-> abi/runtime
 
 application -> pipeline and stage composition
-cli/artifacts -> application boundary only
+cli -> application boundary only
+main -> application + cli + concrete artifact adapters
+artifacts -> sibling persistence/storage owners only
 devex -> public compiler/frontend APIs, never compiler internals by facade
 ```
 
 Dependencies may point inward or leftward in this diagram, never back toward a
 composition root or a later pipeline stage.
+
+Application owns the narrow cache, stdlib-archive, and self-host-bundle port
+contracts. The library defaults are explicit disabled adapters; `main.py` is
+the concrete process composition root that injects `CompilerCache`,
+`StdlibArtifactRepository`, `SelfhostBundleBuilder`, and their shared
+toolchain fingerprint. Application and artifacts do not import each other:
+the concrete artifact owners satisfy the application ports structurally.
 
 ## Destination: Self-Hosted Compiler
 
@@ -134,19 +305,19 @@ src/compiler/btrc/
 
   pipeline/
     stage.btrc                    # public package manifest
-    models.btrc                   # immutable options/results
+    models.btrc                   # mutable options/results
     pipeline.btrc                 # CompilerPipeline
 
   syntax/
     grammar.btrc                  # GrammarInfo, EBNF parser
     tokens.btrc                   # Token and token vocabulary
-    identity.btrc                 # AstIdentity, TypeIdentity
+    identity.btrc                 # AstIdentity, AstCanonicalRenderer, TypeIdentity
     types.btrc                    # TypeShape, callable signatures
     literals.btrc                 # source/C literal model
 
   generated/
     ast/
-      node.btrc                   # ASDL-generated AST
+      node.btrc                   # ASDL-generated Node data/schema only
     hosted_abi/
       README.md
       tables.btrc                 # generated hosted ABI declarations
@@ -173,10 +344,10 @@ src/compiler/btrc/
   analyzer/
     stage.btrc                    # public package manifest
     analyzer.btrc                 # SemanticAnalyzer composition root
-    models.btrc                   # AnalyzedProgram, indexes, memo state
+    models.btrc                   # AnalyzedProgram and semantic indexes
     declarations.btrc             # DeclarationRegistry
     types.btrc                    # SemanticTypeSystem
-    expressions.btrc              # ExpressionTypeResolver
+    expressions.btrc              # ExpressionTypeResolver/private memo state
     generics.btrc                 # GenericSpecializer
     operators.btrc                # NumericSemantics, OperatorSemantics
     hosted_abi.btrc               # HostedAbiRepository/provenance
@@ -216,8 +387,8 @@ src/compiler/btrc/
       declarations.btrc           # DeclarationLowerer
       generics.btrc               # specialization planning only
       functions.btrc              # FunctionLowerer
-      statements.btrc             # StatementLowerer, IRStatementSequence
-      control_flow.btrc            # ControlFlowLowerer
+      statements.btrc             # recursive StatementLowerer
+      control_flow.btrc           # plans, IRStatementSequence, ControlFlowLowerer
       expressions.btrc             # ExpressionLowerer
       calls.btrc                   # CallLowerer, CallTargetResolver
       callables.btrc               # CallableValueLowerer
@@ -298,7 +469,7 @@ cycle_runtime_state.btrc
 
 ## Destination: Python Compiler
 
-The 499 tracked Python compiler files collapse to exactly 80 production Python
+The 499 tracked Python compiler files collapse to exactly 81 production Python
 files.
 
 ```text
@@ -346,7 +517,7 @@ src/compiler/python/
     analyzer.py                   # SemanticAnalyzer composition root
     program.py                    # AnalyzedProgram/scopes/indexes
     declarations.py              # DeclarationRegistry
-    types.py                     # TypeSystem/TypeInference
+    types.py                     # TypeSystem
     aggregates.py                # AggregateAnalyzer
     expressions.py               # ExpressionAnalyzer
     calls.py                     # CallAnalyzer/callable flow
@@ -361,6 +532,7 @@ src/compiler/python/
 
   abi/
     __init__.py
+    generated.py                  # generated hosted-ABI data
     declarations.py              # hosted ABI value declarations
     hosted.py                    # HostedAbiRepository
     freestanding.py              # FreestandingRuntime
@@ -401,7 +573,7 @@ src/compiler/python/
   runtime/
     __init__.py
     catalog.py                   # RuntimeHelperCatalog
-    generated.py                 # generated immutable helper specs
+    generated.py                 # generated runtime-helper data
 
   artifacts/
     __init__.py
@@ -467,8 +639,17 @@ tools/compiler_codegen/
 ```
 
 `manifest.toml` owns helper names, dependencies, headers, feature flags, source
-markers, and deterministic emission order. The C files contain cohesive named
+markers, and a dense deterministic order for each compiler catalog. Python
+retains dependency-first DFS materialization; self-hosting retains dependency
+closure followed by its catalog order. The C files contain cohesive named
 sections, not one file per helper.
+
+`hosted_abi.toml` owns exact function signatures and effects, complete owned
+and native name sets, macros, objects, types, typedefs, platform subsets,
+runtime-adopting metadata, and provenance markers. The generator validates the
+set relationships and runtime references before emitting data rows; each
+compiler retains indexing, alias recognition, source stamping, and ownership
+queries in its handwritten ABI repository.
 
 The generator produces exactly these compiler/devex data files:
 
@@ -477,12 +658,19 @@ src/compiler/python/runtime/generated.py
 src/compiler/btrc/generated/runtime/catalog.btrc
 src/compiler/python/syntax/ast/generated.py
 src/compiler/btrc/generated/ast/node.btrc
+src/compiler/python/abi/generated.py
 src/compiler/btrc/generated/hosted_abi/tables.btrc
 src/devex/lsp/catalog/generated.py
 ```
 
-Generated modules contain data only. Stateful repositories and catalogs own
-all querying, validation, indexing, and selection behavior.
+Generated modules contain data/schema declarations only. Generated Python rows
+use immutable value types; generated btrc rows expose public fields required by
+the language and consumers treat them as read-only by convention. Stateful
+repositories and catalogs own all querying, validation, indexing, and
+selection behavior. `AstCanonicalRenderer` in handwritten
+`syntax/identity.btrc` owns canonical AST formatting; generated `Node` owns no
+formatting behavior. The unified generator check structurally verifies that
+the handwritten renderer covers every ASDL constructor and field.
 
 ## Destination: Developer Experience
 
@@ -611,30 +799,36 @@ dist/btrc.vsix
 ## Migration Order
 
 - [x] Freeze and approve the destination architecture.
-- [ ] Introduce the shared hosted-ABI and runtime specifications.
-- [ ] Generate both language-specific runtime catalogs and prove exact byte,
+- [x] Introduce the shared runtime specification and cohesive C assets.
+- [x] Generate both language-specific runtime catalogs and prove exact byte,
       dependency, header, and ordering parity.
-- [ ] Collapse self-hosted cycle, process, thread, and try/catch runtime shards.
-- [ ] Move the self-hosted flat root into the destination packages without
+- [x] Introduce the shared hosted-ABI specification and generated repositories.
+- [x] Delete the Python runtime-helper module shards and route consumers through
+      `RuntimeHelperCatalog`, `RuntimeHelperSelection`, and
+      `FreestandingRuntime`.
+- [x] Collapse self-hosted cycle, process, thread, and try/catch runtime shards.
+- [x] Move the self-hosted flat root into the destination packages without
       compatibility shims.
-- [ ] Replace self-hosted validation globals with the 11 validator owners.
-- [ ] Replace `IRGen` service-location with `IRLowerer`, `LoweringContext`, and
+- [x] Replace self-hosted validation globals with the 11 validator owners.
+- [x] Replace `IRGen` service-location with `IRLowerer`, `LoweringContext`, and
       explicit domain lowerers.
-- [ ] Consolidate the Python syntax, parser, frontend, analyzer, ABI, artifact,
+- [x] Consolidate the Python syntax, parser, frontend, analyzer, ABI, artifact,
       and backend packages.
-- [ ] Unify ordinary and generic Python lowering and delete the generic emitter
+- [x] Unify ordinary and generic Python lowering and delete the generic emitter
       copy.
-- [ ] Repackage the LSP around `BtrcLanguageServer`, `DocumentAnalyzer`,
+- [x] Repackage the LSP around `BtrcLanguageServer`, `DocumentAnalyzer`,
       `SemanticResolver`, and feature providers.
-- [ ] Repackage the debugger and VS Code extension; redirect generated output
-      to `build/` and `dist/`.
-- [ ] Delete every obsolete production path and update build, CI, docs,
+- [x] Repackage the debugger around retained protocol, toolchain, backend, and
+      bootstrap owners.
+- [x] Repackage the VS Code extension and redirect generated output to
+      `build/` and `dist/`.
+- [x] Delete every obsolete production path and update build, CI, docs,
       generators, source fingerprints, and structure tests.
 - [ ] Establish frozen compiler outputs for tokens, AST, IR, optimized IR, C,
       diagnostics, and runtime helper specifications from the completed
       destination architecture.
 - [ ] Complete all bit-perfect comparisons and the full verification matrix.
-- [ ] Perform a final loose-function, import-cycle, package-root, generated-file,
+- [x] Perform a final loose-function, import-cycle, package-root, generated-file,
       and source-output audit.
 
 ## Slice Rules
@@ -645,16 +839,24 @@ Every migration slice must:
 2. Move a complete dependency-connected domain, not a convenient line range.
 3. Delete old files in the same slice; never leave temporary facades.
 4. Preserve the exact runtime helper bytes, dependency vectors, header vectors,
-   and deterministic order where applicable.
-5. Add or strengthen structural tests so the old fragmentation cannot return.
-6. Run focused behavior/parity tests before a broad suite.
-7. Pass lint, formatting, and `git diff --check` before checkpointing.
+   and each compiler's deterministic materialization order where applicable.
+5. During the current architecture-first phase, record structural invariants
+   in this contract and use generation, import, parse/transpile, and
+   `git diff --check` checks only. Do not spend time repairing transitional
+   correctness failures or running behavior/parity suites.
+6. After the destination tree is complete, add the structural regression
+   checks and hill-climb through focused behavior/parity tests before the broad
+   suite and bit-perfect gates.
+7. Keep generated sources fresh and the changed architecture mechanically
+   loadable before checkpointing; final lint/format enforcement belongs to the
+   hill-climb phase.
 8. Update this document's progress checklist and current-state breadcrumbs.
 
 ## Correctness and Completion Gates
 
-For compiler-affecting structural changes, compare the frozen pre-refactor and
-new compilers at each available boundary:
+After the destination architecture checkpoint is committed and pinned as the
+baseline revision, compare that frozen compiler and each correctness-hill-climb
+revision at every available boundary:
 
 - token stream
 - canonical AST

@@ -36,16 +36,16 @@ import sys
 import tempfile
 import time
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.frontend.resolver import SourceResolver
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.frontend.stage import FrontendStage
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 BENCH_DIR = os.path.join(os.path.dirname(__file__), "benchmarks")
-SOURCE_RESOLVER = SourceResolver()
+SOURCE_RESOLVER = FrontendStage().resolver
 
 
 @dataclasses.dataclass

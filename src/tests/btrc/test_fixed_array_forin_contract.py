@@ -7,12 +7,6 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ast_nodes import Identifier
-from src.compiler.python.ir.gen.c_array_scopes import CArrayBinding
-from src.compiler.python.ir.gen.iteration_arrays import (
-    fixed_array_iteration_length,
-)
-from src.compiler.python.ir.nodes import IRLiteral, IRVar
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
@@ -110,20 +104,6 @@ def _source(*, generic: bool) -> str:
             return 0;
         }}
     """
-
-
-def test_fixed_array_iteration_prefers_zero_logical_gpu_length() -> None:
-    logical = IRLiteral(text="0")
-    context = type("Context", (), {})()
-    context._c_array_scopes = [{"output": CArrayBinding(is_array=True, logical_length=logical)}]
-
-    selected = fixed_array_iteration_length(
-        context,
-        Identifier(name="output"),
-        IRVar(name="output"),
-    )
-
-    assert selected is logical
 
 
 def test_generic_gpu_result_array_forin_smoke(

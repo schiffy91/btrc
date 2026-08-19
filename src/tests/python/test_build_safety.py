@@ -144,13 +144,13 @@ def test_optional_native_backends_only_skip_missing_dependencies():
 
 def test_btrcc_c_rebuilds_for_every_input_category():
     representative_inputs = [
-        "src/compiler/python/ir/gen/lowerer.py",
-        "src/compiler/btrc/irgen.btrc",
+        "src/compiler/python/ir/lowering/lowerer.py",
+        "src/compiler/btrc/ir/lowering/lowerer.btrc",
         "src/stdlib/vector.btrc",
         "src/language/grammar.ebnf",
         "src/language/ast.asdl",
-        "src/compiler/python/ast_nodes.py",
-        "src/compiler/btrc/ast/node.btrc",
+        "src/compiler/python/syntax/ast/generated.py",
+        "src/compiler/btrc/generated/ast/node.btrc",
     ]
 
     for source in representative_inputs:
@@ -158,16 +158,13 @@ def test_btrcc_c_rebuilds_for_every_input_category():
         assert "python3 -m src.compiler.python.main" in output, source
 
 
-def test_btrcc_regenerates_ast_dependencies_before_transpiling():
+def test_btrcc_checks_ast_dependencies_before_transpiling():
     output = _make_dry_run("--what-if", "src/language/ast.asdl", "dist/btrcc.c")
 
-    python_ast = "python3 src/compiler/python/ast/asdl_python.py"
-    btrc_ast = "python3 src/compiler/python/ast/gen_btrc_ast.py"
+    generated_check = "python3 -m tools.compiler_codegen.main check"
     transpile = "python3 -m src.compiler.python.main"
-    assert python_ast in output
-    assert btrc_ast in output
-    assert output.index(python_ast) < output.index(transpile)
-    assert output.index(btrc_ast) < output.index(transpile)
+    assert generated_check in output
+    assert output.index(generated_check) < output.index(transpile)
 
 
 def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
@@ -178,15 +175,16 @@ def test_btrcc_release_targets_publish_bundles_not_raw_dist_binaries():
     assert "--binary build/btrcc/linux-x64/btrcc --target linux-x64" in linux
     assert "-o build/btrcc/windows-x64/btrcc.exe" in windows
     assert "--target windows-x64 --output-dir dist" in windows
-    assert "src.compiler.python.check_generated" in linux + windows
+    assert "tools.compiler_codegen.main check" in linux + windows
 
 
 def test_explicit_ast_generation_targets_force_regeneration():
     python_output = _make_dry_run("ast-generate", "NIX=")
     btrc_output = _make_dry_run("ast-generate-btrc", "NIX=")
 
-    assert "python3 src/compiler/python/ast/asdl_python.py" in python_output
-    assert "python3 src/compiler/python/ast/gen_btrc_ast.py" in btrc_output
+    generator = "python3 -m tools.compiler_codegen.main generate"
+    assert generator in python_output
+    assert generator in btrc_output
 
 
 def test_clean_covers_generated_and_runtime_build_directories():
@@ -200,10 +198,8 @@ def test_clean_covers_generated_and_runtime_build_directories():
         "build/temp.*/",
         ".coverage.*",
         "coverage.json",
-        "src/devex/ext/server/",
-        "src/devex/ext/debug/",
-        "src/stdlib/gpu/build/",
-        "src/stdlib/gui/build/",
+        "build/devex/vscode/",
+        "build/stdlib/",
     ]:
         assert path in output
     assert "-name '*.dSYM'" in output
@@ -215,29 +211,33 @@ def test_clean_covers_generated_and_runtime_build_directories():
 
 def test_ast_generation_is_validated_before_atomic_replacement():
     makefile = MAKEFILE.read_text()
+    verification = (REPO_ROOT / "tools" / "compiler_codegen" / "verification.py").read_text()
 
-    assert makefile.count("mktemp") >= 2
-    assert makefile.count("test -s") >= 2
-    assert makefile.count('mv -f "$$tmp" "$$target"') >= 2
-    assert "> src/compiler/python/ast_nodes.py" not in makefile
-    assert "> src/compiler/btrc/ast/node.btrc" not in makefile
+    assert "tempfile.mkstemp" in verification
+    assert "os.replace(temporary, target)" in verification
+    assert "> src/compiler/python/syntax/ast/generated.py" not in makefile
+    assert "> src/compiler/btrc/generated/ast/node.btrc" not in makefile
 
 
 def test_extension_build_uses_locked_dependencies():
     makefile = MAKEFILE.read_text()
-    manifest_text = (REPO_ROOT / "src" / "devex" / "ext" / "package.json").read_text()
+    manifest_text = (REPO_ROOT / "src" / "devex" / "vscode" / "package.json").read_text()
     manifest = json.loads(manifest_text)
 
-    assert "npm ci && npm test && npm run package" in makefile
+    assert "node src/devex/vscode/packaging/prepare.js" in makefile
+    assert "cd build/devex/vscode && npm ci && npm test && npm run package" in makefile
     assert manifest["scripts"]["typecheck"] == "tsc --noEmit"
-    assert manifest["scripts"]["test"] == "npm run typecheck && npm run compile && node --test test/*.test.js"
+    assert manifest["scripts"]["test"] == (
+        "npm run typecheck && npm run compile && npm run esbuild-test-modules "
+        "&& node --test ../../../src/tests/vscode/*.test.js"
+    )
     assert manifest["engines"]["vscode"] == "^1.85.0"
     assert manifest["devDependencies"]["@types/vscode"] == "1.85.0"
     assert manifest["devDependencies"]["@types/node"].startswith("^18.")
-    assert (REPO_ROOT / "src" / "devex" / "ext" / "package-lock.json").exists()
+    assert (REPO_ROOT / "src" / "devex" / "vscode" / "package-lock.json").exists()
     output = _make_dry_run("extension")
-    assert output.index("src.compiler.python.check_generated") < output.index("npm ci")
-    assert "python3 src/compiler/python/ast/gen_builtins.py" not in output
+    assert output.index("tools.compiler_codegen.main check") < output.index("npm ci")
+    assert "python3 -m tools.compiler_codegen.main check" in output
 
 
 def test_python_wheel_preserves_import_namespace_and_runtime_sources():
@@ -250,9 +250,9 @@ def test_python_wheel_preserves_import_namespace_and_runtime_sources():
     assert discovery["where"] == ["."]
     assert "src*" in discovery["include"]
     assert "src.tests*" in discovery["exclude"]
-    assert "src.devex.ext*" in discovery["exclude"]
+    assert "src.devex.vscode*" in discovery["exclude"]
     assert {"*.asdl", "*.btrc", "*.ebnf"} <= set(package_data)
-    assert setuptools["exclude-package-data"]["src.compiler.btrc"] == ["fe_debug*.btrc"]
+    assert "exclude-package-data" not in setuptools
     hosted_tables = REPO_ROOT / "src/compiler/btrc/generated/hosted_abi/tables.btrc"
     assert hosted_tables.is_file()
     hosted_source = hosted_tables.read_text()
@@ -269,7 +269,7 @@ def test_nix_runtime_packages_use_the_filtered_runtime_source():
     assert '"src/compiler/python/"' in flake
     assert '"src/devex/lsp/"' in flake
     assert '"src/compiler/python/tests/"' not in flake
-    assert '"src/devex/lsp/tests/"' in flake
+    assert '"src/devex/lsp/tests/"' not in flake
 
 
 def test_wheel_target_removes_stale_setuptools_outputs_before_building():
@@ -277,7 +277,7 @@ def test_wheel_target_removes_stale_setuptools_outputs_before_building():
 
     assert "rm -rf build/lib/ build/bdist.*/ btrc.egg-info/ src/btrc.egg-info/" in output
     assert "rm -f dist/btrc-*.whl dist/btrc-*.tar.gz" in output
-    assert "src.compiler.python.check_generated" in output
+    assert "tools.compiler_codegen.main check" in output
     assert "python3 -m build --wheel --no-isolation" in output
 
 
@@ -285,7 +285,7 @@ def test_package_target_builds_wheel_from_sdist():
     output = _make_dry_run("package")
 
     assert "rm -rf build/lib/ build/bdist.*/ btrc.egg-info/ src/btrc.egg-info/" in output
-    assert "src.compiler.python.check_generated" in output
+    assert "tools.compiler_codegen.main check" in output
     assert "rm -f dist/btrc-*.whl dist/btrc-*.tar.gz" in output
     # With no --wheel/--sdist selector, `build` creates the sdist first and
     # builds the wheel from that clean source artifact.
@@ -300,7 +300,8 @@ def test_strict_c11_target_treats_extensions_as_errors():
 def test_plain_pytest_includes_debug_adapter_tests():
     config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
 
-    assert "src/devex/debug/tests" in config["tool"]["pytest"]["ini_options"]["testpaths"]
+    assert "src/tests" in config["tool"]["pytest"]["ini_options"]["testpaths"]
+    assert "src/devex/debug/tests" not in config["tool"]["pytest"]["ini_options"]["testpaths"]
 
 
 def test_ci_builds_installable_artifacts_and_pins_external_actions():

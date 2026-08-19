@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.frontend.dependencies import ResolvedSource
+from src.compiler.python.frontend.sources import ResolvedSource
 
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))

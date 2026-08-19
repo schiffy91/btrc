@@ -1,9 +1,9 @@
 """Type normalization must preserve the complete TypeExpr contract."""
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import FunctionDecl, TypeExpr
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import FunctionDecl, TypeExpr
 
 
 def _analyze(source: str):
@@ -35,7 +35,7 @@ def test_class_upgrade_preserves_nested_qualifiers():
 
 
 def test_nullable_generic_substitution_preserves_metadata_without_stacking_references():
-    analyzer = SemanticAnalyzer()
+    types = SemanticAnalyzer().types
     placeholder = TypeExpr(
         base="T",
         pointer_depth=1,
@@ -50,7 +50,7 @@ def test_nullable_generic_substitution_preserves_metadata_without_stacking_refer
     )
     concrete = TypeExpr(base="Item", pointer_depth=1, line=2, col=3)
 
-    result = analyzer._substitute_type(placeholder, {"T": concrete})
+    result = types.substitute_type(placeholder, {"T": concrete})
 
     assert result.base == "Item"
     # T? uses one provisional reference layer.  Once T resolves to Item*,
@@ -66,14 +66,14 @@ def test_nullable_generic_substitution_preserves_metadata_without_stacking_refer
 
 
 def test_explicit_pointer_layer_on_nullable_generic_still_composes():
-    analyzer = SemanticAnalyzer()
+    types = SemanticAnalyzer().types
     # pointer_depth=2 models T*?: one explicit layer plus the nullable parser
     # layer.  Substitution removes only the provisional nullable layer and
     # records the surviving explicit layer outside the nullable boundary.
     placeholder = TypeExpr(base="T", pointer_depth=2, is_nullable=True)
     concrete = TypeExpr(base="Item", pointer_depth=1)
 
-    result = analyzer._substitute_type(placeholder, {"T": concrete})
+    result = types.substitute_type(placeholder, {"T": concrete})
 
     assert result == TypeExpr(
         base="Item",
@@ -84,7 +84,7 @@ def test_explicit_pointer_layer_on_nullable_generic_still_composes():
 
 
 def test_nested_generic_substitution_preserves_owner_metadata():
-    analyzer = SemanticAnalyzer()
+    types = SemanticAnalyzer().types
     owner = TypeExpr(
         base="Vector",
         generic_args=[TypeExpr(base="T")],
@@ -93,7 +93,7 @@ def test_nested_generic_substitution_preserves_owner_metadata():
         is_volatile=True,
     )
 
-    result = analyzer._substitute_type(owner, {"T": TypeExpr(base="int")})
+    result = types.substitute_type(owner, {"T": TypeExpr(base="int")})
 
     assert result.generic_args[0].base == "int"
     assert result.pointer_depth == 1

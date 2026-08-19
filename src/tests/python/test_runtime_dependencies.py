@@ -6,13 +6,14 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.freestanding import RUNTIME_HEADER
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.abi.freestanding import FreestandingRuntime
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.ir.verifier import IRVerifier
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -183,7 +184,7 @@ def test_native_target_header_hooks_compile_strict_c11(
     c_path = tmp_path / "native_seam.c"
     object_path = tmp_path / "native_seam.o"
     c_path.write_text(CEmitter().emit(module))
-    (tmp_path / "btrc_rt.h").write_text(RUNTIME_HEADER)
+    (tmp_path / "btrc_rt.h").write_text(FreestandingRuntime().header)
 
     compiled = subprocess.run(
         [
@@ -235,4 +236,4 @@ def test_runtime_roots_fail_closed_when_mutated_to_invalid_schema(roots):
     module.runtime_roots = roots
 
     with pytest.raises(TypeError, match="runtime_roots"):
-        module.validate_declarations()
+        IRVerifier(module).validate()

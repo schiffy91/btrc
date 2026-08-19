@@ -1,0 +1,346 @@
+import std.map;
+import std.vector;
+import ../../frontend/models.btrc;
+import ../../generated/ast/node.btrc;
+import ../../syntax/identity.btrc;
+import ../model.btrc;
+import ./ownership/operands.btrc;
+
+/* Mutable state shared by one structured-IR lowering run.
+ *
+ * This object deliberately contains no compiler services.  It owns only the
+ * cross-domain transaction state that must be observed by the recursive
+ * lowering composition root and its retained lowerers: temporary names,
+ * function-local declarations, temporary expression substitutions, and
+ * hosted-result conversion requests. */
+
+class LoweringContext {
+    private IRTemporaryNames temporaryNameState;
+    private Map<string, bool> helperReferences;
+    private Map<string, bool> sourceVisibleHelpers;
+    private Vector<IRNode> localDeclarations;
+    private Map<string, IRNode> expressionOverrides;
+    private Map<string, string> hostedConversions;
+    private bool exceptionsEnabled;
+
+    /* Cross-domain state for one lowering transaction.  These values are data,
+     * never services: retained lowerers share them when an expression, block,
+     * function, and declaration participate in the same source construct. */
+    public Map<string, int> packAlignments;
+    public Map<string, bool> borrowedLocalBindings;
+    public Map<string, string> sourceLexicalBindings;
+    public int tryDepth;
+    public int tryCatchDepth;
+    public string currentClass;
+    public string currentPropertyBacking;
+    public string currentReturnCType;
+    public Node? currentReturnType;
+    public bool currentReturnOwned;
+    public bool genericBody;
+    public bool batchExplicitReleases;
+    public bool collectionEdgeKeeps;
+    public Map<string, Node> activeTypeMap;
+    public int callDefaultTypeDepth;
+    public int unevaluatedDepth;
+    public Map<string, bool> defaultArgumentHelpers;
+    public int defaultDeclarationDepth;
+    public string defaultFunctionName;
+    public string sourceFile;
+    public int stdlibLineCount;
+    public Map<int, string> sourceFiles;
+    public Map<int, int> sourceLines;
+    public IRModule? module;
+    public bool enumInitializer;
+    public string enumOwner;
+    public Map<string, bool> enumMembers;
+
+    public LoweringContext() {
+        self.temporaryNameState = IRTemporaryNames();
+        self.helperReferences = {};
+        self.sourceVisibleHelpers = {};
+        self.localDeclarations = [];
+        self.expressionOverrides = {};
+        self.hostedConversions = {};
+        self.exceptionsEnabled = false;
+        self.packAlignments = {};
+        self.borrowedLocalBindings = {};
+        self.sourceLexicalBindings = {};
+        self.tryDepth = 0;
+        self.tryCatchDepth = 0;
+        self.currentClass = "";
+        self.currentPropertyBacking = "";
+        self.currentReturnCType = "void";
+        self.currentReturnType = null;
+        self.currentReturnOwned = true;
+        self.genericBody = false;
+        self.batchExplicitReleases = false;
+        self.collectionEdgeKeeps = false;
+        self.activeTypeMap = {};
+        self.callDefaultTypeDepth = 0;
+        self.unevaluatedDepth = 0;
+        self.defaultArgumentHelpers = {};
+        self.defaultDeclarationDepth = 0;
+        self.defaultFunctionName = "";
+        self.sourceFile = "";
+        self.stdlibLineCount = 0;
+        self.sourceFiles = {};
+        self.sourceLines = {};
+        self.module = null;
+        self.enumInitializer = false;
+        self.enumOwner = "";
+        self.enumMembers = {};
+    }
+
+    public void configureSource(
+            string sourceFile, int stdlibLineCount,
+            Vector<FeLine> userLines) {
+        self.sourceFile = sourceFile;
+        self.stdlibLineCount = stdlibLineCount;
+        self.sourceFiles = {};
+        self.sourceLines = {};
+        int index = 0;
+        while (index < userLines.len) {
+            int combinedLine = stdlibLineCount + index + 1;
+            FeLine sourceLine = userLines.get(index);
+            self.sourceFiles.put(combinedLine, sourceLine.sourceFile);
+            self.sourceLines.put(combinedLine, sourceLine.lineNumber);
+            index = index + 1;
+        }
+    }
+
+    public string freshTemporary(string prefix) {
+        return self.temporaryNameState.fresh(prefix);
+    }
+
+    public IRTemporaryNames temporaryNames() {
+        return self.temporaryNameState;
+    }
+
+    public void bindModule(IRModule module) {
+        self.module = module;
+        module.temporary_names = self.temporaryNameState;
+    }
+
+    public string sourceFileForLine(int combinedLine) {
+        if (self.sourceFiles.has(combinedLine)) {
+            return self.sourceFiles.get(combinedLine);
+        }
+        if (self.stdlibLineCount > 0
+                && combinedLine <= self.stdlibLineCount) {
+            return "<stdlib>";
+        }
+        return self.sourceFile;
+    }
+
+    public int sourceLineFor(int combinedLine) {
+        if (self.sourceLines.has(combinedLine)) {
+            return self.sourceLines.get(combinedLine);
+        }
+        return combinedLine;
+    }
+
+    public string sourceCName(string sourceName) {
+        if (self.sourceLexicalBindings.has(sourceName)) {
+            return self.sourceLexicalBindings.get(sourceName);
+        }
+        return sourceName;
+    }
+
+    public bool sourceCNameActive(string cName) {
+        Vector<string> names = self.sourceLexicalBindings.keys();
+        int index = 0;
+        while (index < names.len) {
+            if (self.sourceLexicalBindings.get(names.get(index))
+                    == cName) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public void bindSourceName(string sourceName, string cName) {
+        self.sourceLexicalBindings.put(sourceName, cName);
+    }
+
+    public void activateSourceName(
+            string sourceName, string preferredCName) {
+        string cName = preferredCName;
+        if (self.sourceCNameActive(cName)) {
+            cName = self.freshTemporary(cName);
+        }
+        self.bindSourceName(sourceName, cName);
+    }
+
+    public Vector<string> snapshotSourceBindings() {
+        Vector<string> snapshot = [];
+        Vector<string> names = self.sourceLexicalBindings.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            snapshot.push(name);
+            snapshot.push(self.sourceLexicalBindings.get(name));
+            index = index + 1;
+        }
+        return snapshot;
+    }
+
+    public void restoreSourceBindings(Vector<string> snapshot) {
+        Vector<string> names = self.sourceLexicalBindings.keys();
+        int index = 0;
+        while (index < names.len) {
+            self.sourceLexicalBindings.remove(names.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index + 1 < snapshot.len) {
+            self.sourceLexicalBindings.put(
+                snapshot.get(index), snapshot.get(index + 1));
+            index = index + 2;
+        }
+    }
+
+    public Vector<string> snapshotBorrowedBindings() {
+        Vector<string> snapshot = [];
+        Vector<string> names = self.borrowedLocalBindings.keys();
+        int index = 0;
+        while (index < names.len) {
+            snapshot.push(names.get(index));
+            index = index + 1;
+        }
+        return snapshot;
+    }
+
+    public void restoreBorrowedBindings(Vector<string> snapshot) {
+        Vector<string> names = self.borrowedLocalBindings.keys();
+        int index = 0;
+        while (index < names.len) {
+            self.borrowedLocalBindings.remove(names.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < snapshot.len) {
+            self.borrowedLocalBindings.put(snapshot.get(index), true);
+            index = index + 1;
+        }
+    }
+
+    public OwnershipOperandEnvironment ownershipEnvironment(
+            Map<string, Node> variableTypes, bool gpuCpuActive) {
+        return OwnershipOperandEnvironment(
+            variableTypes, self.activeTypeMap,
+            self.genericBody || self.callDefaultTypeDepth > 0,
+            self.callDefaultTypeDepth > 0,
+            gpuCpuActive, self.currentPropertyBacking);
+    }
+
+    public void referenceHelper(string name) {
+        self.helperReferences.put(name, true);
+    }
+
+    public void configureSourceVisibleHelpers(Map<string, bool> names) {
+        self.sourceVisibleHelpers = {};
+        Vector<string> keys = names.keys();
+        int index = 0;
+        while (index < keys.len) {
+            string name = keys.get(index);
+            self.sourceVisibleHelpers.put(name, names.get(name));
+            index = index + 1;
+        }
+    }
+
+    public bool sourceHelperVisible(string name) {
+        return self.sourceVisibleHelpers.has(name);
+    }
+
+    public bool referencesHelper(string name) {
+        return self.helperReferences.has(name);
+    }
+
+    public void beginFunction() {
+        while (self.localDeclarations.len > 0) {
+            self.localDeclarations.pop();
+        }
+    }
+
+    public void recordLocal(IRNode declaration) {
+        self.localDeclarations.push(declaration);
+    }
+
+    public void forgetLastLocal() {
+        if (self.localDeclarations.len > 0) {
+            self.localDeclarations.pop();
+        }
+    }
+
+    public Vector<IRNode> snapshotFunctionLocals() {
+        Vector<IRNode> snapshot = [];
+        int index = 0;
+        while (index < self.localDeclarations.len) {
+            snapshot.push(self.localDeclarations.get(index));
+            index = index + 1;
+        }
+        return snapshot;
+    }
+
+    public void restoreFunctionLocals(Vector<IRNode> snapshot) {
+        self.beginFunction();
+        int index = 0;
+        while (index < snapshot.len) {
+            self.localDeclarations.push(snapshot.get(index));
+            index = index + 1;
+        }
+    }
+
+    public bool hasExpressionOverride(Node expression) {
+        return self.expressionOverrides.has(AstIdentity.key(expression));
+    }
+
+    public bool hasExpressionOverrideKey(string key) {
+        return self.expressionOverrides.has(key);
+    }
+
+    public IRNode expressionOverride(Node expression) {
+        return self.expressionOverrides.get(AstIdentity.key(expression));
+    }
+
+    public IRNode expressionOverrideForKey(string key) {
+        return self.expressionOverrides.get(key);
+    }
+
+    public int expressionOverrideCount() {
+        return self.expressionOverrides.len;
+    }
+
+    public void setExpressionOverrideKey(string key, IRNode value) {
+        self.expressionOverrides.put(key, value);
+    }
+
+    public void removeExpressionOverrideKey(string key) {
+        self.expressionOverrides.remove(key);
+    }
+
+    public bool hasHostedConversion(Node call) {
+        return self.hostedConversions.has(AstIdentity.key(call));
+    }
+
+    public string hostedConversion(Node call) {
+        return self.hostedConversions.get(AstIdentity.key(call));
+    }
+
+    public void setHostedConversion(Node call, string mode) {
+        self.hostedConversions.put(AstIdentity.key(call), mode);
+    }
+
+    public void removeHostedConversion(Node call) {
+        self.hostedConversions.remove(AstIdentity.key(call));
+    }
+
+    public void setExceptionsEnabled(bool enabled) {
+        self.exceptionsEnabled = enabled;
+    }
+
+    public bool exceptionsAreEnabled() {
+        return self.exceptionsEnabled;
+    }
+}

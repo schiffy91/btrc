@@ -3,8 +3,8 @@ sizeof-of-expression."""
 
 import pytest
 
-from src.compiler.python.lexer import Lexer
-from src.compiler.python.parser.core import ParseError
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import ParseError
 from src.compiler.python.parser.parser import Parser
 
 

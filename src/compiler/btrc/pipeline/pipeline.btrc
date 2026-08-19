@@ -1,10 +1,16 @@
 /* Instance-owned orchestration for the self-hosted compiler pipeline. */
 
+import std.strings;
+import std.vector;
+import ../ir/stage.btrc;
+import ./models.btrc;
+
 class CompilerPipeline {
     private GrammarInfo grammar;
     private FeStdlibRepository stdlib;
     private FeStdlibSymbolIndex stdlibSymbols;
     private FeSourceResolutionPolicy resolutionPolicy;
+    private HostedAbiRepository hostedAbi;
 
     public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory,
                             FeSourceFileReader sourceFiles,
@@ -12,8 +18,10 @@ class CompilerPipeline {
         self.grammar = grammar;
         self.resolutionPolicy = resolutionPolicy;
         self.stdlib = FeStdlibRepository(
-            stdlibDirectory, grammar, sourceFiles, resolutionPolicy);
-        self.stdlibSymbols = FeStdlibSymbolIndex(grammar);
+            stdlibDirectory, sourceFiles, resolutionPolicy);
+        self.stdlibSymbols = FeStdlibSymbolIndex();
+        self.hostedAbi = HostedAbiRepository(
+            GeneratedHostedAbiData());
     }
 
     private BtrccCompilationResult failure(string diagnostic) {
@@ -54,7 +62,9 @@ class CompilerPipeline {
         if (options.strictImports) {
             FeImportVisibilityChecker visibility =
                 FeImportVisibilityChecker(
-                    program, resolved, self.stdlibSymbols);
+                    program, resolved, self.stdlib, self.stdlibSymbols,
+                    self.grammar,
+                    self.hostedAbi.sourceFunctionShadows(program));
             FeVisibilityCheckResult checked = visibility.check();
             if (!checked.success) {
                 return self.failure("error: " + checked.diagnostic);
@@ -65,18 +75,35 @@ class CompilerPipeline {
             }
         }
 
-        HostedAbiProvenance.stampProgramSources(
+        self.hostedAbi.stampProgramSources(
             program, resolved.stdlibLineCount, resolved.userLines, sourcePath,
             self.stdlib.directory());
-        SemanticAnalyzer analyzer = SemanticAnalyzer();
-        Analyzed analyzed = analyzer.analyze(program);
+        GeneratedRuntimeCatalogData runtimeData =
+            GeneratedRuntimeCatalogData();
+        SourceRuntimeSymbols sourceRuntimeSymbols =
+            SourceRuntimeSymbols(runtimeData.rows);
+        RuntimeHelperCatalog runtimeHelpers =
+            RuntimeHelperCatalog(runtimeData.rows);
+        SemanticAnalyzer analyzer =
+            SemanticAnalyzer(sourceRuntimeSymbols);
+        Analyzed analyzed = analyzer.analyze(program, self.hostedAbi);
 
-        IRGen lowerer = IRGen(
-            analyzed, analyzer.operatorSemantics(),
-            analyzer.managedValueSemantics(), analyzer.cycleMetadata(),
+        IRLowerer lowerer = IRLowerer(
+            analyzed, self.hostedAbi, analyzer.declarationRegistry(),
+            analyzer.operatorSemantics(),
+            analyzer.expressionTypes(),
+            analyzer.gpuSemantics(),
+            analyzer.managedValueSemantics(), analyzer.cycleSemantics(),
+            runtimeHelpers,
             sourcePath, resolved.stdlibLineCount, resolved.userLines);
-        lowerer.dceEnabled = options.runDce;
-        IRModule module = lowerer.generate(program);
+        IRModule module = lowerer.lower(program);
+        SetjmpEffectAnalysis setjmpEffects =
+            SetjmpEffectAnalysis(self.hostedAbi);
+        SetjmpSafetyPlanner setjmpSafety =
+            SetjmpSafetyPlanner(setjmpEffects);
+        IROptimizer optimizer =
+            IROptimizer(setjmpSafety, runtimeHelpers);
+        optimizer.optimize(module, options.runDce);
         CEmitter emitter = CEmitter();
         return BtrccCompilationResult(true, emitter.emit(module), "");
     }

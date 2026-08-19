@@ -1,18 +1,7 @@
-"""Contracts for the split string-operation helper registry."""
+"""Contracts for the string families in the shared runtime catalog."""
 
-import ast
-import re
-from pathlib import Path
-
-from src.compiler.python.ir.helpers.alloc import ALLOC
-from src.compiler.python.ir.helpers.string_ownership import STRING_OWNERSHIP
-from src.compiler.python.ir.helpers.string_pool import STRING_POOL
-from src.compiler.python.ir.helpers.strings import STRING
-from src.compiler.python.ir.helpers.strings_common import STRING_COMMON
-from src.compiler.python.ir.helpers.strings_composition import STRING_COMPOSITION
-from src.compiler.python.ir.helpers.strings_layout import STRING_LAYOUT
-from src.compiler.python.ir.helpers.strings_ops import STRING_OPS
-from src.compiler.python.ir.helpers.strings_transform import STRING_TRANSFORM
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.compiler.python.runtime.generated import RUNTIME_HELPER_ROWS
 
 EXPECTED_OPERATION_HELPERS = (
     "__btrc_substring",
@@ -38,107 +27,72 @@ EXPECTED_OPERATION_HELPERS = (
     "__btrc_join",
 )
 
-_BRANCH_START_PATTERN = re.compile(
-    r"^[ \t]+(?:\} )?(?:else )?if \((.*?)\) \{",
-    re.MULTILINE | re.DOTALL,
-)
+
+def test_operation_helpers_keep_their_public_names_and_order() -> None:
+    names = [row.name for row in RUNTIME_HELPER_ROWS if row.category == "string"]
+    start = names.index(EXPECTED_OPERATION_HELPERS[0])
+
+    assert tuple(names[start : start + len(EXPECTED_OPERATION_HELPERS)]) == EXPECTED_OPERATION_HELPERS
 
 
-def _named_branch_values(source: str, value_pattern: str) -> dict[str, list[str]]:
-    values: dict[str, list[str]] = {}
-    matches = list(_BRANCH_START_PATTERN.finditer(source))
-    for index, match in enumerate(matches):
-        condition = match.group(1)
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(source)
-        body = source[match.end() : end]
-        names = re.findall(r'name == "([^"]+)"', condition)
-        branch_values = re.findall(value_pattern, body)
-        for name in names:
-            values[name] = branch_values
-    return values
-
-
-def test_split_registry_preserves_public_names_and_emission_order():
-    grouped_names = (
-        *STRING_TRANSFORM,
-        *STRING_LAYOUT,
-        *STRING_COMPOSITION,
-    )
-
-    assert tuple(STRING_OPS) == EXPECTED_OPERATION_HELPERS
-    assert grouped_names == EXPECTED_OPERATION_HELPERS
-    for name in EXPECTED_OPERATION_HELPERS:
-        assert STRING_OPS[name] is (STRING_TRANSFORM | STRING_LAYOUT | STRING_COMPOSITION)[name]
-
-
-def test_substring_clamps_without_adding_signed_integers():
-    source = STRING_OPS["__btrc_substring"].c_source
+def test_substring_clamps_without_adding_signed_integers() -> None:
+    rows = {row.name: row for row in RUNTIME_HELPER_ROWS}
+    source = rows["__btrc_substring"].c_source
 
     assert "if (len > slen - start) len = slen - start;" in source
     assert "start + len" not in source
 
 
-def test_string_helpers_only_use_checked_allocation_and_known_dependencies():
-    all_helpers = ALLOC | STRING_OWNERSHIP | STRING_POOL | STRING
+def test_string_helpers_only_use_checked_allocation_and_known_dependencies() -> None:
+    rows = {row.name: row for row in RUNTIME_HELPER_ROWS}
+    string_rows = tuple(
+        row for row in RUNTIME_HELPER_ROWS if row.category in {"string_ownership", "string_pool", "string"}
+    )
 
-    for helper in (
-        *STRING_OWNERSHIP.values(),
-        *STRING_POOL.values(),
-        *STRING.values(),
-    ):
-        assert "(char*)malloc(" not in helper.c_source
-        assert "(char**)realloc(" not in helper.c_source
-        assert set(helper.depends_on) <= set(all_helpers)
+    for row in string_rows:
+        assert "(char*)malloc(" not in row.c_source
+        assert "(char**)realloc(" not in row.c_source
+        assert set(row.depends_on) <= rows.keys()
 
 
-def test_common_helpers_precede_public_string_operations():
-    assert tuple(STRING)[: len(STRING_COMMON)] == tuple(STRING_COMMON)
-    assert STRING_COMMON["__btrc_string_alloc"].depends_on == [
+def test_common_helpers_precede_public_string_operations() -> None:
+    rows = [row for row in RUNTIME_HELPER_ROWS if row.category == "string"]
+    names = [row.name for row in rows]
+    string_alloc = next(row for row in rows if row.name == "__btrc_string_alloc")
+
+    assert names[:6] == [
+        "__btrc_string_or_empty",
+        "__btrc_string_length",
+        "__btrc_string_alloc",
+        "__btrc_ascii_upper",
+        "__btrc_ascii_lower",
+        "__btrc_ascii_space",
+    ]
+    assert string_alloc.depends_on == (
         "__btrc_safe_realloc",
         "__btrc_string_adopt",
-    ]
-
-
-def test_self_hosted_string_helper_source_exactly_matches_python_registry():
-    core_catalog = Path("src/compiler/btrc/ir/runtime/core_catalog.btrc").read_text()
-    ownership_runtime = Path("src/compiler/btrc/string_runtime_helpers.btrc").read_text()
-    ownership_source = ownership_runtime.split("public Vector<string> dependencies", 1)[0]
-    blocks: dict[str, str] = {}
-    pattern = re.compile(
-        r'^([ \t]+)if \(name == "([^"]+)"\) \{\n(.*?)^\1\}',
-        re.MULTILINE | re.DOTALL,
     )
-    for source in (core_catalog, ownership_source):
-        for match in pattern.finditer(source):
-            literals = re.findall(r'"(?:\\.|[^"\\])*"', match.group(3))
-            blocks[match.group(2)] = "".join(ast.literal_eval(item) for item in literals)
 
-    for name, helper in (STRING_OWNERSHIP | STRING_POOL | STRING).items():
-        assert blocks.get(name) == helper.c_source, name
 
-    ownership_dependencies = ownership_runtime.split("public Vector<string> dependencies", 1)[1].split(
-        "public Vector<string> headers", 1
-    )[0]
-    dependency_map = _named_branch_values(ownership_dependencies, r'out\.push\("([^"]+)"\)')
-    ownership_helpers = STRING_OWNERSHIP | STRING_POOL
-    for name, helper in ownership_helpers.items():
-        assert dependency_map.get(name, []) == helper.depends_on, name
+def test_string_families_are_generated_once_for_both_compilers() -> None:
+    rows = {row.name: row for row in RUNTIME_HELPER_ROWS}
+    catalog = RuntimeHelperCatalog()
+    selected = {row.name: row for row in catalog.definitions_for({"__btrc_join"})}
 
-    ownership_headers = ownership_runtime.split("public Vector<string> headers", 1)[1].split(
-        "public void appendOrder", 1
-    )[0]
-    header_map = _named_branch_values(ownership_headers, r'out\.push\("([^"]+)"\)')
-    for name, helper in ownership_helpers.items():
-        assert header_map.get(name, []) == helper.required_headers, name
+    assert selected["__btrc_join"] is rows["__btrc_join"]
+    assert "__btrc_string_alloc" in selected
+    assert "__btrc_string_adopt" in selected
+    assert "__btrc_safe_realloc" in selected
 
-    helper_dependencies = core_catalog.split("public Vector<string> dependencies", 1)[1]
-    helper_dependency_map = _named_branch_values(helper_dependencies, r'out\.push\("([^"]+)"\)')
-    for name, helper in STRING.items():
-        assert helper_dependency_map.get(name, []) == helper.depends_on, name
 
-    ownership_order = ownership_runtime.split("self.emissionOrder = [", 1)[1].split("];", 1)[0]
-    assert re.findall(r'"([^"]+)"', ownership_order) == [*ownership_helpers]
-    core_order = core_catalog.split("public void appendStringAndMathOrder", 1)[1].split(
-        "public void appendHashOrder", 1
-    )[0]
-    assert re.findall(r'order\.push\("([^"]+)"\)', core_order)[: len(STRING)] == [*STRING]
+def test_string_family_categories_are_complete_and_disjoint() -> None:
+    grouped = {
+        category: {row.name for row in RUNTIME_HELPER_ROWS if row.category == category}
+        for category in ("string_ownership", "string_pool", "string")
+    }
+
+    assert all(grouped.values())
+    assert grouped["string_ownership"].isdisjoint(grouped["string_pool"])
+    assert grouped["string_ownership"].isdisjoint(grouped["string"])
+    assert grouped["string_pool"].isdisjoint(grouped["string"])
+    assert set(EXPECTED_OPERATION_HELPERS) <= grouped["string"]

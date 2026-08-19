@@ -1,6 +1,8 @@
-/* Public manifest for source discovery, dependency resolution, and provenance. */
+/* Public manifest for source discovery, dependency resolution, and visibility. */
 
-import ../lexer/stage.btrc;
-
-#include "../frontend_paths.btrc"
-#include "../frontend.btrc"
+import ../parser/stage.btrc;
+import ./models.btrc;
+import ./source_io.btrc;
+import ./stdlib.btrc;
+import ./resolver.btrc;
+import ./visibility.btrc;

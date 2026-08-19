@@ -3,9 +3,9 @@
 Status: IMPLEMENTED (2026-06-12). Companion to `precompiled-stdlib.md`.
 
 > Implementation note: P0-P2 all landed. Per-file units live in
-> `src/devex/lsp/units.py` + `workspace.py`; analyzer provenance/structured
-> diags in `analyzer/core.py`; the seeded stdlib base and snapshot cache in
-> `workspace.py`. Measured after: keystroke->diagnostics 0.3 ms (hello),
+> `src/devex/lsp/workspace/units.py` + `workspace/workspace.py`; analyzer provenance/structured
+> diags in `analyzer/program.py`; the seeded stdlib base and snapshot cache in
+> `workspace/workspace.py`. Measured after: keystroke->diagnostics 0.3 ms (hello),
 > 4.6 ms (game + 12 imported units); hover/definition/references/semantic
 > tokens <=0.5 ms warm; LSP suite 171 s -> ~2 s. One latent compiler bug was
 > found and fixed along the way: `_upgrade_class_type` mutates shared ASTs,
@@ -126,10 +126,10 @@ col)` directly off the per-file units. The `source_positions` mapping layer
 
 ## 4. Proof in realistic environments (kept as regression suites)
 
-1. **Grammar suite** (extends `ext/test/grammar.test.js`): tokenize a fixture
+1. **Grammar suite** (extends `src/tests/vscode/grammar.test.js`): tokenize a fixture
    mirroring the semu layout (17 glob imports, f-strings, generics); assert
    zero `comment.block` leakage and expected scopes per line. CI-gated.
-2. **Stdio protocol harness** (extends `lsp/tests/lsphelp.py`): drive the
+2. **Stdio protocol harness** (extends `src/tests/lsp/lsphelp.py`): drive the
    *real server process* over stdin/stdout — didOpen, 30-keystroke burst,
    interleaved hover/definition/semanticTokens — assert latency budgets and
    answer correctness against a multi-file fixture project. This simulates

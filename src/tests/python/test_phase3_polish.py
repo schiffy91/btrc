@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 REPO = Path(__file__).resolve().parents[3]

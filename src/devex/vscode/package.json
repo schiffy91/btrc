@@ -1,0 +1,207 @@
+{
+  "name": "btrc",
+  "displayName": "btrc Language",
+  "description": "Language support for btrc — a language that transpiles to C",
+  "version": "0.1.0",
+  "license": "MIT",
+  "publisher": "btrc-dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "The btrc language server and debugger execute project-local compiler and environment configuration."
+    },
+    "virtualWorkspaces": false
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "icon": "assets/btrc.png",
+  "activationEvents": [
+    "onLanguage:btrc",
+    "onDebugResolve:btrc",
+    "onDebugDynamicConfigurations:btrc"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "btrc",
+        "aliases": [
+          "btrc",
+          "BTRC"
+        ],
+        "extensions": [
+          ".btrc"
+        ],
+        "icon": {
+          "light": "./assets/btrc.png",
+          "dark": "./assets/btrc.png"
+        },
+        "configuration": "./config/language.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "btrc",
+        "scopeName": "source.btrc",
+        "path": "./config/grammar.json"
+      }
+    ],
+    "configurationDefaults": {
+      "[btrc]": {
+        "editor.semanticHighlighting.enabled": true
+      }
+    },
+    "breakpoints": [
+      {
+        "language": "btrc"
+      }
+    ],
+    "debuggers": [
+      {
+        "type": "btrc",
+        "label": "btrc Debug",
+        "languages": [
+          "btrc"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "program"
+            ],
+            "properties": {
+              "program": {
+                "type": "string",
+                "description": "Absolute path to the .btrc file to compile and debug.",
+                "default": "${file}"
+              },
+              "args": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Command-line arguments passed to the debugged program.",
+                "default": []
+              },
+              "stopOnEntry": {
+                "type": "boolean",
+                "description": "Break at the program's entry point.",
+                "default": false
+              },
+              "cwd": {
+                "type": "string",
+                "description": "Working directory for the debugged program.",
+                "default": "${workspaceFolder}"
+              },
+              "btrcpy": {
+                "type": [
+                  "string",
+                  "array"
+                ],
+                "description": "Command that runs the btrc compiler (e.g. \"bin/btrcpy\"). Auto-detected from the workspace when omitted."
+              },
+              "cc": {
+                "type": "string",
+                "description": "C compiler used to build the debug binary.",
+                "default": "cc"
+              },
+              "cflags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Extra flags passed to the C compiler.",
+                "default": []
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "btrc",
+            "request": "launch",
+            "name": "btrc: debug current file",
+            "program": "${file}",
+            "stopOnEntry": false
+          }
+        ],
+        "configurationSnippets": [
+          {
+            "label": "btrc: Debug current file",
+            "description": "Compile the active .btrc file with debug info and debug it",
+            "body": {
+              "type": "btrc",
+              "request": "launch",
+              "name": "btrc: debug current file",
+              "program": "^\"\\${file}\"",
+              "stopOnEntry": false
+            }
+          }
+        ]
+      }
+    ],
+    "configuration": {
+      "title": "btrc",
+      "properties": {
+        "btrc.pythonPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to a Python 3.13+ interpreter for the bundled btrc language server and compiler. When empty, uses python on Windows and python3 elsewhere."
+        },
+        "btrc.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the btrc LSP module entry point (__main__.py). When set, the extension uses this directly instead of searching for it."
+        },
+        "btrc.serverCommand": {
+          "type": "string",
+          "default": "btrc-lsp",
+          "description": "Foreground command or absolute path for the btrc language server, defaulting to btrc-lsp. The command must remain alive for the server lifetime; daemonizing wrappers cannot be owned reliably on Windows. Workspace direnv takes precedence for relative commands; shell.nix and flake.nix also take precedence when btrc.useNixDevShell is enabled."
+        },
+        "btrc.useNixDevShell": {
+          "type": "boolean",
+          "default": true,
+          "description": "When enabled, use a workspace shell.nix or flake.nix to run the language server in its pinned Nix environment. A local src/devex/lsp/.venv or an explicit btrc.pythonPath takes precedence. Disabling this setting bypasses Nix shell discovery but still permits workspace direnv."
+        },
+        "btrc.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the btrc language server"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node",
+    "esbuild-test-modules": "esbuild ./src/language_server/launcher.ts ./src/language_server/session.ts ./src/debugger/launcher.ts ./src/runtime/process.ts ./src/runtime/python.ts --bundle --outbase=src --outdir=out --external:vscode --format=cjs --platform=node",
+    "compile": "node -e \"require('node:fs').rmSync('out',{recursive:true,force:true})\" && npm run esbuild-base",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run typecheck && npm run compile && npm run esbuild-test-modules && node --test ../../../src/tests/vscode/*.test.js",
+    "watch": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node --watch",
+    "package": "node -e \"require('node:fs').mkdirSync('../../../dist',{recursive:true})\" && vsce package --out ../../../dist/btrc.vsix --allow-missing-repository",
+    "install-ext": "npm run package && code --install-extension ../../../dist/btrc.vsix --force"
+  },
+  "dependencies": {
+    "cross-spawn": "^7.0.6",
+    "vscode-languageclient": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/cross-spawn": "^6.0.6",
+    "@types/node": "^18.19.0",
+    "@types/vscode": "1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.3.0",
+    "vscode-oniguruma": "^2.0.1",
+    "vscode-textmate": "^9.3.2"
+  }
+}

@@ -1,0 +1,1734 @@
+/* Addressability, projection, indexing, qualifier, and assignment storage contracts. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../../generated/ast/node.btrc;
+import ../../syntax/identity.btrc;
+import ../../syntax/types.btrc;
+import ../declarations.btrc;
+import ../models.btrc;
+import ../operators.btrc;
+import ../types.btrc;
+import ./constants.btrc;
+import ./types.btrc;
+
+class StorageValidator {
+    private SemanticValidationState state;
+    private OperatorSemantics operators;
+    private TypeValidator types;
+    private ConstantValidator constants;
+
+    public StorageValidator(
+            SemanticValidationState state,
+            OperatorSemantics operators,
+            TypeValidator types,
+            ConstantValidator constants) {
+        self.state = state;
+        self.operators = operators;
+        self.types = types;
+        self.constants = constants;
+    }
+
+    private void validateMethodAccess(string className, Node method,
+            Node site) {
+        if (method.access != "private") { return; }
+        string owner = className;
+        string current = className;
+        Map<string, bool> visited = {};
+        while (current != "" && !visited.has(current)) {
+            visited.put(current, true);
+            Node? declaration = self.anyClassDeclaration(
+                current, self.state.analyzed);
+            if (declaration == null) { current = ""; }
+            else {
+                int index = 0;
+                while (index < declaration.members.len) {
+                    Node member = declaration.members.get(index);
+                    if (member.kind == NK_METHOD_DECL
+                            && member.name == method.name
+                            && member.access == method.access) {
+                        owner = current;
+                        current = "";
+                    }
+                    index = index + 1;
+                }
+                if (current != "") {
+                    current = DeclarationRegistry.parentName(declaration);
+                }
+            }
+        }
+        if (!self.state.owner.startsWith(owner + ".")) {
+            TypeValidator.fail("Cannot access private method '" + method.name
+                + "' of class '" + owner + "'", site);
+        }
+    }
+
+    public void collectClassStorageSeen(string className, Analyzed analyzed,
+            Map<string, bool> output, Map<string, bool> visited) {
+        if (!analyzed.classTable.has(className) || visited.has(className)) {
+            return;
+        }
+        visited.put(className, true);
+        Node declaration = analyzed.classTable.get(className);
+        string parent = DeclarationRegistry.parentName(declaration);
+        if (parent != "" && analyzed.classTable.has(parent)) {
+            self.collectClassStorageSeen(
+                parent, analyzed, output, visited);
+        }
+        int index = 0;
+        while (index < declaration.members.len) {
+            string storage = DeclarationRegistry.instanceStorageName(declaration.members.get(index));
+            if (storage != "") { output.put(storage, true); }
+            index = index + 1;
+        }
+    }
+
+    public void collectClassStorage(string className, Analyzed analyzed,
+            Map<string, bool> output) {
+        Map<string, bool> visited = {};
+        self.collectClassStorageSeen(
+            className, analyzed, output, visited);
+    }
+
+    public Node? inheritedClassMember(string className, string memberName,
+            Analyzed analyzed) {
+        string current = className;
+        Map<string, bool> visited = {};
+        while (current != "" && analyzed.classTable.has(current)
+                && !visited.has(current)) {
+            visited.put(current, true);
+            Node declaration = analyzed.classTable.get(current);
+            int index = 0;
+            while (index < declaration.members.len) {
+                Node member = declaration.members.get(index);
+                if (member.name == memberName
+                        && !(member.kind == NK_METHOD_DECL
+                            && member.is_constructor)) {
+                    return member;
+                }
+                index = index + 1;
+            }
+            current = DeclarationRegistry.parentName(declaration);
+        }
+        return null;
+    }
+
+    public Node? anyClassDeclaration(
+            string className, Analyzed analyzed) {
+        if (analyzed.classTable.has(className)) {
+            return analyzed.classTable.get(className);
+        }
+        if (analyzed.genericClassTable.has(className)) {
+            return analyzed.genericClassTable.get(className);
+        }
+        return null;
+    }
+
+    public string inheritedPropertyName(string className, Analyzed analyzed,
+            Map<string, bool> visited) {
+        if (className == "" || visited.has(className)) { return ""; }
+        Node? declaration = self.anyClassDeclaration(className, analyzed);
+        if (declaration == null) { return ""; }
+        visited.put(className, true);
+        int index = 0;
+        while (index < declaration.members.len) {
+            Node member = declaration.members.get(index);
+            if (member.kind == NK_PROPERTY_DECL) { return member.name; }
+            index = index + 1;
+        }
+        return self.inheritedPropertyName(
+            DeclarationRegistry.parentName(declaration), analyzed, visited);
+    }
+
+    public void validateGenericPropertyInheritance(Node declaration) {
+        string parent = DeclarationRegistry.parentName(declaration);
+        if (parent == "") { return; }
+        bool crossesGenericBoundary = declaration.generic_params.len > 0
+            || self.state.analyzed.isGenericClass(parent);
+        if (!crossesGenericBoundary) { return; }
+        Map<string, bool> visited = {};
+        string property = self.inheritedPropertyName(
+            parent, self.state.analyzed, visited);
+        if (property != "") {
+            TypeValidator.fail("Generic property inheritance is not supported: "
+                + "class '" + declaration.name + "' inherits property '"
+                + property + "'", declaration);
+        }
+    }
+
+    public void validateOwnClassStorage(Node declaration) {
+        Map<string, bool> storageNames = {};
+        storageNames.put("__arc", true);
+        storageNames.put("__rc", true);
+        storageNames.put("__cycle_safe_rc", true);
+        int index = 0;
+        while (index < declaration.members.len) {
+            Node member = declaration.members.get(index);
+            if (declaration.generic_params.len > 0
+                    && member.kind == NK_FIELD_DECL
+                    && member.access == "class") {
+                TypeValidator.fail("Static field '" + declaration.name
+                    + "." + member.name
+                    + "' is not supported on a generic class", member);
+            }
+            if (declaration.generic_params.len > 0
+                    && member.kind == NK_METHOD_DECL
+                    && member.access == "class") {
+                TypeValidator.fail("Static method '" + declaration.name
+                    + "." + member.name + "' has no specialization target and is "
+                    + "not supported on a generic class", member);
+            }
+            if (member.kind == NK_PROPERTY_DECL
+                    && member.access == "class") {
+                TypeValidator.fail("Static property '" + declaration.name
+                    + "." + member.name + "' is unsupported; use a static field "
+                    + "plus static methods", member);
+            }
+            string storage = DeclarationRegistry.instanceStorageName(member);
+            if (storage != "") {
+                if (storageNames.has(storage)) {
+                    if (storage == "__arc" || storage == "__rc"
+                            || storage == "__cycle_safe_rc") {
+                        TypeValidator.fail("Instance storage name '" + storage + "' is "
+                            + "reserved for reference counting in class '"
+                            + declaration.name + "'", member);
+                    } else {
+                        TypeValidator.fail("Instance storage name '" + storage
+                            + "' collides with another member in class '"
+                            + declaration.name + "'", member);
+                    }
+                }
+                storageNames.put(storage, true);
+            }
+            index = index + 1;
+        }
+    }
+
+    public void validateInheritedMemberKind(Node declaration) {
+        string parent = DeclarationRegistry.parentName(declaration);
+        if (parent == "" || !self.state.analyzed.classTable.has(parent)) { return; }
+        int index = 0;
+        while (index < declaration.members.len) {
+            Node member = declaration.members.get(index);
+            Node? inherited = self.inheritedClassMember(
+                parent, member.name, self.state.analyzed);
+            if (inherited != null) {
+                bool conflict = (member.kind == NK_PROPERTY_DECL
+                        && inherited.kind != NK_PROPERTY_DECL)
+                    || (member.kind != NK_PROPERTY_DECL
+                        && inherited.kind == NK_PROPERTY_DECL);
+                if (conflict) {
+                    TypeValidator.fail("Member '" + member.name
+                        + "' in class '" + declaration.name
+                        + "' conflicts with an inherited member of a different kind",
+                        member);
+                }
+            }
+            index = index + 1;
+        }
+    }
+
+    public void validateInheritedClassStorage(Node declaration) {
+        string parent = DeclarationRegistry.parentName(declaration);
+        if (parent == "" || !self.state.analyzed.classTable.has(parent)) { return; }
+        Map<string, bool> inheritedStorage = {};
+        self.collectClassStorage(parent, self.state.analyzed, inheritedStorage);
+        int index = 0;
+        while (index < declaration.members.len) {
+            Node member = declaration.members.get(index);
+            string storage = DeclarationRegistry.instanceStorageName(member);
+            if (storage != "" && inheritedStorage.has(storage)) {
+                TypeValidator.fail("Instance storage '" + storage
+                    + "' in class '" + declaration.name
+                    + "' conflicts with inherited storage", member);
+            }
+            index = index + 1;
+        }
+    }
+
+    public void validateClassStorage(Node declaration) {
+        self.validateOwnClassStorage(declaration);
+        self.validateGenericPropertyInheritance(declaration);
+        self.validateInheritedMemberKind(declaration);
+        self.validateInheritedClassStorage(declaration);
+    }
+
+    public bool isLvalue(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_IDENTIFIER) {
+            return self.identifierStorage(expression.name,  vars);
+        }
+        if (expression.kind == NK_INDEX_EXPR) {
+            return self.isProtocolIndexProjection(expression,  vars)
+                || self.isAddressableStorage(expression,  vars);
+        }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            if (expression.optional) { return false; }
+            if (self.isPropertyProjection(expression,  vars)) {
+                return true;
+            }
+            return self.isAddressableStorage(expression,  vars);
+        }
+        return expression.kind == NK_UNARY_EXPR && expression.op == "*";
+    }
+
+    public bool temporaryManagedType(Node? typeExpr) {
+        if (typeExpr == null) { return false; }
+        string base = typeExpr.base;
+        return SemanticTypeSystem.isString(typeExpr)
+            || self.state.analyzed.isClass(base)
+            || self.state.analyzed.isGenericClass(base)
+            || base == "Array" || base == "List" || base == "Map"
+            || base == "Set" || base == "Vector" || base == "Mutex";
+    }
+
+    public bool hasTemporaryManagedOwner(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        Node? resultType = self.types.inferType(expression,  vars);
+        resultType = self.types.resolveAliases(resultType);
+        bool managedResult = self.temporaryManagedType(resultType);
+        if ((expression.kind == NK_CALL_EXPR
+                || expression.kind == NK_NEW_EXPR) && managedResult) {
+            return true;
+        }
+        if ((expression.kind == NK_LIST_LITERAL
+                || expression.kind == NK_MAP_LITERAL
+                || expression.kind == NK_BRACE_INITIALIZER) && managedResult) {
+            return true;
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            return self.hasTemporaryManagedOwner(
+                expression.expr,  vars);
+        }
+        if (expression.kind == NK_F_STRING_LITERAL) {
+            int partIndex = 0;
+            while (partIndex < expression.parts.len) {
+                if (expression.parts.get(partIndex).kind == NK_F_STRING_EXPR) {
+                    return true;
+                }
+                partIndex = partIndex + 1;
+            }
+            return false;
+        }
+        if (expression.kind == NK_ASSIGN_EXPR && managedResult) {
+            Node? target = expression.target;
+            bool ownedReceiver = target != null
+                && (target.kind == NK_FIELD_ACCESS_EXPR
+                    || target.kind == NK_INDEX_EXPR)
+                && self.hasTemporaryManagedOwner(
+                    target.obj,  vars);
+            bool virtualOwnedValue = expression.op == "="
+                && self.isVirtualUpdateTarget(target,  vars)
+                && managedResult;
+            return ownedReceiver || virtualOwnedValue;
+        }
+        if (expression.kind == NK_BINARY_EXPR && expression.op != "??"
+                && managedResult) {
+            Node? leftType = self.types.inferType(
+                expression.left,  vars);
+            Node? rightType = self.types.inferType(
+                expression.right,  vars);
+            if (expression.op == "+" && SemanticTypeSystem.isString(leftType)
+                    && SemanticTypeSystem.isString(rightType)) {
+                return true;
+            }
+            return leftType != null && self.types.hasBinaryOverload(
+                leftType, expression.op);
+        }
+        if (expression.kind == NK_UNARY_EXPR && managedResult) {
+            Node? operandType = self.types.inferType(
+                expression.operand,  vars);
+            return operandType != null && self.types.hasUnaryOverload(
+                operandType, expression.op);
+        }
+        if (expression.kind == NK_INDEX_EXPR) {
+            if (managedResult && self.isProtocolIndexProjection(
+                    expression,  vars)) {
+                return true;
+            }
+            return self.hasTemporaryManagedOwner(
+                expression.obj,  vars);
+        }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            if (managedResult && self.propertyDispatchProjection(
+                    expression,  vars)) {
+                return true;
+            }
+            return self.hasTemporaryManagedOwner(
+                expression.obj,  vars);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.hasTemporaryManagedOwner(
+                    expression.true_expr,  vars)
+                || self.hasTemporaryManagedOwner(
+                    expression.false_expr,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR && expression.op == "??") {
+            return self.hasTemporaryManagedOwner(
+                    expression.left,  vars)
+                || self.hasTemporaryManagedOwner(
+                    expression.right,  vars);
+        }
+        return false;
+    }
+
+    public bool isLifetimeStableStorage(Node? expression,
+             Map<string, Node> vars) {
+        return self.isAddressableStorage(expression,  vars)
+            && !self.hasTemporaryManagedOwner(expression,  vars);
+    }
+
+    public bool targetHasConstReceiver(Node? target,
+             Map<string, Node> vars) {
+        if (target == null) { return false; }
+        if (target.kind != NK_FIELD_ACCESS_EXPR
+                && target.kind != NK_INDEX_EXPR) {
+            return false;
+        }
+        Node? receiverType = self.types.inferType(target.obj,  vars);
+        receiverType = self.types.resolveAliases(receiverType);
+        if (receiverType != null && receiverType.is_const) { return true; }
+        if (target.kind == NK_INDEX_EXPR
+                && self.rawLvaluePointer(receiverType)) {
+            return false;
+        }
+        return self.targetHasConstReceiver(target.obj,  vars);
+    }
+
+    public void validateTargetReceiverMutability(Node? target,
+             Map<string, Node> vars, Node site) {
+        if (self.targetHasConstReceiver(target,  vars)) {
+            TypeValidator.fail(
+                "Cannot modify through a const-qualified receiver", site);
+        }
+    }
+
+    public bool currentArrayParameterTarget(Node target) {
+        /* borrowedBindings follows lexical shadowing, unlike parameterNames. */
+        return target.kind == NK_IDENTIFIER
+            && self.state.parameterNames.has(target.name)
+            && self.state.borrowedBindings.has(target.name);
+    }
+
+    public bool aggregateArrayBacking(Node? initializer) {
+        return initializer != null
+            && (initializer.kind == NK_BRACE_INITIALIZER
+                || initializer.kind == NK_LIST_LITERAL);
+    }
+
+    public Node? arrayParameterValueType(Node? typeExpr) {
+        Node? valueType = self.types.arrayValueType(typeExpr);
+        Node? canonical = self.types.resolveAliases(valueType);
+        if (canonical == null || !canonical.is_array) { return valueType; }
+        return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(canonical));
+    }
+
+    public Node? arrayTargetMember(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null || expression.kind != NK_FIELD_ACCESS_EXPR
+                || expression.optional || expression.obj == null) {
+            return null;
+        }
+        Node target = expression;
+        if (target.obj.kind == NK_IDENTIFIER
+                && !vars.has(target.obj.name)) {
+            Node? staticMember = null;
+            if (self.state.analyzed.isClass(target.obj.name)) {
+                staticMember = self.state.analyzed.classMember(
+                    target.obj.name, target.field);
+            } else if (self.state.analyzed.isGenericClass(target.obj.name)) {
+                staticMember = SemanticTypeSystem.genericMember(
+                    self.state.analyzed, target.obj.name, target.field);
+            }
+            if (staticMember != null
+                    && (staticMember.kind == NK_FIELD_DECL
+                        || staticMember.kind == NK_PROPERTY_DECL)) {
+                return staticMember;
+            }
+        }
+
+        Node? receiverType = self.types.inferType(target.obj,  vars);
+        receiverType = self.types.resolveAliases(receiverType);
+        if (receiverType == null) { return null; }
+        Node? classMember = self.lvalueMember(
+            receiverType, target.field);
+        if (classMember != null
+                && (classMember.kind == NK_FIELD_DECL
+                    || classMember.kind == NK_PROPERTY_DECL)) {
+            return classMember;
+        }
+
+        string structName = receiverType.base;
+        if (structName.startsWith("struct ")) {
+            structName = structName.substring(
+                7, structName.length() - 7);
+        }
+        if (!self.state.analyzed.structTable.has(structName)) { return null; }
+        Node structure = self.state.analyzed.structTable.get(structName);
+        int index = 0;
+        while (index < structure.fields.len) {
+            Node field = structure.fields.get(index);
+            if (field.name == target.field) { return field; }
+            index = index + 1;
+        }
+        return null;
+    }
+
+    public bool structArrayFieldTarget(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null || expression.kind != NK_FIELD_ACCESS_EXPR) {
+            return false;
+        }
+        Node? receiverType = self.types.inferType(expression.obj,  vars);
+        receiverType = self.types.resolveAliases(receiverType);
+        if (receiverType == null) { return false; }
+        string structName = receiverType.base;
+        if (structName.startsWith("struct ")) {
+            structName = structName.substring(
+                7, structName.length() - 7);
+        }
+        return self.state.analyzed.structTable.has(structName);
+    }
+
+    public bool pointerBackedArrayTarget(Node? expression, Node? inferredType,
+             Map<string, Node> vars) {
+        Node? resolvedType = self.types.resolveAliases(inferredType);
+        if (expression == null || resolvedType == null
+                || !resolvedType.is_array) {
+            return false;
+        }
+        Node target = expression;
+        if (self.currentArrayParameterTarget(target)) { return true; }
+        if (target.kind == NK_IDENTIFIER && vars.has(target.name)) {
+            Node? bindingType = self.types.arrayValueType(
+                vars.get(target.name));
+            Node? canonicalBinding = self.types.resolveAliases(bindingType);
+            if (canonicalBinding != null && !canonicalBinding.is_array) {
+                return true;
+            }
+        }
+        if (resolvedType.array_size != null
+                || target.kind != NK_FIELD_ACCESS_EXPR) {
+            return false;
+        }
+        Node? member = self.arrayTargetMember(target,  vars);
+        if (member == null || (member.access == "class"
+                && member.kind == NK_PROPERTY_DECL)) {
+            return false;
+        }
+        Node? memberValueType = self.arrayFieldValueType(member);
+        Node? canonicalMemberValue = self.types.resolveAliases(
+            memberValueType);
+        if (canonicalMemberValue != null
+                && !canonicalMemberValue.is_array) {
+            return true;
+        }
+        if (member.kind == NK_PROPERTY_DECL) { return true; }
+        if (member.kind != NK_FIELD_DECL) { return false; }
+        return member.access != "class"
+            || !self.aggregateArrayBacking(member.initializer);
+    }
+
+    public Node? assignmentTargetValueType(Node? expression,
+            Node? inferredType,
+            Map<string, Node> vars) {
+        if (!self.pointerBackedArrayTarget(
+                expression, inferredType,  vars)) {
+            return inferredType;
+        }
+        Node? resolvedType = self.types.resolveAliases(inferredType);
+        if (resolvedType == null) { return inferredType; }
+        return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(resolvedType));
+    }
+
+    public Node? arrayFieldValueType(Node field) {
+        Node? valueType = self.types.arrayValueType(field.type);
+        Node? resolvedType = self.types.resolveAliases(valueType);
+        if (resolvedType != null && !resolvedType.is_array) { return valueType; }
+        if (resolvedType == null || !resolvedType.is_array
+                || resolvedType.array_size != null
+                || (field.access == "class"
+                    && self.aggregateArrayBacking(field.initializer))) {
+            return field.type;
+        }
+        return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(resolvedType));
+    }
+
+    public Node? inferredBindingValueType(Node? inferredType,
+            Node? initializer,
+            Map<string, Node> vars) {
+        Node? resolvedType = self.types.resolveAliases(inferredType);
+        if (resolvedType == null || !resolvedType.is_array
+                || initializer == null
+                || initializer.kind == NK_BRACE_INITIALIZER
+                || initializer.kind == NK_LIST_LITERAL) {
+            return inferredType;
+        }
+        if (self.types.gpuArrayResultCall(initializer,  vars)) {
+            return resolvedType;
+        }
+        return TypeShape.withOuterPointer(TypeShape.withoutOuterArray(resolvedType));
+    }
+
+    public bool arrayTargetHasCapacity(Node? expression, Node? inferredType,
+             Map<string, Node> vars) {
+        Node? resolvedType = self.types.resolveAliases(inferredType);
+        if (expression == null || resolvedType == null) { return false; }
+        if ((resolvedType.base == "Array" || resolvedType.base == "Vector")
+                && resolvedType.generic_args.len > 0) {
+            return true;
+        }
+        if (!resolvedType.is_array) { return false; }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            if (resolvedType.array_size != null) {
+                if (self.structArrayFieldTarget(
+                        expression,  vars)) {
+                    return true;
+                }
+                Node? fixedMember = self.arrayTargetMember(
+                    expression,  vars);
+                if (fixedMember != null
+                        && fixedMember.kind == NK_FIELD_DECL
+                        && fixedMember.access != "class") {
+                    return true;
+                }
+            }
+            Node? member = self.arrayTargetMember(
+                expression,  vars);
+            return member != null && member.kind == NK_FIELD_DECL
+                && member.access == "class" && member.type.is_array
+                && self.aggregateArrayBacking(member.initializer);
+        }
+        if (expression.kind != NK_IDENTIFIER) { return false; }
+        Node target = expression;
+        if (self.currentArrayParameterTarget(target)) { return false; }
+        if (resolvedType.is_extern
+                && resolvedType.array_size == null) {
+            return false;
+        }
+        return !self.pointerBackedArrayTarget(
+                target, resolvedType,  vars);
+    }
+
+    public Node? gpuBufferElementType(Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        if (canonical == null) { return null; }
+        if ((canonical.base == "Array" || canonical.base == "Vector")
+                && canonical.generic_args.len == 1) {
+            return self.types.resolveAliases(
+                canonical.generic_args.get(0));
+        }
+        if (canonical.is_array) {
+            return self.types.resolveAliases(
+                self.types.arrayElementType(canonical));
+        }
+        return null;
+    }
+
+    public bool gpuBufferElementsExact(Node? expectedType, Node? actualType) {
+        Node? expected = self.gpuBufferElementType(expectedType);
+        Node? actual = self.gpuBufferElementType(actualType);
+        return expected != null && actual != null
+            && TypeIdentity.shapeKey(expected) == TypeIdentity.shapeKey(actual);
+    }
+
+    public void validateGpuArrayParameter(Node callable, Node parameter) {
+        if (!callable.is_gpu) { return; }
+        Node? typeExpr = self.types.resolveAliases(parameter.type);
+        if (typeExpr != null && typeExpr.is_array
+                && (typeExpr.is_const || typeExpr.is_volatile)) {
+            TypeValidator.fail("@gpu function '" + callable.name
+                + "': GPU array buffers are read-write and cannot be const- or "
+                + "volatile-qualified in parameter '" + parameter.name + "'",
+                parameter);
+        }
+    }
+
+    public bool gpuInputHasCompatibleStorage(Node? expression,
+            Node? expectedType, Node? actualType,
+             Map<string, Node> vars) {
+        Node? actual = self.types.resolveAliases(actualType);
+        Node? element = self.gpuBufferElementType(actual);
+        return actual != null && element != null
+            && !actual.is_volatile && !element.is_volatile
+            && self.arrayTargetHasCapacity(
+                expression, actual,  vars)
+            && self.gpuBufferElementsExact(
+                expectedType, actual);
+    }
+
+    public bool gpuOutputElementCompatible(Node? targetType, Node? sourceType) {
+        Node? target = self.types.resolveAliases(targetType);
+        Node? targetElement = self.gpuBufferElementType(target);
+        if (target == null || targetElement == null
+                || target.is_const || target.is_volatile
+                || targetElement.is_const || targetElement.is_volatile) {
+            return false;
+        }
+        return self.gpuBufferElementsExact(
+            target, sourceType);
+    }
+
+    public void validateThreadVariableOwner(Node declaration, Node? typeExpr,
+            bool isGlobal) {
+        if (!self.types.containsThreadStorage(typeExpr)) { return; }
+        string subject = isGlobal ? "Global '" : "Variable '";
+        subject = subject + declaration.name + "'";
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        bool staticStorage = isGlobal || (canonical != null
+            && (canonical.is_static || canonical.is_extern));
+        if (staticStorage) {
+            TypeValidator.fail(subject
+                + " cannot own a Thread handle with static storage; Thread<T> "
+                + "must be an initialized local owner", declaration);
+        } else if (canonical == null || canonical.base != "Thread") {
+            TypeValidator.fail(subject
+                + " cannot embed a Thread handle; Thread<T> must be the "
+                + "variable's direct type", declaration);
+        } else if (declaration.initializer == null) {
+            TypeValidator.fail(subject
+                + " must initialize its Thread<T> owner", declaration);
+        }
+    }
+
+    public void validateArrayBound(Node typeExpr, string subject,
+            string context, Node site,
+            Map<string, Node> vars) {
+        if (!typeExpr.is_array || typeExpr.array_size == null) { return; }
+        Node? boundType = self.types.inferType(typeExpr.array_size,  vars);
+        if (boundType != null
+                && !self.types.integralType(boundType, self.state.analyzed)) {
+            TypeValidator.fail(
+                "Array bound for " + subject + " must be integral",
+                typeExpr.array_size);
+        }
+        Map<string, bool> unrestricted = {};
+        SemanticIntegerConstant constant = self.constants.integerConstant(
+            typeExpr.array_size,  false, "", unrestricted);
+        if (constant.valid) {
+            self.state.analyzed.constantArrayBoundKeys.put(
+                AstIdentity.key(typeExpr.array_size), true);
+        }
+        if (constant.known && constant.value <= 0) {
+            TypeValidator.fail(
+                "Array bound for " + subject + " must be positive",
+                typeExpr.array_size);
+        }
+        if ((context == "field" || context == "global"
+                || context == "static")
+                && !constant.valid) {
+            TypeValidator.fail("Array bound for " + subject
+                + " must be a constant expression", typeExpr.array_size);
+        }
+    }
+
+    public void validateVariableStorage(Node declaration,
+            bool isGlobal,
+            Map<string, Node> vars) {
+        string subject = isGlobal ? "Global '" : "Variable '";
+        subject = subject + declaration.name + "'";
+        self.types.validateDeclaredType(
+            declaration.type, subject, "object", declaration);
+        Node? canonical = self.types.resolveAliases(declaration.type);
+        if (canonical != null && canonical.base == "Mutex"
+                && (isGlobal || canonical.is_static
+                    || canonical.is_extern)) {
+            TypeValidator.fail(subject
+                + " cannot own a Mutex handle with static storage until "
+                + "managed global teardown is supported", declaration);
+        }
+        if (declaration.type != null) {
+            if (!isGlobal && declaration.type.is_static
+                    && (self.types.managedOwnershipType(
+                            declaration.type)
+                        || SemanticTypeSystem.isString(declaration.type)
+                        || self.state.typeParams.has(
+                            declaration.type.base))) {
+                TypeValidator.fail(subject
+                    + " cannot use managed static-local storage; declare an "
+                    + "owned lexical value or explicit global owner",
+                    declaration);
+            }
+            string context = isGlobal ? "global" : "local";
+            if (!isGlobal && declaration.type.is_static) { context = "static"; }
+            self.validateArrayBound(declaration.type, subject,
+                context, declaration,  vars);
+            if (declaration.type.is_extern
+                    && declaration.initializer != null) {
+                TypeValidator.fail(subject
+                    + " cannot have an initializer with extern storage",
+                    declaration);
+            }
+            if (declaration.type.is_array
+                    && declaration.type.array_size == null
+                    && declaration.initializer == null
+                    && !declaration.type.is_extern) {
+                TypeValidator.fail(subject
+                    + " requires an array bound or initializer", declaration);
+            }
+            if (declaration.type.is_array
+                    && declaration.type.array_size != null
+                    && declaration.initializer != null
+                    && !self.types.gpuArrayResultCall(
+                        declaration.initializer,  vars)) {
+                Map<string, bool> unrestricted = {};
+                SemanticIntegerConstant bound = self.constants.integerConstant(
+                    declaration.type.array_size,  false, "", unrestricted);
+                if (!bound.valid) {
+                    TypeValidator.fail(subject
+                        + " is a variable-length array and cannot have "
+                        + "an initializer", declaration);
+                }
+                bool aggregateInitializer =
+                    declaration.initializer.kind == NK_LIST_LITERAL
+                    || declaration.initializer.kind == NK_BRACE_INITIALIZER;
+                if (aggregateInitializer && bound.known
+                        && declaration.initializer.elements.len > bound.value) {
+                    TypeValidator.fail(subject + " has "
+                        + Strings.fromInt(declaration.initializer.elements.len)
+                        + " elements exceeding its fixed array bound",
+                        declaration);
+                }
+            }
+        }
+        bool staticStorage = isGlobal
+            || (declaration.type != null && declaration.type.is_static);
+        bool isExtern = declaration.type != null && declaration.type.is_extern;
+        /* Static-initializer expression policy is applied by declaration
+         * traversal after this storage-shape check. */
+    }
+
+    class string structTypeName(
+            Node? typeExpr, Analyzed analyzed) {
+        if (typeExpr == null || typeExpr.pointer_depth > 0) { return ""; }
+        if (typeExpr.base.startsWith("struct ")) {
+            return typeExpr.base.substring(7, typeExpr.base.length() - 7);
+        }
+        if (analyzed.structTable.has(typeExpr.base)) { return typeExpr.base; }
+        return "";
+    }
+
+    public bool structContainsConst(Node? typeExpr, Analyzed analyzed,
+            Map<string, bool> visiting) {
+        string name = StorageValidator.structTypeName(typeExpr, analyzed);
+        if (name == "" || visiting.has(name)
+                || !analyzed.structTable.has(name)) {
+            return false;
+        }
+        Node declaration = analyzed.structTable.get(name);
+        if (declaration.is_forward) { return false; }
+        visiting.put(name, true);
+        int index = 0;
+        while (index < declaration.fields.len) {
+            Node field = declaration.fields.get(index);
+            if ((field.type.is_const && field.type.pointer_depth == 0)
+                    || self.structContainsConst(
+                        field.type, analyzed, visiting)) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public void validateMutableTarget(Node? targetType,
+             Node site,
+            bool allowFixedArrayWrite) {
+        Node? resolvedTarget = self.types.resolveAliases(targetType);
+        if (resolvedTarget == null) { return; }
+        if (resolvedTarget.is_const && resolvedTarget.pointer_depth == 0) {
+            TypeValidator.fail("Cannot modify const storage of type '"
+                + self.types.formatType(resolvedTarget) + "'", site);
+        }
+        if (resolvedTarget.is_array && resolvedTarget.array_size != null
+                && !allowFixedArrayWrite) {
+            TypeValidator.fail("Fixed array '"
+                + self.types.formatType(resolvedTarget) + "' is not assignable", site);
+        }
+        Map<string, bool> visiting = {};
+        if (self.structContainsConst(
+                resolvedTarget, self.state.analyzed, visiting)) {
+            TypeValidator.fail("Cannot assign or update struct '"
+                + self.types.formatType(resolvedTarget)
+                + "' because it contains const storage", site);
+        }
+    }
+
+    public void validatePropertyMutation(Node target, bool requireGetter,
+            bool allowGetterStorage,
+             Map<string, Node> vars, Node site) {
+        if (target.kind != NK_FIELD_ACCESS_EXPR) { return; }
+        Node? receiver = self.types.inferType(target.obj,  vars);
+        if (receiver == null) { return; }
+        Node? member = null;
+        if (self.state.analyzed.isClass(receiver.base)) {
+            member = self.state.analyzed.classMember(receiver.base, target.field);
+        } else if (self.state.analyzed.isGenericClass(receiver.base)) {
+            member = SemanticTypeSystem.genericMember(self.state.analyzed, receiver.base, target.field);
+        }
+        if (member == null || member.kind != NK_PROPERTY_DECL) { return; }
+        Node property = member;
+        if (!property.has_setter
+                && !(allowGetterStorage && property.has_getter)) {
+            TypeValidator.fail(
+                "Property '" + target.field + "' has no setter", site);
+        }
+        if (requireGetter && !property.has_getter) {
+            TypeValidator.fail(
+                "Property '" + target.field + "' has no getter", site);
+        }
+    }
+
+    public Node? lvalueMember(Node receiverType, string member) {
+        if (self.state.analyzed.isClass(receiverType.base)) {
+            return self.state.analyzed.classMember(receiverType.base, member);
+        }
+        if (self.state.analyzed.isGenericClass(receiverType.base)) {
+            return SemanticTypeSystem.genericMember(self.state.analyzed, receiverType.base, member);
+        }
+        return null;
+    }
+
+    public bool isPropertyProjection(Node expression,
+             Map<string, Node> vars) {
+        if (expression.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+        Node? receiverType = self.types.inferType(expression.obj,  vars);
+        if (receiverType == null) { return false; }
+        Node? member = self.lvalueMember(
+            receiverType, expression.field);
+        return member != null && member.kind == NK_PROPERTY_DECL;
+    }
+
+    public bool propertyDispatchProjection(Node expression,
+             Map<string, Node> vars) {
+        if (expression.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+        if (expression.obj.kind == NK_SELF_EXPR
+                || expression.obj.kind == NK_SUPER_EXPR) {
+            return false;
+        }
+        Node? receiverType = self.types.inferType(expression.obj,  vars);
+        if (receiverType == null) { return false; }
+        Node? member = self.lvalueMember(
+            receiverType, expression.field);
+        if (member == null || member.kind != NK_PROPERTY_DECL) {
+            return false;
+        }
+        return true;
+    }
+
+    public bool rawLvaluePointer(Node? typeExpr) {
+        Node? resolvedType = self.types.resolveAliases(typeExpr);
+        if (resolvedType == null || resolvedType.is_array
+                || resolvedType.pointer_depth <= 0) {
+            return false;
+        }
+        if (self.state.analyzed.isClass(resolvedType.base)
+                || self.state.analyzed.isGenericClass(resolvedType.base)) {
+            return resolvedType.pointer_depth > 1;
+        }
+        return true;
+    }
+
+    public bool isProtocolIndexProjection(Node expression,
+             Map<string, Node> vars) {
+        if (expression.kind != NK_INDEX_EXPR) { return false; }
+        Node? receiverType = self.types.inferType(expression.obj,  vars);
+        receiverType = self.types.resolveAliases(receiverType);
+        if (receiverType == null) { return false; }
+        if (receiverType.is_array || SemanticTypeSystem.isString(receiverType)) { return false; }
+        if (self.rawLvaluePointer(receiverType)) { return false; }
+        Node? getter = self.lvalueMember(receiverType, "get");
+        Node? setter = self.lvalueMember(receiverType, "set");
+        return (getter != null && getter.kind == NK_METHOD_DECL)
+            || (setter != null && setter.kind == NK_METHOD_DECL);
+    }
+
+    public bool isVirtualUpdateTarget(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        Node target = expression;
+        return self.isPropertyProjection(target,  vars)
+            || self.isProtocolIndexProjection(target,  vars);
+    }
+
+    public bool referenceReceiver(Node? typeExpr) {
+        Node? resolvedType = self.types.resolveAliases(typeExpr);
+        return resolvedType != null
+            && (resolvedType.pointer_depth > 0 || resolvedType.is_array
+                || SemanticTypeSystem.isString(resolvedType)
+                || self.state.analyzed.isClass(resolvedType.base)
+                || self.state.analyzed.isGenericClass(resolvedType.base));
+    }
+
+    public bool identifierStorage(string name,
+             Map<string, Node> vars) {
+        if (vars.has(name)) { return true; }
+        if (self.state.analyzed.funcNames.has(name)
+                || self.state.analyzed.isClass(name)
+                || self.state.analyzed.isGenericClass(name)
+                || self.state.analyzed.isEnum(name)
+                || self.state.analyzed.isRichEnum(name)
+                || self.state.analyzed.isEnumValue(name)
+                || self.state.analyzed.isAmbiguousEnumValue(name)) {
+            return false;
+        }
+        /* Preserve unresolved C-interoperability identifiers. */
+        return true;
+    }
+
+    public bool staticFieldProjection(Node expression,
+             Map<string, Node> vars) {
+        if (expression.kind != NK_FIELD_ACCESS_EXPR
+                || expression.obj == null
+                || expression.obj.kind != NK_IDENTIFIER
+                || vars.has(expression.obj.name)) {
+            return false;
+        }
+        Node? member = null;
+        if (self.state.analyzed.isClass(expression.obj.name)) {
+            member = self.state.analyzed.classMember(
+                expression.obj.name, expression.field);
+        } else if (self.state.analyzed.isGenericClass(expression.obj.name)) {
+            member = SemanticTypeSystem.genericMember(
+                self.state.analyzed, expression.obj.name, expression.field);
+        }
+        return member != null && member.kind == NK_FIELD_DECL
+            && member.access == "class";
+    }
+
+    public bool isAddressableStorage(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_IDENTIFIER) {
+            return self.identifierStorage(expression.name,  vars);
+        }
+        if (expression.kind == NK_UNARY_EXPR && expression.op == "*") {
+            return true;
+        }
+        if (expression.kind == NK_INDEX_EXPR) {
+            if (self.isProtocolIndexProjection(expression,  vars)) {
+                return false;
+            }
+            Node? receiverType = self.types.inferType(
+                expression.obj,  vars);
+            receiverType = self.types.resolveAliases(receiverType);
+            if (receiverType == null) { return true; }
+            if (receiverType.is_array) {
+                return self.isAddressableStorage(
+                    expression.obj,  vars);
+            }
+            if (SemanticTypeSystem.isString(receiverType)) { return true; }
+            if (self.rawLvaluePointer(receiverType)) { return true; }
+            return self.isAddressableStorage(
+                expression.obj,  vars);
+        }
+        if (expression.kind != NK_FIELD_ACCESS_EXPR
+                || expression.optional
+                || self.isPropertyProjection(expression,  vars)) {
+            return false;
+        }
+        if (self.staticFieldProjection(expression,  vars)) {
+            return true;
+        }
+        Node? receiverType = self.types.inferType(
+            expression.obj,  vars);
+        receiverType = self.types.resolveAliases(receiverType);
+        if (SemanticTypeSystem.isString(receiverType)) { return false; }
+        if (self.referenceReceiver(receiverType)) { return true; }
+        return self.isAddressableStorage(expression.obj,  vars);
+    }
+
+    class Node? indexedMethod(
+            Node objectType, string name, Analyzed analyzed) {
+        if (analyzed.isGenericClass(objectType.base)
+                && objectType.pointer_depth <= 1) {
+            return analyzed.genericClassMethod(objectType.base, name);
+        }
+        if (analyzed.isClass(objectType.base)) {
+            return analyzed.classMethod(objectType.base, name);
+        }
+        return null;
+    }
+
+    public Node? indexedMethodInState(
+            Node objectType, string name) {
+        if (self.state.typeParams.has(objectType.base)) { return null; }
+        return StorageValidator.indexedMethod(objectType, name, self.state.analyzed);
+    }
+
+    class bool validIndexedGetter(Node? method) {
+        return method != null && method.access != "class"
+            && method.generic_params.len == 0
+            && method.params.len == 1 && !method.params.get(0).keep_
+            && method.return_type != null
+            && !TypeValidator.scalarVoid(method.return_type);
+    }
+
+    class bool validIndexedSetter(Node? method) {
+        return method != null && method.access != "class"
+            && method.generic_params.len == 0
+            && method.params.len == 2 && !method.params.get(0).keep_
+            && TypeValidator.scalarVoid(method.return_type);
+    }
+
+    class Node resolvedIndexedType(
+            Node declared, Node objectType, Analyzed analyzed) {
+        if (analyzed.isGenericClass(objectType.base)
+                && objectType.generic_args.len > 0) {
+            return SemanticTypeSystem.resolveGenericType(
+                declared, SemanticTypeSystem.genericTypeMap(analyzed, objectType),
+                analyzed);
+        }
+        return declared;
+    }
+
+    class bool rawIndexedPointer(Node objectType, Analyzed analyzed) {
+        if (objectType.pointer_depth <= 0) { return false; }
+        /* All inferred class instances carry one implicit pointer level; only an
+         * additional level is raw pointer storage rather than the index protocol. */
+        if (analyzed.isClass(objectType.base)
+                || analyzed.isGenericClass(objectType.base)) {
+            return objectType.pointer_depth > 1;
+        }
+        return true;
+    }
+
+    public bool rawIndexedPointerInState(
+            Node objectType) {
+        if (objectType.pointer_depth <= 0) { return false; }
+        if (self.state.typeParams.has(objectType.base)) { return true; }
+        return StorageValidator.rawIndexedPointer(objectType, self.state.analyzed);
+    }
+
+    public Node? indexResultTypeInState(
+            Node? objectType) {
+        if (objectType == null || objectType.base == "Tuple") { return null; }
+        if (SemanticTypeSystem.isString(objectType)) {
+            Node character = SemanticTypeSystem.primitive("char");
+            character.is_const = objectType.is_const;
+            return character;
+        }
+        if (objectType.is_array) {
+            return TypeShape.withoutOuterArray(objectType);
+        }
+        if (self.rawIndexedPointerInState(objectType)) {
+            return TypeShape.withoutOuterPointers(objectType, 1);
+        }
+        Node? getter = self.indexedMethodInState(objectType, "get");
+        Node? result = null;
+        if (StorageValidator.validIndexedGetter(getter)) {
+            Node concreteGetter = getter;
+            result = concreteGetter.return_type;
+        } else {
+            Node? setter = self.indexedMethodInState(objectType, "set");
+            if (StorageValidator.validIndexedSetter(setter)) {
+                Node concreteSetter = setter;
+                result = concreteSetter.params.get(1).type;
+            }
+        }
+        if (result == null) { return null; }
+        return StorageValidator.resolvedIndexedType(
+            result, objectType, self.state.analyzed);
+    }
+
+    class Node? indexResultType(Node? objectType, Analyzed analyzed) {
+        if (objectType == null || objectType.base == "Tuple") { return null; }
+        if (SemanticTypeSystem.isString(objectType)) {
+            Node character = SemanticTypeSystem.primitive("char");
+            character.is_const = objectType.is_const;
+            return character;
+        }
+        if (objectType.is_array) {
+            return TypeShape.withoutOuterArray(objectType);
+        }
+        if (StorageValidator.rawIndexedPointer(objectType, analyzed)) {
+            return TypeShape.withoutOuterPointers(objectType, 1);
+        }
+        Node? getter = StorageValidator.indexedMethod(objectType, "get", analyzed);
+        Node? result = null;
+        if (StorageValidator.validIndexedGetter(getter)) {
+            Node concreteGetter = getter;
+            result = concreteGetter.return_type;
+        } else {
+            Node? setter = StorageValidator.indexedMethod(objectType, "set", analyzed);
+            if (StorageValidator.validIndexedSetter(setter)) {
+                Node concreteSetter = setter;
+                result = concreteSetter.params.get(1).type;
+            }
+        }
+        if (result == null) { return null; }
+        return StorageValidator.resolvedIndexedType(
+            result, objectType, analyzed);
+    }
+
+    public Node? indexParameterType(
+            Node objectType, Node method, Analyzed analyzed) {
+        if (method.params.len == 0) { return null; }
+        return StorageValidator.resolvedIndexedType(
+            method.params.get(0).type, objectType, analyzed);
+    }
+
+    public Node? indexedSetterValueType(Node? target,
+             Map<string, Node> vars) {
+        if (target == null || target.kind != NK_INDEX_EXPR) { return null; }
+        Node? receiver = self.types.inferType(target.obj,  vars);
+        if (receiver == null
+                || self.rawIndexedPointerInState(receiver)) {
+            return null;
+        }
+        Node? setter = self.indexedMethodInState(receiver, "set");
+        if (!StorageValidator.validIndexedSetter(setter)) { return null; }
+        Node concreteSetter = setter;
+        return StorageValidator.resolvedIndexedType(
+            concreteSetter.params.get(1).type, receiver, self.state.analyzed);
+    }
+
+    public void validateIndex(Node expression,
+            Map<string, Node> vars, bool requireGetter) {
+        Node? objectType = self.types.inferType(expression.obj,  vars);
+        Node? indexType = self.types.inferType(expression.index,  vars);
+        if (objectType == null) {
+            TypeValidator.fail(
+                "Cannot determine whether expression is indexable", expression);
+        }
+        Node concreteObject = objectType;
+        if (concreteObject.base == "Tuple") {
+            TypeValidator.fail(
+                "Tuple values are not dynamically indexable; use ._N fields",
+                expression);
+        }
+        bool rawIntegral = SemanticTypeSystem.isString(concreteObject)
+            || concreteObject.is_array
+            || self.rawIndexedPointerInState(concreteObject);
+        if (rawIntegral) {
+            if (indexType != null
+                    && !self.types.integralType(indexType, self.state.analyzed)) {
+                TypeValidator.fail(
+                    "Index expression must have an integral type",
+                    expression.index);
+            }
+            return;
+        }
+        Node? method = null;
+        if (requireGetter) {
+            method = self.indexedMethodInState(
+                concreteObject, "get");
+            if (!StorageValidator.validIndexedGetter(method)) { method = null; }
+        } else {
+            method = self.indexedMethodInState(
+                concreteObject, "set");
+            if (!StorageValidator.validIndexedSetter(method)) { method = null; }
+        }
+        if (method == null) {
+            TypeValidator.fail("Type '"
+                + self.types.formatType(concreteObject)
+                + (requireGetter
+                    ? "' has no indexed getter; indexing requires an instance "
+                        + "get(index) method"
+                    : "' has no indexed setter; it has no void instance "
+                        + "set(index, value) method"), expression);
+        }
+        Node concreteMethod = method;
+        self.validateMethodAccess(
+            concreteObject.base, concreteMethod,  expression);
+        Node expected = self.indexParameterType(
+            concreteObject, concreteMethod, self.state.analyzed);
+        if (indexType != null
+                && !self.types.assignmentCompatible(expected, indexType)) {
+            TypeValidator.fail("Index expression expects '"
+                + self.types.formatType(expected) + "' but got '"
+                + self.types.formatType(indexType) + "'", expression.index);
+        }
+    }
+
+    public void validateIndexedMutation(Node target, bool requireGetter,
+             Map<string, Node> vars, Node site) {
+        if (target.kind != NK_INDEX_EXPR) { return; }
+        Node? receiver = self.types.inferType(target.obj,  vars);
+        if (receiver == null || receiver.is_array || SemanticTypeSystem.isString(receiver)
+                || self.rawIndexedPointerInState(receiver)) {
+            return;
+        }
+        Node? setter = self.indexedMethodInState(receiver, "set");
+        if (!StorageValidator.validIndexedSetter(setter)) {
+            TypeValidator.fail("Type '" + self.types.formatType(receiver)
+                + "' has no void instance set(index, value) method", site);
+            return;
+        }
+        Node concreteSetter = setter;
+        self.validateMethodAccess(
+            receiver.base, concreteSetter,  site);
+        Node? getter = self.indexedMethodInState(
+            receiver, "get");
+        if (requireGetter && !StorageValidator.validIndexedGetter(getter)) {
+            TypeValidator.fail("Type '" + self.types.formatType(receiver)
+                + "' has no indexed getter", site);
+        }
+        if (requireGetter) {
+            Node concreteGetter = getter;
+            self.validateMethodAccess(
+                receiver.base, concreteGetter,  site);
+        }
+        Node expectedIndex = StorageValidator.resolvedIndexedType(
+            concreteSetter.params.get(0).type, receiver, self.state.analyzed);
+        Node? actualIndex = self.types.inferType(target.index,  vars);
+        if (actualIndex != null && !self.types.assignmentCompatible(
+                expectedIndex, actualIndex)) {
+            TypeValidator.fail("Indexed setter expects index type '"
+                + self.types.formatType(expectedIndex) + "' but got '"
+                + self.types.formatType(actualIndex) + "'", target.index);
+        }
+        if (requireGetter) {
+            Node concreteGetter = getter;
+            Node getterIndex = StorageValidator.resolvedIndexedType(
+                concreteGetter.params.get(0).type,
+                receiver, self.state.analyzed);
+            if (actualIndex != null && !self.types.assignmentCompatible(
+                    getterIndex, actualIndex)) {
+                TypeValidator.fail("Indexed getter expects index type '"
+                    + self.types.formatType(getterIndex) + "' but got '"
+                    + self.types.formatType(actualIndex) + "'", target.index);
+            }
+        }
+
+        Node expectedValue = StorageValidator.resolvedIndexedType(
+            concreteSetter.params.get(1).type, receiver, self.state.analyzed);
+        Node? actualValue = self.indexResultTypeInState(receiver);
+        if (site.kind == NK_ASSIGN_EXPR && site.op == "=") {
+            actualValue = self.types.inferType(site.value_node,  vars);
+            self.types.validateTypedInitializer(
+                expectedValue, site.value_node,
+                "Indexed setter value",  vars);
+        }
+        if (actualValue != null
+                && !(site.kind == NK_ASSIGN_EXPR
+                    && self.types.contextualAggregateInitializer(site.value_node))
+                && !self.types.assignmentCompatible(
+                    expectedValue, actualValue)) {
+            TypeValidator.fail("Indexed setter expects value type '"
+                + self.types.formatType(expectedValue) + "' but got '"
+                + self.types.formatType(actualValue) + "'", site);
+        }
+    }
+
+    public Node? qualifierDeclaredType(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return null; }
+        if (expression.kind == NK_IDENTIFIER
+                && vars.has(expression.name)) {
+            return vars.get(expression.name);
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            return expression.target_type;
+        }
+        return self.types.inferRaw(expression, vars);
+    }
+
+    public bool qualifierRawIndex(Node expression,
+             Map<string, Node> vars) {
+        Node? declared = self.qualifierDeclaredType(
+            expression.obj,  vars);
+        Node? objectType = self.types.resolveAliases(declared);
+        return objectType != null && (objectType.is_array
+            || self.rawIndexedPointerInState(objectType));
+    }
+
+    public Node? qualifierIndexResult(Node expression,
+             Map<string, Node> vars) {
+        Node? declared = self.qualifierDeclaredType(
+            expression.obj,  vars);
+        /* Expand only the receiver alias.  Fully resolving nested generic
+         * arguments would turn Source<P>.get() from P into its flattened C shape
+         * and erase the typedef boundary that places volatile on the pointee. */
+        return self.indexResultTypeInState(
+            SemanticTypeSystem.resolveOuterTypedefType(
+                declared, self.state.analyzed.typedefTable));
+    }
+
+    public Node? qualifierOperatorResult(Node expression,
+             Map<string, Node> vars) {
+        if (expression.kind == NK_UNARY_EXPR) {
+            Node? receiver = SemanticTypeSystem.resolveOuterTypedefType(
+                self.qualifierDeclaredType(
+                    expression.operand,  vars),
+                self.state.analyzed.typedefTable);
+            return self.operators.overloadReturnType(
+                receiver, expression.op, true);
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            Node? receiver = SemanticTypeSystem.resolveOuterTypedefType(
+                self.qualifierDeclaredType(
+                    expression.left,  vars),
+                self.state.analyzed.typedefTable);
+            return self.operators.overloadReturnType(
+                receiver, expression.op, false);
+        }
+        return null;
+    }
+
+    public bool expressionVolatileAtDepth(Node? expression, int depth,
+             Map<string, Node> vars) {
+        if (expression == null || depth < 0) { return false; }
+        if (expression.kind == NK_INDEX_EXPR) {
+            if (!self.qualifierRawIndex(expression,  vars)) {
+                return SemanticTypeSystem.typeVolatileAtDepth(
+                    self.qualifierIndexResult(expression,  vars),
+                    self.state.analyzed.typedefTable, depth);
+            }
+            return self.expressionVolatileAtDepth(
+                expression.obj, depth + 1,  vars);
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            Node? overloaded = self.qualifierOperatorResult(
+                expression,  vars);
+            if (overloaded != null) {
+                return SemanticTypeSystem.typeVolatileAtDepth(overloaded,
+                    self.state.analyzed.typedefTable, depth);
+            }
+            if (expression.op == "&") {
+                if (depth == 0) { return false; }
+                return self.expressionVolatileAtDepth(
+                    expression.operand, depth - 1,  vars);
+            }
+            if (expression.op == "*") {
+                return self.expressionVolatileAtDepth(
+                    expression.operand, depth + 1,  vars);
+            }
+            if (expression.op == "!") { return false; }
+            return self.expressionVolatileAtDepth(
+                expression.operand, depth,  vars);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            return self.expressionVolatileAtDepth(
+                    expression.true_expr, depth,  vars)
+                || self.expressionVolatileAtDepth(
+                    expression.false_expr, depth,  vars);
+        }
+        if (expression.kind == NK_ASSIGN_EXPR) {
+            return depth > 0 && self.expressionVolatileAtDepth(
+                expression.target, depth,  vars);
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            Node? overloaded = self.qualifierOperatorResult(
+                expression,  vars);
+            if (overloaded != null) {
+                return SemanticTypeSystem.typeVolatileAtDepth(overloaded,
+                    self.state.analyzed.typedefTable, depth);
+            }
+            if (expression.op == "??") {
+                return self.expressionVolatileAtDepth(
+                        expression.left, depth,  vars)
+                    || self.expressionVolatileAtDepth(
+                        expression.right, depth,  vars);
+            }
+        }
+        Node? declared = self.qualifierDeclaredType(
+            expression,  vars);
+        return SemanticTypeSystem.typeVolatileAtDepth(
+            declared, self.state.analyzed.typedefTable, depth);
+    }
+
+    public int expressionVolatileMaxDepth(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return -1; }
+        if (expression.kind == NK_INDEX_EXPR) {
+            if (!self.qualifierRawIndex(expression,  vars)) {
+                return SemanticTypeSystem.typeVolatileMaxDepth(
+                    self.qualifierIndexResult(expression,  vars),
+                    self.state.analyzed.typedefTable);
+            }
+            int nested = self.expressionVolatileMaxDepth(
+                expression.obj,  vars);
+            return nested > 0 ? nested - 1 : -1;
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            Node? overloaded = self.qualifierOperatorResult(
+                expression,  vars);
+            if (overloaded != null) {
+                return SemanticTypeSystem.typeVolatileMaxDepth(
+                    overloaded, self.state.analyzed.typedefTable);
+            }
+            int nested = self.expressionVolatileMaxDepth(
+                expression.operand,  vars);
+            if (nested < 0) { return -1; }
+            if (expression.op == "&") { return nested + 1; }
+            if (expression.op == "*") {
+                return nested > 0 ? nested - 1 : -1;
+            }
+            if (expression.op == "!") { return -1; }
+            return nested;
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            int left = self.expressionVolatileMaxDepth(
+                expression.true_expr,  vars);
+            int right = self.expressionVolatileMaxDepth(
+                expression.false_expr,  vars);
+            return left > right ? left : right;
+        }
+        if (expression.kind == NK_ASSIGN_EXPR) {
+            int target = self.expressionVolatileMaxDepth(
+                expression.target,  vars);
+            return target > 0 ? target : -1;
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            Node? overloaded = self.qualifierOperatorResult(
+                expression,  vars);
+            if (overloaded != null) {
+                return SemanticTypeSystem.typeVolatileMaxDepth(
+                    overloaded, self.state.analyzed.typedefTable);
+            }
+            if (expression.op == "??") {
+                int left = self.expressionVolatileMaxDepth(
+                    expression.left,  vars);
+                int right = self.expressionVolatileMaxDepth(
+                    expression.right,  vars);
+                return left > right ? left : right;
+            }
+        }
+        return SemanticTypeSystem.typeVolatileMaxDepth(
+            self.qualifierDeclaredType(expression,  vars),
+            self.state.analyzed.typedefTable);
+    }
+
+    public void validateVolatileReferenceConversion(Node? target,
+            Node? value, string subject,
+            Map<string, Node> vars) {
+        if (target == null || value == null) { return; }
+        int depth = 1;
+        int maximum = self.expressionVolatileMaxDepth(
+            value,  vars);
+        while (depth <= maximum) {
+            if (self.expressionVolatileAtDepth(
+                        value, depth,  vars)
+                    && !SemanticTypeSystem.typeVolatileAtDepth(
+                        target, self.state.analyzed.typedefTable, depth)) {
+                TypeValidator.fail(subject
+                    + " would discard volatile storage qualification at pointer depth "
+                    + Strings.fromInt(depth)
+                    + "; use a typedef that preserves the qualified pointee instead of unsupported layered pointer qualifiers",
+                    value);
+            }
+            depth = depth + 1;
+        }
+    }
+
+    public void validateAssignment(Node expression,
+             Map<string, Node> vars) {
+        if (!self.isLvalue(expression.target,  vars)) {
+            TypeValidator.fail("Assignment target is not assignable", expression);
+        }
+        Node? storageTarget = self.types.inferType(
+            expression.target,  vars);
+        bool gpuArrayOutput = expression.op == "="
+            && self.types.gpuArrayResultCall(expression.value_node,  vars);
+        bool gpuTargetHasCapacity = gpuArrayOutput
+            && self.arrayTargetHasCapacity(
+                expression.target, storageTarget,  vars);
+        if (gpuArrayOutput && !gpuTargetHasCapacity) {
+            TypeValidator.fail(
+                "Array-returning @gpu assignment target has no provable "
+                    + "writable capacity",
+                expression.target);
+        }
+        Node? target = storageTarget;
+        target = self.assignmentTargetValueType(
+            expression.target, target,  vars);
+        Node? source = self.types.inferType(expression.value_node,  vars);
+        bool borrowedManagedRebind = expression.target.kind == NK_IDENTIFIER
+                && target != null
+                && (self.types.managedOwnershipType(target)
+                    || SemanticTypeSystem.isString(target))
+                && self.state.borrowedBindings.has(expression.target.name);
+        bool borrowedSelfProjection = borrowedManagedRebind
+            && self.borrowedSelfProjection(
+                expression.value_node, expression.target.name,  vars);
+        bool rebindNeedsOwner = expression.op != "="
+            || (!borrowedSelfProjection
+                && self.managedRebindSourceNeedsOwner(
+                    expression.value_node, target,  vars));
+        if (borrowedManagedRebind && rebindNeedsOwner) {
+            TypeValidator.fail(
+                "Borrowed managed bindings cannot be rebound; declare an "
+                    + "owned local before assigning or applying a compound update",
+                expression);
+        }
+        bool virtualTarget = self.isVirtualUpdateTarget(
+            expression.target,  vars);
+        if (expression.op != "=" && target != null
+                && (self.types.managedOwnershipType(target)
+                    || SemanticTypeSystem.isString(target))) {
+            bool supportedPhysical = expression.target.kind == NK_IDENTIFIER
+                || (expression.target.kind == NK_FIELD_ACCESS_EXPR
+                    && !virtualTarget);
+            if (!supportedPhysical) {
+                TypeValidator.fail(
+                    "Managed compound updates require a direct local/global or "
+                        + "physical field; use an explicit local value and simple "
+                        + "store for virtual or indirect targets",
+                    expression);
+            }
+        }
+        if (expression.op == "=") {
+            Node? setterType = self.indexedSetterValueType(
+                expression.target,  vars);
+            if (setterType != null) { target = setterType; }
+            Node? qualifiedTarget = self.qualifierDeclaredType(
+                expression.target,  vars);
+            if (setterType != null) { qualifiedTarget = setterType; }
+            self.validateVolatileReferenceConversion(
+                qualifiedTarget, expression.value_node,
+                "Assignment",  vars);
+            self.types.validateTypedInitializer(target, expression.value_node,
+                "Assignment",  vars);
+        }
+        self.validatePropertyMutation(expression.target,
+            expression.op != "=", gpuTargetHasCapacity,
+             vars, expression);
+        self.validateIndexedMutation(expression.target,
+            expression.op != "=",  vars, expression);
+        self.validateMutableTarget(
+            target,  expression, gpuTargetHasCapacity);
+        self.validateTargetReceiverMutability(
+            expression.target,  vars, expression);
+        if (target == null || source == null) { return; }
+        if (expression.op == "=") {
+            Node? resolvedTarget = self.types.resolveAliases(target);
+            Node? resolvedSource = self.types.resolveAliases(source);
+            bool copiedThread = resolvedSource != null
+                && resolvedSource.base == "Thread"
+                && self.types.threadCopySource(expression.value_node);
+            if (resolvedTarget != null && resolvedTarget.base == "Thread"
+                    && !copiedThread) {
+                TypeValidator.fail(
+                    "Thread owner variables are single-assignment; declare a "
+                        + "new owner for a fresh Thread result",
+                    expression);
+            }
+            if (gpuTargetHasCapacity
+                    && !self.gpuOutputElementCompatible(
+                        storageTarget, source)) {
+                TypeValidator.fail(
+                    "Array-returning @gpu output element type is not compatible "
+                        + "with the target storage",
+                    expression);
+            }
+            if (!gpuTargetHasCapacity
+                    && !self.types.contextualAggregateInitializer(expression.value_node)
+                    && !self.types.assignmentCompatible(target, source)) {
+                TypeValidator.fail("Cannot assign '"
+                    + self.types.formatType(source) + "' to '"
+                    + self.types.formatType(target) + "'", expression);
+            }
+            return;
+        }
+        self.types.validatePortableNumericMix(expression, target, source,
+            "Compound assignment '" + expression.op + "'");
+        if (self.types.hasBinaryOverload(
+                target, expression.op.substring(0, expression.op.length() - 1))) {
+            return;
+        }
+        string op = expression.op.substring(0, expression.op.length() - 1);
+        bool valid = false;
+        if (op == "+" && TypeComposition.isSemanticScalarString(target)
+                && (TypeComposition.isSemanticScalarString(source)
+                    || self.operators.isCStringPointer(source))) {
+            valid = true;
+        } else if (op == "&" || op == "|" || op == "^"
+                || op == "<<" || op == ">>") {
+            valid = self.types.integralType(target, self.state.analyzed)
+                && self.types.integralType(source, self.state.analyzed);
+        } else {
+            valid = NumericSemantics.isType(target, self.state.analyzed)
+                && NumericSemantics.isType(source, self.state.analyzed)
+                && target.base != "bool" && source.base != "bool";
+        }
+        if (!valid) { self.types.operatorFailure(expression, target, source); }
+    }
+
+    public bool borrowedSelfProjection(Node? source, string targetName,
+             Map<string, Node> vars) {
+        if (source == null) { return false; }
+        if (source.kind == NK_CAST_EXPR) {
+            return self.borrowedSelfProjection(
+                source.expr, targetName,  vars);
+        }
+        if (source.kind != NK_FIELD_ACCESS_EXPR) { return false; }
+
+        Node? receiverType = self.types.inferType(source.obj,  vars);
+        Node? member = null;
+        if (receiverType != null) {
+            member = self.lvalueMember(
+                receiverType, source.field);
+        }
+        if (member != null && member.kind == NK_PROPERTY_DECL
+                && member.getter_body != null) {
+            return false;
+        }
+
+        Node root = source.obj;
+        while (root.kind == NK_CAST_EXPR) { root = root.expr; }
+        if (root.kind == NK_IDENTIFIER) {
+            return root.name == targetName;
+        }
+        return self.borrowedSelfProjection(
+            root, targetName,  vars);
+    }
+
+    public bool managedRebindSourceNeedsOwner(Node? source, Node? target,
+             Map<string, Node> vars) {
+        if (source == null || target == null) { return false; }
+        Node? sourceType = self.types.inferType(source,  vars);
+        if (self.types.requiresTargetStringConversion(
+                target, sourceType)) {
+            /* The source binding may itself be borrowed, but invoking toString()
+             * creates a fresh managed result that a borrowed target cannot own. */
+            return true;
+        }
+        if (source.kind == NK_NULL_LITERAL
+                || source.kind == NK_STRING_LITERAL
+                || source.kind == NK_CHAR_LITERAL) {
+            return false;
+        }
+        if (source.kind == NK_CAST_EXPR) {
+            return self.managedRebindSourceNeedsOwner(
+                source.expr, target,  vars);
+        }
+        if (source.kind == NK_TERNARY_EXPR) {
+            return self.managedRebindSourceNeedsOwner(
+                    source.true_expr, target,  vars)
+                || self.managedRebindSourceNeedsOwner(
+                    source.false_expr, target,  vars);
+        }
+        if (source.kind == NK_IDENTIFIER) {
+            /* Resolve through the active lexical borrowed-binding set. Copying a
+             * borrowed capture/parameter into another borrowed proxy is raw and
+             * lifetime-bounded; an owned local or same-spelled global is not. */
+            return !self.state.borrowedBindings.has(source.name);
+        }
+        /* Projections may die with a different owner; calls, f-strings,
+         * constructors, and operators may return a fresh +1. */
+        return true;
+    }
+
+    private Node? arrayProjectionRepresentedType(
+            Node? expression, Map<string, Node> vars) {
+        if (expression == null) { return null; }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            Node? member = self.arrayTargetMember(expression, vars);
+            if (member != null) {
+                return self.arrayFieldValueType(member);
+            }
+        }
+        return self.types.inferType(expression, vars);
+    }
+
+    public bool arrayProjectionEmbedsBacking(
+            Node? expression, Map<string, Node> vars) {
+        Node? represented = self.types.resolveAliases(
+            self.arrayProjectionRepresentedType(expression, vars));
+        return represented != null && represented.is_array;
+    }
+}

@@ -13,24 +13,22 @@ SELFHOST = REPO / "src/compiler/btrc"
 
 
 def test_structured_reachability_uses_exact_map_membership() -> None:
-    generator = (SELFHOST / "irgen.btrc").read_text()
-    globals_source = (SELFHOST / "global_reachability.btrc").read_text()
-    parameters_source = (SELFHOST / "parameter_usage.btrc").read_text()
-    start = generator.index("void collectFuncRefs(")
-    end = generator.index("\n}\n\nvoid eliminateDeadFunctions", start)
-    collector = generator[start:end]
-    global_start = globals_source.index("void collectGlobalRefs(")
-    global_end = globals_source.index(
-        "\n}\n\nvoid enqueueGlobalFunctionRefs",
+    optimizer = (SELFHOST / "ir/optimization/optimizer.btrc").read_text()
+    start = optimizer.index("private void collectFuncRefs(")
+    end = optimizer.index("\n    }\n\n    private void eliminateDeadFunctions", start)
+    collector = optimizer[start:end]
+    global_start = optimizer.index("private void collectGlobalRefs(")
+    global_end = optimizer.index(
+        "\n    }\n\n    private void enqueueGlobalFunctionRefs",
         global_start,
     )
-    global_collector = globals_source[global_start:global_end]
-    parameter_start = parameters_source.index("void collectParameterUses(")
-    parameter_end = parameters_source.index(
-        "\n}\n\nvoid consumeUnusedParameters",
+    global_collector = optimizer[global_start:global_end]
+    parameter_start = optimizer.index("private void collectParameterUses(")
+    parameter_end = optimizer.index(
+        "\n    }\n\n    private void normalizeUnusedParameters",
         parameter_start,
     )
-    parameter_collector = parameters_source[parameter_start:parameter_end]
+    parameter_collector = optimizer[parameter_start:parameter_end]
 
     assert "names.has(node.callee)" in collector
     assert "names.has(node.name)" in collector

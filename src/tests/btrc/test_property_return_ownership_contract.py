@@ -17,38 +17,34 @@ from src.tests.btrc.test_semantic_validation import (
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 
-def test_custom_property_getter_abi_is_owned_in_every_lowerer() -> None:
+def test_custom_property_getter_abi_is_owned_by_shared_class_lowerers() -> None:
     repository = Path(__file__).resolve().parents[3]
-    generic_python = (repository / "src/compiler/python/ir/gen/generics/user_properties.py").read_text()
-    ordinary_selfhost = (repository / "src/compiler/btrc/irgen.btrc").read_text()
-    generic_selfhost = (repository / "src/compiler/btrc/class_property_lowering.btrc").read_text()
+    python_classes = (repository / "src/compiler/python/ir/lowering/classes.py").read_text()
+    selfhost_classes = (repository / "src/compiler/btrc/ir/lowering/declarations.btrc").read_text()
 
-    assert "emitter.reset_var_types(return_type=prop.type, return_owned=True)" in generic_python
-    assert "return_owned=False" not in generic_python
-    assert (
-        "Custom getters are call-shaped +1 projections. */\n"
-        "                self.currentReturnOwned = true;" in ordinary_selfhost
-    )
-    assert (
-        "Custom getters are call-shaped +1 projections. */\n"
-        "                    generator.currentReturnOwned = true;" in generic_selfhost
-    )
+    assert python_classes.count("class ClassLowerer:") == 1
+    assert "def _getter_body(" in python_classes
+    getter = python_classes[python_classes.index("    def _getter_body(") :]
+    assert "self._session.current_return_owned = True" in getter
+    assert "self._statements.lower_block(prop.getter_body" in getter
+
+    assert selfhost_classes.count("class DeclarationLowerer {") == 1
+    assert "public void emitProperty(" in selfhost_classes
+    assert "public void emitGenericInstance(" in selfhost_classes
+    assert selfhost_classes.count("Custom getters are call-shaped +1 projections.") == 2
+    assert selfhost_classes.count("self.context.currentReturnOwned = true;") >= 2
 
 
 def test_custom_property_getter_abi_has_no_borrowed_return_policy() -> None:
     repository = Path(__file__).resolve().parents[3]
-    semantic_sources = (
-        "semantic_validation_types.btrc",
-        "semantic_validation_decls.btrc",
-        "semantic_validation_stmts.btrc",
-    )
-    for name in semantic_sources:
-        source = (repository / "src/compiler/btrc" / name).read_text()
+    validation = repository / "src/compiler/btrc/analyzer/validation"
+    for path in validation.glob("*.btrc"):
+        source = path.read_text()
         assert "borrowedReturn" not in source
 
-    selfhost_returns = (repository / "src/compiler/btrc/ownership_returns.btrc").read_text()
-    selfhost_classification = (repository / "src/compiler/btrc/ownership_classification.btrc").read_text()
-    python_returns = (repository / "src/compiler/python/ir/gen/arc_returns.py").read_text()
+    selfhost_returns = (repository / "src/compiler/btrc/ir/lowering/ownership/lifetime.btrc").read_text()
+    selfhost_classification = (repository / "src/compiler/btrc/ir/lowering/ownership/semantics.btrc").read_text()
+    python_returns = (repository / "src/compiler/python/ir/lowering/ownership.py").read_text()
     assert "borrowed property getter" not in selfhost_returns
     assert "irBorrowsFromManagedLocal" not in selfhost_classification
     assert "borrowed property getter" not in python_returns

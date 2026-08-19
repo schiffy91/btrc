@@ -12,12 +12,13 @@ import subprocess
 
 import pytest
 
-from src.compiler.python.cli.compiler_cli import CompilerCLI
-from src.compiler.python.ir.emitter_debug import _c_line_filename
+from src.compiler.python import Compiler
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.cli.compiler import CompilerCommand
 
 
 def run_main(monkeypatch, argv):
-    CompilerCLI().run(argv)
+    CompilerCommand(Compiler()).run(argv)
 
 
 def test_emit_modes_are_mutually_exclusive(monkeypatch, capsys):
@@ -84,7 +85,7 @@ def test_no_debug_has_no_line_directives(tmp_path, monkeypatch):
 
 
 def test_debug_filename_escaping_is_c11_safe():
-    assert _c_line_filename('a\\b"c??/d\ne') == 'a\\\\b\\"c\\?\\?/d\\012e'
+    assert CEmitter._c_line_filename('a\\b"c??/d\ne') == 'a\\\\b\\"c\\?\\?/d\\012e'
 
 
 def test_debug_maps_synthesized_code_to_generated_c(tmp_path, monkeypatch):
@@ -251,9 +252,9 @@ def test_freestanding_stdlib_links_with_zero_libc(tmp_path, monkeypatch, program
 def test_freestanding_runtime_formatter(tmp_path):
     # The reference runtime's printf/snprintf must format ints, strings, hex,
     # width/zero-pad, and floats correctly (it has no libc to fall back on).
-    from src.compiler.python.freestanding import RUNTIME_HEADER
+    from src.compiler.python.abi.freestanding import FreestandingRuntime
 
-    (tmp_path / "btrc_rt.h").write_text(RUNTIME_HEADER)
+    (tmp_path / "btrc_rt.h").write_text(FreestandingRuntime().header)
     harness = r"""
 #define BTRC_FREESTANDING
 #define BTRC_FREESTANDING_IMPL

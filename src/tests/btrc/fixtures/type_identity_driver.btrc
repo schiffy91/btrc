@@ -1,10 +1,9 @@
 import std.map;
 import std.vector;
 
-#include "../../../compiler/btrc/tokens.btrc"
-#include "../../../compiler/btrc/ast/node.btrc"
-#include "../../../compiler/btrc/type_shapes.btrc"
-#include "../../../compiler/btrc/type_identity.btrc"
+#include "../../../compiler/btrc/generated/ast/node.btrc"
+#include "../../../compiler/btrc/syntax/types.btrc"
+#include "../../../compiler/btrc/syntax/identity.btrc"
 #include <assert.h>
 
 Node identityType(string base) {

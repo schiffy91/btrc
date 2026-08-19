@@ -9,7 +9,7 @@
 
 .PHONY: all cpu gpu todo game triangle sgd gui clean
 
-GPU_LIB := ../src/stdlib/gpu/build/libbtrc_gpu.a
+GPU_LIB := ../build/stdlib/gpu/libbtrc_gpu.a
 
 all: cpu gpu
 

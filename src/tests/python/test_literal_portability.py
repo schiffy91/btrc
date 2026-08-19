@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.literal_text import format_c_integer_literal
-from src.compiler.python.lexer import Lexer, LexerError
-from src.compiler.python.tokens import TokenType
+from src.compiler.python.ir.lowering.types import CTypeLowerer
+from src.compiler.python.lexer.lexer import Lexer, LexerError
+from src.compiler.python.syntax.tokens import TokenKind
 
 COMPILERS = [path for name in ("gcc", "clang") if (path := shutil.which(name))]
 
@@ -32,8 +32,8 @@ COMPILERS = [path for name in ("gcc", "clang") if (path := shutil.which(name))]
 def test_portable_string_escape_forms_are_preserved(source: str):
     tokens = Lexer(source, "<literal>").tokenize()
 
-    assert tokens[-1].type is TokenType.EOF
-    assert tokens[0].type in {TokenType.STRING_LIT, TokenType.FSTRING_LIT}
+    assert tokens[-1].type is TokenKind.EOF
+    assert tokens[0].type in {TokenKind.STRING_LIT, TokenKind.FSTRING_LIT}
 
 
 @pytest.mark.parametrize(
@@ -114,7 +114,7 @@ def test_successful_python_scan_is_idempotent():
     second = lexer.tokenize()
 
     assert second is first
-    assert sum(token.type is TokenType.EOF for token in second) == 1
+    assert sum(token.type is TokenKind.EOF for token in second) == 1
 
 
 @pytest.mark.parametrize("source", ["é", "nameé"])
@@ -127,8 +127,8 @@ def test_identifiers_are_ascii_as_specified_by_the_grammar(source: str):
 def test_line_splice_updates_following_token_position(newline: str):
     tokens = Lexer(f'"left\\{newline}right" int', "<literal>").tokenize()
 
-    assert tokens[0].type is TokenType.STRING_LIT
-    assert tokens[1].type is TokenType.INT
+    assert tokens[0].type is TokenKind.STRING_LIT
+    assert tokens[1].type is TokenKind.INT
     assert tokens[1].line == 2
 
 
@@ -160,12 +160,12 @@ def test_accepted_string_tokens_compile_as_strict_c11(
     for index, source in enumerate(sources):
         token = Lexer(source, "<literal>").tokenize()[0]
         literal = token.value
-        if token.type is TokenType.FSTRING_LIT:
+        if token.type is TokenKind.FSTRING_LIT:
             literal = f'"{literal}"'
         declarations.append(f"static const char *value_{index} = {literal};")
     for index, source in enumerate((r"'\377'", r"'\x000041'")):
         token = Lexer(source, "<literal>").tokenize()[0]
-        assert token.type is TokenType.CHAR_LIT
+        assert token.type is TokenKind.CHAR_LIT
         declarations.append(f"static const unsigned char char_{index} = {token.value};")
     c_file = tmp_path / "strings.c"
     c_file.write_text("\n".join((*declarations, "int main(void) { return 0; }")))
@@ -203,12 +203,12 @@ def test_accepted_numeric_tokens_lower_to_strict_c11(
     declarations = []
     for index, (raw, value) in enumerate(integers):
         token = Lexer(raw, "<literal>").tokenize()[0]
-        assert token.type is TokenType.INT_LIT
-        spelling = format_c_integer_literal(raw, value)
+        assert token.type is TokenKind.INT_LIT
+        spelling = CTypeLowerer.format_c_integer_literal(raw, value)
         declarations.append(f"static const unsigned long long value_{index} = {spelling};")
     for index, raw in enumerate(("1.5", "1.5e2F")):
         token = Lexer(raw, "<literal>").tokenize()[0]
-        assert token.type is TokenType.FLOAT_LIT
+        assert token.type is TokenKind.FLOAT_LIT
         declarations.append(f"static const double float_{index} = {raw};")
     c_file = tmp_path / "numbers.c"
     c_file.write_text("\n".join((*declarations, "int main(void) { return 0; }")))

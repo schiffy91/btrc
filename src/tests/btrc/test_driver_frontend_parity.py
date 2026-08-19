@@ -293,6 +293,25 @@ def test_unimported_stdlib_symbol_diagnostics_are_exactly_equal(
     assert selfhost.stderr == reference.stderr
 
 
+def test_hosted_name_in_untrusted_lookalike_file_still_requires_import(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "shadow.btrc").write_text("int memcpy(int value) { return value; }\n")
+    (tmp_path / "bytes.btrc").write_text("int copy(int value) { return memcpy(value); }\n")
+    program = tmp_path / "program.btrc"
+    program.write_text("import ./shadow.btrc;\nimport ./bytes.btrc;\nint main() { return 0; }\n")
+
+    selfhost = _selfhost(semantic_btrcc, program)
+    reference = _reference(program, tmp_path / "reference.c")
+
+    assert selfhost.returncode == 1
+    assert reference.returncode == 1
+    assert "'memcpy' is defined in shadow.btrc" in reference.stderr
+    assert "bytes.btrc does not import it" in reference.stderr
+    assert selfhost.stderr == reference.stderr
+
+
 def test_no_stdlib_still_resolves_explicit_include_and_import(
     semantic_btrcc: Path,
     tmp_path: Path,

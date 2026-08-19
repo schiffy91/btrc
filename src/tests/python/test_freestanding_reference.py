@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.freestanding import RUNTIME_HEADER
+from src.compiler.python.abi.freestanding import FreestandingRuntime
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -99,7 +99,7 @@ def test_reference_runtime_is_strict_and_width_correct(
     c_compiler: str,
     ubsan: bool,
 ):
-    (tmp_path / "btrc_rt.h").write_text(RUNTIME_HEADER)
+    (tmp_path / "btrc_rt.h").write_text(FreestandingRuntime().header)
     source = tmp_path / "reference_runtime.c"
     binary = tmp_path / ("reference_runtime_ubsan" if ubsan else "reference_runtime")
     source.write_text(HARNESS)

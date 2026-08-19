@@ -1,0 +1,827 @@
+/* Canonical semantic types, qualifiers, aliases, and storage shapes. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../generated/ast/node.btrc;
+import ../syntax/identity.btrc;
+import ../syntax/types.btrc;
+import ./models.btrc;
+
+class SemanticTypeSystem {
+    private Analyzed analyzed;
+
+    public SemanticTypeSystem(Analyzed analyzed) {
+        self.analyzed = analyzed;
+    }
+
+    public Node? canonical(Node? typeExpr) {
+        return SemanticTypeSystem.resolveTypedefType(
+            typeExpr, self.analyzed.typedefTable);
+    }
+
+
+    class Node? directFunctionPointer(
+            Node? typeExpr, Analyzed analyzed) {
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+            typeExpr, analyzed.typedefTable);
+        if (resolved == null || resolved.base != "__fn_ptr"
+                || resolved.pointer_depth != 0 || resolved.is_array
+                || resolved.generic_args.len == 0) {
+            return null;
+        }
+        return resolved;
+    }
+
+    class Node? directFunctionPointerSpecialization(
+            Node? typeExpr, Analyzed analyzed) {
+        Node? resolved = SemanticTypeSystem.resolveOuterTypedefType(
+            typeExpr, analyzed.typedefTable);
+        if (resolved == null || resolved.base != "__fn_ptr"
+                || resolved.pointer_depth != 0 || resolved.is_array
+                || resolved.generic_args.len == 0) {
+            return null;
+        }
+        return resolved;
+    }
+
+    class Node namedClass(string name) {
+        Node t = Node();
+        t.kind = NK_TYPE_EXPR;
+        t.base = name;
+        return t;
+    }
+
+    /* Class instance type as the analyzer sees it: pointer_depth 1 (classes are
+     * always heap-allocated). Mirrors _upgrade_class_type. Generic args / array /
+     * nullable carry over; line/col are irrelevant for inference. */
+    class Node classReference(Node? t) {
+        if (t == null) { return SemanticTypeSystem.primitive("void"); }
+        Node u = Node();
+        u.kind = NK_TYPE_EXPR;
+        u.base = t.base;
+        u.generic_args = t.generic_args;
+        u.pointer_depth = 1;
+        u.is_array = t.is_array;
+        u.is_nullable = t.is_nullable;
+        u.nullable_outer_depth = t.nullable_outer_depth;
+        return u;
+    }
+
+    /* Upgrade class-typed GENERIC ARGUMENTS in a TypeExpr IN PLACE so they become
+     * pointers (mirrors the reference's _upgrade_class_type, which raises any
+     * class_table base — regular OR generic — to pointer_depth 1, recursing through
+     * generic args). After this runs, a `Vector<OwnedItem>`'s arg is `OwnedItem*`
+     * and a `Vector<Vector<int>>`'s arg is `Vector<int>*`, so:
+     *   - the mangled name carries the `_p1` suffix (`btrc_Vector_OwnedItem_p1`),
+     *   - the per-instance type map resolves `T` to a pointer (so `T* data` -> `**`).
+     * The OUTER class type is left at its source pointer_depth — CTypeLowerer applies the
+     * class pointer lazily there; only nested args need the eager AST upgrade so the
+     * mangled name and field types agree everywhere. */
+    class void upgradeConcreteTypeGenericArgs(Node? t, Analyzed a) {
+        Map<string, bool> unresolved = {};
+        SemanticTypeSystem.upgradeTypeGenericArgs(t, a, unresolved);
+    }
+
+    class void upgradeTypeGenericArgs(Node? t, Analyzed a,
+                                Map<string, bool> unresolved) {
+        if (t == null) { return; }
+        int i = 0;
+        while (i < t.generic_args.len) {
+            Node arg = t.generic_args.get(i);
+            /* Recurse into the arg's own generic args first. */
+            SemanticTypeSystem.upgradeTypeGenericArgs(arg, a, unresolved);
+            /* A class instance (regular or generic) is a heap pointer: a bare
+             * (depth-0) class-typed arg gains one pointer level. A lexically
+             * shadowing type parameter is never reinterpreted as a global class. */
+            if (!unresolved.has(arg.base)
+                    && (a.isClass(arg.base) || a.isGenericClass(arg.base))
+                    && arg.pointer_depth == 0) {
+                arg.pointer_depth = 1;
+            }
+            i = i + 1;
+        }
+    }
+
+    /* --- small TypeExpr helpers --- */
+
+    class Node primitive(string base) {
+        Node t = Node();
+        t.kind = NK_TYPE_EXPR;
+        t.base = base;
+        return t;
+    }
+
+    /* Supported unresolved C integer seam. Mirrors c_call_types.py exactly:
+     * errno and all-uppercase identifiers (with digits/underscores allowed) are
+     * treated as integer-valued C macros. At least one uppercase letter is needed,
+     * matching Python str.isupper(). */
+    class bool isCIntegerIdentifier(string name) {
+        if (name == "errno") { return true; }
+        if (name == "" || name == "NULL") { return false; }
+        bool sawUpper = false;
+        int index = 0;
+        while (index < name.length()) {
+            char value = name[index];
+            if (value >= 'a' && value <= 'z') { return false; }
+            if (value >= 'A' && value <= 'Z') { sawUpper = true; }
+            index = index + 1;
+        }
+        return sawUpper;
+    }
+
+    /* Object-like C macros have no safe default ABI.  Keep them unresolved so a
+     * typed use site can supply storage shape without silently narrowing through
+     * the historical implicit-int seam. */
+    class bool isCOpaqueValueIdentifier(string name) {
+        return name != "errno" && SemanticTypeSystem.isCIntegerIdentifier(name);
+    }
+
+    /* True for the btrc `string` scalar (base "string", no generics, depth 0).
+     * Mirrors types.is_string_type. */
+    class bool isString(Node? t) {
+        return TypeComposition.isSemanticScalarString(t);
+    }
+
+    /* Return type of a builtin string method (mirrors type_utils
+     * ._string_method_return_type over the shared string_methods spec). Returns null
+     * for an unknown method. `split` returns a `string*` (heap list of strings). */
+    class Node? stringMethodResult(string method) {
+        if (method == "len" || method == "byteLen" || method == "length"
+                || method == "charLen" || method == "indexOf" || method == "lastIndexOf"
+                || method == "find" || method == "count" || method == "toInt") {
+            return SemanticTypeSystem.primitive("int");
+        }
+        if (method == "equals" || method == "contains" || method == "startsWith"
+                || method == "endsWith" || method == "isEmpty" || method == "isBlank"
+                || method == "isUpper" || method == "isLower" || method == "isAlnum"
+                || method == "isAlnumStr" || method == "isDigit" || method == "isDigitStr"
+                || method == "isAlpha" || method == "isAlphaStr" || method == "toBool") {
+            return SemanticTypeSystem.primitive("bool");
+        }
+        if (method == "charAt") { return SemanticTypeSystem.primitive("char"); }
+        if (method == "toFloat") { return SemanticTypeSystem.primitive("float"); }
+        if (method == "toDouble") { return SemanticTypeSystem.primitive("double"); }
+        if (method == "toLong") { return SemanticTypeSystem.primitive("long"); }
+        if (method == "trim" || method == "lstrip" || method == "rstrip"
+                || method == "toUpper" || method == "toLower" || method == "substring"
+                || method == "replace" || method == "repeat" || method == "reverse"
+                || method == "capitalize" || method == "title" || method == "swapCase"
+                || method == "padLeft" || method == "padRight" || method == "center"
+                || method == "zfill" || method == "removePrefix" || method == "removeSuffix"
+                ) {
+            return SemanticTypeSystem.primitive("string");
+        }
+        if (method == "split") {
+            Node t = Node();
+            t.kind = NK_TYPE_EXPR;
+            t.base = "string";
+            t.pointer_depth = 1;
+            return t;
+        }
+        return null;
+    }
+
+    class bool isComparisonOperator(string op) {
+        return op == "==" || op == "!=" || op == "<" || op == ">"
+            || op == "<=" || op == ">=" || op == "&&" || op == "||";
+    }
+
+
+    /* Analyzer-owned types for C predefined source identifiers. */
+
+    class Node? predefinedIdentifier(string name) {
+        if (name == "__DATE__" || name == "__FILE__"
+                || name == "__TIME__") {
+            Node result = SemanticTypeSystem.primitive("char");
+            result.pointer_depth = 1;
+            result.is_const = true;
+            return result;
+        }
+        if (name == "__STDC_VERSION__") { return SemanticTypeSystem.primitive("long"); }
+        if (name == "__LINE__" || name == "__STDC__"
+                || name == "__STDC_HOSTED__") {
+            return SemanticTypeSystem.primitive("int");
+        }
+        return null;
+    }
+
+
+    /* Source string-method ownership policy shared by validation and lowering. */
+
+    class bool stringResultIsTracked(string method) {
+        if (method == "trim" || method == "lstrip" || method == "rstrip"
+                || method == "toUpper" || method == "toLower"
+                || method == "substring" || method == "replace"
+                || method == "repeat" || method == "reverse"
+                || method == "capitalize" || method == "title"
+                || method == "swapCase" || method == "padLeft"
+                || method == "padRight" || method == "center"
+                || method == "zfill" || method == "removePrefix"
+                || method == "removeSuffix") {
+            return true;
+        }
+        return false;
+    }
+
+
+    /* Canonical analyzer query for the payload edge of a direct Mutex<T>. */
+
+    class Node? mutexPayloadFor(Analyzed analyzed, Node? typeExpr) {
+        if (typeExpr == null) { return null; }
+        Node? resolved = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
+        if (resolved == null || resolved.is_array
+                || resolved.pointer_depth != 0
+                || resolved.base != "Mutex"
+                || resolved.generic_args.len != 1) {
+            return null;
+        }
+        return resolved.generic_args.get(0);
+    }
+
+
+    /* Complete-struct layout validation and dependency ordering. */
+
+    class string resolvedStructName(Node? typeExpr, Analyzed analyzed) {
+        if (typeExpr == null) { return ""; }
+        Node resolved = typeExpr;
+        Node? alias = SemanticTypeSystem.resolveTypedefType(typeExpr, analyzed.typedefTable);
+        if (alias != null) { resolved = alias; }
+        if (resolved.base.startsWith("struct ")) {
+            string explicitName = resolved.base.substring(
+                7, resolved.base.length() - 7);
+            if (analyzed.structTable.has(explicitName)) { return explicitName; }
+            return "";
+        }
+        if (analyzed.structTable.has(resolved.base)) { return resolved.base; }
+        return "";
+    }
+
+    class Node? structFieldFor(
+            Node? typeExpr, string fieldName, Analyzed analyzed) {
+        string name = SemanticTypeSystem.resolvedStructName(typeExpr, analyzed);
+        if (name == "" || !analyzed.structTable.has(name)) { return null; }
+        Node declaration = analyzed.structTable.get(name);
+        if (declaration.is_forward) { return null; }
+        int index = 0;
+        while (index < declaration.fields.len) {
+            Node field = declaration.fields.get(index);
+            if (field.name == fieldName) { return field.type; }
+            index = index + 1;
+        }
+        return null;
+    }
+
+
+    /* Canonical user-typedef expansion shared by analysis and IR generation.
+     * Source declarations still emit their aliases; inferred expression types use
+     * the underlying shape so operators, members, calls, and generic arguments all
+     * see one semantic type domain. */
+
+    class void typedefSemanticFail(string message, Node site) {
+        fprintf(stderr, "error: %s at %d:%d\n", message, site.line, site.col);
+        exit(1);
+    }
+
+    class Node composeTypedefType(Node useType, Node originalType) {
+        if (useType.is_array && originalType.is_array) {
+            SemanticTypeSystem.typedefSemanticFail(
+                "Nested array composition through typedef is not supported",
+                useType);
+        }
+        return TypeComposition.compose(useType, originalType,
+            TypeComposition.resolvedReferenceShape(originalType));
+    }
+
+    /* Resolve only the alias naming the represented value. Generic arguments keep
+     * their source spelling because they also identify emitted monomorphizations:
+     * Box<Text> and Box<string> may share a C-compatible payload, but they have
+     * distinct generated symbols when both are requested by the source program. */
+    class Node? resolveOuterTypedefTypeInner(Node? typeExpr,
+            Map<string, Node> typedefs, Map<string, bool> visited, Node site) {
+        if (typeExpr == null) { return null; }
+        Node current = typeExpr;
+        if (current.generic_args.len > 0 || !typedefs.has(current.base)) {
+            return current;
+        }
+        if (visited.has(current.base)) {
+            SemanticTypeSystem.typedefSemanticFail(
+                "Cyclic typedef involving '" + current.base + "'", site);
+        }
+        visited.put(current.base, true);
+        Node? resolved = SemanticTypeSystem.resolveOuterTypedefTypeInner(
+            typedefs.get(current.base), typedefs, visited, site);
+        if (resolved == null) {
+            SemanticTypeSystem.typedefSemanticFail("Invalid null typedef target", site);
+        }
+        Node target = resolved;
+        return SemanticTypeSystem.composeTypedefType(current, target);
+    }
+
+    class Node? resolveOuterTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
+        if (typeExpr == null) { return null; }
+        Map<string, bool> visited = {};
+        return SemanticTypeSystem.resolveOuterTypedefTypeInner(
+            typeExpr, typedefs, visited, typeExpr);
+    }
+
+    /* Remove one represented pointer/array layer while retaining the alias that
+     * names the resulting element.  Canonical expansion is appropriate for
+     * deciding whether a value is indexable/dereferenceable, but returning the
+     * flattened element would lose qualifier placement carried by an inner
+     * typedef (for example P -> V* -> volatile int*). */
+    class Node? typeWithoutOuterStorageThroughTypedefInner(
+            Node? typeExpr, Map<string, Node> typedefs,
+            Map<string, bool> visiting) {
+        if (typeExpr == null) { return null; }
+        if (typeExpr.is_array) {
+            return TypeShape.withoutOuterArray(typeExpr);
+        }
+        if (typeExpr.pointer_depth > 0) {
+            return TypeShape.withoutOuterPointers(typeExpr, 1);
+        }
+        if (typeExpr.generic_args.len > 0
+                || !typedefs.has(typeExpr.base)
+                || visiting.has(typeExpr.base)) {
+            return null;
+        }
+        visiting.put(typeExpr.base, true);
+        Node? result = SemanticTypeSystem.typeWithoutOuterStorageThroughTypedefInner(
+            typedefs.get(typeExpr.base), typedefs, visiting);
+        visiting.remove(typeExpr.base);
+        return result;
+    }
+
+    class Node? typeWithoutOuterStorageThroughTypedef(
+            Node? typeExpr, Map<string, Node> typedefs) {
+        Map<string, bool> visiting = {};
+        return SemanticTypeSystem.typeWithoutOuterStorageThroughTypedefInner(
+            typeExpr, typedefs, visiting);
+    }
+
+    class Node? resolveTypedefType(Node? typeExpr, Map<string, Node> typedefs) {
+        Node? outer = SemanticTypeSystem.resolveOuterTypedefType(typeExpr, typedefs);
+        if (outer == null) { return null; }
+        Node current = outer;
+        if (current.generic_args.len == 0) { return current; }
+        Vector<Node> args = [];
+        int index = 0;
+        while (index < current.generic_args.len) {
+            Node? resolved = SemanticTypeSystem.resolveTypedefType(
+                current.generic_args.get(index), typedefs);
+            if (resolved == null) {
+                SemanticTypeSystem.typedefSemanticFail("Invalid null generic type", typeExpr);
+            }
+            Node concrete = resolved;
+            args.push(concrete);
+            index = index + 1;
+        }
+        return TypeShape.copyWithArguments(current, args);
+    }
+
+
+    /* Declarator-aware const/volatile provenance through typedef boundaries.
+     * Depth zero is the declared object; depth one is reached through one
+     * pointer/array layer.  Keeping this query separate from alias flattening
+     * prevents `typedef volatile int V; V*` from becoming a volatile pointer. */
+
+    class int qualifierAppliedStorageLayers(Node typeExpr, Node? target) {
+        bool referenceShape = target != null
+            && TypeComposition.resolvedReferenceShape(target);
+        int pointerDepth = typeExpr.pointer_depth;
+        if (TypeComposition.nullableCollapsesReferenceLayer(
+                typeExpr, referenceShape)) {
+            pointerDepth = pointerDepth - 1;
+        }
+        return pointerDepth + (typeExpr.is_array ? 1 : 0);
+    }
+
+    class bool typeVolatileAtDepthInner(Node? typeExpr,
+            Map<string, Node> typedefs, int depth,
+            Map<string, bool> visiting) {
+        if (typeExpr == null || depth < 0) { return false; }
+        int directDepth = typeExpr.is_array ? 1 : 0;
+        if (typeExpr.is_volatile && depth == directDepth) { return true; }
+        if (typeExpr.generic_args.len > 0
+                || !typedefs.has(typeExpr.base)
+                || visiting.has(typeExpr.base)) {
+            return false;
+        }
+        visiting.put(typeExpr.base, true);
+        Node target = typedefs.get(typeExpr.base);
+        int shift = SemanticTypeSystem.qualifierAppliedStorageLayers(typeExpr, target);
+        bool result = SemanticTypeSystem.typeVolatileAtDepthInner(
+            target, typedefs, depth - shift, visiting);
+        visiting.remove(typeExpr.base);
+        return result;
+    }
+
+    class bool typeVolatileAtDepth(Node? typeExpr,
+            Map<string, Node> typedefs, int depth) {
+        Map<string, bool> visiting = {};
+        return SemanticTypeSystem.typeVolatileAtDepthInner(
+            typeExpr, typedefs, depth, visiting);
+    }
+
+    class bool typeConstAtDepthInner(Node? typeExpr,
+            Map<string, Node> typedefs, int depth,
+            Map<string, bool> visiting) {
+        if (typeExpr == null || depth < 0) { return false; }
+        Node? target = null;
+        if (typeExpr.generic_args.len == 0
+                && typedefs.has(typeExpr.base)
+                && !visiting.has(typeExpr.base)) {
+            target = typedefs.get(typeExpr.base);
+        }
+        int shift = SemanticTypeSystem.qualifierAppliedStorageLayers(typeExpr, target);
+        int implicitDepth = 0;
+        if (target == null && (typeExpr.base == "string"
+                || typeExpr.base == "Thread"
+                || typeExpr.base == "Mutex")) {
+            implicitDepth = 1;
+        }
+        if (typeExpr.is_const && depth == shift + implicitDepth) {
+            return true;
+        }
+        if (target == null) { return false; }
+        visiting.put(typeExpr.base, true);
+        bool result = SemanticTypeSystem.typeConstAtDepthInner(
+            target, typedefs, depth - shift, visiting);
+        visiting.remove(typeExpr.base);
+        return result;
+    }
+
+    class bool typeConstAtDepth(Node? typeExpr,
+            Map<string, Node> typedefs, int depth) {
+        Map<string, bool> visiting = {};
+        return SemanticTypeSystem.typeConstAtDepthInner(
+            typeExpr, typedefs, depth, visiting);
+    }
+
+    class bool typeEffectiveOuterVolatile(Node? typeExpr,
+            Map<string, Node> typedefs) {
+        if (typeExpr == null) { return false; }
+        if (typeExpr.is_volatile) { return true; }
+        if (typeExpr.generic_args.len > 0
+                || !typedefs.has(typeExpr.base)) {
+            return false;
+        }
+        Node target = typedefs.get(typeExpr.base);
+        bool referenceShape = TypeComposition.resolvedReferenceShape(target);
+        int pointerDepth = typeExpr.pointer_depth;
+        if (TypeComposition.nullableCollapsesReferenceLayer(
+                typeExpr, referenceShape)) {
+            pointerDepth = pointerDepth - 1;
+        }
+        if (pointerDepth > 0) { return false; }
+        Map<string, bool> visiting = {};
+        return SemanticTypeSystem.typeEffectiveOuterVolatileInner(
+            target, typedefs, visiting);
+    }
+
+    class bool typeEffectiveOuterVolatileInner(Node? typeExpr,
+            Map<string, Node> typedefs,
+            Map<string, bool> visiting) {
+        if (typeExpr == null) { return false; }
+        if (typeExpr.is_volatile) { return true; }
+        if (typeExpr.generic_args.len > 0
+                || !typedefs.has(typeExpr.base)
+                || visiting.has(typeExpr.base)) {
+            return false;
+        }
+        visiting.put(typeExpr.base, true);
+        Node target = typedefs.get(typeExpr.base);
+        bool referenceShape = TypeComposition.resolvedReferenceShape(target);
+        int pointerDepth = typeExpr.pointer_depth;
+        if (TypeComposition.nullableCollapsesReferenceLayer(
+                typeExpr, referenceShape)) {
+            pointerDepth = pointerDepth - 1;
+        }
+        bool result = false;
+        if (pointerDepth == 0) {
+            result = SemanticTypeSystem.typeEffectiveOuterVolatileInner(
+                target, typedefs, visiting);
+        }
+        visiting.remove(typeExpr.base);
+        return result;
+    }
+
+    class bool typeEffectiveOuterConst(Node? typeExpr,
+            Map<string, Node> typedefs) {
+        return SemanticTypeSystem.typeConstAtDepth(typeExpr, typedefs, 0);
+    }
+
+    class int typeVolatileMaxDepthInner(Node? typeExpr,
+            Map<string, Node> typedefs,
+            Map<string, bool> visiting) {
+        if (typeExpr == null) { return -1; }
+        int result = -1;
+        if (typeExpr.is_volatile) {
+            result = typeExpr.is_array ? 1 : 0;
+        }
+        if (typeExpr.generic_args.len > 0
+                || !typedefs.has(typeExpr.base)
+                || visiting.has(typeExpr.base)) {
+            return result;
+        }
+        visiting.put(typeExpr.base, true);
+        Node target = typedefs.get(typeExpr.base);
+        int nested = SemanticTypeSystem.typeVolatileMaxDepthInner(
+            target, typedefs, visiting);
+        visiting.remove(typeExpr.base);
+        if (nested < 0) { return result; }
+        int inherited = SemanticTypeSystem.qualifierAppliedStorageLayers(
+            typeExpr, target) + nested;
+        if (inherited > result) { return inherited; }
+        return result;
+    }
+
+    class int typeVolatileMaxDepth(Node? typeExpr,
+            Map<string, Node> typedefs) {
+        Map<string, bool> visiting = {};
+        return SemanticTypeSystem.typeVolatileMaxDepthInner(
+            typeExpr, typedefs, visiting);
+    }
+
+
+    /* Generic type composition is a type-system operation. Discovery owns
+     * which specializations exist; it does not own the meaning of applying a
+     * substitution to a type shape. */
+
+    class bool genericSubstitutionReferenceShape(
+            Node typeExpr, Analyzed analyzed) {
+        return TypeComposition.resolvedReferenceShape(typeExpr)
+            || analyzed.isClass(typeExpr.base)
+            || analyzed.isGenericClass(typeExpr.base);
+    }
+
+    class Node resolveGenericType(Node? typeExpr,
+            Map<string, Node> substitutions, Analyzed analyzed) {
+        if (typeExpr == null) {
+            return SemanticTypeSystem.primitive("void");
+        }
+        if (substitutions.has(typeExpr.base)
+                && typeExpr.generic_args.len == 0) {
+            Node resolved = substitutions.get(typeExpr.base);
+            Node referenceShape = resolved;
+            Node? canonical = SemanticTypeSystem.resolveOuterTypedefType(
+                resolved, analyzed.typedefTable);
+            if (canonical != null) { referenceShape = canonical; }
+            if (typeExpr.is_array && referenceShape.is_array) {
+                TypeIdentity.fail(
+                    "nested array composition for type parameter '"
+                    + typeExpr.base + "' is not supported");
+            }
+            return TypeComposition.compose(
+                typeExpr, resolved,
+                SemanticTypeSystem.genericSubstitutionReferenceShape(
+                    referenceShape, analyzed));
+        }
+        if (typeExpr.generic_args.len > 0) {
+            Node result = Node();
+            result.kind = NK_TYPE_EXPR;
+            result.base = typeExpr.base;
+            Vector<Node> arguments = [];
+            int index = 0;
+            while (index < typeExpr.generic_args.len) {
+                arguments.push(SemanticTypeSystem.resolveGenericType(
+                    typeExpr.generic_args.get(index),
+                    substitutions, analyzed));
+                index = index + 1;
+            }
+            result.generic_args = arguments;
+            result.pointer_depth = typeExpr.pointer_depth;
+            result.is_array = typeExpr.is_array;
+            result.array_size = typeExpr.array_size;
+            result.is_const = typeExpr.is_const;
+            result.is_nullable = typeExpr.is_nullable;
+            result.nullable_outer_depth = typeExpr.nullable_outer_depth;
+            result.is_static = typeExpr.is_static;
+            result.is_extern = typeExpr.is_extern;
+            result.is_volatile = typeExpr.is_volatile;
+            result.line = typeExpr.line;
+            result.col = typeExpr.col;
+            return result;
+        }
+        return typeExpr;
+    }
+
+    public Node resolveGeneric(Node? typeExpr,
+            Map<string, Node> substitutions) {
+        return SemanticTypeSystem.resolveGenericType(
+            typeExpr, substitutions, self.analyzed);
+    }
+
+    class Map<string, Node> genericTypeMap(
+            Analyzed analyzed, Node instanceType) {
+        Map<string, Node> substitutions = {};
+        if (!analyzed.genericClassTable.has(instanceType.base)) {
+            return substitutions;
+        }
+        Node declaration =
+            analyzed.genericClassTable.get(instanceType.base);
+        int index = 0;
+        while (index < declaration.generic_params.len
+                && index < instanceType.generic_args.len) {
+            substitutions.put(
+                declaration.generic_params.get(index),
+                instanceType.generic_args.get(index));
+            index = index + 1;
+        }
+        return substitutions;
+    }
+
+    public Map<string, Node> instanceTypeMap(Node instanceType) {
+        return SemanticTypeSystem.genericTypeMap(
+            self.analyzed, instanceType);
+    }
+
+    class Map<string, Node> methodCallTypeMap(
+            Analyzed analyzed, Node call, Node method,
+            Map<string, Node> classArguments) {
+        Map<string, Node> substitutions = {};
+        Vector<string> classNames = classArguments.keys();
+        int classIndex = 0;
+        while (classIndex < classNames.len) {
+            string name = classNames.get(classIndex);
+            substitutions.put(name, classArguments.get(name));
+            classIndex = classIndex + 1;
+        }
+        string callKey = AstIdentity.key(call);
+        if (!analyzed.methodGenCallArgs.has(callKey)) {
+            return substitutions;
+        }
+        Vector<Node> methodArguments =
+            analyzed.methodGenCallArgs.get(callKey);
+        int methodIndex = 0;
+        while (methodIndex < method.generic_params.len
+                && methodIndex < methodArguments.len) {
+            substitutions.put(
+                method.generic_params.get(methodIndex),
+                methodArguments.get(methodIndex));
+            methodIndex = methodIndex + 1;
+        }
+        return substitutions;
+    }
+
+    public Map<string, Node> callTypeMap(
+            Node call, Node method,
+            Map<string, Node> classArguments) {
+        return SemanticTypeSystem.methodCallTypeMap(
+            self.analyzed, call, method, classArguments);
+    }
+
+    class Node? genericMember(
+            Analyzed analyzed, string base, string member) {
+        analyzed.requireMemberIndex();
+        string key = base + "." + member;
+        if (analyzed.genericMemberIndex.has(key)) {
+            return analyzed.genericMemberIndex.get(key);
+        }
+        return null;
+    }
+
+    class bool rawIndexedPointer(Node objectType, Analyzed analyzed) {
+        if (objectType.pointer_depth <= 0) { return false; }
+        if (analyzed.isClass(objectType.base)
+                || analyzed.isGenericClass(objectType.base)) {
+            return objectType.pointer_depth > 1;
+        }
+        return true;
+    }
+
+    class Node? indexedMethod(
+            Node objectType, string name, Analyzed analyzed) {
+        if (analyzed.isGenericClass(objectType.base)
+                && objectType.pointer_depth <= 1) {
+            return analyzed.genericClassMethod(objectType.base, name);
+        }
+        if (analyzed.isClass(objectType.base)) {
+            return analyzed.classMethod(objectType.base, name);
+        }
+        return null;
+    }
+
+    class Node? indexResultType(Node? objectType, Analyzed analyzed) {
+        if (objectType == null || objectType.base == "Tuple") { return null; }
+        if (SemanticTypeSystem.isString(objectType)) {
+            Node character = SemanticTypeSystem.primitive("char");
+            character.is_const = objectType.is_const;
+            return character;
+        }
+        if (objectType.is_array) {
+            return TypeShape.withoutOuterArray(objectType);
+        }
+        if (SemanticTypeSystem.rawIndexedPointer(objectType, analyzed)) {
+            return TypeShape.withoutOuterPointers(objectType, 1);
+        }
+        Node? getter = SemanticTypeSystem.indexedMethod(
+            objectType, "get", analyzed);
+        Node? result = null;
+        if (getter != null && getter.access != "class"
+                && getter.generic_params.len == 0
+                && getter.params.len == 1 && !getter.params.get(0).keep_
+                && getter.return_type != null
+                && !(getter.return_type.base == "void"
+                    && getter.return_type.pointer_depth == 0
+                    && !getter.return_type.is_array)) {
+            result = getter.return_type;
+        } else {
+            Node? setter = SemanticTypeSystem.indexedMethod(
+                objectType, "set", analyzed);
+            if (setter != null && setter.access != "class"
+                    && setter.generic_params.len == 0
+                    && setter.params.len == 2 && !setter.params.get(0).keep_
+                    && setter.return_type != null
+                    && setter.return_type.base == "void"
+                    && setter.return_type.pointer_depth == 0
+                    && !setter.return_type.is_array) {
+                result = setter.params.get(1).type;
+            }
+        }
+        if (result == null) { return null; }
+        if (analyzed.isGenericClass(objectType.base)
+                && objectType.generic_args.len > 0) {
+            return SemanticTypeSystem.resolveGenericType(
+                result, SemanticTypeSystem.genericTypeMap(analyzed, objectType),
+                analyzed);
+        }
+        return result;
+    }
+
+    public Node? instanceMember(string base, string member) {
+        return SemanticTypeSystem.genericMember(
+            self.analyzed, base, member);
+    }
+
+    class Map<string, bool> genericParameterSet(
+            Vector<string> parameters) {
+        Map<string, bool> names = {};
+        int index = 0;
+        while (index < parameters.len) {
+            names.put(parameters.get(index), true);
+            index = index + 1;
+        }
+        return names;
+    }
+
+    class Node? genericParameterBinding(
+            Node actual, Node declared) {
+        int extra = declared.pointer_depth;
+        Node binding = actual;
+        int removed = 0;
+        while (removed < extra) {
+            if (binding.pointer_depth <= 0) { return null; }
+            binding = TypeShape.withoutOuterPointers(binding, 1);
+            removed = removed + 1;
+        }
+        return binding;
+    }
+
+    class void unifyGenericParameter(
+            Node? declared, Node? actual,
+            Map<string, bool> parameters,
+            Map<string, Node> substitutions) {
+        if (declared == null || actual == null) { return; }
+        if (parameters.has(declared.base)
+                && declared.generic_args.len == 0) {
+            if (!substitutions.has(declared.base)) {
+                Node? binding =
+                    SemanticTypeSystem.genericParameterBinding(
+                        actual, declared);
+                if (binding != null) {
+                    substitutions.put(declared.base, binding);
+                }
+            }
+            return;
+        }
+        if (declared.generic_args.len > 0
+                && actual.generic_args.len > 0) {
+            int index = 0;
+            while (index < declared.generic_args.len
+                    && index < actual.generic_args.len) {
+                SemanticTypeSystem.unifyGenericParameter(
+                    declared.generic_args.get(index),
+                    actual.generic_args.get(index),
+                    parameters, substitutions);
+                index = index + 1;
+            }
+        }
+    }
+
+    /* Tuple field spelling shared by inference and semantic validation. */
+
+    class int tupleIndex(string field) {
+        if (field.length() < 2 || field[0] != '_') { return -1; }
+        int result = 0;
+        int index = 1;
+        while (index < field.length()) {
+            char value = field[index];
+            if (value < '0' || value > '9') { return -1; }
+            result = result * 10 + ((int)value - (int)'0');
+            index = index + 1;
+        }
+        return result;
+    }
+
+}

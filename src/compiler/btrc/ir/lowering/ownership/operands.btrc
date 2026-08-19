@@ -1,0 +1,285 @@
+import std.map;
+import std.vector;
+import ../../../analyzer/declarations.btrc;
+import ../../../analyzer/expressions.btrc;
+import ../../../analyzer/gpu.btrc;
+import ../../../analyzer/models.btrc;
+import ../../../analyzer/operators.btrc;
+import ../../../analyzer/types.btrc;
+import ../../../analyzer/validation/storage.btrc;
+import ../../../generated/ast/node.btrc;
+import ../../../syntax/types.btrc;
+import ../types.btrc;
+
+/* Operand ordering and type resolution for ownership boundaries.
+ *
+ * The environment is one immutable snapshot of the semantic state that can
+ * affect an expression type.  OwnershipOperandPlanner owns the corresponding
+ * effect/order rules; neither object depends on the IR-generation composition
+ * root. */
+
+class OwnershipOperandEnvironment {
+    private Map<string, Node> variableTypes;
+    private Map<string, Node> typeParameters;
+    private bool resolvesTypeParameters;
+    private bool defaultsWithoutMemo;
+    private bool gpuCpu;
+    private string propertyBacking;
+
+    public OwnershipOperandEnvironment(
+            Map<string, Node> variableTypes,
+            Map<string, Node> typeParameters,
+            bool resolvesTypeParameters,
+            bool defaultsWithoutMemo,
+            bool gpuCpu,
+            string propertyBacking) {
+        self.variableTypes = variableTypes;
+        self.typeParameters = typeParameters;
+        self.resolvesTypeParameters = resolvesTypeParameters;
+        self.defaultsWithoutMemo = defaultsWithoutMemo;
+        self.gpuCpu = gpuCpu;
+        self.propertyBacking = propertyBacking;
+    }
+
+    public bool hasVariable(string name) {
+        return self.variableTypes.has(name);
+    }
+
+    public Map<string, Node> variables() {
+        return self.copyTypes(self.variableTypes);
+    }
+
+    public Map<string, Node> typeArguments() {
+        return self.copyTypes(self.typeParameters);
+    }
+
+    private Map<string, Node> copyTypes(Map<string, Node> source) {
+        Map<string, Node> copy = {};
+        Vector<string> names = source.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            copy.put(name, source.get(name));
+            index = index + 1;
+        }
+        return copy;
+    }
+
+    public Node resolveType(Node? typeExpr, Analyzed analyzed) {
+        if (self.resolvesTypeParameters) {
+            return SemanticTypeSystem.resolveGenericType(
+                typeExpr, self.typeParameters, analyzed);
+        }
+        if (typeExpr == null) { return SemanticTypeSystem.primitive("void"); }
+        return typeExpr;
+    }
+
+    public bool resolvesTypes() {
+        return self.resolvesTypeParameters;
+    }
+
+    public bool specializationActive() {
+        return self.resolvesTypeParameters;
+    }
+
+    public bool usesDefaultInference() {
+        return self.defaultsWithoutMemo;
+    }
+
+    public bool usesGpuInference() {
+        return self.gpuCpu;
+    }
+
+    public string currentPropertyBacking() {
+        return self.propertyBacking;
+    }
+}
+
+class OwnershipOperandPlanner {
+    private Analyzed analyzed;
+    private OperatorSemantics operators;
+    private GpuSemantics gpu;
+    private ExpressionTypeResolver expressionTypes;
+    private CTypeLowerer cTypes;
+
+    public OwnershipOperandPlanner(
+            Analyzed analyzed, OperatorSemantics operators,
+            GpuSemantics gpu,
+            ExpressionTypeResolver expressionTypes,
+            CTypeLowerer cTypes) {
+        self.analyzed = analyzed;
+        self.operators = operators;
+        self.gpu = gpu;
+        self.expressionTypes = expressionTypes;
+        self.cTypes = cTypes;
+    }
+
+    public Node resolveType(
+            Node? typeExpr, OwnershipOperandEnvironment environment) {
+        return environment.resolveType(typeExpr, self.analyzed);
+    }
+
+    public Node? expressionType(
+            Node? expression, OwnershipOperandEnvironment environment) {
+        if (environment.usesGpuInference()) {
+            return self.gpu.contextualExprType(
+                expression, environment.variables());
+        }
+        Node? result = null;
+        if (environment.usesDefaultInference()) {
+            result = self.expressionTypes.inferSpecializationWithoutMemo(
+                expression, environment.variables());
+        } else {
+            result = self.expressionTypes.inferSpecialization(
+                expression, environment.variables());
+        }
+        if (result != null && environment.resolvesTypes()) {
+            result = environment.resolveType(result, self.analyzed);
+            result = SemanticTypeSystem.resolveOuterTypedefType(
+                result, self.analyzed.typedefTable);
+        }
+        if (result == null && expression != null
+                && expression.kind == NK_INDEX_EXPR) {
+            Node? objectType = self.expressionType(
+                expression.obj, environment);
+            if (objectType != null) {
+                Node concreteObject = self.resolveType(
+                    objectType, environment);
+                if (concreteObject.is_array) {
+                    result = TypeShape.withoutOuterArray(concreteObject);
+                } else if (StorageValidator.rawIndexedPointer(
+                        concreteObject, self.analyzed)) {
+                    result = TypeShape.withoutOuterPointers(
+                        concreteObject, 1);
+                }
+            }
+        }
+        return result;
+    }
+
+    public bool hasEffect(
+            Node? expression, OwnershipOperandEnvironment environment) {
+        if (expression == null) { return false; }
+        int kind = expression.kind;
+        if (kind == NK_IDENTIFIER) {
+            if (!environment.hasVariable(expression.name)
+                    && self.analyzed.funcTable.has(expression.name)) {
+                return false;
+            }
+            return self.expressionType(expression, environment) == null;
+        }
+        if (kind == NK_ASSIGN_EXPR || kind == NK_CALL_EXPR
+                || kind == NK_NEW_EXPR || kind == NK_SPAWN_EXPR
+                || kind == NK_F_STRING_LITERAL || kind == NK_LIST_LITERAL
+                || kind == NK_MAP_LITERAL || kind == NK_BRACE_INITIALIZER
+                || kind == NK_LAMBDA_EXPR) {
+            return true;
+        }
+        if (kind == NK_UNARY_EXPR) {
+            return expression.op == "++" || expression.op == "--"
+                || self.hasEffect(expression.operand, environment);
+        }
+        if (kind == NK_BINARY_EXPR) {
+            return self.hasEffect(expression.left, environment)
+                || self.hasEffect(expression.right, environment);
+        }
+        if (kind == NK_TERNARY_EXPR) {
+            return self.hasEffect(expression.condition, environment)
+                || self.hasEffect(expression.true_expr, environment)
+                || self.hasEffect(expression.false_expr, environment);
+        }
+        if (kind == NK_CAST_EXPR) {
+            return self.hasEffect(expression.expr, environment);
+        }
+        if (kind == NK_FIELD_ACCESS_EXPR) {
+            if (expression.optional
+                    || self.hasEffect(expression.obj, environment)) {
+                return true;
+            }
+            Node? receiverType = self.expressionType(
+                expression.obj, environment);
+            Node? member = DeclarationRegistry.instanceMemberForType(
+                self.analyzed, receiverType, expression.field);
+            return member != null && member.kind == NK_PROPERTY_DECL;
+        }
+        if (kind == NK_INDEX_EXPR) {
+            if (self.hasEffect(expression.obj, environment)
+                    || self.hasEffect(expression.index, environment)) {
+                return true;
+            }
+            Node? receiverType = self.expressionType(
+                expression.obj, environment);
+            if (receiverType == null) { return false; }
+            return !StorageValidator.rawIndexedPointer(
+                    receiverType, self.analyzed)
+                && StorageValidator.validIndexedGetter(
+                    StorageValidator.indexedMethod(
+                        receiverType, "get", self.analyzed));
+        }
+        return false;
+    }
+
+    public bool reorderInert(
+            Node expression, OwnershipOperandEnvironment environment) {
+        int kind = expression.kind;
+        if (kind == NK_INT_LITERAL || kind == NK_FLOAT_LITERAL
+                || kind == NK_STRING_LITERAL || kind == NK_CHAR_LITERAL
+                || kind == NK_BOOL_LITERAL || kind == NK_NULL_LITERAL) {
+            return true;
+        }
+        if (kind == NK_CAST_EXPR) {
+            return self.reorderInert(expression.expr, environment);
+        }
+        if (kind == NK_SIZEOF_EXPR) { return true; }
+        if (kind == NK_UNARY_EXPR && (expression.op == "+"
+                || expression.op == "-" || expression.op == "!"
+                || expression.op == "~")) {
+            return self.reorderInert(expression.operand, environment);
+        }
+        return kind == NK_IDENTIFIER
+            && (self.analyzed.isEnumValue(expression.name)
+                || (!environment.hasVariable(expression.name)
+                    && self.analyzed.funcTable.has(expression.name)));
+    }
+
+    public bool requiresOrder(
+            Vector<Node> operands,
+            OwnershipOperandEnvironment environment) {
+        int leftIndex = 0;
+        while (leftIndex < operands.len) {
+            Node left = operands.get(leftIndex);
+            bool leftEffect = self.hasEffect(left, environment);
+            int rightIndex = leftIndex + 1;
+            while (rightIndex < operands.len) {
+                Node right = operands.get(rightIndex);
+                bool rightEffect = self.hasEffect(right, environment);
+                if ((leftEffect && !self.reorderInert(
+                            right, environment))
+                        || (rightEffect && !self.reorderInert(
+                            left, environment))) {
+                    return true;
+                }
+                rightIndex = rightIndex + 1;
+            }
+            leftIndex = leftIndex + 1;
+        }
+        return false;
+    }
+
+    public void requireType(Node? typeExpr, Node expression) {
+        if (typeExpr != null) { return; }
+        fprintf(stderr,
+            "error: managed ownership boundary at %d:%d "
+            + "requires a concrete type\n",
+            expression.line, expression.col);
+        exit(1);
+    }
+
+    public string operandCType(Node expression, Node typeExpr) {
+        if (expression.kind == NK_IDENTIFIER
+                && self.analyzed.isEnumValue(expression.name)) {
+            return "int";
+        }
+        return self.cTypes.lower(typeExpr);
+    }
+}

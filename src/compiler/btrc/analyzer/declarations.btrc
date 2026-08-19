@@ -1,0 +1,351 @@
+/* Retained declaration registration, indexing, and storage policy. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../generated/ast/node.btrc;
+import ../syntax/identity.btrc;
+import ./hosted_abi.btrc;
+import ./models.btrc;
+import ./types.btrc;
+
+class DeclarationRegistry {
+    private Analyzed analyzed;
+    private HostedAbiRepository hostedAbi;
+
+    public DeclarationRegistry(
+            Analyzed analyzed, HostedAbiRepository hostedAbi) {
+        self.analyzed = analyzed;
+        self.hostedAbi = hostedAbi;
+    }
+
+
+    class string parentName(Node declaration) {
+        if (declaration.parent == null) { return ""; }
+        return declaration.parent;
+    }
+
+    class string memberKey(string owner, string member) {
+        return owner + ":" + member;
+    }
+
+    /* Register source declarations and freeze their member indexes. Generic
+     * normalization and expression inference are deliberately separate passes. */
+    public void registerProgram(Node program) {
+        int i = 0;
+        while (i < program.declarations.len) {
+        Node d = program.declarations.get(i);
+        if (d.kind == NK_FUNCTION_DECL) {
+        self.analyzed.funcNames.put(d.name, true);
+        self.analyzed.funcRetTypes.put(d.name, d.return_type);
+        self.analyzed.funcTable.put(d.name, d);
+        } else if (d.kind == NK_CLASS_DECL) {
+        if (d.generic_params.len == 0) {
+        self.analyzed.classTable.put(d.name, d);
+        } else {
+        self.analyzed.genericClassTable.put(d.name, d);
+        }
+        } else if (d.kind == NK_INTERFACE_DECL) {
+        /* Duplicate declarations are diagnosed by the validation pass.
+        * Preserve the first declaration as the stable registered owner. */
+        if (!self.analyzed.interfaceTable.has(d.name)) {
+        self.analyzed.interfaceTable.put(d.name, d);
+        }
+        } else if (d.kind == NK_ENUM_DECL) {
+        self.analyzed.enumTable.put(d.name, d);
+        int v = 0;
+        while (v < d.values.len) {
+        string valueName = d.values.get(v).name;
+        int ownerCount = 0;
+        if (self.analyzed.enumValueOwnerCount.has(valueName)) {
+        ownerCount = self.analyzed.enumValueOwnerCount.get(valueName);
+        }
+        self.analyzed.enumValueOwnerCount.put(valueName, ownerCount + 1);
+        if (!self.analyzed.enumValueOwner.has(valueName)) {
+        self.analyzed.enumValueOwner.put(valueName, d.name);
+        }
+        v = v + 1;
+        }
+        } else if (d.kind == NK_RICH_ENUM_DECL) {
+        self.analyzed.richEnumTable.put(d.name, d);
+        } else if (d.kind == NK_TYPEDEF_DECL) {
+        self.analyzed.typedefTable.put(d.alias, d.original);
+        } else if (d.kind == NK_STRUCT_DECL) {
+        if (!self.analyzed.structTable.has(d.name) || !d.is_forward) {
+        self.analyzed.structTable.put(d.name, d);
+        }
+        } else if (d.kind == NK_VAR_DECL_STMT) {
+        /* Module-level variable: record its type in the global scope so self.analyzed
+        * bare identifier referencing it resolves during inference. An
+        * explicit type is used directly; self.analyzed `var` global's type is deduced
+        * from its initializer (mirrors the analyzer seeding the global
+        * scope with each module-level var's resolved type). */
+        if (d.type != null) {
+        self.analyzed.globalVarTypes.put(d.name, d.type);
+        }
+        bool externOnly = d.type != null && d.type.is_extern
+        && d.initializer == null;
+        if (!externOnly) { self.analyzed.globalHasDefinition.put(d.name, true); }
+        }
+        i = i + 1;
+        }
+        self.indexAnalyzedMembers(self.analyzed);
+    }
+
+    /* Immutable exact-name indexes for semantic and lowering member queries. */
+
+    public void indexOrdinaryClassMembers(Analyzed analyzed, string className) {
+        string current = className;
+        Map<string, bool> visited = {};
+        while (current != "" && analyzed.classTable.has(current)
+                && !visited.has(current)) {
+            visited.put(current, true);
+            Node declaration = analyzed.classTable.get(current);
+            int index = 0;
+            while (index < declaration.members.len) {
+                Node member = declaration.members.get(index);
+                string key = DeclarationRegistry.memberKey(
+                    className, member.name);
+                if (member.kind == NK_METHOD_DECL
+                        && member.is_constructor) {
+                    if (current == className
+                            && !analyzed.classConstructorIndex.has(
+                                className)) {
+                        analyzed.classConstructorIndex.put(
+                            className, member);
+                    }
+                } else {
+                    if (!analyzed.classMemberIndex.has(key)) {
+                        analyzed.classMemberIndex.put(key, member);
+                    }
+                    if (member.kind == NK_METHOD_DECL
+                            && !analyzed.classMethodIndex.has(key)) {
+                        analyzed.classMethodIndex.put(key, member);
+                    }
+                }
+                index = index + 1;
+            }
+            current = DeclarationRegistry.parentName(declaration);
+        }
+    }
+
+    public void indexGenericClassMembers(Analyzed analyzed, string className) {
+        Node declaration = analyzed.genericClassTable.get(className);
+        int index = 0;
+        while (index < declaration.members.len) {
+            Node member = declaration.members.get(index);
+            string key = DeclarationRegistry.memberKey(className, member.name);
+            if (member.kind == NK_METHOD_DECL && member.is_constructor) {
+                if (!analyzed.genericConstructorIndex.has(className)) {
+                    analyzed.genericConstructorIndex.put(className, member);
+                }
+            } else {
+                if (!analyzed.genericMemberIndex.has(key)) {
+                    analyzed.genericMemberIndex.put(key, member);
+                }
+                if (member.kind == NK_METHOD_DECL
+                        && !analyzed.genericMethodIndex.has(key)) {
+                    analyzed.genericMethodIndex.put(key, member);
+                }
+            }
+            index = index + 1;
+        }
+    }
+
+    public void indexAnalyzedMembers(Analyzed analyzed) {
+        if (analyzed.memberIndexReady) {
+            fprintf(stderr,
+                "internal compiler error: declaration member index built twice\n");
+            exit(1);
+        }
+        Vector<string> classNames = analyzed.classTable.keys();
+        int classIndex = 0;
+        while (classIndex < classNames.len) {
+            self.indexOrdinaryClassMembers(
+                analyzed, classNames.get(classIndex));
+            classIndex = classIndex + 1;
+        }
+        Vector<string> genericNames = analyzed.genericClassTable.keys();
+        int genericIndex = 0;
+        while (genericIndex < genericNames.len) {
+            self.indexGenericClassMembers(
+                analyzed, genericNames.get(genericIndex));
+            genericIndex = genericIndex + 1;
+        }
+        analyzed.memberIndexReady = true;
+    }
+
+
+    /* Canonical physical storage for ordinary class instances. */
+
+    class bool propertyGetterIsAuto(Node property) {
+        return property.kind == NK_PROPERTY_DECL
+            && property.has_getter && property.getter_body == null;
+    }
+
+    class bool propertySetterIsAuto(Node property) {
+        return property.kind == NK_PROPERTY_DECL
+            && property.has_setter && property.setter_body == null;
+    }
+
+    class bool propertyNeedsBacking(Node property) {
+        return DeclarationRegistry.propertyGetterIsAuto(property)
+            || DeclarationRegistry.propertySetterIsAuto(property);
+    }
+
+    /* A custom accessor may address its own compiler-owned backing slot directly.
+     * Every access outside that one accessor context remains virtual. */
+    class bool propertyTargetUsesBacking(Node receiver, string propertyName,
+            string currentPropertyBacking) {
+        return receiver.kind == NK_SELF_EXPR
+            && currentPropertyBacking == propertyName;
+    }
+
+    /* Return the emitted C member name, or "" for a member with no storage. */
+    class string instanceStorageName(Node member) {
+        if (member.access == "class") { return ""; }
+        if (member.kind == NK_FIELD_DECL) { return member.name; }
+        if (member.kind == NK_PROPERTY_DECL
+                && DeclarationRegistry.propertyNeedsBacking(member)) {
+            return "_prop_" + member.name;
+        }
+        return "";
+    }
+
+    /* Resolve an ordinary or instantiated-generic receiver member. Generic
+     * inheritance is intentionally not synthesized here; unsupported inherited
+     * properties are rejected before IR generation. */
+    class Node? instanceMemberForType(
+            Analyzed analyzed, Node? receiverType, string memberName) {
+        if (receiverType == null) { return null; }
+        if (analyzed.isClass(receiverType.base)) {
+            return analyzed.classMember(receiverType.base, memberName);
+        }
+        if (receiverType.generic_args.len > 0
+                && analyzed.isGenericClass(receiverType.base)) {
+            return SemanticTypeSystem.genericMember(
+                analyzed, receiverType.base, memberName);
+        }
+        return null;
+    }
+
+    class Node? resolvedInstanceMemberType(
+            Analyzed analyzed, Node receiverType, Node member) {
+        if (member.type == null) { return null; }
+        if (receiverType.generic_args.len > 0
+                && analyzed.isGenericClass(receiverType.base)) {
+            return SemanticTypeSystem.resolveGenericType(
+                member.type,
+                SemanticTypeSystem.genericTypeMap(analyzed, receiverType),
+                analyzed);
+        }
+        return member.type;
+    }
+
+    class string instanceFunctionPrefix(
+            Analyzed analyzed, Node receiverType) {
+        if (receiverType.generic_args.len > 0
+                && analyzed.isGenericClass(receiverType.base)) {
+            return TypeIdentity.mangleGenericType(
+                receiverType.base, receiverType.generic_args);
+        }
+        return receiverType.base;
+    }
+
+    class void collectMergedClassProperties(
+            Analyzed analyzed, string className,
+            Vector<Node> output, Map<string, int> indices,
+            Map<string, bool> visited) {
+        if (!analyzed.classTable.has(className) || visited.has(className)) {
+            return;
+        }
+        visited.put(className, true);
+        Node declaration = analyzed.classTable.get(className);
+        string parent = DeclarationRegistry.parentName(declaration);
+        if (parent != "" && analyzed.classTable.has(parent)) {
+            DeclarationRegistry.collectMergedClassProperties(
+                analyzed, parent, output, indices, visited);
+        }
+        int memberIndex = 0;
+        while (memberIndex < declaration.members.len) {
+            Node member = declaration.members.get(memberIndex);
+            if (member.kind == NK_PROPERTY_DECL) {
+                if (indices.has(member.name)) {
+                    output.set(indices.get(member.name), member);
+                } else {
+                    indices.put(member.name, output.len);
+                    output.push(member);
+                }
+            }
+            memberIndex = memberIndex + 1;
+        }
+    }
+
+    /* Parent-first property view. An override keeps the inherited position while
+     * replacing its declaration, matching merged method ordering. */
+    class Vector<Node> mergedClassProperties(
+            Analyzed analyzed, string className) {
+        Vector<Node> output = [];
+        Map<string, int> indices = {};
+        Map<string, bool> visited = {};
+        DeclarationRegistry.collectMergedClassProperties(
+            analyzed, className, output, indices, visited);
+        return output;
+    }
+
+
+    /* Conservative source-call ownership effects derived from declarations. */
+
+    class Map<int, bool> ownedTransferParameters(Node? declaration) {
+        Map<int, bool> empty = {};
+        if (declaration == null || declaration.body_node == null
+                || declaration.params.len == 0) {
+            return empty;
+        }
+        Map<string, int> indices = {};
+        int index = 0;
+        while (index < declaration.params.len) {
+            Node parameter = declaration.params.get(index);
+            if (!parameter.keep_) { indices.put(parameter.name, index); }
+            index++;
+        }
+        Map<int, bool> transferred = {};
+        Vector<Node> statements = declaration.body_node.statements;
+        int position = 0;
+        while (position < statements.len) {
+            Node statement = statements.get(position);
+            if ((statement.kind == NK_DELETE_STMT
+                    || statement.kind == NK_RELEASE_STMT)
+                    && statement.expr != null
+                    && statement.expr.kind == NK_IDENTIFIER
+                    && indices.has(statement.expr.name)) {
+                transferred.put(indices.get(statement.expr.name), true);
+            } else if (statement.kind == NK_RETURN_STMT
+                    && statement.value_node == null
+                    && position == statements.len - 1) {
+                return transferred;
+            } else {
+                return empty;
+            }
+            position++;
+        }
+        return transferred;
+    }
+
+    public string sourceFunctionSymbol(string name) {
+        if (!self.analyzed.funcTable.has(name)) { return name; }
+        Node declaration = self.analyzed.funcTable.get(name);
+        if (declaration.body_node == null || declaration.is_gpu) {
+            return name;
+        }
+        return self.hostedAbi.sourceFunctionSymbol(name);
+    }
+
+    public string sourceCallSymbol(string name, Node call) {
+        if (self.analyzed.hostedCallKeys.has(AstIdentity.key(call))) {
+            return name;
+        }
+        return self.sourceFunctionSymbol(name);
+    }
+
+}

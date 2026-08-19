@@ -2,13 +2,12 @@
 
 import pytest
 
-from src.compiler.python.ir.gen.errors import CodegenError
-from src.compiler.python.ir.gen.setjmp_call_effects import build_setjmp_call_effects
-from src.compiler.python.ir.gen.setjmp_effect_model import ParameterEffect
-from src.compiler.python.ir.gen.setjmp_pointer_types import (
+from src.compiler.python.ir.lowering.exceptions import (
     OPAQUE_POINTER_DEPTH,
-    pointer_type_facts,
+    ExceptionLowerer,
+    ParameterEffect,
 )
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -47,7 +46,7 @@ def _deep_typedefs():
 
 
 def test_pointer_depth_closure_is_exact_and_order_independent():
-    facts = pointer_type_facts(IRModule(typedef_defs=_deep_typedefs()))
+    facts = ExceptionLowerer.pointer_type_facts(IRModule(typedef_defs=_deep_typedefs()))
 
     assert facts.pointer_depth(CType("Single")) == 1
     assert facts.pointer_depth(CType("Middle")) == 2
@@ -72,9 +71,9 @@ def test_terminal_scalar_dereference_drops_return_provenance_through_casts():
     )
     probe = IRFunctionDef("probe", CType("void"), body=IRBlock())
 
-    summaries = build_setjmp_call_effects(IRModule(typedef_defs=_deep_typedefs(), function_defs=[scalar, peel, probe]))[
-        "probe"
-    ].function_effects
+    summaries = ExceptionLowerer.build_setjmp_call_effects(
+        IRModule(typedef_defs=_deep_typedefs(), function_defs=[scalar, peel, probe])
+    )["probe"].function_effects
 
     assert summaries["scalar"].returns == frozenset()
     assert summaries["peel"].returns == frozenset({ParameterEffect(0, 3)})
@@ -99,7 +98,9 @@ def test_recursive_return_summary_reaches_a_finite_declared_depth_fixed_point():
         ),
     )
 
-    summary = build_setjmp_call_effects(IRModule(function_defs=[recursive]))["recursive"].function_effects["recursive"]
+    summary = ExceptionLowerer.build_setjmp_call_effects(IRModule(function_defs=[recursive]))[
+        "recursive"
+    ].function_effects["recursive"]
 
     assert summary.returns == frozenset({ParameterEffect(0, 1)})
 
@@ -111,7 +112,7 @@ def test_unresolved_pointer_depth_saturates_instead_of_growing():
     ]
     module = IRModule()
     module.typedef_defs = typedefs
-    facts = pointer_type_facts(module)
+    facts = ExceptionLowerer.pointer_type_facts(module)
     opaque = IRFunctionDef(
         "opaque",
         CType("int*"),
@@ -120,7 +121,7 @@ def test_unresolved_pointer_depth_saturates_instead_of_growing():
     )
 
     module.function_defs = [opaque]
-    summary = build_setjmp_call_effects(module)["opaque"].function_effects["opaque"]
+    summary = ExceptionLowerer.build_setjmp_call_effects(module)["opaque"].function_effects["opaque"]
 
     assert facts.pointer_depth(CType("OpaqueA")) == OPAQUE_POINTER_DEPTH
     assert facts.pointer_depth(CType("OpaqueB")) == OPAQUE_POINTER_DEPTH
@@ -154,7 +155,7 @@ def test_saturated_write_effect_maps_back_to_concrete_caller_storage():
     module.typedef_defs = typedefs
     module.function_defs = [opaque_write, caller]
 
-    effects = build_setjmp_call_effects(module)
+    effects = ExceptionLowerer.build_setjmp_call_effects(module)
 
     assert effects["opaque_write"].function_effects["opaque_write"].writes == frozenset(
         {ParameterEffect(0, OPAQUE_POINTER_DEPTH)}
@@ -182,7 +183,7 @@ def test_pointer_array_element_store_is_a_capture_not_a_scalar_strong_update():
         body=IRBlock([value, slots, store]),
     )
 
-    flow = build_setjmp_call_effects(IRModule(function_defs=[probe]))["probe"].flow
+    flow = ExceptionLowerer.build_setjmp_call_effects(IRModule(function_defs=[probe]))["probe"].flow
     slots_storage = flow.storages[id(slots)]
 
     assert slots_storage.pointer_depth == 1

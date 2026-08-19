@@ -7,7 +7,7 @@ Covers three audit findings:
           structural counting-loop form, while a user `range` function works
           in expression position.
   CMP-23: the string-method API lives in ONE shared spec
-          (src/compiler/python/string_methods.py); analyzer and IR-gen views
+          (src/compiler/python/analyzer/types.py); analyzer and IR-gen views
           must not drift, and every named helper must exist in the registry.
   CMP-24: unrelated pointer types are incompatible. C interop crosses the
           boundary explicitly through casts or void*, never an unknown-type
@@ -20,13 +20,13 @@ import tempfile
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import TypeExpr
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import TypeExpr
 
 
 def emit_c(source: str) -> str:
@@ -143,8 +143,8 @@ def test_for_in_range_unaffected_when_no_user_range():
 
 
 def test_string_method_spec_is_single_source_of_truth():
-    from src.compiler.python.ir.gen import methods as irm
-    from src.compiler.python.string_methods import STRING_METHODS
+    import src.compiler.python.ir.lowering.calls as irm
+    from src.compiler.python.analyzer.types import STRING_METHODS
 
     expected_helpers = {n: s.helper for n, s in STRING_METHODS.items() if s.helper}
     expected_tracked = {n for n, s in STRING_METHODS.items() if s.tracked}
@@ -153,23 +153,23 @@ def test_string_method_spec_is_single_source_of_truth():
 
 
 def test_analyzer_type_table_matches_spec():
-    from src.compiler.python.string_methods import STRING_METHODS
+    from src.compiler.python.analyzer.types import STRING_METHODS
 
-    analyzer = SemanticAnalyzer()
+    types = SemanticAnalyzer().types
     for name, spec in STRING_METHODS.items():
-        t = analyzer._string_method_return_type(name)
+        t = types.string_method_return_type(name)
         assert t is not None, f"no analyzer return type for {name!r}"
         expected_base = spec.return_type.rstrip("*")
         assert t.base == expected_base, f"{name}: {t.base} != {expected_base}"
         assert t.pointer_depth == spec.return_type.count("*"), name
-    assert analyzer._string_method_return_type("notAMethod") is None
+    assert types.string_method_return_type("notAMethod") is None
 
 
 def test_every_spec_helper_exists_in_runtime_registry():
-    from src.compiler.python.ir.helpers.registry import HELPERS
-    from src.compiler.python.string_methods import STRING_CONVERSIONS, STRING_METHODS
+    from src.compiler.python.analyzer.types import STRING_CONVERSIONS, STRING_METHODS
+    from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
-    known = {hname for cat in HELPERS.values() for hname in cat}
+    known = {definition.name for definition in RuntimeHelperCatalog().definitions}
     for name, spec in STRING_METHODS.items():
         if spec.helper:
             assert spec.helper in known, f"{name}: helper {spec.helper} missing"
@@ -208,7 +208,7 @@ def test_string_to_bool_lowers_to_the_documented_runtime_helper():
 
 
 def _compat(target: TypeExpr, source: TypeExpr) -> bool:
-    return SemanticAnalyzer()._types_compatible(target, source)
+    return SemanticAnalyzer().types.types_compatible(target, source)
 
 
 def test_string_pointer_not_compatible_with_generic_collection():

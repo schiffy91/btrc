@@ -1,0 +1,870 @@
+import std.map;
+import std.strings;
+import std.vector;
+import ../../../analyzer/models.btrc;
+import ../../../analyzer/ownership/cycles.btrc;
+import ../../../analyzer/ownership/values.btrc;
+import ../../../generated/ast/node.btrc;
+import ../../model.btrc;
+import ../context.btrc;
+import ../types.btrc;
+
+/* Managed-value lifetime state and structured ARC operations.
+ *
+ * ManagedLifetimeLowerer owns every managed-scope/control marker and the
+ * exact retain/release/cleanup atoms.  It receives the shared data-only
+ * LoweringContext, never the IR lowering composition root. */
+
+class Managed {
+    public string name;
+    public string cName;
+    public string cls;
+    public string cleanupKind;
+
+    public Managed(string name, string cName, string cls) {
+        self.name = name;
+        self.cName = cName;
+        self.cls = cls;
+        self.cleanupKind = "arc";
+    }
+}
+
+class ManagedLifetimeSnapshot {
+    public Vector<Managed> managed;
+    public Vector<int> scopeStarts;
+    public Vector<int> loopStarts;
+    public Vector<string> controls;
+    public Vector<int> controlManagedStarts;
+    public Vector<string> cleanupMarkers;
+    public Vector<string> activeCleanupMarkers;
+    public Vector<int> controlCleanupStarts;
+
+    public ManagedLifetimeSnapshot() {
+        self.managed = [];
+        self.scopeStarts = [];
+        self.loopStarts = [];
+        self.controls = [];
+        self.controlManagedStarts = [];
+        self.cleanupMarkers = [];
+        self.activeCleanupMarkers = [];
+        self.controlCleanupStarts = [];
+    }
+}
+
+/* Per-run typed cleanup metadata and generated access adapters. */
+class CleanupSlotRegistry {
+    private Map<string, string> cleanupTakeAdapters;
+    private Map<string, string> arcSlotAdapters;
+    private Map<string, string> mutexValueAdapters;
+    private Vector<IRFunction> adapterDefinitions;
+    private int nextSite;
+    private bool finalized;
+
+    public CleanupSlotRegistry() {
+        self.cleanupTakeAdapters = {};
+        self.arcSlotAdapters = {};
+        self.mutexValueAdapters = {};
+        self.adapterDefinitions = [];
+        self.nextSite = 0;
+        self.finalized = false;
+    }
+
+    public void reset() {
+        self.cleanupTakeAdapters = {};
+        self.arcSlotAdapters = {};
+        self.mutexValueAdapters = {};
+        self.adapterDefinitions = [];
+        self.nextSite = 0;
+        self.finalized = false;
+    }
+
+    private void fail(string message) {
+        fprintf(stderr, "internal compiler error: %s\n", message);
+        exit(1);
+    }
+
+    public IRNode requireDeclaration(
+            Vector<IRNode> statements, string name) {
+        int index = statements.len - 1;
+        while (index >= 0) {
+            IRNode statement = statements.get(index);
+            if (statement.kind == IRK_VAR_DECL
+                    && statement.name == name) {
+                return statement;
+            }
+            index = index - 1;
+        }
+        self.fail(
+            "cleanup registration has no preceding declaration: " + name);
+        return IRNode.variableDeclaration("void*", name, null);
+    }
+
+    private IRFunction takeAdapter(string name, string slotType) {
+        string pointerType = slotType + " volatile*";
+        IRFunction definition = IRFunction();
+        definition.name = name;
+        definition.return_type = "void*";
+        definition.is_static = true;
+        definition.params.push(IRParam("void*", "raw_slot"));
+        Vector<IRNode> body = [];
+        body.push(IRNode.variableDeclaration(pointerType, "typed_slot",
+            IRNode.cast(pointerType, IRNode.variable("raw_slot"))));
+        body.push(IRNode.variableDeclaration(slotType, "value",
+            IRNode.dereference(IRNode.variable("typed_slot"))));
+        body.push(IRNode.assignment(
+            IRNode.dereference(IRNode.variable("typed_slot")),
+            IRNode.literal("NULL")));
+        body.push(IRNode.returnStatement(
+            IRNode.cast("void*", IRNode.variable("value"))));
+        definition.body = IRNode.block(body);
+        return definition;
+    }
+
+    public string ensureTakeAdapter(string slotType) {
+        if (self.cleanupTakeAdapters.has(slotType)) {
+            return self.cleanupTakeAdapters.get(slotType);
+        }
+        string name = "__btrc_cleanup_take_" + Strings.fromInt(
+            self.adapterDefinitions.len + 1);
+        self.cleanupTakeAdapters.put(slotType, name);
+        self.adapterDefinitions.push(
+            self.takeAdapter(name, slotType));
+        return name;
+    }
+
+    private IRFunction arcSlotAccessAdapter(
+            string name, string slotType) {
+        string pointerType = slotType + " volatile*";
+        IRFunction definition = IRFunction();
+        definition.name = name;
+        definition.return_type = "void*";
+        definition.is_static = true;
+        definition.params.push(IRParam("volatile void*", "raw_slot"));
+        definition.params.push(IRParam("void*", "expected"));
+        definition.params.push(IRParam("void*", "replacement"));
+        definition.params.push(IRParam("int", "replace_if_equal"));
+        Vector<IRNode> body = [];
+        body.push(IRNode.variableDeclaration(pointerType, "typed_slot",
+            IRNode.cast(pointerType, IRNode.variable("raw_slot"))));
+        body.push(IRNode.variableDeclaration(slotType, "current",
+            IRNode.dereference(IRNode.variable("typed_slot"))));
+        Vector<IRNode> clearBody = [];
+        clearBody.push(IRNode.assignment(
+            IRNode.dereference(IRNode.variable("typed_slot")),
+            IRNode.cast(slotType, IRNode.variable("replacement"))));
+        body.push(IRNode.ifStatement(IRNode.binary(
+            IRNode.binary(IRNode.variable("replace_if_equal"), "!=",
+                IRNode.literal("0")),
+            "&&",
+            IRNode.binary(IRNode.variable("current"), "==",
+                IRNode.cast(slotType, IRNode.variable("expected")))),
+            IRNode.block(clearBody), null));
+        body.push(IRNode.returnStatement(
+            IRNode.cast("void*", IRNode.variable("current"))));
+        definition.body = IRNode.block(body);
+        return definition;
+    }
+
+    public string ensureArcSlotAdapter(string slotType) {
+        if (self.arcSlotAdapters.has(slotType)) {
+            return self.arcSlotAdapters.get(slotType);
+        }
+        string name = "__btrc_arc_slot_access_" + Strings.fromInt(
+            self.arcSlotAdapters.len + 1);
+        self.arcSlotAdapters.put(slotType, name);
+        self.adapterDefinitions.push(
+            self.arcSlotAccessAdapter(name, slotType));
+        return name;
+    }
+
+    private IRFunction mutexValueAccessAdapter(
+            string name, string valueType) {
+        IRFunction definition = IRFunction();
+        definition.name = name;
+        definition.return_type = "void*";
+        definition.is_static = true;
+        definition.params.push(IRParam(
+            "const void*", "raw_storage"));
+        Vector<IRNode> body = [];
+        body.push(IRNode.returnStatement(IRNode.cast(
+            "void*", IRNode.dereference(IRNode.cast(
+                valueType + " const*",
+                IRNode.variable("raw_storage"))))));
+        definition.body = IRNode.block(body);
+        return definition;
+    }
+
+    public string ensureMutexValueAdapter(string valueType) {
+        if (self.mutexValueAdapters.has(valueType)) {
+            return self.mutexValueAdapters.get(valueType);
+        }
+        string name = "__btrc_mutex_value_access_" + Strings.fromInt(
+            self.mutexValueAdapters.len + 1);
+        self.mutexValueAdapters.put(valueType, name);
+        self.adapterDefinitions.push(
+            self.mutexValueAccessAdapter(name, valueType));
+        return name;
+    }
+
+    public IRNode registerSlot(LoweringContext context,
+            IRNode declaration, IRNode cleanupFunction,
+            IRNode? visitor, bool direct) {
+        if (declaration.kind != IRK_VAR_DECL || declaration.is_static
+                || declaration.is_extern || declaration.is_array_decl) {
+            self.fail(
+                "cleanup registration requires an automatic pointer object");
+        }
+        string adapter = self.ensureTakeAdapter(declaration.c_type);
+        IRCleanupSlot metadata = declaration.cleanup_slot;
+        if (metadata == null) {
+            self.nextSite = self.nextSite + 1;
+            metadata = IRCleanupSlot(self.nextSite,
+                declaration.name, declaration.c_type, adapter);
+            declaration.cleanup_slot = metadata;
+        } else if (metadata.name != declaration.name
+                || metadata.c_type != declaration.c_type
+                || metadata.take_function != adapter) {
+            self.fail(
+                "conflicting cleanup metadata for " + declaration.name);
+        }
+        declaration.is_volatile = true;
+
+        string helper = "__btrc_register_cleanup";
+        if (direct) { helper = "__btrc_register_direct_cleanup"; }
+        context.referenceHelper(helper);
+        Vector<IRNode> arguments = [];
+        arguments.push(IRNode.cast(
+            "void*", IRNode.addressOf(
+                IRNode.variable(declaration.name))));
+        arguments.push(IRNode.functionReference(adapter));
+        arguments.push(cleanupFunction);
+        if (!direct) {
+            if (visitor == null) {
+                self.fail(
+                    "managed cleanup registration requires a visitor");
+            }
+            arguments.push(visitor);
+        }
+        IRNode call = IRNode.call(helper, arguments);
+        call.helper_ref = helper;
+        call.cleanup_slot = metadata;
+        return call;
+    }
+
+    public void finalize(IRModule module) {
+        if (self.finalized) {
+            self.fail("cleanup adapters finalized more than once");
+        }
+        self.finalized = true;
+        if (self.adapterDefinitions.len == 0) { return; }
+        Vector<IRFunction> definitions = [];
+        int index = 0;
+        while (index < self.adapterDefinitions.len) {
+            definitions.push(self.adapterDefinitions.get(index));
+            index = index + 1;
+        }
+        index = 0;
+        while (index < module.functions.len) {
+            definitions.push(module.functions.get(index));
+            index = index + 1;
+        }
+        module.functions = definitions;
+    }
+}
+
+class ManagedLifetimeLowerer {
+    private Analyzed analyzed;
+    private ManagedValueSemantics managedValues;
+    private CycleSemantics cycles;
+    private CleanupSlotRegistry cleanupSlots;
+    private LoweringContext context;
+    private CTypeLowerer cTypes;
+    private Vector<Managed> managedStack;
+    private Vector<int> scopeStarts;
+    private Vector<int> loopStarts;
+    private Vector<string> controls;
+    private Vector<int> controlManagedStarts;
+    private Vector<string> cleanupMarkers;
+    private Map<string, bool> activeCleanupMarkers;
+    private Vector<int> controlCleanupStarts;
+
+    public ManagedLifetimeLowerer(
+            Analyzed analyzed,
+            ManagedValueSemantics managedValues,
+            CycleSemantics cycles,
+            CleanupSlotRegistry cleanupSlots,
+            LoweringContext context,
+            CTypeLowerer cTypes) {
+        self.analyzed = analyzed;
+        self.managedValues = managedValues;
+        self.cycles = cycles;
+        self.cleanupSlots = cleanupSlots;
+        self.context = context;
+        self.cTypes = cTypes;
+        self.managedStack = [];
+        self.scopeStarts = [];
+        self.loopStarts = [];
+        self.controls = [];
+        self.controlManagedStarts = [];
+        self.cleanupMarkers = [];
+        self.activeCleanupMarkers = {};
+        self.controlCleanupStarts = [];
+    }
+
+    public string cleanupSymbol(string runtimeType) {
+        if (runtimeType == self.managedValues.stringRuntimeType()) {
+            self.context.referenceHelper("__btrc_string_release_cleanup");
+        }
+        if (runtimeType == self.managedValues.mutexRuntimeType()) {
+            self.context.referenceHelper("__btrc_mutex_arc_type");
+        }
+        return self.managedValues.cleanupSymbol(runtimeType);
+    }
+
+    public IRNode noOp() {
+        return IRNode.cast("void", IRNode.literal("0"));
+    }
+
+    public IRNode runtimeDescriptor(string emittedName) {
+        if (emittedName == self.managedValues.mutexRuntimeType()) {
+            self.context.referenceHelper("__btrc_mutex_arc_type");
+            return IRNode.addressOf(
+                IRNode.variable("__btrc_mutex_arc_descriptor"));
+        }
+        Vector<string> fields = [];
+        fields.push("visit");
+        fields.push("destroy");
+        fields.push("hook");
+        fields.push("guard");
+        fields.push("raise");
+        Vector<IRNode> values = [];
+        if (self.cycles.emittedTypeNeedsVisitor(emittedName)) {
+            values.push(IRNode.functionReference(
+                self.cycles.visitorName(emittedName)));
+        } else {
+            values.push(IRNode.literal("NULL"));
+        }
+        values.push(IRNode.functionReference(emittedName + "_destroy"));
+        values.push(IRNode.literal("NULL"));
+        values.push(IRNode.literal("NULL"));
+        values.push(IRNode.literal("NULL"));
+        return IRNode.addressOf(IRNode.compoundLiteral(
+            "__btrc_arc_type", fields, values));
+    }
+
+    public IRNode retainValue(IRNode value, Node resolvedType) {
+        if (self.managedValues.isString(resolvedType)) {
+            self.context.referenceHelper("__btrc_string_retain");
+            Vector<IRNode> arguments = [];
+            arguments.push(value);
+            return IRNode.call("__btrc_string_retain", arguments);
+        }
+        self.context.referenceHelper("__btrc_arc_retain");
+        Vector<IRNode> arguments = [];
+        arguments.push(value);
+        return IRNode.call("__btrc_arc_retain", arguments);
+    }
+
+    public IRNode retainEdge(
+            IRNode value, Node resolvedType, IRNode owner) {
+        if (self.managedValues.isString(resolvedType)) {
+            return self.retainValue(value, resolvedType);
+        }
+        self.context.referenceHelper("__btrc_arc_retain_edge");
+        Vector<IRNode> arguments = [];
+        arguments.push(value);
+        arguments.push(owner);
+        return IRNode.call("__btrc_arc_retain_edge", arguments);
+    }
+
+    public IRNode adoptEdge(
+            IRNode value, Node resolvedType, IRNode owner) {
+        if (self.managedValues.isString(resolvedType)) {
+            return self.noOp();
+        }
+        self.context.referenceHelper("__btrc_arc_adopt_edge");
+        Vector<IRNode> arguments = [];
+        arguments.push(value);
+        arguments.push(owner);
+        return IRNode.call("__btrc_arc_adopt_edge", arguments);
+    }
+
+    public IRNode unlinkEdge(
+            IRNode value, Node resolvedType, IRNode owner) {
+        if (self.managedValues.isString(resolvedType)) {
+            return self.noOp();
+        }
+        self.context.referenceHelper("__btrc_arc_unlink_edge");
+        Vector<IRNode> arguments = [];
+        arguments.push(value);
+        arguments.push(owner);
+        return IRNode.call("__btrc_arc_unlink_edge", arguments);
+    }
+
+    public IRNode releaseRuntime(IRNode value, string runtimeType) {
+        if (runtimeType == self.managedValues.stringRuntimeType()) {
+            self.context.referenceHelper("__btrc_string_release");
+            Vector<IRNode> arguments = [];
+            arguments.push(value);
+            return IRNode.call("__btrc_string_release", arguments);
+        }
+        string helper = "__btrc_arc_release_acyclic";
+        if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
+            helper = "__btrc_arc_release";
+        }
+        self.context.referenceHelper(helper);
+        Vector<IRNode> arguments = [];
+        arguments.push(value);
+        arguments.push(self.runtimeDescriptor(runtimeType));
+        return IRNode.call(helper, arguments);
+    }
+
+    public IRNode releaseValue(IRNode value, Node resolvedType) {
+        return self.releaseRuntime(value,
+            self.managedValues.runtimeType(resolvedType));
+    }
+
+    public IRNode releaseEdge(IRNode value, Node resolvedType,
+            IRNode replacement) {
+        if (self.managedValues.isString(resolvedType)) {
+            return self.releaseValue(value, resolvedType);
+        }
+        self.context.referenceHelper("__btrc_arc_release_edge");
+        Vector<IRNode> arguments = [];
+        arguments.push(value);
+        arguments.push(self.runtimeDescriptor(
+            self.managedValues.runtimeType(resolvedType)));
+        arguments.push(replacement);
+        return IRNode.call("__btrc_arc_release_edge", arguments);
+    }
+
+    public IRNode replaceEdge(IRNode slot, IRNode replacement,
+            Node resolvedType, IRNode owner, bool adopt) {
+        if (!self.managedValues.isArc(resolvedType)) {
+            print("internal compiler error: transactional edge is not ARC-managed");
+            exit(1);
+        }
+        string access = self.cleanupSlots.ensureArcSlotAdapter(
+            self.cTypes.lower(resolvedType));
+        self.context.referenceHelper("__btrc_arc_replace_edge");
+        Vector<IRNode> arguments = [];
+        arguments.push(IRNode.cast(
+            "volatile void*", IRNode.addressOf(slot)));
+        arguments.push(IRNode.functionReference(access));
+        arguments.push(replacement);
+        arguments.push(owner);
+        arguments.push(self.runtimeDescriptor(
+            self.managedValues.runtimeType(resolvedType)));
+        arguments.push(IRNode.literal(adopt ? "1" : "0"));
+        return IRNode.call("__btrc_arc_replace_edge", arguments);
+    }
+
+    public IRNode destroySlot(IRNode slot, Node resolvedType,
+            IRNode owner, bool persistent) {
+        string access = self.cleanupSlots.ensureArcSlotAdapter(
+            self.cTypes.lower(resolvedType));
+        string helper = persistent
+            ? "__btrc_arc_destroy_edge" : "__btrc_arc_destroy_slot";
+        self.context.referenceHelper(helper);
+        Vector<IRNode> arguments = [];
+        arguments.push(IRNode.cast("volatile void*", slot));
+        arguments.push(IRNode.functionReference(access));
+        if (persistent) { arguments.push(owner); }
+        arguments.push(self.runtimeDescriptor(
+            self.managedValues.runtimeType(resolvedType)));
+        return IRNode.call(helper, arguments);
+    }
+
+    public IRNode flushCycles() {
+        self.context.referenceHelper("__btrc_flush_cycles");
+        Vector<IRNode> arguments = [];
+        return IRNode.call("__btrc_flush_cycles", arguments);
+    }
+
+    public IRNode pollCycles() {
+        self.context.referenceHelper("__btrc_poll_cycles");
+        self.context.referenceHelper("__btrc_flush_cycles");
+        Vector<IRNode> arguments = [];
+        return IRNode.call("__btrc_poll_cycles", arguments);
+    }
+
+
+    public IRNode optionalRelease(IRNode target, string runtimeType) {
+        Vector<IRNode> releaseBody = [];
+        releaseBody.push(IRNode.expressionStatement(
+            self.releaseRuntime(target, runtimeType)));
+        return IRNode.statementExpression([], IRNode.ternary(
+            IRNode.binary(target, "!=", IRNode.literal("NULL")),
+            IRNode.commaExpression(releaseBody),
+            IRNode.cast("void", IRNode.literal("0"))));
+    }
+
+    public IRNode registerCleanupSlot(IRNode declaration,
+            string runtimeType) {
+        self.markCleanupRegistration();
+        string cleanup = self.cleanupSymbol(runtimeType);
+        if (runtimeType == self.managedValues.stringRuntimeType()) {
+            return self.cleanupSlots.registerSlot(
+                self.context, declaration,
+                IRNode.functionReference(cleanup), null, true);
+        }
+        IRNode visitor = IRNode.literal("NULL");
+        string visitorSymbol = self.cycles.visitorSymbol(runtimeType);
+        if (self.cycles.runtimeTypeMayCycle(runtimeType)
+                && visitorSymbol != "") {
+            visitor = IRNode.functionReference(visitorSymbol);
+        }
+        return self.cleanupSlots.registerSlot(
+            self.context, declaration,
+            IRNode.functionReference(cleanup), visitor, false);
+    }
+
+    public void maybeRegisterCleanup(string variableName,
+            string runtimeType, Vector<IRNode> statements) {
+        if (!self.context.exceptionsAreEnabled()) { return; }
+        IRNode declaration = self.cleanupSlots.requireDeclaration(
+            statements, variableName);
+        statements.push(IRNode.expressionStatement(
+            self.registerCleanupSlot(declaration, runtimeType)));
+    }
+
+    public void maybeRegisterDirectCleanup(string variableName,
+            string cleanupFunction, Vector<IRNode> statements) {
+        if (!self.context.exceptionsAreEnabled()) { return; }
+        self.markCleanupRegistration();
+        IRNode declaration = self.cleanupSlots.requireDeclaration(
+            statements, variableName);
+        self.context.referenceHelper(cleanupFunction);
+        statements.push(IRNode.expressionStatement(
+            self.cleanupSlots.registerSlot(
+                self.context, declaration,
+                IRNode.functionReference(cleanupFunction), null, true)));
+    }
+
+    public void pushManagedScope() {
+        self.scopeStarts.push(self.managedStack.len);
+    }
+
+    public Vector<Managed> popManagedScope() {
+        Vector<Managed> result = [];
+        if (self.scopeStarts.len == 0) { return result; }
+        int start = self.scopeStarts.pop();
+        int index = start;
+        while (index < self.managedStack.len) {
+            result.push(self.managedStack.get(index));
+            index = index + 1;
+        }
+        int remaining = self.managedStack.len - start;
+        int removed = 0;
+        while (removed < remaining) {
+            self.managedStack.pop();
+            removed = removed + 1;
+        }
+        return result;
+    }
+
+    public void registerManaged(
+            string sourceName, string cName, string runtimeType) {
+        self.managedStack.push(
+            Managed(sourceName, cName, runtimeType));
+    }
+
+    public void registerThread(string sourceName, string cName) {
+        Managed owner = Managed(sourceName, cName, "");
+        owner.cleanupKind = "thread";
+        self.managedStack.push(owner);
+    }
+
+    public string localCleanupKind(string cName) {
+        int index = self.managedStack.len - 1;
+        while (index >= 0) {
+            Managed owner = self.managedStack.get(index);
+            if (owner.cName == cName) { return owner.cleanupKind; }
+            index = index - 1;
+        }
+        return "";
+    }
+
+    public string managedLocalType(string cName) {
+        int index = self.managedStack.len - 1;
+        while (index >= 0) {
+            Managed owner = self.managedStack.get(index);
+            if (owner.cName == cName) { return owner.cls; }
+            index = index - 1;
+        }
+        return "";
+    }
+
+    public void unregisterManaged(string cName) {
+        Vector<Managed> kept = [];
+        int removedSoFar = 0;
+        Vector<int> removedBeforeIndex = [];
+        int index = 0;
+        while (index < self.managedStack.len) {
+            removedBeforeIndex.push(removedSoFar);
+            Managed owner = self.managedStack.get(index);
+            if (owner.cName == cName) {
+                removedSoFar = removedSoFar + 1;
+            } else {
+                kept.push(owner);
+            }
+            index = index + 1;
+        }
+        if (removedSoFar == 0) { return; }
+        self.managedStack = kept;
+        self.shiftStarts(self.scopeStarts,
+            removedBeforeIndex, removedSoFar);
+        self.shiftStarts(self.loopStarts,
+            removedBeforeIndex, removedSoFar);
+        self.shiftStarts(self.controlManagedStarts,
+            removedBeforeIndex, removedSoFar);
+    }
+
+    private void shiftStarts(Vector<int> starts,
+            Vector<int> removedBeforeIndex, int removedTotal) {
+        int index = 0;
+        while (index < starts.len) {
+            int start = starts.get(index);
+            int shift = removedTotal;
+            if (start < removedBeforeIndex.len) {
+                shift = removedBeforeIndex.get(start);
+            }
+            starts.set(index, start - shift);
+            index = index + 1;
+        }
+    }
+
+    public Vector<Managed> allManaged() {
+        Vector<Managed> result = [];
+        int index = 0;
+        while (index < self.managedStack.len) {
+            result.push(self.managedStack.get(index));
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public void pushLoopScope() {
+        self.loopStarts.push(self.managedStack.len);
+    }
+
+    public void popLoopScope() {
+        if (self.loopStarts.len > 0) { self.loopStarts.pop(); }
+    }
+
+
+    public void pushControl(string kind) {
+        self.controls.push(kind);
+        self.controlManagedStarts.push(self.managedStack.len);
+        self.controlCleanupStarts.push(self.cleanupMarkers.len);
+    }
+
+    public void popControl() {
+        if (self.controls.len == 0) { return; }
+        self.controls.pop();
+        self.controlManagedStarts.pop();
+        self.controlCleanupStarts.pop();
+    }
+
+    public Vector<string> controlKinds() {
+        return self.controls;
+    }
+
+    public int exitedTryDepth(bool switchIsTarget) {
+        int depth = 0;
+        int index = self.controls.len - 1;
+        while (index >= 0) {
+            string kind = self.controls.get(index);
+            if (kind == "loop"
+                    || (switchIsTarget && kind == "switch")) {
+                return depth;
+            }
+            if (kind == "try") { depth = depth + 1; }
+            index = index - 1;
+        }
+        return 0;
+    }
+
+    public Vector<Managed> controlManaged(bool switchIsTarget) {
+        Vector<Managed> result = [];
+        int contextIndex = self.controls.len - 1;
+        while (contextIndex >= 0) {
+            string kind = self.controls.get(contextIndex);
+            if (kind == "loop"
+                    || (switchIsTarget && kind == "switch")) {
+                int start = self.controlManagedStarts.get(contextIndex);
+                int index = start;
+                while (index < self.managedStack.len) {
+                    result.push(self.managedStack.get(index));
+                    index = index + 1;
+                }
+                return result;
+            }
+            contextIndex = contextIndex - 1;
+        }
+        return result;
+    }
+
+    public string pushCleanupScope() {
+        string marker = "";
+        if (self.context.exceptionsAreEnabled()) {
+            marker = self.context.freshTemporary(
+                "__btrc_cleanup_scope");
+        }
+        self.cleanupMarkers.push(marker);
+        return marker;
+    }
+
+    public void popCleanupScope() {
+        if (self.cleanupMarkers.len == 0) { return; }
+        string marker = self.cleanupMarkers.pop();
+        if (marker != "") { self.activeCleanupMarkers.remove(marker); }
+    }
+
+    public void markCleanupRegistration() {
+        if (self.cleanupMarkers.len == 0) { return; }
+        string marker = self.cleanupMarkers.get(
+            self.cleanupMarkers.len - 1);
+        if (marker != "") {
+            self.activeCleanupMarkers.put(marker, true);
+        }
+    }
+
+    public bool cleanupScopeIsActive(string marker) {
+        return marker != "" && self.activeCleanupMarkers.has(marker);
+    }
+
+    public string controlCleanupMarker(bool switchIsTarget) {
+        int contextIndex = self.controls.len - 1;
+        while (contextIndex >= 0) {
+            string kind = self.controls.get(contextIndex);
+            if (kind == "loop"
+                    || (switchIsTarget && kind == "switch")) {
+                int scope = self.controlCleanupStarts.get(contextIndex);
+                while (scope < self.cleanupMarkers.len) {
+                    string marker = self.cleanupMarkers.get(scope);
+                    if (self.cleanupScopeIsActive(marker)) {
+                        return marker;
+                    }
+                    scope = scope + 1;
+                }
+                return "";
+            }
+            contextIndex = contextIndex - 1;
+        }
+        return "";
+    }
+
+    public string returnCleanupMarker() {
+        int scope = 0;
+        while (scope < self.cleanupMarkers.len) {
+            string marker = self.cleanupMarkers.get(scope);
+            if (self.cleanupScopeIsActive(marker)) { return marker; }
+            scope = scope + 1;
+        }
+        return "";
+    }
+
+    public bool anyCyclable(Vector<Managed> managed) {
+        int index = 0;
+        while (index < managed.len) {
+            Managed owner = managed.get(index);
+            if (owner.cleanupKind != "thread"
+                    && self.cycles.runtimeTypeMayCycle(owner.cls)) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
+    public ManagedLifetimeSnapshot isolate() {
+        ManagedLifetimeSnapshot snapshot =
+            ManagedLifetimeSnapshot();
+        self.copyManaged(self.managedStack, snapshot.managed);
+        self.copyInts(self.scopeStarts, snapshot.scopeStarts);
+        self.copyInts(self.loopStarts, snapshot.loopStarts);
+        self.copyStrings(self.controls, snapshot.controls);
+        self.copyInts(self.controlManagedStarts,
+            snapshot.controlManagedStarts);
+        self.copyStrings(self.cleanupMarkers,
+            snapshot.cleanupMarkers);
+        Vector<string> active = self.activeCleanupMarkers.keys();
+        self.copyStrings(active, snapshot.activeCleanupMarkers);
+        self.copyInts(self.controlCleanupStarts,
+            snapshot.controlCleanupStarts);
+        self.clearState();
+        return snapshot;
+    }
+
+    public void restore(ManagedLifetimeSnapshot snapshot) {
+        self.clearState();
+        self.copyManaged(snapshot.managed, self.managedStack);
+        self.copyInts(snapshot.scopeStarts, self.scopeStarts);
+        self.copyInts(snapshot.loopStarts, self.loopStarts);
+        self.copyStrings(snapshot.controls, self.controls);
+        self.copyInts(snapshot.controlManagedStarts,
+            self.controlManagedStarts);
+        self.copyStrings(snapshot.cleanupMarkers,
+            self.cleanupMarkers);
+        int activeIndex = 0;
+        while (activeIndex < snapshot.activeCleanupMarkers.len) {
+            self.activeCleanupMarkers.put(
+                snapshot.activeCleanupMarkers.get(activeIndex), true);
+            activeIndex = activeIndex + 1;
+        }
+        self.copyInts(snapshot.controlCleanupStarts,
+            self.controlCleanupStarts);
+    }
+
+    private void clearState() {
+        while (self.managedStack.len > 0) { self.managedStack.pop(); }
+        while (self.scopeStarts.len > 0) { self.scopeStarts.pop(); }
+        while (self.loopStarts.len > 0) { self.loopStarts.pop(); }
+        while (self.controls.len > 0) { self.controls.pop(); }
+        while (self.controlManagedStarts.len > 0) {
+            self.controlManagedStarts.pop();
+        }
+        while (self.cleanupMarkers.len > 0) {
+            self.cleanupMarkers.pop();
+        }
+        Vector<string> active = self.activeCleanupMarkers.keys();
+        int activeIndex = 0;
+        while (activeIndex < active.len) {
+            self.activeCleanupMarkers.remove(active.get(activeIndex));
+            activeIndex = activeIndex + 1;
+        }
+        while (self.controlCleanupStarts.len > 0) {
+            self.controlCleanupStarts.pop();
+        }
+    }
+
+    private void copyManaged(
+            Vector<Managed> source, Vector<Managed> destination) {
+        int index = 0;
+        while (index < source.len) {
+            Managed value = source.get(index);
+            Managed copy = Managed(value.name, value.cName, value.cls);
+            copy.cleanupKind = value.cleanupKind;
+            destination.push(copy);
+            index = index + 1;
+        }
+    }
+
+    private void copyInts(Vector<int> source, Vector<int> destination) {
+        int index = 0;
+        while (index < source.len) {
+            destination.push(source.get(index));
+            index = index + 1;
+        }
+    }
+
+    private void copyStrings(
+            Vector<string> source, Vector<string> destination) {
+        int index = 0;
+        while (index < source.len) {
+            destination.push(source.get(index));
+            index = index + 1;
+        }
+    }
+}

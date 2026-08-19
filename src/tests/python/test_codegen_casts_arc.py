@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.cycle_symbols import cycle_visitor_symbol
+from src.compiler.python.analyzer.generated_symbols import GeneratedSymbolRegistry
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -77,7 +77,7 @@ def test_unused_cycle_visitor_is_structured_and_dead_eliminated():
         int main() { return 0; }
     """)
 
-    assert cycle_visitor_symbol("Link") not in c
+    assert GeneratedSymbolRegistry.cycle_visitor_symbol("Link") not in c
 
 
 @pytest.mark.skipif(not COMPILERS or sys.platform == "win32", reason="requires a hosted C11 compiler")

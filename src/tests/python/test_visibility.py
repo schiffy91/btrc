@@ -1,19 +1,19 @@
 import pytest
 
 from src.compiler.python import Compiler
-from src.compiler.python.cli.compiler_cli import CompilerCLI
-from src.compiler.python.frontend.dependencies import SourceDependencyKind
-from src.compiler.python.frontend.resolver import SourceResolver
-from src.compiler.python.frontend.stdlib import StdlibRepository
-from src.compiler.python.frontend.visibility import (
+from src.compiler.python.application.results import CompilerFailureKind
+from src.compiler.python.cli.compiler import CompilerCommand
+from src.compiler.python.frontend.imports import (
     FrontendVisibilityError,
     ImportVisibilityChecker,
 )
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.frontend.sources import SourceDependencyKind, StdlibRepository
+from src.compiler.python.frontend.stage import FrontendStage
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 _STDLIB = StdlibRepository()
-_RESOLVER = SourceResolver(_STDLIB)
+_RESOLVER = FrontendStage(_STDLIB).resolver
 
 
 def write(path, content):
@@ -116,7 +116,7 @@ def test_strict_imports_cli_reports_visibility_error(tmp_path, monkeypatch, caps
     entry = write(tmp_path / "main.btrc", "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n")
 
     with pytest.raises(SystemExit) as exc:
-        CompilerCLI().run([entry, *flags, "--no-cache"])
+        CompilerCommand(Compiler()).run([entry, *flags, "--no-cache"])
 
     assert exc.value.code == 1
     assert "'B' is defined in b.btrc but a.btrc does not import it" in capsys.readouterr().err
@@ -131,7 +131,7 @@ def test_relaxed_imports_is_an_explicit_legacy_opt_out(tmp_path, monkeypatch):
         "import ./a.btrc;\nimport ./b.btrc;\nint main() { return 0; }\n",
     )
 
-    CompilerCLI().run([entry, "--relaxed-imports", "--no-cache"])
+    CompilerCommand(Compiler()).run([entry, "--relaxed-imports", "--no-cache"])
 
     assert (tmp_path / "main.c").is_file()
 
@@ -157,7 +157,8 @@ def test_compile_api_defaults_to_strict_imports(tmp_path):
 
     result = Compiler().compile(entry.read_text(), str(entry))
 
-    assert isinstance(result.failure, FrontendVisibilityError)
+    assert result.failure is not None
+    assert result.failure.kind is CompilerFailureKind.FRONTEND
     assert result.options.strict_imports is True
 
 
@@ -175,7 +176,7 @@ def test_cache_identity_prevents_valid_graph_from_masking_missing_import(tmp_pat
 
     write(consumer, "import ./b.btrc;\nB makeB() { return new B(); }\n")
     valid = _RESOLVER.resolve(entry.read_text(), str(entry), include_stdlib=False)
-    cli = CompilerCLI()
+    cli = CompilerCommand(Compiler())
     cli.run([str(entry)])
     capsys.readouterr()
 
@@ -340,6 +341,47 @@ def test_duplicate_symbol_satisfied_by_any_declaring_file(tmp_path):
     # uses2 imports impl2 (one of the declaring files): satisfied, even though
     # impl1 also declares 'helper' and was registered first.
     assert visibility_errors(entry) == []
+
+
+def test_authenticated_stdlib_hosted_reference_ignores_user_shadow(tmp_path):
+    entry = tmp_path / "main.btrc"
+    write(
+        entry,
+        "import std.bytes;\n"
+        "void* memcpy(void* destination, const void* source, size_t count) {\n"
+        "    (void)source; (void)count; return destination;\n"
+        "}\n"
+        "int main() { Bytes bytes = Bytes(); return bytes.length(); }\n",
+    )
+    resolved = _RESOLVER.resolve(
+        entry.read_text(),
+        str(entry),
+        include_stdlib=False,
+    )
+
+    parsed = FrontendStage(_STDLIB).parse(
+        resolved,
+        entry.name,
+        use_ast_cache=False,
+    )
+
+    assert parsed.program is not None
+
+
+def test_untrusted_source_named_like_stdlib_still_binds_to_user_shadow(tmp_path):
+    shadow = tmp_path / "shadow.btrc"
+    consumer = tmp_path / "bytes.btrc"
+    write(shadow, "int memcpy(int value) { return value; }\n")
+    write(consumer, "int copy(int value) { return memcpy(value); }\n")
+    entry = tmp_path / "main.btrc"
+    write(
+        entry,
+        "import ./shadow.btrc;\nimport ./bytes.btrc;\nint main() { return 0; }\n",
+    )
+
+    errors = visibility_errors(entry)
+
+    assert errors[0][0] == "'memcpy' is defined in shadow.btrc but bytes.btrc does not import it"
 
 
 def test_compiler_known_stdlib_type_still_requires_its_module_import(tmp_path):

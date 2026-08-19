@@ -11,8 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import stdlib_archive as archive
-from src.compiler.python.cli_archive import StdlibArchiveBuilder
+import src.compiler.python.artifacts.stdlib as archive
+from src.compiler.python.application.compiler import Compiler
+from src.compiler.python.application.pipeline import CompilationPipeline
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 AR = shutil.which("ar")
@@ -54,7 +55,10 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def stdlib_output(tmp_path_factory: pytest.TempPathFactory) -> Path:
     output = tmp_path_factory.mktemp("arc-cross-tu-stdlib")
-    StdlibArchiveBuilder().build(str(output))
+    compiler = Compiler(
+        CompilationPipeline(archive_repository=archive.StdlibArtifactRepository())
+    )
+    assert compiler.build_stdlib_archive(str(output)).successful
     return output
 
 

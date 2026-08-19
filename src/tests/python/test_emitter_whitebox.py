@@ -4,7 +4,7 @@ string constants) and statement forms (volatile declarations, the
 two C-for init shapes, a GPU kernel emitted in statement position) that specific
 source programs don't reliably produce."""
 
-from src.compiler.python.ir.emitter import CEmitter
+from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.ir.nodes import (
     CType,
     IRAssign,
@@ -16,6 +16,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionDef,
     IRGlobalDecl,
     IRGpuKernel,
+    IRGpuShaderModule,
     IRIf,
     IRLiteral,
     IRModule,
@@ -26,6 +27,8 @@ from src.compiler.python.ir.nodes import (
     IRVar,
     IRVarDecl,
 )
+from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.syntax.ast.generated import Block
 
 
 def test_emit_typed_global_and_multifield_struct():
@@ -47,6 +50,7 @@ def test_emit_typed_global_and_multifield_struct():
             )
         ],
     )
+    IROptimizer.refresh_type_declarations(m)
     c = CEmitter().emit(m)
     assert "g_counter" in c  # global emitted
     assert "Pt" in c and "x" in c and "y" in c  # multi-field struct
@@ -91,7 +95,10 @@ def test_emit_volatile_pointer_declaration():
 
 
 def test_emit_gpu_kernel_in_statement_position():
-    kernel = IRGpuKernel(name="kern", wgsl_source="@compute @workgroup_size(64)\nfn main() {}")
+    kernel = IRGpuKernel(
+        name="kern",
+        shader_module=IRGpuShaderModule(body=Block(statements=[])),
+    )
     body = IRBlock(stmts=[kernel, IRReturn(value=IRLiteral(text="0"))])
     m = IRModule(function_defs=[IRFunctionDef(name="f", return_type=CType(text="int"), body=body)])
     c = CEmitter().emit(m)

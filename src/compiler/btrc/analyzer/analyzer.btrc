@@ -1,0 +1,86 @@
+/* Per-compilation semantic-analysis composition root. */
+
+import ../generated/ast/node.btrc;
+import ./declarations.btrc;
+import ./expressions.btrc;
+import ./generics.btrc;
+import ./gpu.btrc;
+import ./hosted_abi.btrc;
+import ./models.btrc;
+import ./operators.btrc;
+import ./ownership/cycles.btrc;
+import ./ownership/values.btrc;
+import ./types.btrc;
+import ./validation/validator.btrc;
+
+class SemanticAnalyzer {
+    private Analyzed analysis;
+    private SemanticTypeSystem types;
+    private DeclarationRegistry declarations;
+    private OperatorSemantics operators;
+    private ExpressionTypeResolver expressions;
+    private GenericSpecializer generics;
+    private GpuSemantics gpu;
+    private ManagedValueSemantics managedValues;
+    private CycleSemantics cycles;
+    private SourceRuntimeSymbols sourceRuntimeSymbols;
+
+    public SemanticAnalyzer(SourceRuntimeSymbols sourceRuntimeSymbols) {
+        self.analysis = Analyzed();
+        self.sourceRuntimeSymbols = sourceRuntimeSymbols;
+    }
+
+    public Analyzed analyze(
+            Node program, HostedAbiRepository hostedAbi) {
+        self.types = SemanticTypeSystem(self.analysis);
+        self.declarations = DeclarationRegistry(
+            self.analysis, hostedAbi);
+        self.operators = OperatorSemantics(self.analysis);
+        self.expressions = ExpressionTypeResolver(
+            self.analysis, hostedAbi, self.operators,
+            self.types, self.declarations);
+        self.generics = GenericSpecializer(
+            self.analysis, self.operators, self.expressions);
+        self.gpu = GpuSemantics(
+            self.analysis, hostedAbi, self.expressions);
+        self.managedValues = ManagedValueSemantics(self.analysis);
+        self.cycles = CycleSemantics(
+            self.analysis, self.managedValues);
+        self.declarations.registerProgram(program);
+        self.expressions.inferGlobals(program);
+        self.generics.discover(program);
+        SemanticValidator validator = SemanticValidator(
+            program, self.analysis, hostedAbi,
+            self.operators, self.gpu, self.cycles,
+            self.sourceRuntimeSymbols, self.types, self.declarations,
+            self.expressions);
+        validator.validate();
+        self.generics.closeExpressionGraph(program);
+        return self.analysis;
+    }
+
+    public OperatorSemantics operatorSemantics() {
+        return self.operators;
+    }
+
+
+    public ExpressionTypeResolver expressionTypes() {
+        return self.expressions;
+    }
+
+    public DeclarationRegistry declarationRegistry() {
+        return self.declarations;
+    }
+
+    public ManagedValueSemantics managedValueSemantics() {
+        return self.managedValues;
+    }
+
+    public GpuSemantics gpuSemantics() {
+        return self.gpu;
+    }
+
+    public CycleSemantics cycleSemantics() {
+        return self.cycles;
+    }
+}

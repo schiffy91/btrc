@@ -5,50 +5,47 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import FunctionDecl
-from src.compiler.python.cli_archive import StdlibArchiveBuilder
-from src.compiler.python.gen_hosted_abi_btrc import HostedAbiBtrcGenerator
-from src.compiler.python.hosted_abi import (
-    HOSTED_FUNCTIONS,
-    HOSTED_TYPE_NAMES,
-    HOSTED_TYPEDEF_NAMES,
-    MUTATE,
-    READ,
-    hosted_function,
-    hosted_macro_reference_requires_semantic_call,
-    hosted_return_alias_parameter,
-    hosted_return_deallocator,
-    hosted_return_effect,
-    hosted_source_helper_adopts_raw_string,
-)
-from src.compiler.python.hosted_abi_model import (
+from src.compiler.python.abi.declarations import (
     CONSUME,
     DEALLOC_FREE,
-    INT,
+    MUTATE,
+    READ,
     RETURN_ALIAS,
     RETURN_FRESH,
     UNKNOWN,
     VALUE,
-    VOID_PTR,
+    AbiType,
     HostedFunction,
-    abi_type,
 )
-from src.compiler.python.hosted_abi_native import (
-    HOSTED_NATIVE_FUNCTIONS,
-    HOSTED_NATIVE_INTERNAL_NAMES,
-)
-from src.compiler.python.hosted_abi_runtime import SOURCE_RUNTIME_HELPERS
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.abi.hosted import HOSTED_ABI
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
+from src.compiler.python.frontend.sources import CompilerStdlibSource
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.pipeline.models import CompilerOptions
-from src.compiler.python.pipeline.pipeline import CompilerPipeline
-from src.compiler.python.source_provenance import (
-    compiler_stdlib_source,
-    is_compiler_stdlib_source,
-)
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
+from src.compiler.python.syntax.ast.generated import FunctionDecl
+from tools.compiler_codegen.hosted_abi import HostedAbiCatalogGenerator, HostedAbiManifest
+from tools.compiler_codegen.runtime import RuntimeManifest
 
 SOURCE_ROOT = Path(__file__).parents[2]
+REPOSITORY_ROOT = SOURCE_ROOT.parent
+INT = AbiType("int")
+VOID_PTR = AbiType("void", 1)
+HOSTED_FUNCTIONS = HOSTED_ABI.functions
+HOSTED_TYPE_NAMES = HOSTED_ABI.types
+HOSTED_TYPEDEF_NAMES = HOSTED_ABI.typedefs
+HOSTED_NATIVE_FUNCTIONS = {name: HOSTED_ABI.functions[name] for name in HOSTED_ABI.native_names}
+HOSTED_NATIVE_INTERNAL_NAMES = HOSTED_ABI.native_internal_names
+SOURCE_RUNTIME_HELPERS = RuntimeHelperCatalog().source_visible_names
+hosted_function = HOSTED_ABI.function
+hosted_macro_reference_requires_semantic_call = HOSTED_ABI.macro_reference_requires_semantic_call
+hosted_return_alias_parameter = HOSTED_ABI.return_alias_parameter
+hosted_return_deallocator = HOSTED_ABI.return_deallocator
+hosted_return_effect = HOSTED_ABI.return_effect
+hosted_source_helper_adopts_raw_string = HOSTED_ABI.source_helper_adopts_raw_string
+abi_type = AbiType
 
 
 def _analyze(source: str):
@@ -157,9 +154,14 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
         assert spec.parameters is not None
         assert spec.return_effect != "opaque" or spec.result.pointer_depth == 0
         for declaration in variants:
-            hosted = analyzer.declaration_policy.hosted
-            assert hosted.abi_type(declaration.return_type) == spec.result
-            assert tuple(hosted.abi_type(parameter.type) for parameter in declaration.params) == spec.parameters
+            assert analyzer.declarations.hosted_abi_type(declaration.return_type) == spec.result
+            assert (
+                tuple(
+                    analyzer.declarations.hosted_abi_type(parameter.type)
+                    for parameter in declaration.params
+                )
+                == spec.parameters
+            )
             if name == "btrc_tray_take_command":
                 assert declaration.return_type.base == "char"
                 assert declaration.return_type.pointer_depth == 1
@@ -203,34 +205,34 @@ def test_source_string_adopters_are_derived_from_the_canonical_registry() -> Non
 
 
 def test_generated_registry_is_current_and_has_one_domain_owner() -> None:
-    files = HostedAbiBtrcGenerator().render_files()
-    assert len(files) == 1
-    [(path, expected)] = files.items()
+    runtime = RuntimeManifest.load(SOURCE_ROOT / "runtime/c/manifest.toml")
+    manifest = HostedAbiManifest.load(SOURCE_ROOT / "language/hosted_abi.toml", runtime)
+    artifacts = HostedAbiCatalogGenerator(manifest).artifacts()
+    artifact = next(item for item in artifacts if item.path.suffix == ".btrc")
+    path = REPOSITORY_ROOT.joinpath(*artifact.path.parts)
+    expected = artifact.content.decode()
     assert path.name == "tables.btrc"
     assert path.read_text() == expected
     assert path.stat().st_mode & 0o777 == 0o644
-    assert "class GeneratedHostedAbi" in expected
+    assert "class GeneratedHostedAbiData" in expected
     assert '#include "' not in expected
 
 
 def test_source_runtime_helper_roots_are_generated_from_the_registry() -> None:
-    files = HostedAbiBtrcGenerator().render_files()
-    generated_names = set()
-    for source in files.values():
-        method = source.split("class bool sourceRuntimeHelperChunk0", 1)[1]
-        method = method.split("    }", 1)[0]
-        generated_names.update(re.findall(r'name == "([^"]+)"', method))
+    runtime = RuntimeManifest.load(SOURCE_ROOT / "runtime/c/manifest.toml")
+    manifest = HostedAbiManifest.load(SOURCE_ROOT / "language/hosted_abi.toml", runtime)
+    generated_names = {function.name for function in manifest.functions if function.origin == "runtime"}
     assert generated_names == SOURCE_RUNTIME_HELPERS
 
-    source_runtime = (SOURCE_ROOT / "compiler" / "btrc" / "source_runtime_symbols.btrc").read_text()
-    assert "GeneratedHostedAbi.sourceRuntimeHelper(name)" in source_runtime
+    source_runtime = (SOURCE_ROOT / "compiler/btrc/analyzer/hosted_abi.btrc").read_text()
+    assert "class SourceRuntimeSymbols" in source_runtime
     assert not any(name in source_runtime for name in SOURCE_RUNTIME_HELPERS)
 
 
 def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
     stdlib_path = SOURCE_ROOT / "stdlib" / "process.btrc"
     source = '#include "process.btrc"\nextern char** environ;\nint main() { return 0; }'
-    pipeline = CompilerPipeline()
+    pipeline = CompilationPipeline()
     options = CompilerOptions(include_stdlib=False, use_ast_cache=False)
     resolved = pipeline.resolve(
         source,
@@ -239,7 +241,7 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
     )
     parsed = pipeline.parse(resolved, "process.btrc", options)
     declaration = next(item for item in parsed.program.declarations if getattr(item, "name", "") == "environ")
-    assert not is_compiler_stdlib_source(declaration.source_file)
+    assert not CompilerStdlibSource.authenticated(declaration.source_file)
     errors = SemanticAnalyzer().analyze(parsed.program).errors
     assert any("environ" in error and "hosted C symbol" in error for error in errors)
 
@@ -247,12 +249,12 @@ def test_root_path_cannot_spoof_compiler_stdlib_provenance() -> None:
 def test_resolved_stdlib_import_receives_authenticated_provenance(tmp_path: Path) -> None:
     root = tmp_path / "main.btrc"
     source = "import std.process;\nint main() { return 0; }"
-    pipeline = CompilerPipeline()
+    pipeline = CompilationPipeline()
     options = CompilerOptions(include_stdlib=False, use_ast_cache=False)
     resolved = pipeline.resolve(source, str(root), options)
     parsed = pipeline.parse(resolved, root.name, options)
     declaration = next(item for item in parsed.program.declarations if getattr(item, "name", "") == "environ")
-    assert is_compiler_stdlib_source(declaration.source_file)
+    assert CompilerStdlibSource.authenticated(declaration.source_file)
 
 
 def test_exact_public_native_abi_has_one_authoritative_diagnostic() -> None:
@@ -275,18 +277,20 @@ def test_stdlib_cannot_take_hosted_lifetime_value_through_user_shadow() -> None:
     program = Parser(Lexer(source, "<hosted-value-shadow>").tokenize()).parse()
     source_free, stdlib_wrapper = program.declarations
     source_free.source_file = "<user>"
-    stdlib_wrapper.source_file = compiler_stdlib_source()
+    stdlib_wrapper.source_file = CompilerStdlibSource()
     errors = SemanticAnalyzer().analyze(program).errors
     assert any("Hosted lifetime function 'free' must be called directly" in error for error in errors)
 
 
-def test_archive_stamps_nested_stdlib_declaration_provenance() -> None:
+def test_stdlib_source_owner_stamps_nested_declaration_provenance() -> None:
     source = "class Wrapper { public void inspect(void* value) { (void)value; } }"
     program = Parser(Lexer(source, "<archive-provenance>").tokenize()).parse()
-    StdlibArchiveBuilder()._stamp_declarations(program)
+    for declaration in program.declarations:
+        declaration.source_file = CompilerStdlibSource()
+        CompilerStdlibSource.stamp_nested(declaration)
     declaration = program.declarations[0]
-    assert is_compiler_stdlib_source(declaration.source_file)
-    assert is_compiler_stdlib_source(declaration.members[0].source_file)
+    assert CompilerStdlibSource.authenticated(declaration.source_file)
+    assert CompilerStdlibSource.authenticated(declaration.members[0].source_file)
 
 
 def test_generated_enum_names_are_safe_but_anonymous_values_are_raw() -> None:

@@ -2,7 +2,7 @@ import subprocess
 import textwrap
 from pathlib import Path
 
-from src.compiler.python.ir.helpers.process import PROCESS as PROCESS_HELPERS
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 ROOT = Path(__file__).resolve().parents[3]
 PROCESS = ROOT / "src" / "stdlib" / "process.btrc"
@@ -10,13 +10,8 @@ HTTP_CLIENT = ROOT / "src" / "stdlib" / "http_client.btrc"
 FILESYSTEM = ROOT / "src" / "stdlib" / "fs.btrc"
 PASSWORD_EXCHANGE = ROOT / "src" / "stdlib" / "terminal_password_exchange.btrc"
 TERMINAL = ROOT / "src" / "stdlib" / "terminal.btrc"
-PROCESS_HELPER = ROOT / "src" / "compiler" / "python" / "ir" / "helpers" / "process.py"
-PROCESS_DESCRIPTOR_HELPER = ROOT / "src" / "compiler" / "python" / "ir" / "helpers" / "process_descriptor.py"
-SELFHOST_PROCESS_CLOSE = ROOT / "src" / "compiler" / "btrc" / "process_runtime_close.btrc"
-SELFHOST_PROCESS_DESCRIPTOR = (
-    ROOT / "src" / "compiler" / "btrc" / "process_runtime_descriptor.btrc"
-)
-SELFHOST_PROCESS_HELPERS = ROOT / "src" / "compiler" / "btrc" / "process_runtime_helpers.btrc"
+PROCESS_HELPERS = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("process")}
+PROCESS_RUNTIME = "\n".join(helper.c_source for helper in PROCESS_HELPERS.values())
 
 
 def test_child_branch_uses_only_precomputed_async_signal_safe_inputs() -> None:
@@ -59,17 +54,13 @@ def test_process_descriptor_bound_is_computed_before_fork() -> None:
 
 
 def test_descriptor_bound_covers_fds_above_a_lowered_soft_limit() -> None:
-    helper = PROCESS_HELPER.read_text()
-    selfhost = SELFHOST_PROCESS_CLOSE.read_text()
-
-    for source in (helper, selfhost):
-        assert "limit.rlim_max" in source
-        assert "limit.rlim_cur" not in source
-        assert "kern.maxfilesperproc" in source
-        assert "bound > (uintmax_t)1048576" in source
-        assert "defined(__FreeBSD__)" in source
-        assert "closefrom(3)" in source
-        assert "errno != EBADF" in source
+    assert "limit.rlim_max" in PROCESS_RUNTIME
+    assert "limit.rlim_cur" not in PROCESS_RUNTIME
+    assert "kern.maxfilesperproc" in PROCESS_RUNTIME
+    assert "bound > (uintmax_t)1048576" in PROCESS_RUNTIME
+    assert "defined(__FreeBSD__)" in PROCESS_RUNTIME
+    assert "closefrom(3)" in PROCESS_RUNTIME
+    assert "errno != EBADF" in PROCESS_RUNTIME
 
 
 def test_close_fallback_does_not_retry_an_interrupted_descriptor(
@@ -162,18 +153,17 @@ def test_close_fallback_does_not_retry_an_interrupted_descriptor(
 
 def test_process_uses_platform_fast_paths_without_weakening_fallback() -> None:
     source = PROCESS.read_text()
-    helper = PROCESS_HELPER.read_text()
     run = source.split("class ExecResult run", 1)[1]
 
     spawn = run.index("__btrc_posix_spawn_cloexec(")
     bound = run.index("descriptorCloseBound()", spawn)
     fork = run.index("fork()", bound)
     assert spawn < bound < fork
-    assert "POSIX_SPAWN_CLOEXEC_DEFAULT" in helper
-    assert "posix_spawn_file_actions_addinherit_np" in helper
-    assert "posix_spawn_file_actions_addchdir_np" in helper
-    assert "POSIX_SPAWN_SETPGROUP" in helper
-    assert "SYS_close_range" in helper
+    assert "POSIX_SPAWN_CLOEXEC_DEFAULT" in PROCESS_RUNTIME
+    assert "posix_spawn_file_actions_addinherit_np" in PROCESS_RUNTIME
+    assert "posix_spawn_file_actions_addchdir_np" in PROCESS_RUNTIME
+    assert "POSIX_SPAWN_SETPGROUP" in PROCESS_RUNTIME
+    assert "SYS_close_range" in PROCESS_RUNTIME
     assert "__btrc_close_descriptors_from(bound)" in source
     assert "__btrc_close_descriptors_from(bound)" in TERMINAL.read_text()
 
@@ -192,17 +182,16 @@ def test_descriptor_execution_uses_the_shared_child_engine() -> None:
     assert "__btrc_exec_signal_guard_child_end(" in run
     assert "__btrc_exec_signal_guard_parent_end(" in run
 
-    helpers = PROCESS_DESCRIPTOR_HELPER.read_text()
-    assert "fexecve(descriptor, argv, envp)" in helpers
-    assert "fstat(descriptor, &status)" in helpers
-    assert "S_ISREG(status.st_mode)" in helpers
-    assert "pthread_sigmask(SIG_BLOCK" in helpers
-    assert "sigaction(signal_number" in helpers
-    assert "sigprocmask(SIG_SETMASK" in helpers
-    assert "errno = ENOTSUP" in helpers
-    assert "/tmp/btrc-exec" not in helpers
-    assert "mkdtemp" not in helpers
-    assert "flags & ~FD_CLOEXEC" not in helpers
+    assert "fexecve(descriptor, argv, envp)" in PROCESS_RUNTIME
+    assert "fstat(descriptor, &status)" in PROCESS_RUNTIME
+    assert "S_ISREG(status.st_mode)" in PROCESS_RUNTIME
+    assert "pthread_sigmask(SIG_BLOCK" in PROCESS_RUNTIME
+    assert "sigaction(signal_number" in PROCESS_RUNTIME
+    assert "sigprocmask(SIG_SETMASK" in PROCESS_RUNTIME
+    assert "errno = ENOTSUP" in PROCESS_RUNTIME
+    assert "/tmp/btrc-exec" not in PROCESS_RUNTIME
+    assert "mkdtemp" not in PROCESS_RUNTIME
+    assert "flags & ~FD_CLOEXEC" not in PROCESS_RUNTIME
 
 
 def test_child_descriptor_capabilities_are_leased_and_fail_closed() -> None:
@@ -210,10 +199,6 @@ def test_child_descriptor_capabilities_are_leased_and_fail_closed() -> None:
     run = source.split("class ExecResult run", 1)[1]
     child = run.split("if (child == (pid_t)0) {", 1)[1]
     child = child.split("\n        bool signalRestoreFailed", 1)[0]
-    helpers = PROCESS_DESCRIPTOR_HELPER.read_text()
-    selfhost_descriptor = SELFHOST_PROCESS_DESCRIPTOR.read_text()
-    selfhost_routing = SELFHOST_PROCESS_HELPERS.read_text()
-
     assert "class ChildDescriptorMapping" in source
     assert "int sourceDescriptor" in source
     assert "int childDescriptor" in source
@@ -236,12 +221,11 @@ def test_child_descriptor_capabilities_are_leased_and_fail_closed() -> None:
         "__btrc_validate_working_directory_descriptor",
         "__btrc_enter_working_directory_descriptor",
     ):
-        assert helper in helpers
-        assert helper in selfhost_descriptor
-        assert helper in selfhost_routing
-    assert "S_ISDIR(status.st_mode)" in helpers
-    assert "return fchdir(descriptor)" in helpers
-    assert "errno = ENOTSUP" in helpers
+        assert helper in PROCESS_HELPERS
+        assert helper in PROCESS_RUNTIME
+    assert "S_ISDIR(status.st_mode)" in PROCESS_RUNTIME
+    assert "return fchdir(descriptor)" in PROCESS_RUNTIME
+    assert "errno = ENOTSUP" in PROCESS_RUNTIME
     assert "/proc/self/fd" not in source
 
 

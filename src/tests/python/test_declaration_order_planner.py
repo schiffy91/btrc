@@ -2,8 +2,7 @@
 
 import pytest
 
-from src.compiler.python.ir.declaration_order import TypeDeclarationPlanner
-from src.compiler.python.ir.emitter import CEmitter
+from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.ir.nodes import (
     CType,
     IREnumDef,
@@ -19,10 +18,12 @@ from src.compiler.python.ir.nodes import (
     IRTypedefDef,
     IRVar,
 )
+from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.ir.verifier import IRVerifier
 
 
 def _names(module: IRModule) -> list[str | None]:
-    return [declaration.name for declaration in TypeDeclarationPlanner(module).plan()]
+    return [declaration.name for declaration in IROptimizer.plan_type_declarations(module)]
 
 
 def test_cross_kind_dependencies_have_one_stable_plan():
@@ -233,7 +234,7 @@ def test_by_value_aggregate_cycles_fail_closed():
     ]
 
     with pytest.raises(ValueError, match="cyclic typed C declaration dependency"):
-        TypeDeclarationPlanner(module).plan()
+        IROptimizer.plan_type_declarations(module)
 
 
 def test_typedef_cycles_fail_closed():
@@ -244,7 +245,7 @@ def test_typedef_cycles_fail_closed():
     ]
 
     with pytest.raises(ValueError, match="cyclic typed C declaration dependency"):
-        TypeDeclarationPlanner(module).plan()
+        IROptimizer.plan_type_declarations(module)
 
 
 def test_duplicate_type_providers_fail_closed():
@@ -253,17 +254,18 @@ def test_duplicate_type_providers_fail_closed():
     module.struct_defs = [IRStructDef("Value")]
 
     with pytest.raises(ValueError, match="duplicate typed C declaration provider 'Value'"):
-        TypeDeclarationPlanner(module).plan()
+        IROptimizer.plan_type_declarations(module)
 
 
 def test_module_rejects_a_stale_ordered_declaration_view():
     module = IRModule(struct_defs=[IRStructDef("Pair", [IRStructField(CType("int"), "value")])])
+    IROptimizer.refresh_type_declarations(module)
     module.struct_defs.append(IRStructDef("Box"))
 
     with pytest.raises(ValueError, match="ordered_type_declarations is stale"):
-        module.validate_declarations()
+        IRVerifier(module).validate()
 
-    module.refresh_type_declarations()
+    IROptimizer.refresh_type_declarations(module)
     assert [item.name for item in module.ordered_type_declarations] == [
         "Pair",
         "Box",
@@ -279,5 +281,6 @@ def test_archive_header_formats_the_module_ordered_view():
         ],
     )
 
+    IROptimizer.refresh_type_declarations(module)
     header = CEmitter().emit_header(module)
     assert header.index("struct Pair {") < header.index("struct Outer {")

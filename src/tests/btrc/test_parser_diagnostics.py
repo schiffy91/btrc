@@ -13,7 +13,7 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 DRIVER_SOURCES = {
-    "parser": "src/compiler/btrc/parse_main.btrc",
+    "parser": "src/compiler/btrc/tools/parse_main.btrc",
     "compiler": "src/compiler/btrc/btrcc_main.btrc",
 }
 
@@ -155,7 +155,13 @@ def test_valid_program_still_crosses_both_boundaries(selfhost_drivers: dict[str,
     parsed = _run([str(selfhost_drivers["parser"]), str(program)], timeout=15)
     assert parsed.returncode == 0 and parsed.stderr == ""
     reference = _run(
-        ["python3", "src/compiler/btrc/verify_ast.py", str(program)],
+        [
+            "python3",
+            "-m",
+            "tools.compiler_codegen.main",
+            "verify-ast",
+            str(program),
+        ],
         timeout=15,
     )
     assert reference.returncode == 0 and reference.stderr == ""

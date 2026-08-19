@@ -1,0 +1,154 @@
+import std.map;
+import std.strings;
+import std.vector;
+import ../generated/ast/node.btrc;
+import ../syntax/identity.btrc;
+import ./expressions.btrc;
+import ./hosted_abi.btrc;
+import ./models.btrc;
+import ./types.btrc;
+
+/* Per-module GPU semantic policy.  This owner deliberately retains the
+ * analyzed symbol/type universe: contextual GPU typing is not a vocabulary
+ * lookup, because source and hosted declarations can shadow WGSL builtins. */
+
+class GpuSemantics {
+    private Analyzed analyzed;
+    private HostedAbiRepository hostedAbi;
+    private ExpressionTypeResolver expressions;
+
+    public GpuSemantics(Analyzed analyzed,
+            HostedAbiRepository hostedAbi,
+            ExpressionTypeResolver expressions) {
+        self.analyzed = analyzed;
+        self.hostedAbi = hostedAbi;
+        self.expressions = expressions;
+    }
+
+    public bool builtin(string name) {
+        return name == "abs" || name == "ceil" || name == "clamp"
+            || name == "cos" || name == "exp" || name == "floor"
+            || name == "log" || name == "max" || name == "min"
+            || name == "pow" || name == "round" || name == "sin"
+            || name == "sqrt" || name == "tan";
+    }
+
+    public int builtinArity(string name) {
+        if (name == "clamp") { return 3; }
+        if (name == "max" || name == "min" || name == "pow") { return 2; }
+        return 1;
+    }
+
+    public bool floatBuiltin(string name) {
+        return name == "ceil" || name == "cos" || name == "exp"
+            || name == "floor" || name == "log" || name == "pow"
+            || name == "round" || name == "sin" || name == "sqrt"
+            || name == "tan";
+    }
+
+    public bool sameTypeBuiltin(string name) {
+        return name == "abs" || name == "clamp"
+            || name == "max" || name == "min";
+    }
+
+    public bool callResolvesToBuiltin(Node? expression,
+            Map<string, Node> varTypes) {
+        if (expression == null || expression.kind != NK_CALL_EXPR
+                || expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER) { return false; }
+        string name = expression.callee.name;
+        if (!self.builtin(name) || varTypes.has(name)) { return false; }
+        if (!self.analyzed.funcTable.has(name)) { return true; }
+        if (self.analyzed.hostedCallKeys.has(
+                AstIdentity.key(expression))) { return true; }
+        Node declaration = self.analyzed.funcTable.get(name);
+        return declaration.body_node == null
+            && self.hostedAbi.exactFunction(name);
+    }
+
+    public string contextualExprBase(Node? expression,
+            Map<string, Node> varTypes) {
+        if (expression == null) { return ""; }
+        if (expression.kind == NK_FLOAT_LITERAL) { return "float"; }
+        if (expression.kind == NK_INT_LITERAL) { return "int"; }
+        if (expression.kind == NK_BOOL_LITERAL) { return "bool"; }
+        if (expression.kind == NK_BINARY_EXPR) {
+            string op = expression.op;
+            if (op == "==" || op == "!=" || op == "<" || op == ">"
+                    || op == "<=" || op == ">=" || op == "&&"
+                    || op == "||") {
+                return "bool";
+            }
+            string left = self.contextualExprBase(
+                expression.left, varTypes);
+            string right = self.contextualExprBase(
+                expression.right, varTypes);
+            if (left == "float" || right == "float") { return "float"; }
+            if (left == right && left != "") { return left; }
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            if (expression.op == "!") { return "bool"; }
+            return self.contextualExprBase(expression.operand, varTypes);
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            string whenTrue = self.contextualExprBase(
+                expression.true_expr, varTypes);
+            string whenFalse = self.contextualExprBase(
+                expression.false_expr, varTypes);
+            if (whenTrue == whenFalse) { return whenTrue; }
+            if ((whenTrue == "int" && whenFalse == "float")
+                    || (whenTrue == "float" && whenFalse == "int")) {
+                return "float";
+            }
+        }
+        if (expression.kind == NK_CAST_EXPR
+                && expression.target_type != null) {
+            return expression.target_type.base;
+        }
+        if (expression.kind == NK_CALL_EXPR && expression.callee != null
+                && expression.callee.kind == NK_IDENTIFIER) {
+            string name = expression.callee.name;
+            if (name == "gpu_id") { return "int"; }
+            bool intrinsic = self.callResolvesToBuiltin(
+                expression, varTypes);
+            if (intrinsic && self.floatBuiltin(name)) { return "float"; }
+            if (intrinsic && self.sameTypeBuiltin(name)
+                    && expression.args.len > 0) {
+                return self.contextualExprBase(
+                    expression.args.get(0), varTypes);
+            }
+        }
+        Node? inferred = self.expressions.inferSpecializationWithoutMemo(
+            expression, varTypes);
+        if (inferred != null) { return inferred.base; }
+        return "";
+    }
+
+    private Node? contextualExprTypeUnmemoized(
+            Node? expression, Map<string, Node> varTypes) {
+        if (expression == null) { return null; }
+        bool contextual = expression.kind == NK_FLOAT_LITERAL
+            || expression.kind == NK_INT_LITERAL
+            || expression.kind == NK_BOOL_LITERAL
+            || expression.kind == NK_BINARY_EXPR
+            || expression.kind == NK_UNARY_EXPR
+            || expression.kind == NK_TERNARY_EXPR
+            || expression.kind == NK_CAST_EXPR;
+        if (expression.kind == NK_CALL_EXPR && expression.callee != null
+                && expression.callee.kind == NK_IDENTIFIER) {
+            string name = expression.callee.name;
+            contextual = name == "gpu_id" || self.callResolvesToBuiltin(
+                expression, varTypes);
+        }
+        if (contextual) {
+            string base = self.contextualExprBase(expression, varTypes);
+            if (base != "") { return SemanticTypeSystem.primitive(base); }
+        }
+        return self.expressions.infer(expression, varTypes);
+    }
+
+    public Node? contextualExprType(
+            Node? expression, Map<string, Node> varTypes) {
+        return self.contextualExprTypeUnmemoized(expression, varTypes);
+    }
+}

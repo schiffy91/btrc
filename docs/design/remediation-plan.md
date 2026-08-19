@@ -73,14 +73,12 @@ specific, enumerated ways.
    missing SIZEOF [proven: `(int)sizeof(int)` rejected], unary `+` missing.
    Document the *actual* `<`-disambiguation and cast follow-sets in the
    grammar's notes; delete or implement the vapor keyword `override`.
-6. **Generated-file integrity**: `make ast-generate` + round-trip test
-   (checked-in ast_nodes.py already differs from fresh generator output —
-   LANG-D6 [proven]); asdl_parser stops silently dropping unknown characters
-   and validates field types (LANG-D7).
-7. **Self-hosting groundwork**: asdl_btrc.py currently emits btrc that does not
-   parse (keyword-collision `default`, untyped sum refs — LANG-C2 [proven]).
-   Fix field-name escaping + base-class mapping; add a generate→parse smoke
-   test. Align the two generators' optional-field semantics (LANG-D8).
+6. **Generated-file integrity**: the unified `AstCatalogGenerator` publishes
+   both AST artifacts atomically and `compiler-codegen check` owns freshness.
+   `AsdlSchemaParser` owns schema tokenization and parsing (LANG-D6/D7).
+7. **Self-hosting groundwork**: the shared AST renderer emits the parseable fat
+   tagged `Node` representation, including keyword-safe backing fields and
+   aligned optional-string semantics (LANG-C2/LANG-D8).
 
 ---
 
@@ -236,7 +234,7 @@ C. **Protocol additions, ranked** (DEV-(d)): real diagnostic ranges (with
    did-you-mean); pull diagnostics last (also carries imported-file diags —
    today type errors in imported files are invisible until opened, DEV-D6).
 D. **Extension**: explicit relative `serverCommand` honored before localServer
-   (DEV-D8); prepare_lsp_package excludes `.venv`/`.btrc-cache`/build
+   (DEV-D8); `ExtensionBundler` excludes `.venv`/`.btrc-cache`/build
    artifacts and aligns the bundle flake's python version (DEV-D9); config
    changes prompt a client restart (DEV-P7).
 

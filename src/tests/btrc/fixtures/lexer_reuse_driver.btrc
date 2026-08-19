@@ -1,14 +1,14 @@
 import std.io;
 import std.vector;
 
-#include "../../../compiler/btrc/tokens.btrc"
-#include "../../../compiler/btrc/ebnf.btrc"
-#include "../../../compiler/btrc/lexer.btrc"
+#include "../../../compiler/btrc/syntax/tokens.btrc"
+#include "../../../compiler/btrc/syntax/grammar.btrc"
+#include "../../../compiler/btrc/lexer/lexer.btrc"
 #include <assert.h>
 
 int main() {
     string grammarText = Path.readAll("src/language/grammar.ebnf");
-    GrammarInfo grammar = parseGrammar(grammarText);
+    GrammarInfo grammar = EbnfGrammarParser(grammarText).parse();
     Lexer lexer = Lexer("int value = 1;", grammar);
 
     Vector<Token> first = lexer.tokenize();

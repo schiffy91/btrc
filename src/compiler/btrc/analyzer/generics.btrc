@@ -1,0 +1,1486 @@
+/* Retained generic normalization, inference, and closure owner. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../generated/ast/node.btrc;
+import ../syntax/identity.btrc;
+import ../syntax/types.btrc;
+import ./declarations.btrc;
+import ./expressions.btrc;
+import ./models.btrc;
+import ./operators.btrc;
+import ./types.btrc;
+
+class GenericSpecializer {
+    private Analyzed analyzed;
+    private OperatorSemantics operators;
+    private ExpressionTypeResolver expressions;
+
+    public GenericSpecializer(Analyzed analyzed,
+            OperatorSemantics operators, ExpressionTypeResolver expressions) {
+        self.analyzed = analyzed;
+        self.operators = operators;
+        self.expressions = expressions;
+    }
+
+    public void discover(Node program) {
+        int index = 0;
+        while (index < program.declarations.len) {
+            self.upgradeDeclGenericArgs(
+                program.declarations.get(index), self.analyzed);
+            index = index + 1;
+        }
+        index = 0;
+        while (index < program.declarations.len) {
+            self.collectGenericsDecl(
+                program.declarations.get(index), self.analyzed);
+            index = index + 1;
+        }
+        self.registerTransitiveGenericInstances(
+            self.analyzed, self.operators);
+        index = 0;
+        while (index < program.declarations.len) {
+            self.collectMethodGenericsDecl(
+                program.declarations.get(index),
+                self.analyzed, self.operators);
+            index = index + 1;
+        }
+        self.registerTransitiveGenericInstances(
+            self.analyzed, self.operators);
+    }
+
+    public void closeExpressionGraph(Node program) {
+        self.closeProgramGenericExpressionGraph(
+            program, self.analyzed, self.operators);
+    }
+
+    /* --- Generic-method instance collection (varTypes-tracking body walk). ---
+     * Walks each function/method body building a {var -> TypeExpr} map (the same
+     * map IR-gen later uses), and at every method call whose resolved method has
+     * its own type parameters, infers the concrete method type args and records a
+     * monomorphization target. */
+    private void collectMethodGenericsDecl(
+            Node d, Analyzed a, OperatorSemantics operators) {
+        if (d.kind == NK_FUNCTION_DECL) {
+            Map<string, Node> vt = {};
+            int i = 0;
+            while (i < d.params.len) {
+                vt.put(d.params.get(i).name, d.params.get(i).type);
+                i = i + 1;
+            }
+            if (d.body_node != null) {
+                self.collectMethodGenericsBlock(
+                    d.body_node, a, operators, vt);
+            }
+        } else if (d.kind == NK_CLASS_DECL && d.generic_params.len == 0) {
+            int i = 0;
+            while (i < d.members.len) {
+                Node mem = d.members.get(i);
+                if (mem.kind == NK_METHOD_DECL && mem.body_node != null) {
+                    Map<string, Node> vt = {};
+                    Node selfT = SemanticTypeSystem.namedClass(d.name);
+                    selfT.pointer_depth = 1;
+                    vt.put("self", selfT);
+                    int p = 0;
+                    while (p < mem.params.len) {
+                        vt.put(mem.params.get(p).name, mem.params.get(p).type);
+                        p = p + 1;
+                    }
+                    self.collectMethodGenericsBlock(
+                        mem.body_node, a, operators, vt);
+                }
+                i = i + 1;
+            }
+        }
+        /* Generic-class method bodies are templates; their call sites with concrete
+         * receivers are reached through the per-instance lowering, not here. */
+    }
+
+    private void collectMethodGenericsBlock(Node block, Analyzed a,
+            OperatorSemantics operators, Map<string, Node> vt) {
+        if (block == null) { return; }
+        int i = 0;
+        while (i < block.statements.len) {
+            self.collectMethodGenericsStmt(
+                block.statements.get(i), a, operators, vt);
+            i = i + 1;
+        }
+    }
+
+    private void collectMethodGenericsStmt(Node s, Analyzed a,
+            OperatorSemantics operators, Map<string, Node> vt) {
+        if (s == null) { return; }
+        if (s.kind == NK_VAR_DECL_STMT) {
+            self.collectMethodGenericsExpr(s.initializer, a, operators, vt);
+            if (s.type != null) {
+                vt.put(s.name, s.type);
+            } else if (s.initializer != null) {
+                Node? it = self.expressions.inferSpecialization(s.initializer, vt);
+                if (it != null) { vt.put(s.name, it); }
+            }
+        } else if (s.kind == NK_RETURN_STMT) {
+            self.collectMethodGenericsExpr(s.value_node, a, operators, vt);
+        } else if (s.kind == NK_EXPR_STMT) {
+            self.collectMethodGenericsExpr(s.expr, a, operators, vt);
+        } else if (s.kind == NK_IF_STMT) {
+            self.collectMethodGenericsExpr(s.condition, a, operators, vt);
+            self.collectMethodGenericsBlock(s.then_block, a, operators, vt);
+            if (s.else_block != null) {
+                self.collectMethodGenericsStmt(
+                    s.else_block, a, operators, vt);
+            }
+        } else if (s.kind == NK_ELSE_BLOCK) {
+            self.collectMethodGenericsBlock(s.body_node, a, operators, vt);
+        } else if (s.kind == NK_ELSE_IF) {
+            self.collectMethodGenericsStmt(s.if_stmt, a, operators, vt);
+        } else if (s.kind == NK_WHILE_STMT || s.kind == NK_DO_WHILE_STMT) {
+            self.collectMethodGenericsExpr(s.condition, a, operators, vt);
+            self.collectMethodGenericsBlock(s.body_node, a, operators, vt);
+        } else if (s.kind == NK_C_FOR_STMT) {
+            if (s.init != null) {
+                if (s.init.kind == NK_FOR_INIT_VAR) {
+                    self.collectMethodGenericsStmt(
+                        s.init.var_decl, a, operators, vt);
+                } else if (s.init.kind == NK_FOR_INIT_EXPR) {
+                    self.collectMethodGenericsExpr(
+                        s.init.expression, a, operators, vt);
+                }
+            }
+            self.collectMethodGenericsExpr(s.condition, a, operators, vt);
+            self.collectMethodGenericsExpr(s.update, a, operators, vt);
+            self.collectMethodGenericsBlock(s.body_node, a, operators, vt);
+        } else if (s.kind == NK_FOR_IN_STMT || s.kind == NK_PARALLEL_FOR_STMT) {
+            self.collectMethodGenericsExpr(s.iterable, a, operators, vt);
+            self.collectMethodGenericsBlock(s.body_node, a, operators, vt);
+        } else if (s.kind == NK_DELETE_STMT) {
+            self.collectMethodGenericsExpr(s.expr, a, operators, vt);
+        } else if (s.kind == NK_TRY_CATCH_STMT) {
+            if (s.try_block != null) {
+                self.collectMethodGenericsBlock(
+                    s.try_block, a, operators, vt);
+            }
+            if (s.catch_block != null) {
+                self.collectMethodGenericsBlock(
+                    s.catch_block, a, operators, vt);
+            }
+            if (s.finally_block != null) {
+                self.collectMethodGenericsBlock(
+                    s.finally_block, a, operators, vt);
+            }
+        } else if (s.kind == NK_SWITCH_STMT) {
+            self.collectMethodGenericsExpr(s.value_node, a, operators, vt);
+            int ci = 0;
+            while (ci < s.cases.len) {
+                Node c = s.cases.get(ci);
+                self.collectMethodGenericsExpr(c.value_node, a, operators, vt);
+                int cj = 0;
+                while (cj < c.body_nlist.len) {
+                    self.collectMethodGenericsStmt(
+                        c.body_nlist.get(cj), a, operators, vt);
+                    cj = cj + 1;
+                }
+                ci = ci + 1;
+            }
+        } else if (s.kind == NK_BLOCK) {
+            self.collectMethodGenericsBlock(s, a, operators, vt);
+        }
+    }
+
+    private void collectMethodGenericsExpr(Node e, Analyzed a,
+            OperatorSemantics operators, Map<string, Node> vt) {
+        if (e == null) { return; }
+        if (e.kind == NK_CALL_EXPR) {
+            self.collectMethodGenericCall(e, a, operators, vt);
+        }
+        self.collectMethodGenericsExpr(e.callee, a, operators, vt);
+        self.collectMethodGenericsExpr(e.left, a, operators, vt);
+        self.collectMethodGenericsExpr(e.right, a, operators, vt);
+        self.collectMethodGenericsExpr(e.operand, a, operators, vt);
+        self.collectMethodGenericsExpr(e.expr, a, operators, vt);
+        self.collectMethodGenericsExpr(e.obj, a, operators, vt);
+        self.collectMethodGenericsExpr(e.index, a, operators, vt);
+        self.collectMethodGenericsExpr(e.condition, a, operators, vt);
+        self.collectMethodGenericsExpr(e.true_expr, a, operators, vt);
+        self.collectMethodGenericsExpr(e.false_expr, a, operators, vt);
+        self.collectMethodGenericsExpr(e.target, a, operators, vt);
+        self.collectMethodGenericsExpr(e.value_node, a, operators, vt);
+        int i = 0;
+        while (i < e.args.len) {
+            self.collectMethodGenericsExpr(
+                e.args.get(i), a, operators, vt);
+            i = i + 1;
+        }
+    }
+
+    /* If `call` is an instance method call to a generic method, infer its method
+     * type args and record a monomorphization target. Mirrors
+     * generic_methods._collect_generic_method_instance. */
+    private void collectMethodGenericCall(Node call, Analyzed a,
+            OperatorSemantics operators, Map<string, Node> vt) {
+        Node callee = call.callee;
+        if (callee == null || callee.kind != NK_FIELD_ACCESS_EXPR) { return; }
+        Node objNode = callee.obj;
+        string method = callee.field;
+        /* Static (ClassName.method) calls are not receiver-instance method generics. */
+        if (objNode != null && objNode.kind == NK_IDENTIFIER && a.isClass(objNode.name)) {
+            return;
+        }
+        Node? ot = self.expressions.inferSpecialization(objNode, vt);
+        if (ot == null) { return; }
+        /* Resolve the owning method declaration (generic instance OR plain class).
+         * `classArgs` is a FRESH copy of the receiver's generic args (never an alias
+         * of the AST's `ot.generic_args` — aliasing a borrowed managed vector into a
+         * scope-released local would underflow its refcount and free the AST node). */
+        Node? method_decl = null;
+        string classBase = "";
+        Vector<Node> classArgs = [];
+        bool ownerGeneric = ot.generic_args.len > 0 && a.isGenericClass(ot.base);
+        if (ownerGeneric) {
+            method_decl = a.genericClassMethod(ot.base, method);
+            classBase = ot.base;
+            int ca = 0;
+            while (ca < ot.generic_args.len) { classArgs.push(ot.generic_args.get(ca)); ca = ca + 1; }
+        } else if (a.isClass(ot.base)) {
+            method_decl = a.classMethod(ot.base, method);
+            classBase = ot.base;
+        } else {
+            return;
+        }
+        if (method_decl == null || method_decl.kind != NK_METHOD_DECL) { return; }
+        if (method_decl.generic_params.len == 0) { return; }
+
+        /* Class-level substitutions (e.g. {T: int} for Vector<int>). */
+        Map<string, Node> classSubs = {};
+        if (ownerGeneric) {
+            Node gdecl = a.genericClassTable.get(ot.base);
+            int gi = 0;
+            while (gi < gdecl.generic_params.len && gi < ot.generic_args.len) {
+                classSubs.put(gdecl.generic_params.get(gi), ot.generic_args.get(gi));
+                gi = gi + 1;
+            }
+        }
+
+        /* Infer each method type parameter from the arguments. */
+        Map<string, Node> methodSubs = {};
+        self.inferMethodTypeArgs(
+            call, method_decl, classSubs, a, operators, vt, methodSubs);
+        Vector<Node> methodArgs = [];
+        Map<string, bool> tparams = SemanticTypeSystem.genericParameterSet(
+            method_decl.generic_params);
+        int mp = 0;
+        bool ok = true;
+        while (mp < method_decl.generic_params.len) {
+            string gp = method_decl.generic_params.get(mp);
+            if (!methodSubs.has(gp)) { ok = false; }
+            else {
+                Node arg = methodSubs.get(gp);
+                if (TypeIdentity.referencesNames(arg, tparams)) { ok = false; }
+                else { methodArgs.push(arg); }
+            }
+            mp = mp + 1;
+        }
+        if (!ok) { return; }
+
+        string owner = classBase + "." + method;
+        self.validateGenericArgumentsForOwner(owner, methodArgs);
+
+        /* Resolve and validate the full signature before recording an instance.
+         * This catches nested-array composition and nested writable class
+         * specializations after class- and method-level substitution. */
+        Map<string, Node> full = {};
+        Vector<string> csk = classSubs.keys();
+        int ci = 0;
+        while (ci < csk.len) {
+            full.put(csk.get(ci), classSubs.get(csk.get(ci)));
+            ci = ci + 1;
+        }
+        int mi = 0;
+        while (mi < method_decl.generic_params.len) {
+            string gp = method_decl.generic_params.get(mi);
+            if (methodSubs.has(gp)) { full.put(gp, methodSubs.get(gp)); }
+            mi = mi + 1;
+        }
+        self.validateSpecializedType(owner, method_decl.return_type, full, a);
+        int vsi = 0;
+        while (vsi < method_decl.params.len) {
+            self.validateSpecializedType(
+                owner, method_decl.params.get(vsi).type, full, a);
+            vsi = vsi + 1;
+        }
+
+        string key = TypeIdentity.methodInstanceKey(
+            classBase, classArgs, method, methodArgs);
+        if (!a.methodGenSeen.has(key)) {
+            a.methodGenSeen.put(key, true);
+            a.methodGenInstances.push(
+                MethodGenInstance(classBase, method, classArgs, methodArgs));
+        }
+        /* Record per-call-site method args for IR-gen mangling. */
+        a.methodGenCallArgs.put(AstIdentity.key(call), methodArgs);
+
+        /* Register concrete generic types that the substituted signature mentions
+         * (e.g. Vector<string> from mapTo's return type). */
+        self.registerSubstitutedGenerics(method_decl.return_type, full, a);
+        int pi = 0;
+        while (pi < method_decl.params.len) {
+            self.registerSubstitutedGenerics(method_decl.params.get(pi).type, full, a);
+            pi = pi + 1;
+        }
+    }
+
+    /* Resolve `t` through `subs` and register any concrete generic instance it
+     * (or its nested args) names. */
+    private void registerSubstitutedGenerics(Node? t, Map<string, Node> subs, Analyzed a) {
+        if (t == null) { return; }
+        Node resolved = SemanticTypeSystem.resolveGenericType(t, subs, a);
+        self.registerGenericInstance(resolved, a);
+    }
+
+    /* Infer concrete bindings for each method type parameter by unifying every
+     * method parameter's declared type (after class-level substitution) against
+     * the corresponding argument's inferred type. Writes results into `subs`. */
+    private void inferMethodTypeArgs(Node call, Node method, Map<string, Node> classSubs,
+            Analyzed a, OperatorSemantics operators,
+            Map<string, Node> vt, Map<string, Node> subs) {
+        /* Set of method type-param names. */
+        Map<string, bool> tparams = {};
+        int t = 0;
+        while (t < method.generic_params.len) {
+            tparams.put(method.generic_params.get(t), true);
+            t = t + 1;
+        }
+        int i = 0;
+        while (i < method.params.len && i < call.args.len) {
+            Node declared = SemanticTypeSystem.resolveGenericType(
+                method.params.get(i).type, classSubs, a);
+            Node? actual = self.expressions.genericArgumentType(
+                call.args.get(i), vt);
+            if (actual != null) {
+                SemanticTypeSystem.unifyGenericParameter(
+                    declared, actual, tparams, subs);
+            }
+            i = i + 1;
+        }
+    }
+
+    private Map<string, bool> mergeTypeParameterSets(
+            Map<string, bool> inherited, Vector<string> parameters) {
+        Map<string, bool> names = {};
+        Vector<string> inheritedNames = inherited.keys();
+        int inheritedIndex = 0;
+        while (inheritedIndex < inheritedNames.len) {
+            names.put(inheritedNames.get(inheritedIndex), true);
+            inheritedIndex = inheritedIndex + 1;
+        }
+        int parameterIndex = 0;
+        while (parameterIndex < parameters.len) {
+            names.put(parameters.get(parameterIndex), true);
+            parameterIndex = parameterIndex + 1;
+        }
+        return names;
+    }
+
+    private void validateGenericArgumentsForOwner(string owner, Vector<Node> args) {
+        int index = 0;
+        while (index < args.len) {
+            string problem = TypeIdentity.genericArgumentProblem(args.get(index));
+            if (problem != "") {
+                TypeIdentity.fail("Generic argument " + Strings.fromInt(index + 1)
+                    + " for '" + owner + "' is invalid: " + problem);
+            }
+            index = index + 1;
+        }
+    }
+
+    /* Qualifiers are coherent inside structural Tuple/__fn_ptr shapes, but not in
+     * a nested writable class specialization. Validate only known generic classes
+     * and then recurse so nested class shapes cannot bypass the policy. */
+    private void validateNestedClassArguments(string owner, Node? typeExpr, Analyzed a) {
+        if (typeExpr == null) { return; }
+        if (a.genericClassTable.has(typeExpr.base)) {
+            self.validateGenericArgumentsForOwner(
+                owner + " via " + typeExpr.base, typeExpr.generic_args);
+        }
+        int index = 0;
+        while (index < typeExpr.generic_args.len) {
+            self.validateNestedClassArguments(
+                owner, typeExpr.generic_args.get(index), a);
+            index = index + 1;
+        }
+    }
+
+    private void validateSpecializedType(string owner, Node? declared,
+                                 Map<string, Node> substitutions, Analyzed a) {
+        if (declared == null) { return; }
+        Node resolved = SemanticTypeSystem.resolveGenericType(
+            declared, substitutions, a);
+        self.validateNestedClassArguments(owner, resolved, a);
+    }
+
+    private void validateGenericClassSpecialization(Node typeExpr, Analyzed a) {
+        if (!a.genericClassTable.has(typeExpr.base)) { return; }
+        self.validateGenericArgumentsForOwner(typeExpr.base, typeExpr.generic_args);
+        Node declaration = a.genericClassTable.get(typeExpr.base);
+        if (declaration.generic_params.len != typeExpr.generic_args.len) { return; }
+        Map<string, Node> substitutions = {};
+        int parameter = 0;
+        while (parameter < declaration.generic_params.len) {
+            substitutions.put(
+                declaration.generic_params.get(parameter),
+                typeExpr.generic_args.get(parameter));
+            parameter = parameter + 1;
+        }
+        int memberIndex = 0;
+        while (memberIndex < declaration.members.len) {
+            Node member = declaration.members.get(memberIndex);
+            if (member.kind == NK_FIELD_DECL || member.kind == NK_PROPERTY_DECL) {
+                self.validateSpecializedType(
+                    typeExpr.base, member.type, substitutions, a);
+            } else if (member.kind == NK_METHOD_DECL) {
+                self.validateSpecializedType(
+                    typeExpr.base, member.return_type, substitutions, a);
+                int paramIndex = 0;
+                while (paramIndex < member.params.len) {
+                    self.validateSpecializedType(typeExpr.base,
+                        member.params.get(paramIndex).type, substitutions, a);
+                    paramIndex = paramIndex + 1;
+                }
+            }
+            memberIndex = memberIndex + 1;
+        }
+    }
+
+    /* Register the transitive generic-instance closure: for every concrete generic
+     * instance, resolve its member field/method/param types through that instance's
+     * type map and register any resolved generic-class type. Repeats until the
+     * instance set stops growing (new instances can imply further ones). */
+    private void registerTransitiveGenericInstances(
+            Analyzed a, OperatorSemantics operators) {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            int idx = 0;
+            /* genericInstances may grow during the loop; re-read .len each step. */
+            while (idx < a.genericInstances.len) {
+                GenInstance inst = a.genericInstances.get(idx);
+                if (a.genericClassTable.has(inst.base)) {
+                    Node decl = a.genericClassTable.get(inst.base);
+                    Map<string, Node> tm = {};
+                    int g = 0;
+                    while (g < decl.generic_params.len && g < inst.args.len) {
+                        tm.put(decl.generic_params.get(g), inst.args.get(g));
+                        g = g + 1;
+                    }
+                    int mi = 0;
+                    while (mi < decl.members.len) {
+                        Node mem = decl.members.get(mi);
+                        Map<string, bool> unresolved = {};
+                        if (mem.kind == NK_METHOD_DECL) {
+                            unresolved = SemanticTypeSystem.genericParameterSet(mem.generic_params);
+                        }
+                        if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
+                            if (self.registerResolvedGenericInstance(
+                                    mem.type, tm, unresolved, a)) { changed = true; }
+                        } else if (mem.kind == NK_METHOD_DECL) {
+                            if (self.registerResolvedGenericInstance(
+                                    mem.return_type, tm, unresolved, a)) { changed = true; }
+                            int p = 0;
+                            while (p < mem.params.len) {
+                                if (self.registerResolvedGenericInstance(
+                                        mem.params.get(p).type, tm,
+                                        unresolved, a)) { changed = true; }
+                                p = p + 1;
+                            }
+                        }
+                        mi = mi + 1;
+                    }
+                }
+                idx = idx + 1;
+            }
+        }
+        self.closeGenericInstanceGraph(a, operators);
+    }
+
+    /* Resolve a member TypeExpr through `tm` and, if the result is a concrete
+     * generic-class instance not yet seen, register it. Returns true if a new
+     * instance was added (so the caller's fixpoint loop iterates again). */
+    private bool registerResolvedGenericInstance(Node? t, Map<string, Node> tm,
+                                         Map<string, bool> unresolved, Analyzed a) {
+        if (t == null) { return false; }
+        Node resolved = SemanticTypeSystem.resolveGenericType(t, tm, a);
+        int before = a.genericInstances.len;
+        self.registerGenericInstanceWithUnresolved(resolved, a, unresolved);
+        return a.genericInstances.len > before;
+    }
+
+    /* --- AST pass: upgrade class-typed generic args to pointers in place. ---
+     * Walks the same type/expr surface as the generic-collection walkers below, but
+     * for each TypeExpr it calls upgradeTypeGenericArgs so nested class args become
+     * pointers. Generic-class member templates (T-typed fields) are intentionally
+     * skipped — their T resolves per instance from the (already-upgraded) instance
+     * args, exactly as in the reference. */
+    private void upgradeDeclGenericArgs(Node d, Analyzed a) {
+        if (d.kind == NK_FUNCTION_DECL) {
+            Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.generic_params);
+            int i = 0;
+            while (i < d.params.len) {
+                SemanticTypeSystem.upgradeTypeGenericArgs(d.params.get(i).type, a, unresolved);
+                i = i + 1;
+            }
+            SemanticTypeSystem.upgradeTypeGenericArgs(d.return_type, a, unresolved);
+            if (d.body_node != null) {
+                self.upgradeBlockGenericArgs(d.body_node, a, unresolved);
+            }
+        } else if (d.kind == NK_CLASS_DECL) {
+            /* Keep class parameters as unresolved templates while normalizing every
+             * concrete nested class type. This matters for signatures such as
+             * `Mutex<Payload>` inside a generic class: Payload still has pointer
+             * representation even though an unrelated `T` remains unresolved. */
+            Map<string, bool> classParameters =
+                SemanticTypeSystem.genericParameterSet(d.generic_params);
+            int i = 0;
+            while (i < d.members.len) {
+                Node mem = d.members.get(i);
+                if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
+                    SemanticTypeSystem.upgradeTypeGenericArgs(mem.type, a, classParameters);
+                } else if (mem.kind == NK_METHOD_DECL) {
+                    Map<string, bool> unresolved = self.mergeTypeParameterSets(
+                        classParameters, mem.generic_params);
+                    int p = 0;
+                    while (p < mem.params.len) {
+                        SemanticTypeSystem.upgradeTypeGenericArgs(
+                            mem.params.get(p).type, a, unresolved);
+                        p = p + 1;
+                    }
+                    SemanticTypeSystem.upgradeTypeGenericArgs(mem.return_type, a, unresolved);
+                    if (mem.body_node != null) {
+                        self.upgradeBlockGenericArgs(mem.body_node, a, unresolved);
+                    }
+                }
+                i = i + 1;
+            }
+        } else if (d.kind == NK_VAR_DECL_STMT) {
+            Map<string, bool> unresolved = {};
+            SemanticTypeSystem.upgradeTypeGenericArgs(d.type, a, unresolved);
+            self.upgradeExprGenericArgs(d.initializer, a, unresolved);
+        }
+    }
+
+    private void upgradeBlockGenericArgs(Node block, Analyzed a,
+                                 Map<string, bool> unresolved) {
+        if (block == null) { return; }
+        int i = 0;
+        while (i < block.statements.len) {
+            self.upgradeStmtGenericArgs(block.statements.get(i), a, unresolved);
+            i = i + 1;
+        }
+    }
+
+    private void upgradeStmtGenericArgs(Node s, Analyzed a,
+                                Map<string, bool> unresolved) {
+        if (s == null) { return; }
+        if (s.kind == NK_VAR_DECL_STMT) {
+            SemanticTypeSystem.upgradeTypeGenericArgs(s.type, a, unresolved);
+            self.upgradeExprGenericArgs(s.initializer, a, unresolved);
+        } else if (s.kind == NK_RETURN_STMT) {
+            self.upgradeExprGenericArgs(s.value_node, a, unresolved);
+        } else if (s.kind == NK_EXPR_STMT) {
+            self.upgradeExprGenericArgs(s.expr, a, unresolved);
+        } else if (s.kind == NK_IF_STMT) {
+            self.upgradeExprGenericArgs(s.condition, a, unresolved);
+            self.upgradeBlockGenericArgs(s.then_block, a, unresolved);
+            if (s.else_block != null) {
+                self.upgradeStmtGenericArgs(s.else_block, a, unresolved);
+            }
+        } else if (s.kind == NK_ELSE_BLOCK) {
+            self.upgradeBlockGenericArgs(s.body_node, a, unresolved);
+        } else if (s.kind == NK_ELSE_IF) {
+            self.upgradeStmtGenericArgs(s.if_stmt, a, unresolved);
+        } else if (s.kind == NK_WHILE_STMT || s.kind == NK_DO_WHILE_STMT) {
+            self.upgradeExprGenericArgs(s.condition, a, unresolved);
+            self.upgradeBlockGenericArgs(s.body_node, a, unresolved);
+        } else if (s.kind == NK_C_FOR_STMT) {
+            if (s.init != null) {
+                if (s.init.kind == NK_FOR_INIT_VAR) {
+                    self.upgradeStmtGenericArgs(s.init.var_decl, a, unresolved);
+                } else if (s.init.kind == NK_FOR_INIT_EXPR) {
+                    self.upgradeExprGenericArgs(s.init.expression, a, unresolved);
+                }
+            }
+            self.upgradeExprGenericArgs(s.condition, a, unresolved);
+            self.upgradeExprGenericArgs(s.update, a, unresolved);
+            self.upgradeBlockGenericArgs(s.body_node, a, unresolved);
+        } else if (s.kind == NK_FOR_IN_STMT || s.kind == NK_PARALLEL_FOR_STMT) {
+            self.upgradeExprGenericArgs(s.iterable, a, unresolved);
+            self.upgradeBlockGenericArgs(s.body_node, a, unresolved);
+        } else if (s.kind == NK_DELETE_STMT) {
+            self.upgradeExprGenericArgs(s.expr, a, unresolved);
+        } else if (s.kind == NK_TRY_CATCH_STMT) {
+            if (s.try_block != null) {
+                self.upgradeBlockGenericArgs(s.try_block, a, unresolved);
+            }
+            if (s.catch_block != null) {
+                self.upgradeBlockGenericArgs(s.catch_block, a, unresolved);
+            }
+            if (s.finally_block != null) {
+                self.upgradeBlockGenericArgs(s.finally_block, a, unresolved);
+            }
+        } else if (s.kind == NK_SWITCH_STMT) {
+            self.upgradeExprGenericArgs(s.value_node, a, unresolved);
+            int ci = 0;
+            while (ci < s.cases.len) {
+                Node c = s.cases.get(ci);
+                self.upgradeExprGenericArgs(c.value_node, a, unresolved);
+                int cj = 0;
+                while (cj < c.body_nlist.len) {
+                    self.upgradeStmtGenericArgs(
+                        c.body_nlist.get(cj), a, unresolved);
+                    cj = cj + 1;
+                }
+                ci = ci + 1;
+            }
+        } else if (s.kind == NK_BLOCK) {
+            self.upgradeBlockGenericArgs(s, a, unresolved);
+        }
+    }
+
+    private void upgradeExprGenericArgs(Node e, Analyzed a,
+                                Map<string, bool> unresolved) {
+        if (e == null) { return; }
+        if (e.kind == NK_NEW_EXPR) {
+            SemanticTypeSystem.upgradeTypeGenericArgs(e.type, a, unresolved);
+        }
+        if (e.kind == NK_CAST_EXPR) {
+            SemanticTypeSystem.upgradeTypeGenericArgs(e.target_type, a, unresolved);
+        }
+        if (e.kind == NK_SIZEOF_TYPE) {
+            SemanticTypeSystem.upgradeTypeGenericArgs(e.type, a, unresolved);
+        }
+        if (e.kind == NK_LAMBDA_EXPR) {
+            SemanticTypeSystem.upgradeTypeGenericArgs(e.return_type, a, unresolved);
+            int parameter = 0;
+            while (parameter < e.params.len) {
+                Node value = e.params.get(parameter);
+                SemanticTypeSystem.upgradeTypeGenericArgs(value.type, a, unresolved);
+                self.upgradeExprGenericArgs(value.default_, a, unresolved);
+                parameter = parameter + 1;
+            }
+            int capture = 0;
+            while (capture < e.captures.len) {
+                SemanticTypeSystem.upgradeTypeGenericArgs(
+                    e.captures.get(capture).type, a, unresolved);
+                capture = capture + 1;
+            }
+            if (e.body_node != null
+                    && e.body_node.kind == NK_LAMBDA_BLOCK) {
+                self.upgradeBlockGenericArgs(
+                    e.body_node.body_node, a, unresolved);
+            } else if (e.body_node != null
+                    && e.body_node.kind == NK_LAMBDA_EXPR_BODY) {
+                self.upgradeExprGenericArgs(
+                    e.body_node.expression, a, unresolved);
+            }
+        }
+        self.upgradeExprGenericArgs(e.callee, a, unresolved);
+        self.upgradeExprGenericArgs(e.left, a, unresolved);
+        self.upgradeExprGenericArgs(e.right, a, unresolved);
+        self.upgradeExprGenericArgs(e.operand, a, unresolved);
+        self.upgradeExprGenericArgs(e.expr, a, unresolved);
+        self.upgradeExprGenericArgs(e.obj, a, unresolved);
+        self.upgradeExprGenericArgs(e.index, a, unresolved);
+        self.upgradeExprGenericArgs(e.condition, a, unresolved);
+        self.upgradeExprGenericArgs(e.true_expr, a, unresolved);
+        self.upgradeExprGenericArgs(e.false_expr, a, unresolved);
+        self.upgradeExprGenericArgs(e.target, a, unresolved);
+        self.upgradeExprGenericArgs(e.value_node, a, unresolved);
+        self.upgradeExprGenericArgs(e.expression, a, unresolved);
+        self.upgradeExprGenericArgs(e.fn, a, unresolved);
+        self.upgradeExprGenericArgs(e.key, a, unresolved);
+        int i = 0;
+        while (i < e.args.len) {
+            self.upgradeExprGenericArgs(e.args.get(i), a, unresolved);
+            i = i + 1;
+        }
+        i = 0;
+        while (i < e.elements.len) {
+            self.upgradeExprGenericArgs(e.elements.get(i), a, unresolved);
+            i = i + 1;
+        }
+        i = 0;
+        while (i < e.entries.len) {
+            self.upgradeExprGenericArgs(e.entries.get(i), a, unresolved);
+            i = i + 1;
+        }
+        i = 0;
+        while (i < e.parts.len) {
+            self.upgradeExprGenericArgs(e.parts.get(i), a, unresolved);
+            i = i + 1;
+        }
+    }
+
+    /* Register a concrete generic instance (deduped, in discovery order), while
+     * filtering only the type-parameter names that are unresolved in this lexical
+     * template. A declared one-letter class is therefore never mistaken for T. */
+    private void registerGenericInstance(Node? t, Analyzed a) {
+        Map<string, bool> unresolved = {};
+        self.registerGenericInstanceWithUnresolved(t, a, unresolved);
+    }
+
+    private void registerGenericInstanceWithUnresolved(
+            Node? t, Analyzed a, Map<string, bool> unresolved) {
+        if (t == null) { return; }
+        if (t.generic_args.len == 0) { return; }
+        string base = t.base;
+        if (a.genericClassTable.has(base)) {
+            self.validateGenericClassSpecialization(t, a);
+        }
+        if (a.genericClassTable.has(base)
+                && !TypeIdentity.referencesNames(t, unresolved)) {
+            /* By this point class-typed args have been upgraded to pointers in the
+             * AST by upgradeProgramGenericArgs, so the mangled name carries the
+             * `_p1` suffix and the per-instance type map resolves T to a pointer. */
+            string mangled = TypeIdentity.mangleGenericType(base, t.generic_args);
+            string key = TypeIdentity.genericInstanceKey(base, t.generic_args);
+            if (!a.genericSeen.has(key)) {
+                a.genericSeen.put(key, true);
+                a.genericInstances.push(GenInstance(base, t.generic_args, mangled));
+            }
+        }
+        /* Even when the outer shape is unresolved, a concrete nested argument is
+         * independently registerable and must not be lost. */
+        int i = 0;
+        while (i < t.generic_args.len) {
+            self.registerGenericInstanceWithUnresolved(
+                t.generic_args.get(i), a, unresolved);
+            i = i + 1;
+        }
+    }
+
+    /* Walk a top-level declaration for generic instances (param/return/field types
+     * and statement bodies). */
+    private void collectGenericsDecl(Node d, Analyzed a) {
+        if (d.kind == NK_FUNCTION_DECL) {
+            Map<string, bool> unresolved = SemanticTypeSystem.genericParameterSet(d.generic_params);
+            int i = 0;
+            while (i < d.params.len) {
+                self.registerGenericInstanceWithUnresolved(
+                    d.params.get(i).type, a, unresolved);
+                i = i + 1;
+            }
+            self.registerGenericInstanceWithUnresolved(d.return_type, a, unresolved);
+            if (d.body_node != null) {
+                self.collectGenericsBlock(d.body_node, a, unresolved);
+            }
+        } else if (d.kind == NK_CLASS_DECL) {
+            /* Field/method/property types of NON-generic classes can mention generic
+             * instances; generic class members are templated (their T-typed members
+             * resolve per instance, not here). */
+            if (d.generic_params.len == 0) {
+                Map<string, bool> none = {};
+                int i = 0;
+                while (i < d.members.len) {
+                    Node mem = d.members.get(i);
+                    if (mem.kind == NK_FIELD_DECL || mem.kind == NK_PROPERTY_DECL) {
+                        self.registerGenericInstanceWithUnresolved(mem.type, a, none);
+                    } else if (mem.kind == NK_METHOD_DECL) {
+                        Map<string, bool> unresolved =
+                            SemanticTypeSystem.genericParameterSet(mem.generic_params);
+                        int p = 0;
+                        while (p < mem.params.len) {
+                            self.registerGenericInstanceWithUnresolved(
+                                mem.params.get(p).type, a, unresolved);
+                            p = p + 1;
+                        }
+                        self.registerGenericInstanceWithUnresolved(
+                            mem.return_type, a, unresolved);
+                        if (mem.body_node != null) {
+                            self.collectGenericsBlock(mem.body_node, a, unresolved);
+                        }
+                    }
+                    i = i + 1;
+                }
+            }
+        }
+    }
+
+    /* Walk a block's statements for generic-instance-bearing types/exprs. */
+    private void collectGenericsBlock(Node block, Analyzed a,
+                              Map<string, bool> unresolved) {
+        if (block == null) { return; }
+        int i = 0;
+        while (i < block.statements.len) {
+            self.collectGenericsStmt(block.statements.get(i), a, unresolved);
+            i = i + 1;
+        }
+    }
+
+    private void collectGenericsStmt(Node s, Analyzed a,
+                             Map<string, bool> unresolved) {
+        if (s == null) { return; }
+        if (s.kind == NK_VAR_DECL_STMT) {
+            self.registerGenericInstanceWithUnresolved(s.type, a, unresolved);
+            self.collectGenericsExpr(s.initializer, a, unresolved);
+        } else if (s.kind == NK_RETURN_STMT) {
+            self.collectGenericsExpr(s.value_node, a, unresolved);
+        } else if (s.kind == NK_EXPR_STMT) {
+            self.collectGenericsExpr(s.expr, a, unresolved);
+        } else if (s.kind == NK_IF_STMT) {
+            self.collectGenericsExpr(s.condition, a, unresolved);
+            self.collectGenericsBlock(s.then_block, a, unresolved);
+            if (s.else_block != null) {
+                self.collectGenericsStmt(s.else_block, a, unresolved);
+            }
+        } else if (s.kind == NK_ELSE_BLOCK) {
+            self.collectGenericsBlock(s.body_node, a, unresolved);
+        } else if (s.kind == NK_ELSE_IF) {
+            self.collectGenericsStmt(s.if_stmt, a, unresolved);
+        } else if (s.kind == NK_WHILE_STMT || s.kind == NK_DO_WHILE_STMT) {
+            self.collectGenericsExpr(s.condition, a, unresolved);
+            self.collectGenericsBlock(s.body_node, a, unresolved);
+        } else if (s.kind == NK_C_FOR_STMT) {
+            if (s.init != null) {
+                if (s.init.kind == NK_FOR_INIT_VAR) {
+                    self.collectGenericsStmt(s.init.var_decl, a, unresolved);
+                } else if (s.init.kind == NK_FOR_INIT_EXPR) {
+                    self.collectGenericsExpr(s.init.expression, a, unresolved);
+                }
+            }
+            self.collectGenericsExpr(s.condition, a, unresolved);
+            self.collectGenericsExpr(s.update, a, unresolved);
+            self.collectGenericsBlock(s.body_node, a, unresolved);
+        } else if (s.kind == NK_DELETE_STMT) {
+            self.collectGenericsExpr(s.expr, a, unresolved);
+        } else if (s.kind == NK_TRY_CATCH_STMT) {
+            if (s.try_block != null) {
+                self.collectGenericsBlock(s.try_block, a, unresolved);
+            }
+            if (s.catch_block != null) {
+                self.collectGenericsBlock(s.catch_block, a, unresolved);
+            }
+            if (s.finally_block != null) {
+                self.collectGenericsBlock(s.finally_block, a, unresolved);
+            }
+        } else if (s.kind == NK_SWITCH_STMT) {
+            self.collectGenericsExpr(s.value_node, a, unresolved);
+            int ci = 0;
+            while (ci < s.cases.len) {
+                Node c = s.cases.get(ci);
+                self.collectGenericsExpr(c.value_node, a, unresolved);
+                int cj = 0;
+                while (cj < c.body_nlist.len) {
+                    self.collectGenericsStmt(c.body_nlist.get(cj), a, unresolved);
+                    cj = cj + 1;
+                }
+                ci = ci + 1;
+            }
+        } else if (s.kind == NK_BLOCK) {
+            self.collectGenericsBlock(s, a, unresolved);
+        }
+    }
+
+    private void collectGenericsExpr(Node e, Analyzed a,
+                             Map<string, bool> unresolved) {
+        if (e == null) { return; }
+        if (e.kind == NK_NEW_EXPR) {
+            self.registerGenericInstanceWithUnresolved(e.type, a, unresolved);
+        }
+        if (e.kind == NK_CAST_EXPR) {
+            self.registerGenericInstanceWithUnresolved(e.target_type, a, unresolved);
+        }
+        /* Recurse through sub-expressions that can hold a generic-typed expr. */
+        self.collectGenericsExpr(e.callee, a, unresolved);
+        self.collectGenericsExpr(e.left, a, unresolved);
+        self.collectGenericsExpr(e.right, a, unresolved);
+        self.collectGenericsExpr(e.operand, a, unresolved);
+        self.collectGenericsExpr(e.expr, a, unresolved);
+        self.collectGenericsExpr(e.obj, a, unresolved);
+        self.collectGenericsExpr(e.index, a, unresolved);
+        self.collectGenericsExpr(e.condition, a, unresolved);
+        self.collectGenericsExpr(e.true_expr, a, unresolved);
+        self.collectGenericsExpr(e.false_expr, a, unresolved);
+        self.collectGenericsExpr(e.target, a, unresolved);
+        self.collectGenericsExpr(e.value_node, a, unresolved);
+        int i = 0;
+        while (i < e.args.len) {
+            self.collectGenericsExpr(e.args.get(i), a, unresolved);
+            i = i + 1;
+        }
+    }
+
+    /* Substitution-aware AST walk used by generic-instance closure. */
+
+    private Map<string, Node> genericClosureCopyTypes(Map<string, Node> source) {
+        Map<string, Node> copy = {};
+        Vector<string> names = source.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            copy.put(name, source.get(name));
+            index = index + 1;
+        }
+        return copy;
+    }
+
+    private void genericClosureRegisterType(Node? typeExpr, Map<string, Node> substitutions,
+            Map<string, bool> unresolved, Analyzed analyzed) {
+        if (typeExpr == null) { return; }
+        Node resolved = SemanticTypeSystem.resolveGenericType(
+            typeExpr, substitutions, analyzed);
+        if (resolved.generic_args.len > 0) {
+            self.registerGenericInstanceWithUnresolved(
+                resolved, analyzed, unresolved);
+        }
+    }
+
+    private bool genericClosureExpressionKind(int kind) {
+        return kind >= NK_INT_LITERAL && kind <= NK_SPAWN_EXPR;
+    }
+
+    private Node? genericClosureExpressionType(Node? expression,
+            Map<string, Node> substitutions, Analyzed analyzed,
+            OperatorSemantics operators, Map<string, Node> variables) {
+        if (expression == null) { return null; }
+        Node? inferred = self.expressions.inferSpecialization(expression, variables);
+        if (inferred == null) { return null; }
+        return SemanticTypeSystem.resolveGenericType(
+            inferred, substitutions, analyzed);
+    }
+
+    private Node? genericClosureIterationType(Node? iterableType, Analyzed analyzed) {
+        if (iterableType == null) { return null; }
+        if (SemanticTypeSystem.isString(iterableType)) { return SemanticTypeSystem.primitive("char"); }
+        if (iterableType.generic_args.len > 0) {
+            return iterableType.generic_args.get(0);
+        }
+        if (iterableType.is_array || iterableType.pointer_depth > 0) {
+            if (iterableType.is_array) {
+                return TypeShape.withoutOuterArray(iterableType);
+            }
+            return TypeShape.withoutOuterPointers(iterableType, 1);
+        }
+        return null;
+    }
+
+    private void genericClosureWalkVector(Vector<Node> nodes,
+            Map<string, Node> substitutions, Map<string, bool> unresolved,
+            Analyzed analyzed, OperatorSemantics operators,
+            Map<string, Node> variables) {
+        int index = 0;
+        while (index < nodes.len) {
+            self.genericClosureWalkNode(nodes.get(index), substitutions,
+                unresolved, analyzed, operators, variables);
+            index = index + 1;
+        }
+    }
+
+    private void genericClosureWalkLambda(Node lambda, Map<string, Node> substitutions,
+            Map<string, bool> unresolved, Analyzed analyzed,
+            OperatorSemantics operators, Map<string, Node> variables) {
+        Map<string, Node> nested = self.genericClosureCopyTypes(variables);
+        self.genericClosureRegisterType(
+            lambda.return_type, substitutions, unresolved, analyzed);
+        int parameter = 0;
+        while (parameter < lambda.params.len) {
+            Node value = lambda.params.get(parameter);
+            Node resolved = SemanticTypeSystem.resolveGenericType(
+                value.type, substitutions, analyzed);
+            self.genericClosureRegisterType(
+                resolved, substitutions, unresolved, analyzed);
+            nested.put(value.name, resolved);
+            self.genericClosureWalkNode(value.default_, substitutions,
+                unresolved, analyzed, operators, nested);
+            parameter = parameter + 1;
+        }
+        int capture = 0;
+        while (capture < lambda.captures.len) {
+            Node value = lambda.captures.get(capture);
+            Node resolved = SemanticTypeSystem.resolveGenericType(
+                value.type, substitutions, analyzed);
+            self.genericClosureRegisterType(
+                resolved, substitutions, unresolved, analyzed);
+            nested.put(value.name, resolved);
+            capture = capture + 1;
+        }
+        self.genericClosureWalkNode(lambda.body_node, substitutions,
+            unresolved, analyzed, operators, nested);
+        self.genericClosureWalkNode(lambda.expression, substitutions,
+            unresolved, analyzed, operators, nested);
+    }
+
+    private void genericClosureWalkNode(Node? node, Map<string, Node> substitutions,
+            Map<string, bool> unresolved, Analyzed analyzed,
+            OperatorSemantics operators, Map<string, Node> variables) {
+        if (node == null) { return; }
+        if (node.kind == NK_TYPE_EXPR) {
+            self.genericClosureRegisterType(
+                node, substitutions, unresolved, analyzed);
+            self.genericClosureWalkNode(node.array_size, substitutions,
+                unresolved, analyzed, operators, variables);
+            return;
+        }
+        if (self.genericClosureExpressionKind(node.kind)) {
+            Node? inferred = self.genericClosureExpressionType(
+                node, substitutions, analyzed, operators, variables);
+            self.genericClosureRegisterType(
+                inferred, substitutions, unresolved, analyzed);
+            if (node.kind == NK_CALL_EXPR) {
+                self.collectMethodGenericCall(
+                    node, analyzed, operators, variables);
+            }
+        }
+        if (node.kind == NK_VAR_DECL_STMT) {
+            self.genericClosureWalkNode(node.initializer, substitutions,
+                unresolved, analyzed, operators, variables);
+            Node? declared = null;
+            if (node.type != null) {
+                declared = SemanticTypeSystem.resolveGenericType(
+                    node.type, substitutions, analyzed);
+            } else {
+                declared = self.genericClosureExpressionType(
+                    node.initializer, substitutions,
+                    analyzed, operators, variables);
+            }
+            self.genericClosureRegisterType(
+                declared, substitutions, unresolved, analyzed);
+            if (declared != null) { variables.put(node.name, declared); }
+            return;
+        }
+        if (node.kind == NK_FOR_IN_STMT
+                || node.kind == NK_PARALLEL_FOR_STMT) {
+            self.genericClosureWalkNode(node.iterable, substitutions,
+                unresolved, analyzed, operators, variables);
+            Node? iterableType = self.genericClosureExpressionType(
+                node.iterable, substitutions,
+                analyzed, operators, variables);
+            Node? elementType = self.genericClosureIterationType(
+                iterableType, analyzed);
+            Map<string, Node> nested = self.genericClosureCopyTypes(variables);
+            if (elementType != null) { nested.put(node.var_name, elementType); }
+            if (node.var_name2 != null && iterableType != null
+                    && iterableType.generic_args.len > 1) {
+                nested.put(node.var_name2, iterableType.generic_args.get(1));
+            }
+            self.genericClosureWalkNode(node.body_node, substitutions,
+                unresolved, analyzed, operators, nested);
+            return;
+        }
+        if (node.kind == NK_TRY_CATCH_STMT) {
+            self.genericClosureWalkNode(node.try_block, substitutions,
+                unresolved, analyzed, operators, variables);
+            Map<string, Node> caught = self.genericClosureCopyTypes(variables);
+            if (node.catch_type != null) {
+                Node catchType = SemanticTypeSystem.resolveGenericType(
+                    node.catch_type, substitutions, analyzed);
+                self.genericClosureRegisterType(
+                    catchType, substitutions, unresolved, analyzed);
+                if (node.catch_var != "") { caught.put(node.catch_var, catchType); }
+            }
+            self.genericClosureWalkNode(node.catch_block, substitutions,
+                unresolved, analyzed, operators, caught);
+            self.genericClosureWalkNode(node.finally_block, substitutions,
+                unresolved, analyzed, operators, variables);
+            return;
+        }
+        if (node.kind == NK_LAMBDA_EXPR) {
+            self.genericClosureWalkLambda(
+                node, substitutions, unresolved,
+                analyzed, operators, variables);
+            return;
+        }
+
+        self.genericClosureWalkNode(node.return_type, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.body_node, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.type, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.default_, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.initializer, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.getter_body, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.setter_body, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.value_node, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.condition, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.then_block, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.else_block, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.iterable, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.init, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.update, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.expr, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.if_stmt, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.var_decl, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.expression, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.left, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.right, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.operand, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.callee, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.obj, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.index, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.target_type, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.true_expr, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.false_expr, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.target, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.fn, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.key, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(node.array_size, substitutions,
+            unresolved, analyzed, operators, variables);
+
+        self.genericClosureWalkVector(node.params, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkVector(node.statements, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkVector(node.cases, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkVector(node.body_nlist, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkVector(node.args, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkVector(node.elements, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkVector(node.entries, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkVector(node.parts, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkVector(node.captures, substitutions,
+            unresolved, analyzed, operators, variables);
+    }
+
+
+    /* Deterministic fixed-point discovery for instantiated generic templates. */
+
+    private Map<string, Node> genericClosureGlobalTypes(Analyzed analyzed) {
+        return self.genericClosureCopyTypes(analyzed.globalVarTypes);
+    }
+
+    private Map<string, Node> genericClosureClassMap(
+            Node declaration, Vector<Node> arguments) {
+        Map<string, Node> substitutions = {};
+        int index = 0;
+        while (index < declaration.generic_params.len
+                && index < arguments.len) {
+            substitutions.put(declaration.generic_params.get(index),
+                arguments.get(index));
+            index = index + 1;
+        }
+        return substitutions;
+    }
+
+    private Node genericClosureSelfType(string base, Vector<Node> arguments) {
+        Node selfType = Node();
+        selfType.kind = NK_TYPE_EXPR;
+        selfType.base = base;
+        selfType.generic_args = arguments;
+        selfType.pointer_depth = 1;
+        return selfType;
+    }
+
+    private void genericClosureSeedParameters(Node method,
+            Map<string, Node> substitutions, Map<string, bool> unresolved,
+            Analyzed analyzed, OperatorSemantics operators,
+            Map<string, Node> variables) {
+        self.genericClosureRegisterType(
+            method.return_type, substitutions, unresolved, analyzed);
+        int index = 0;
+        while (index < method.params.len) {
+            Node parameter = method.params.get(index);
+            Node resolved = SemanticTypeSystem.resolveGenericType(
+                parameter.type, substitutions, analyzed);
+            self.genericClosureRegisterType(
+                resolved, substitutions, unresolved, analyzed);
+            variables.put(parameter.name, resolved);
+            self.genericClosureWalkNode(parameter.default_, substitutions,
+                unresolved, analyzed, operators, variables);
+            index = index + 1;
+        }
+    }
+
+    private void genericClosureScanProperty(Node property,
+            Map<string, Node> substitutions, Analyzed analyzed,
+            OperatorSemantics operators,
+            Map<string, Node> baseVariables) {
+        Map<string, bool> unresolved = {};
+        self.genericClosureRegisterType(
+            property.type, substitutions, unresolved, analyzed);
+        Map<string, Node> getterVariables =
+            self.genericClosureCopyTypes(baseVariables);
+        self.genericClosureWalkNode(property.getter_body, substitutions,
+            unresolved, analyzed, operators, getterVariables);
+        Map<string, Node> setterVariables =
+            self.genericClosureCopyTypes(baseVariables);
+        setterVariables.put(
+            "value", SemanticTypeSystem.resolveGenericType(
+                property.type, substitutions, analyzed));
+        self.genericClosureWalkNode(property.setter_body, substitutions,
+            unresolved, analyzed, operators, setterVariables);
+    }
+
+    private void genericClosureScanMembers(Node declaration,
+            Map<string, Node> substitutions, Analyzed analyzed,
+            OperatorSemantics operators,
+            Map<string, Node> baseVariables, bool includeConstructor) {
+        int index = 0;
+        while (index < declaration.members.len) {
+            Node member = declaration.members.get(index);
+            if (member.kind == NK_FIELD_DECL) {
+                Map<string, bool> unresolved = {};
+                self.genericClosureRegisterType(
+                    member.type, substitutions, unresolved, analyzed);
+                self.genericClosureWalkNode(member.initializer, substitutions,
+                    unresolved, analyzed, operators, baseVariables);
+            } else if (member.kind == NK_PROPERTY_DECL) {
+                self.genericClosureScanProperty(
+                    member, substitutions,
+                    analyzed, operators, baseVariables);
+            } else if (member.kind == NK_METHOD_DECL) {
+                if (includeConstructor || !member.is_constructor) {
+                    Map<string, bool> unresolved =
+                        SemanticTypeSystem.genericParameterSet(member.generic_params);
+                    Map<string, Node> variables =
+                        self.genericClosureCopyTypes(baseVariables);
+                    self.genericClosureSeedParameters(member, substitutions,
+                        unresolved, analyzed, operators, variables);
+                    self.genericClosureWalkNode(member.body_node, substitutions,
+                        unresolved, analyzed, operators, variables);
+                }
+            }
+            index = index + 1;
+        }
+    }
+
+    private void genericClosureScanHierarchy(Node declaration,
+            Vector<Node> arguments, Map<string, Node> substitutions,
+            Analyzed analyzed, OperatorSemantics operators,
+            Map<string, Node> baseVariables,
+            Map<string, bool> visited, bool includeConstructor) {
+        if (visited.has(declaration.name)) { return; }
+        visited.put(declaration.name, true);
+        string parent = DeclarationRegistry.parentName(declaration);
+        Node? parentDeclaration = null;
+        if (analyzed.genericClassTable.has(parent)) {
+            parentDeclaration = analyzed.genericClassTable.get(parent);
+        } else if (analyzed.classTable.has(parent)) {
+            parentDeclaration = analyzed.classTable.get(parent);
+        }
+        if (parentDeclaration != null) {
+            Map<string, Node> parentSubstitutions =
+                self.genericClosureClassMap(parentDeclaration, arguments);
+            self.genericClosureScanHierarchy(parentDeclaration, arguments,
+                parentSubstitutions, analyzed, operators,
+                baseVariables, visited, false);
+        }
+        self.genericClosureScanMembers(declaration, substitutions,
+            analyzed, operators, baseVariables, includeConstructor);
+    }
+
+    private void genericClosureScanClassInstance(
+            GenInstance instance, Analyzed analyzed,
+            OperatorSemantics operators) {
+        if (!analyzed.genericClassTable.has(instance.base)) { return; }
+        Node declaration = analyzed.genericClassTable.get(instance.base);
+        Map<string, Node> substitutions = self.genericClosureClassMap(
+            declaration, instance.args);
+        Map<string, Node> baseVariables = self.genericClosureGlobalTypes(analyzed);
+        baseVariables.put("self",
+            self.genericClosureSelfType(instance.base, instance.args));
+        Map<string, bool> visited = {};
+        self.genericClosureScanHierarchy(declaration, instance.args,
+            substitutions, analyzed, operators,
+            baseVariables, visited, true);
+    }
+
+    private Node? genericClosureMethodDeclaration(
+            MethodGenInstance instance, Analyzed analyzed) {
+        if (analyzed.isGenericClass(instance.classBase)) {
+            return analyzed.genericClassMethod(
+                instance.classBase, instance.methodName);
+        }
+        if (analyzed.isClass(instance.classBase)) {
+            return analyzed.classMethod(
+                instance.classBase, instance.methodName);
+        }
+        return null;
+    }
+
+    private Node? genericClosureOwnerDeclaration(
+            MethodGenInstance instance, Analyzed analyzed) {
+        if (analyzed.isGenericClass(instance.classBase)) {
+            return analyzed.genericClassTable.get(instance.classBase);
+        }
+        if (analyzed.isClass(instance.classBase)) {
+            return analyzed.classTable.get(instance.classBase);
+        }
+        return null;
+    }
+
+    private void genericClosureScanMethodInstance(
+            MethodGenInstance instance, Analyzed analyzed,
+            OperatorSemantics operators) {
+        Node? declaration = self.genericClosureOwnerDeclaration(instance, analyzed);
+        Node? method = self.genericClosureMethodDeclaration(instance, analyzed);
+        if (declaration == null || method == null) { return; }
+        Map<string, Node> substitutions = self.genericClosureClassMap(
+            declaration, instance.classArgs);
+        int methodIndex = 0;
+        while (methodIndex < method.generic_params.len
+                && methodIndex < instance.methodArgs.len) {
+            substitutions.put(method.generic_params.get(methodIndex),
+                instance.methodArgs.get(methodIndex));
+            methodIndex = methodIndex + 1;
+        }
+        Map<string, bool> unresolved = {};
+        Map<string, Node> variables = self.genericClosureGlobalTypes(analyzed);
+        variables.put("self", self.genericClosureSelfType(
+            instance.classBase, instance.classArgs));
+        self.genericClosureSeedParameters(method, substitutions,
+            unresolved, analyzed, operators, variables);
+        self.genericClosureWalkNode(method.body_node, substitutions,
+            unresolved, analyzed, operators, variables);
+    }
+
+    private void closeGenericInstanceGraph(
+            Analyzed analyzed, OperatorSemantics operators) {
+        Map<string, bool> processedClasses = {};
+        Map<string, bool> processedMethods = {};
+        int classIndex = 0;
+        int methodIndex = 0;
+        while (classIndex < analyzed.genericInstances.len
+                || methodIndex < analyzed.methodGenInstances.len) {
+            while (classIndex < analyzed.genericInstances.len) {
+                GenInstance instance =
+                    analyzed.genericInstances.get(classIndex);
+                classIndex = classIndex + 1;
+                if (!processedClasses.has(instance.mangled)) {
+                    processedClasses.put(instance.mangled, true);
+                    self.genericClosureScanClassInstance(
+                        instance, analyzed, operators);
+                }
+            }
+            while (methodIndex < analyzed.methodGenInstances.len) {
+                MethodGenInstance instance =
+                    analyzed.methodGenInstances.get(methodIndex);
+                methodIndex = methodIndex + 1;
+                string key = TypeIdentity.methodInstanceKey(instance.classBase,
+                    instance.classArgs, instance.methodName,
+                    instance.methodArgs);
+                if (!processedMethods.has(key)) {
+                    processedMethods.put(key, true);
+                    self.genericClosureScanMethodInstance(
+                        instance, analyzed, operators);
+                }
+            }
+        }
+    }
+
+    private void genericClosureScanOrdinaryCallable(Node callable,
+            Node? owner, Analyzed analyzed, OperatorSemantics operators) {
+        Map<string, Node> substitutions = {};
+        Map<string, bool> unresolved =
+            SemanticTypeSystem.genericParameterSet(callable.generic_params);
+        Map<string, Node> variables = self.genericClosureGlobalTypes(analyzed);
+        if (owner != null && callable.access != "class") {
+            Vector<Node> noArguments = [];
+            variables.put("self", self.genericClosureSelfType(
+                owner.name, noArguments));
+        }
+        self.genericClosureSeedParameters(
+            callable, substitutions, unresolved,
+            analyzed, operators, variables);
+        self.genericClosureWalkNode(
+            callable.body_node, substitutions,
+            unresolved, analyzed, operators, variables);
+    }
+
+    /* Semantic validation records target-directed no-arg constructor types after
+     * the analyzer's initial declaration walk. Scan ordinary bodies once more at
+     * that point, then close any newly discovered specialization graph. */
+    private void closeProgramGenericExpressionGraph(Node program,
+            Analyzed analyzed, OperatorSemantics operators) {
+        Map<string, Node> substitutions = {};
+        Map<string, bool> unresolved = {};
+        int declarationIndex = 0;
+        while (declarationIndex < program.declarations.len) {
+            Node declaration = program.declarations.get(declarationIndex);
+            if (declaration.kind == NK_FUNCTION_DECL) {
+                self.genericClosureScanOrdinaryCallable(
+                    declaration, null, analyzed, operators);
+            } else if (declaration.kind == NK_CLASS_DECL
+                    && declaration.generic_params.len == 0) {
+                Map<string, Node> fieldVariables =
+                    self.genericClosureGlobalTypes(analyzed);
+                Vector<Node> noArguments = [];
+                fieldVariables.put("self", self.genericClosureSelfType(
+                    declaration.name, noArguments));
+                int memberIndex = 0;
+                while (memberIndex < declaration.members.len) {
+                    Node member = declaration.members.get(memberIndex);
+                    if (member.kind == NK_FIELD_DECL) {
+                        self.genericClosureWalkNode(
+                            member.initializer, substitutions,
+                            unresolved, analyzed, operators, fieldVariables);
+                    } else if (member.kind == NK_PROPERTY_DECL) {
+                        self.genericClosureScanProperty(
+                            member, substitutions,
+                            analyzed, operators, fieldVariables);
+                    } else if (member.kind == NK_METHOD_DECL
+                            && member.generic_params.len == 0) {
+                        self.genericClosureScanOrdinaryCallable(
+                            member, declaration, analyzed, operators);
+                    }
+                    memberIndex = memberIndex + 1;
+                }
+            } else {
+                self.genericClosureWalkNode(
+                    declaration.initializer, substitutions,
+                    unresolved, analyzed, operators,
+                    self.genericClosureGlobalTypes(analyzed));
+            }
+            declarationIndex = declarationIndex + 1;
+        }
+        self.closeGenericInstanceGraph(analyzed, operators);
+    }
+
+
+    /* Analyzer-owned emitted symbol contract for source destructors. */
+
+    class string destructorHookName(string ownerName) {
+        return "__btrc_" + ownerName + "_destructor_hook";
+    }
+
+
+    /* Analyzer-owned emitted symbol contract for generic method instances. */
+
+    class string genericMethodInstanceName(
+            string classBase, Vector<Node> classArgs,
+                                     string methodName, Vector<Node> methodArgs) {
+        return TypeIdentity.mangleMethodInstanceSymbol(
+            classBase, classArgs, methodName, methodArgs);
+    }
+
+}

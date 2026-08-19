@@ -1,0 +1,1507 @@
+/* Expression traversal, contextual initialization, casts, fields, and lambdas. */
+
+import std.map;
+import std.strings;
+import std.vector;
+import ../../generated/ast/node.btrc;
+import ../../syntax/identity.btrc;
+import ../../syntax/literals.btrc;
+import ../../syntax/types.btrc;
+import ../declarations.btrc;
+import ../expressions.btrc;
+import ../hosted_abi.btrc;
+import ../models.btrc;
+import ../operators.btrc;
+import ../source_macros.btrc;
+import ../types.btrc;
+import ./borrows.btrc;
+import ./calls.btrc;
+import ./names.btrc;
+import ./ownership.btrc;
+import ./storage.btrc;
+import ./types.btrc;
+
+class ExpressionValidator {
+    private SemanticValidationState state;
+    private OperatorSemantics operators;
+    private SourceMacroNamespace sourceMacros;
+    private SourceRuntimeSymbols sourceRuntimeSymbols;
+    private ExpressionTypeResolver expressionTypes;
+    private TypeValidator types;
+    private NameValidator names;
+    private StorageValidator storage;
+    private OwnershipValidator ownership;
+    private BorrowValidator borrows;
+    private CallValidator calls;
+
+    public ExpressionValidator(
+            SemanticValidationState state,
+            OperatorSemantics operators,
+            SourceMacroNamespace sourceMacros,
+            SourceRuntimeSymbols sourceRuntimeSymbols,
+            ExpressionTypeResolver expressionTypes,
+            TypeValidator types,
+            NameValidator names,
+            StorageValidator storage,
+            OwnershipValidator ownership,
+            BorrowValidator borrows,
+            CallValidator calls) {
+        self.state = state;
+        self.operators = operators;
+        self.sourceMacros = sourceMacros;
+        self.sourceRuntimeSymbols = sourceRuntimeSymbols;
+        self.expressionTypes = expressionTypes;
+        self.types = types;
+        self.names = names;
+        self.storage = storage;
+        self.ownership = ownership;
+        self.borrows = borrows;
+        self.calls = calls;
+    }
+
+    private bool knownNumericZero(Node expression) {
+        if (expression.kind == NK_INT_LITERAL) {
+            IntegerLiteralInfo info = IntegerLiteral(expression.raw).details();
+            return info.valid && info.magnitude == 0ULL;
+        }
+        if (expression.kind == NK_FLOAT_LITERAL) {
+            return expression.value_float == 0.0;
+        }
+        if (expression.kind == NK_BOOL_LITERAL) {
+            return !expression.value_bool;
+        }
+        return false;
+    }
+
+    private void rejectThreadObservation(Node? expression,
+            Map<string, Node> variables) {
+        if (expression == null) { return; }
+        Node? typeExpr = self.types.inferType(expression, variables);
+        if (typeExpr != null && typeExpr.base == "Thread"
+                && expression.kind != NK_IDENTIFIER) {
+            TypeValidator.fail(
+                "Thread-producing expression must be consumed directly",
+                expression);
+        }
+    }
+
+    private void rejectThreadValueEscape(Node? expression,
+            string destination, Map<string, Node> variables) {
+        if (expression == null) { return; }
+        Node? typeExpr = self.types.inferType(expression, variables);
+        if (typeExpr != null && typeExpr.base == "Thread") {
+            TypeValidator.fail("Thread handles cannot be " + destination
+                + "; join or return the unique owner instead", expression);
+        }
+    }
+
+    private void validateCondition(Node? expression, string subject,
+            Map<string, Node> variables) {
+        self.rejectThreadObservation(expression, variables);
+        Node? condition = self.types.inferType(expression, variables);
+        if (condition != null && !self.types.scalarConditionType(condition)) {
+            TypeValidator.fail(subject + " requires a scalar condition, got '"
+                + self.types.formatType(condition) + "'", expression);
+        }
+    }
+
+    public bool castPointerRepresentation(Node? typeExpr) {
+        Node? canonical = self.types.resolveAliases(typeExpr);
+        return canonical != null && (canonical.is_array
+            || canonical.pointer_depth > 0
+            || (self.ownership.managedOwnershipType(canonical)
+                && !self.state.typeParams.has(canonical.base)));
+    }
+
+    public void validatePointerIntegerCast(Node expression,
+             Map<string, Node> vars) {
+        Node? target = self.types.resolveAliases(
+            expression.target_type);
+        Node? source = self.types.resolveAliases(
+            self.types.inferType(expression.expr,  vars));
+        if (target == null || source == null) { return; }
+        bool targetCallable = target.base == "__fn_ptr"
+            && target.pointer_depth == 0 && !target.is_array;
+        bool sourceCallable = source.base == "__fn_ptr"
+            && source.pointer_depth == 0 && !source.is_array;
+        if (targetCallable && !sourceCallable) {
+            if (expression.expr.kind == NK_NULL_LITERAL
+                    || self.knownNumericZero(expression.expr)) {
+                return;
+            }
+            TypeValidator.fail(
+                "Function pointers cannot be cast from object pointers or "
+                    + "integer values in strict C11",
+                expression);
+        }
+        if (sourceCallable && !targetCallable) {
+            bool targetBool = target.base == "bool"
+                && target.pointer_depth == 0 && !target.is_array;
+            if (targetBool) { return; }
+            TypeValidator.fail(
+                "Function pointers cannot be cast to object pointers or "
+                    + "integer values in strict C11",
+                expression);
+        }
+        bool sourcePointer = self.castPointerRepresentation(source);
+        bool targetPointer = self.castPointerRepresentation(target);
+        if (sourcePointer == targetPointer) { return; }
+        if (targetPointer && !sourcePointer
+                && self.knownNumericZero(expression.expr)) { return; }
+        Node scalar = sourcePointer ? target : source;
+        if (scalar.base == "intptr_t" || scalar.base == "uintptr_t") {
+            return;
+        }
+        if (scalar.pointer_depth == 0 && !scalar.is_array
+                && NumericSemantics.isType(scalar, self.state.analyzed)) {
+            TypeValidator.fail(
+                "Pointer/integer casts require intptr_t or uintptr_t",
+                expression);
+        }
+    }
+
+    public Node arrayElementType(Node arrayType) {
+        Node element = TypeShape.withoutOuterArray(arrayType);
+        element.is_static = false;
+        element.is_extern = false;
+        return element;
+    }
+
+    public bool contextualAggregateInitializer(Node? initializer) {
+        return initializer != null
+            && (initializer.kind == NK_BRACE_INITIALIZER
+                || initializer.kind == NK_LIST_LITERAL
+                || initializer.kind == NK_MAP_LITERAL);
+    }
+
+    public bool gpuArrayResultCall(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null || expression.kind != NK_CALL_EXPR
+                || expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER) {
+            return false;
+        }
+        string name = expression.callee.name;
+        if (vars.has(name) || !self.state.analyzed.funcTable.has(name)) {
+            return false;
+        }
+        Node declaration = self.state.analyzed.funcTable.get(name);
+        return declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu
+            && declaration.return_type != null
+            && declaration.return_type.is_array;
+    }
+
+    public void validateInitializerElements(Node expected,
+            Vector<Node> elements, string subject,
+             Map<string, Node> vars) {
+        int index = 0;
+        while (index < elements.len) {
+            self.validateInitializerValue(expected, elements.get(index),
+                subject + " element " + Strings.fromInt(index),  vars);
+            index = index + 1;
+        }
+    }
+
+    public void validateStructInitializer(Node expected, Node initializer,
+            string subject,
+            Map<string, Node> vars) {
+        string name = StorageValidator.structTypeName(expected, self.state.analyzed);
+        if (name == "" || !self.state.analyzed.structTable.has(name)) { return; }
+        Node declaration = self.state.analyzed.structTable.get(name);
+        if (declaration.is_forward) {
+            TypeValidator.fail("Incomplete struct '" + name
+                + "' cannot be initialized by value", initializer);
+        }
+        if (initializer.kind != NK_BRACE_INITIALIZER) {
+            TypeValidator.fail(subject + " requires a brace initializer for "
+                + "struct '" + name + "'", initializer);
+        }
+        if (initializer.elements.len > declaration.fields.len) {
+            TypeValidator.fail(subject + " has "
+                + Strings.fromInt(initializer.elements.len)
+                + " initializer elements but struct '" + name + "' has "
+                + Strings.fromInt(declaration.fields.len) + " fields", initializer);
+        }
+        int index = 0;
+        while (index < initializer.elements.len) {
+            Node field = declaration.fields.get(index);
+            Node? fieldValueType = self.storage.arrayFieldValueType(field);
+            if (fieldValueType == null) { fieldValueType = field.type; }
+            self.validateInitializerValue(fieldValueType,
+                initializer.elements.get(index),
+                subject + " field '" + field.name + "'",  vars);
+            index = index + 1;
+        }
+    }
+
+    public void validateMapInitializer(Node expected, Node initializer,
+            string subject,
+            Map<string, Node> vars) {
+        if (expected.base != "Map" || expected.generic_args.len != 2) {
+            TypeValidator.fail(subject
+                + " uses a map literal for a non-Map type", initializer);
+        }
+        int index = 0;
+        while (index < initializer.entries.len) {
+            Node entry = initializer.entries.get(index);
+            self.validateInitializerValue(expected.generic_args.get(0),
+                entry.key, subject + " key",  vars);
+            self.validateInitializerValue(expected.generic_args.get(1),
+                entry.value_node, subject + " value",  vars);
+            index = index + 1;
+        }
+    }
+
+    public void validateInitializerValue(Node expected, Node value,
+            string subject,
+            Map<string, Node> vars) {
+        self.storage.validateVolatileReferenceConversion(
+            expected, value, subject,  vars);
+        Node? valueExpected = self.types.arrayValueType(expected);
+        if (valueExpected == null) { return; }
+        Node representedExpected = valueExpected;
+        self.contextualizeGenericConstructor(
+            representedExpected, value,  vars);
+        Node? canonical = self.types.resolveAliases(representedExpected);
+        if (canonical == null) { return; }
+        if (value.kind == NK_MAP_LITERAL) {
+            self.validateMapInitializer(
+                canonical, value, subject,  vars);
+            return;
+        }
+        if (canonical.is_array) {
+            if (value.kind != NK_BRACE_INITIALIZER
+                    && value.kind != NK_LIST_LITERAL) {
+                /* Array-valued GPU dispatch is the sole expression form that
+                 * materializes array storage. Ordinary C arrays remain
+                 * non-copyable and must still use a contextual initializer. */
+                if (self.gpuArrayResultCall(value,  vars)) { return; }
+                TypeValidator.fail(subject
+                    + " requires an array initializer", value);
+            }
+            /* A fixed-bound empty initializer is normalized by structured IR to
+             * strict-C11 `{0}`.  Only an unsized array lacks enough information
+             * to form an object. */
+            if (value.elements.len == 0 && canonical.array_size == null) {
+                TypeValidator.fail(subject
+                    + " cannot infer an array bound from an empty initializer",
+                    value);
+            }
+            self.validateInitializerElements(
+                self.arrayElementType(canonical), value.elements,
+                subject,  vars);
+            return;
+        }
+        string structName = StorageValidator.structTypeName(canonical, self.state.analyzed);
+        if (structName != "" && canonical.pointer_depth == 0
+                && value.kind == NK_BRACE_INITIALIZER) {
+            self.validateStructInitializer(
+                canonical, value, subject,  vars);
+            return;
+        }
+        if (canonical.base == "Tuple" && canonical.pointer_depth == 0
+                && value.kind == NK_BRACE_INITIALIZER) {
+            if (value.elements.len > canonical.generic_args.len) {
+                TypeValidator.fail(subject + " has "
+                    + Strings.fromInt(value.elements.len)
+                    + " initializer elements but tuple '"
+                    + self.types.formatType(canonical) + "' has "
+                    + Strings.fromInt(canonical.generic_args.len)
+                    + " fields", value);
+            }
+            int tupleIndex = 0;
+            while (tupleIndex < value.elements.len) {
+                self.validateInitializerValue(
+                    canonical.generic_args.get(tupleIndex),
+                    value.elements.get(tupleIndex),
+                    subject + " field '_" + Strings.fromInt(tupleIndex) + "'",
+                     vars);
+                tupleIndex = tupleIndex + 1;
+            }
+            return;
+        }
+        if (value.kind == NK_BRACE_INITIALIZER
+                || value.kind == NK_LIST_LITERAL) {
+            if (value.kind == NK_BRACE_INITIALIZER
+                    && value.elements.len > 0
+                    && self.state.analyzed.isGenericClass(canonical.base)
+                    && canonical.base != "Array"
+                    && canonical.base != "List"
+                    && canonical.base != "Map"
+                    && canonical.base != "Set"
+                    && canonical.base != "Vector") {
+                TypeValidator.fail(subject
+                    + " cannot use a non-empty brace initializer for heap class '"
+                    + self.types.formatType(canonical)
+                    + "'; use an explicit constructor call", value);
+            }
+            if (canonical.generic_args.len == 1
+                    && (canonical.base == "Array" || canonical.base == "List"
+                        || canonical.base == "Set"
+                        || canonical.base == "Vector")) {
+                self.validateInitializerElements(
+                    canonical.generic_args.get(0), value.elements,
+                    subject,  vars);
+                return;
+            }
+            if (value.kind == NK_BRACE_INITIALIZER && value.elements.len == 0
+                    && canonical.generic_args.len > 0
+                    && self.state.analyzed.isGenericClass(canonical.base)) {
+                return;
+            }
+            TypeValidator.fail(subject + " uses an aggregate initializer for '"
+                + self.types.formatType(canonical) + "'", value);
+        }
+        Node? actual = self.types.inferType(value,  vars);
+        if (actual != null
+                && !self.types.assignmentCompatible(canonical, actual)) {
+            TypeValidator.fail(subject + " expects '"
+                + self.types.formatType(canonical) + "' but got '"
+                + self.types.formatType(actual) + "'", value);
+        }
+    }
+
+    public void validateTypedInitializer(Node? expected, Node? initializer,
+            string subject,
+            Map<string, Node> vars) {
+        if (expected == null || initializer == null) { return; }
+        self.storage.validateVolatileReferenceConversion(
+            expected, initializer, subject,  vars);
+        Node? valueExpected = self.types.arrayValueType(expected);
+        if (valueExpected == null) { return; }
+        Node representedExpected = valueExpected;
+        self.contextualizeGenericConstructor(
+            representedExpected, initializer,  vars);
+        self.calls.validateManagedStringSource(
+            representedExpected, initializer, subject,  vars);
+        self.borrows.validateOpaqueBorrowStorage(
+            representedExpected, initializer, subject,  vars);
+        self.ownership.rejectShallowInitializer(
+            representedExpected, initializer,  vars);
+        Node? canonical = self.types.resolveAliases(representedExpected);
+        bool aggregate = initializer.kind == NK_BRACE_INITIALIZER
+            || initializer.kind == NK_LIST_LITERAL
+            || initializer.kind == NK_MAP_LITERAL;
+        /* Ordinary scalar/reference compatibility already has context-specific
+         * diagnostics at every call site.  This layer owns only contextual
+         * aggregate shapes and nested aggregate element checks. */
+        if (!aggregate && (initializer.kind == NK_NULL_LITERAL
+                || canonical == null || !canonical.is_array)) {
+            return;
+        }
+        self.validateInitializerValue(
+            representedExpected, initializer, subject,  vars);
+    }
+
+    public void validateGpuArrayResultContext(Node expression,
+             Map<string, Node> vars) {
+        if (self.gpuArrayResultCall(expression,  vars)
+                && self.state.gpuArrayResultBoundary != expression) {
+            TypeValidator.fail(
+                "Array-returning @gpu call is only valid as an array declaration "
+                    + "initializer or direct array assignment statement",
+                expression);
+        }
+    }
+
+    public void validateGpuResultBoundary(Node? expression, Node? boundary,
+             Map<string, Node> vars) {
+        Node? previous = self.state.gpuArrayResultBoundary;
+        self.state.gpuArrayResultBoundary = boundary;
+        self.validateExpr(expression,  vars);
+        self.state.gpuArrayResultBoundary = previous;
+    }
+
+    public void validateGpuArrayInitializer(Node? expression,
+            Node? declaredType,
+             Map<string, Node> vars) {
+        Node? boundary = null;
+        Node? canonical = self.types.resolveAliases(declaredType);
+        bool arrayStorage = declaredType == null
+            || (canonical != null && canonical.is_array);
+        if (arrayStorage
+                && self.gpuArrayResultCall(expression,  vars)) {
+            boundary = expression;
+        }
+        self.validateGpuResultBoundary(
+            expression, boundary,  vars);
+    }
+
+    public void validateGpuResultStatement(Node expression,
+             Map<string, Node> vars) {
+        Node? boundary = null;
+        if (expression.kind == NK_ASSIGN_EXPR && expression.op == "="
+                && self.gpuArrayResultCall(
+                    expression.value_node,  vars)) {
+            boundary = expression.value_node;
+        }
+        self.validateGpuResultBoundary(
+            expression, boundary,  vars);
+    }
+
+    public void validateClassProjection(Node expression,
+            string className) {
+        if (self.names.validateResolvedMemberAccess(className, expression.field,
+                NK_FIELD_DECL, true, false, "field",  expression)) {
+            return;
+        }
+        if (self.names.validateResolvedMemberAccess(className, expression.field,
+                NK_METHOD_DECL, true, true, "method",  expression)) {
+            return;
+        }
+        string instanceMethodOwner = self.names.resolveMemberOwner(
+            className, expression.field, NK_METHOD_DECL,
+            false, true, self.state.analyzed);
+        if (instanceMethodOwner != "") {
+            TypeValidator.fail("Method '" + expression.field
+                + "' is not a class method, cannot access it statically",
+                expression);
+        }
+        string instanceFieldOwner = self.names.resolveMemberOwner(
+            className, expression.field, NK_FIELD_DECL,
+            false, true, self.state.analyzed);
+        string instancePropertyOwner = self.names.resolveMemberOwner(
+            className, expression.field, NK_PROPERTY_DECL,
+            false, true, self.state.analyzed);
+        if (instanceFieldOwner != "" || instancePropertyOwner != "") {
+            TypeValidator.fail("Instance member '" + expression.field
+                + "' cannot be accessed on class '" + className + "'",
+                expression);
+        }
+        TypeValidator.fail("Class '" + className
+            + "' has no static field or method '" + expression.field + "'",
+            expression);
+    }
+
+    public void validateInstanceProjection(Node expression,
+            Node receiver, bool requireGetter) {
+        if (self.names.validateResolvedMemberAccess(receiver.base, expression.field,
+                NK_PROPERTY_DECL, false, true, "property",  expression)) {
+            string owner = self.names.resolveMemberOwner(
+                receiver.base, expression.field, NK_PROPERTY_DECL,
+                false, true, self.state.analyzed);
+            Node? property = self.names.declaredMember(
+                owner, expression.field, NK_PROPERTY_DECL,
+                false, self.state.analyzed);
+            if (requireGetter && property != null && !property.has_getter) {
+                TypeValidator.fail(
+                    "Property '" + expression.field + "' has no getter",
+                    expression);
+            }
+            return;
+        }
+        if (self.names.validateResolvedMemberAccess(receiver.base, expression.field,
+                NK_FIELD_DECL, false, true, "field",  expression)) {
+            return;
+        }
+        if (self.names.validateResolvedMemberAccess(receiver.base, expression.field,
+                NK_METHOD_DECL, false, true, "method",  expression)) {
+            return;
+        }
+        string classMethodOwner = self.names.resolveMemberOwner(
+            receiver.base, expression.field, NK_METHOD_DECL,
+            true, true, self.state.analyzed);
+        if (classMethodOwner != "") {
+            TypeValidator.fail("Class method '" + expression.field
+                + "' must be accessed on '" + receiver.base
+                + "', not on an instance", expression);
+        }
+        TypeValidator.fail("Class '" + receiver.base
+            + "' has no field or method '" + expression.field + "'",
+            expression);
+    }
+
+    public void validateField(Node expression, bool requireGetter,
+             Map<string, Node> vars) {
+        if (expression.obj == null) { return; }
+        if (expression.obj.kind == NK_IDENTIFIER
+                && !vars.has(expression.obj.name)) {
+            if (self.state.analyzed.isEnum(expression.obj.name)) {
+                if (!self.state.analyzed.enumContains(
+                        expression.obj.name, expression.field)) {
+                    TypeValidator.fail("Enum '" + expression.obj.name
+                        + "' has no value '" + expression.field + "'",
+                        expression);
+                }
+                return;
+            }
+            if (self.state.analyzed.isRichEnum(expression.obj.name)) {
+                if (self.types.richEnumVariant(expression.obj.name,
+                        expression.field) == null) {
+                    TypeValidator.fail("Rich enum '" + expression.obj.name
+                        + "' has no variant '" + expression.field + "'",
+                        expression);
+                }
+                return;
+            }
+            if (self.state.analyzed.isClass(expression.obj.name)
+                    || self.state.analyzed.isGenericClass(expression.obj.name)) {
+                self.validateClassProjection(
+                    expression, expression.obj.name);
+                return;
+            }
+        }
+        Node? receiver = self.types.inferType(expression.obj,  vars);
+        if (receiver == null) { return; }
+        if (self.state.analyzed.isRichEnum(receiver.base)) {
+            if (expression.field != "tag" && expression.field != "data") {
+                TypeValidator.fail("Rich enum '" + receiver.base
+                    + "' has no field '" + expression.field + "'", expression);
+            }
+            return;
+        }
+        if (SemanticTypeSystem.isString(receiver)) {
+            TypeValidator.fail("Type 'string' has no field '"
+                + expression.field + "'; use a string method call", expression);
+        }
+        if (receiver.base == "Tuple") {
+            int tupleIndex = SemanticTypeSystem.tupleIndex(expression.field);
+            if (tupleIndex < 0 || tupleIndex >= receiver.generic_args.len) {
+                TypeValidator.fail("Tuple type '"
+                    + self.types.formatType(receiver) + "' has no field '"
+                    + expression.field + "'", expression);
+            }
+            return;
+        }
+        string structName = SemanticTypeSystem.resolvedStructName(receiver, self.state.analyzed);
+        if (structName != "") {
+            if (SemanticTypeSystem.structFieldFor(receiver, expression.field,
+                    self.state.analyzed) == null) {
+                TypeValidator.fail("Struct '" + structName
+                    + "' has no field '" + expression.field + "'", expression);
+            }
+            return;
+        }
+        if (self.state.analyzed.isClass(receiver.base)
+                || self.state.analyzed.isGenericClass(receiver.base)) {
+            self.validateInstanceProjection(
+                expression, receiver, requireGetter);
+        }
+    }
+
+    public bool rawPointer(Node? typeExpr, Analyzed analyzed) {
+        return typeExpr != null
+            && (typeExpr.pointer_depth > 0 || typeExpr.is_array)
+            && !analyzed.isClass(typeExpr.base)
+            && !analyzed.isGenericClass(typeExpr.base);
+    }
+
+    public bool hasBinaryOverload(
+            Node leftType, string op) {
+        string magic = self.operators.binaryMethodName(op);
+        if (magic == "") { return false; }
+        Node? method = null;
+        if (self.state.analyzed.isClass(leftType.base)) {
+            method = self.state.analyzed.classMethod(leftType.base, magic);
+        } else if (self.state.analyzed.isGenericClass(leftType.base)) {
+            method = self.state.analyzed.genericClassMethod(leftType.base, magic);
+        }
+        return method != null && method.kind == NK_METHOD_DECL;
+    }
+
+    public bool hasUnaryOverload(
+            Node operandType, string op) {
+        if (op != "-") { return false; }
+        Node? method = null;
+        if (self.state.analyzed.isClass(operandType.base)) {
+            method = self.state.analyzed.classMethod(operandType.base, "__neg__");
+        } else if (self.state.analyzed.isGenericClass(operandType.base)) {
+            method = self.state.analyzed.genericClassMethod(
+                operandType.base, "__neg__");
+        }
+        return method != null && method.kind == NK_METHOD_DECL;
+    }
+
+    public void operatorFailure(Node expression, Node left, Node right) {
+        TypeValidator.fail("operator '" + expression.op
+            + "' is not defined for '" + self.types.formatType(left)
+            + "' and '" + self.types.formatType(right) + "'", expression);
+    }
+
+    public void validatePortableNumericMix(
+            Node site, Node left, Node right, string context) {
+        if (NumericSemantics.isType(left, self.state.analyzed)
+                && NumericSemantics.isType(right, self.state.analyzed)
+                && !NumericSemantics.integerMixIsPortable(left, right)) {
+            TypeValidator.fail(context + " mixes ABI-dependent integer type '"
+                + self.types.formatType(left) + "' with '"
+                + self.types.formatType(right)
+                + "'; cast explicitly to a fixed-width or built-in integer type",
+                site);
+        }
+    }
+
+    public void validateBinary(Node expression,
+            Map<string, Node> vars) {
+        self.rejectThreadObservation(expression.left,  vars);
+        self.rejectThreadObservation(expression.right,  vars);
+        Node? left = self.types.inferType(expression.left,  vars);
+        Node? right = self.types.inferType(expression.right,  vars);
+        if (left == null || right == null
+                || self.types.typeContainsParams(left, self.state.typeParams)
+                || self.types.typeContainsParams(right, self.state.typeParams)) {
+            return;
+        }
+        if (self.hasBinaryOverload(left, expression.op)) { return; }
+        self.validatePortableNumericMix(
+            expression, left, right, "Operator '" + expression.op + "'");
+        string op = expression.op;
+        bool valid = false;
+        if (op == "??") {
+            bool optionalScalar = self.operators.isOptionalValueCoalesce(
+                expression.left, left, right);
+            valid = optionalScalar
+                || (self.operators.isReferenceType(left)
+                    && (self.types.assignmentCompatible(left, right)
+                        || self.types.assignmentCompatible(right, left)));
+        } else if (op == "&&" || op == "||") {
+            valid = self.types.scalarConditionType(left)
+                && self.types.scalarConditionType(right);
+        } else if (op == "&" || op == "|" || op == "^"
+                || op == "<<" || op == ">>") {
+            valid = self.types.integralType(left, self.state.analyzed)
+                && self.types.integralType(right, self.state.analyzed);
+        } else if (op == "+" || op == "-") {
+            valid = (NumericSemantics.isType(left, self.state.analyzed)
+                    && NumericSemantics.isType(right, self.state.analyzed))
+                || (op == "+" && TypeComposition.isSemanticScalarString(left)
+                    && TypeComposition.isSemanticScalarString(right))
+                || (self.rawPointer(left, self.state.analyzed)
+                    && self.types.integralType(right, self.state.analyzed))
+                || (op == "+" && self.types.integralType(left, self.state.analyzed)
+                    && self.rawPointer(right, self.state.analyzed))
+                || (op == "-" && self.rawPointer(left, self.state.analyzed)
+                    && self.rawPointer(right, self.state.analyzed)
+                    && self.operators.referenceTypesCompatible(left, right));
+        } else if (op == "*" || op == "/" || op == "%") {
+            valid = NumericSemantics.isType(left, self.state.analyzed)
+                && NumericSemantics.isType(right, self.state.analyzed)
+                && left.base != "bool" && right.base != "bool";
+        } else if (self.operators.isComparisonOperator(op)) {
+            valid = self.operators.comparisonDomain(
+                op, left, right) != OP_DOMAIN_INVALID;
+        } else {
+            return;
+        }
+        if (!valid) { self.operatorFailure(expression, left, right); }
+    }
+
+    public void validateUnary(Node expression,
+            Map<string, Node> vars) {
+        if (expression.op == "&") {
+            bool addressable = self.storage.isLifetimeStableStorage(
+                    expression.operand,  vars)
+                || (expression.operand.kind == NK_IDENTIFIER
+                    && (self.state.analyzed.funcNames.has(expression.operand.name)
+                        || self.sourceRuntimeSymbols.helper(
+                            expression.operand.name)));
+            if (!addressable) {
+                Node? invalidType = self.types.inferType(
+                    expression.operand,  vars);
+                string spelling = invalidType == null
+                    ? "unknown" : self.types.formatType(invalidType);
+                TypeValidator.fail("Unary operator '&' is not defined for '"
+                    + spelling + "'", expression);
+            }
+            return;
+        }
+        Node? operand = self.types.inferType(expression.operand,  vars);
+        if (operand == null
+                || self.types.typeContainsParams(operand, self.state.typeParams)) {
+            return;
+        }
+        if (self.hasUnaryOverload(operand, expression.op)) {
+            return;
+        }
+        bool valid = true;
+        if (expression.op == "*") {
+            valid = operand.pointer_depth > 0 || operand.is_array;
+        } else if (expression.op == "++" || expression.op == "--") {
+            valid = self.storage.isLvalue(expression.operand,  vars)
+                && ((NumericSemantics.isType(operand, self.state.analyzed)
+                        && operand.base != "bool")
+                    || operand.pointer_depth > 0);
+            if (valid) {
+                self.storage.validatePropertyMutation(expression.operand,
+                    true, false,  vars, expression);
+                self.storage.validateIndexedMutation(expression.operand,
+                    true,  vars, expression);
+                self.storage.validateMutableTarget(operand,  expression, false);
+                self.storage.validateTargetReceiverMutability(
+                    expression.operand,  vars, expression);
+            }
+        } else if (expression.op == "+" || expression.op == "-") {
+            valid = NumericSemantics.isType(operand, self.state.analyzed)
+                && operand.base != "bool";
+        } else if (expression.op == "~") {
+            valid = self.types.integralType(operand, self.state.analyzed);
+        } else if (expression.op == "!") {
+            valid = self.types.scalarConditionType(operand);
+        }
+        if (!valid) {
+            TypeValidator.fail("Unary operator '" + expression.op
+                + "' is not defined for '" + self.types.formatType(operand) + "'",
+                expression);
+        }
+    }
+
+    public void validateExpr(Node? expression,
+            Map<string, Node> vars) {
+        if (expression == null) { return; }
+        self.validateGpuArrayResultContext(expression,  vars);
+        if (expression.kind == NK_BINARY_EXPR) {
+            self.validateExpr(expression.left,  vars);
+            self.validateExpr(expression.right,  vars);
+            self.validateBinary(expression,  vars);
+        } else if (expression.kind == NK_UNARY_EXPR) {
+            self.validateExpr(expression.operand,  vars);
+            self.validateUnary(expression,  vars);
+        } else if (expression.kind == NK_ASSIGN_EXPR) {
+            if (expression.target != null
+                    && expression.target.kind == NK_INDEX_EXPR) {
+                self.validateExpr(expression.target.obj,  vars);
+                self.validateExpr(expression.target.index,  vars);
+                self.storage.validateIndex(expression.target,  vars,
+                    expression.op != "=");
+            } else if (expression.target != null
+                    && expression.target.kind == NK_FIELD_ACCESS_EXPR) {
+                self.validateExpr(expression.target.obj,  vars);
+                self.validateField(
+                    expression.target, expression.op != "=",  vars);
+            } else {
+                self.validateExpr(expression.target,  vars);
+            }
+            if (expression.op == "=") {
+                self.contextualizeGenericConstructor(
+                    self.types.inferType(expression.target,  vars),
+                    expression.value_node,  vars);
+            }
+            self.validateExpr(expression.value_node,  vars);
+            self.ownership.rejectShallowStore(expression, vars);
+            Node? assignmentTarget = self.types.inferType(
+                expression.target, vars);
+            self.borrows.validateOpaqueBorrowStorage(
+                assignmentTarget, expression.value_node, "Assignment", vars);
+            self.storage.validateAssignment(expression,  vars);
+        } else if (expression.kind == NK_CALL_EXPR) {
+            self.contextualizeCallGenericConstructors(expression,  vars);
+            /* An unresolved direct identifier call is the deliberate C-interop
+             * seam.  Validate all other callees as ordinary value expressions. */
+            if (expression.callee != null
+                    && expression.callee.kind == NK_FIELD_ACCESS_EXPR) {
+                self.validateExpr(expression.callee.obj,  vars);
+            } else if (expression.callee == null
+                    || expression.callee.kind != NK_IDENTIFIER) {
+                self.validateExpr(expression.callee,  vars);
+            }
+            int index = 0;
+            while (index < expression.args.len) {
+                self.validateExpr(expression.args.get(index),  vars);
+                index = index + 1;
+            }
+            self.calls.validateGeneratedSymbolCall(expression,  vars);
+            self.calls.validateCall(expression,  vars);
+        } else if (expression.kind == NK_INDEX_EXPR) {
+            self.validateExpr(expression.obj,  vars);
+            self.validateExpr(expression.index,  vars);
+            self.storage.validateIndex(expression,  vars, true);
+        } else if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            self.validateExpr(expression.obj,  vars);
+            self.validateField(expression, true,  vars);
+        } else if (expression.kind == NK_TERNARY_EXPR) {
+            self.validateExpr(expression.condition,  vars);
+            self.validateCondition(
+                expression.condition, "Ternary expression",  vars);
+            self.validateExpr(expression.true_expr,  vars);
+            self.validateExpr(expression.false_expr,  vars);
+            Node? first = self.types.inferType(expression.true_expr,  vars);
+            Node? second = self.types.inferType(expression.false_expr,  vars);
+            if (first != null && second != null) {
+                self.validatePortableNumericMix(
+                    expression, first, second, "Ternary expression");
+            }
+            if (first != null && second != null
+                    && !self.types.assignmentCompatible(first, second)
+                    && !self.types.assignmentCompatible(second, first)) {
+                TypeValidator.fail("Ternary branches have incompatible types '"
+                    + self.types.formatType(first) + "' and '"
+                    + self.types.formatType(second) + "'", expression);
+            }
+        } else {
+            self.validateExprChildren(expression,  vars);
+        }
+    }
+
+    public void validateLambda(Node expression,
+            Map<string, Node> vars) {
+        self.names.validateLambdaNames(expression);
+        Map<string, Node> bodyVars = TypeValidator.cloneTypes(vars);
+        Map<string, bool> parameterNames = {};
+        int index = 0;
+        while (index < expression.params.len) {
+            Node parameter = expression.params.get(index);
+            self.names.validateGeneratedLexicalBindingName(
+                parameter.name, "Lambda parameter", parameter);
+            parameterNames.put(parameter.name, true);
+            self.types.validateDeclaredType(parameter.type,
+                "Lambda parameter '" + parameter.name + "'",
+                "parameter", parameter);
+            self.types.rejectRuntimeInterfaceType(
+                parameter.type, parameter);
+            self.storage.validateArrayBound(parameter.type,
+                "Lambda parameter '" + parameter.name + "'",
+                "parameter", parameter,  bodyVars);
+            if (parameter.default_ != null) {
+                TypeValidator.fail(
+                    "Lambda parameters cannot have default arguments",
+                    parameter);
+            }
+            if (parameter.type != null) {
+                Node? parameterValueType = self.storage.arrayParameterValueType(
+                    parameter.type);
+                if (parameterValueType != null) {
+                    bodyVars.put(parameter.name, parameterValueType);
+                }
+            }
+            index = index + 1;
+        }
+        if (expression.return_type != null) {
+            self.types.validateDeclaredType(expression.return_type,
+                "Lambda return type", "return", expression);
+            self.types.rejectRuntimeInterfaceType(
+                expression.return_type, expression);
+            self.types.validateArrayReturn(expression, "Lambda");
+        }
+
+        Map<string, bool> usedNames = {};
+        ExpressionTypeResolver.collectIdentifiers(expression.body_node, usedNames);
+        Vector<string> names = usedNames.keys();
+        Map<string, bool> previousBorrowedBindings =
+            self.types.cloneFlags(self.state.borrowedBindings);
+        Map<string, bool> previousParameterNames =
+            self.types.cloneFlags(self.state.parameterNames);
+        Map<string, bool> previousLocalBindings =
+            self.types.cloneFlags(self.state.localBindings);
+        self.state.borrowedBindings = self.types.cloneFlags(parameterNames);
+        self.state.localBindings = self.types.cloneFlags(parameterNames);
+        /* Lambda parameters are not parameters of state.callable, which remains
+         * the enclosing declaration for the rest of semantic analysis.  Keep the
+         * transfer-contract name set isolated so identical spellings cannot borrow
+         * the enclosing callable's consumption permission. */
+        self.state.parameterNames = {};
+        int captureIndex = 0;
+        while (captureIndex < names.len) {
+            string name = names.get(captureIndex);
+            if (!parameterNames.has(name) && vars.has(name)
+                    && previousLocalBindings.has(name)) {
+                /* Lifted environment fields are non-owning copies.  Model them as
+                 * borrowed lexical proxies even when the enclosing local owns its
+                 * slot, so rebind/release validation matches generated code. */
+                self.state.borrowedBindings.put(name, true);
+                self.state.localBindings.put(name, true);
+                if (self.ownership.containsThreadStorage(vars.get(name))) {
+                    TypeValidator.fail(
+                        "A lambda cannot capture Thread handle '" + name
+                            + "'; join it before capture or create a fresh owner "
+                            + "inside the lambda",
+                        expression);
+                }
+            }
+            captureIndex = captureIndex + 1;
+        }
+
+        Node? previousReturn = self.state.returnType;
+        int previousLoop = self.state.loopDepth;
+        int previousBreak = self.state.breakDepth;
+        Node resultType = self.expressionTypes.lambdaReturnType(
+            expression, vars);
+        Node? representedResult = self.types.arrayValueType(resultType);
+        if (representedResult != null) { resultType = representedResult; }
+        self.state.returnType = resultType;
+        self.state.loopDepth = 0;
+        self.state.breakDepth = 0;
+
+        Node body = expression.body_node;
+        if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
+            self.validateExpr(body.expression,  bodyVars);
+            self.storage.validateVolatileReferenceConversion(
+                resultType, body.expression,
+                "Lambda return value",  bodyVars);
+            Node? actual = self.types.inferType(body.expression,  bodyVars);
+            if (actual == null) {
+                TypeValidator.fail(
+                    "Cannot infer lambda expression return type", body.expression);
+            }
+            if (!self.types.assignmentCompatible(resultType, actual)) {
+                TypeValidator.fail("Lambda return type mismatch: expected '"
+                    + self.types.formatType(resultType) + "' but got '"
+                    + self.types.formatType(actual) + "'", body.expression);
+            }
+        } else if (body != null && body.kind == NK_LAMBDA_BLOCK) {
+            bool nonVoid = !TypeValidator.scalarVoid(resultType);
+            if (nonVoid && !ExpressionTypeResolver.blockTerminates(body.body_node)) {
+                TypeValidator.fail(
+                    "Non-void lambda does not return on every path", expression);
+            }
+        }
+
+        self.state.returnType = previousReturn;
+        self.state.loopDepth = previousLoop;
+        self.state.breakDepth = previousBreak;
+        self.state.borrowedBindings = previousBorrowedBindings;
+        self.state.parameterNames = previousParameterNames;
+        self.state.localBindings = previousLocalBindings;
+    }
+
+    public void validateSpawnCaptures(Node expression,
+             Map<string, Node> vars) {
+        Map<string, bool> parameterNames = {};
+        int parameterIndex = 0;
+        while (parameterIndex < expression.params.len) {
+            parameterNames.put(
+                expression.params.get(parameterIndex).name, true);
+            parameterIndex = parameterIndex + 1;
+        }
+        Map<string, bool> usedNames = {};
+        ExpressionTypeResolver.collectIdentifiers(expression.body_node, usedNames);
+        Vector<string> names = usedNames.keys();
+        int captureIndex = 0;
+        while (captureIndex < names.len) {
+            string name = names.get(captureIndex);
+            if (!parameterNames.has(name) && vars.has(name)
+                    && !self.state.analyzed.globalVarTypes.has(name)) {
+                Node captureType = vars.get(name);
+                Node? canonical = self.types.resolveAliases(captureType);
+                Map<string, bool> visiting = {};
+                if ((canonical != null && canonical.is_array)
+                        || self.ownership.threadResultHasUnsizedArray(
+                            captureType, visiting)) {
+                    TypeValidator.fail(
+                        "spawn cannot capture array storage through '" + name
+                            + "'; copy it into a scalar-only struct or managed "
+                            + "collection",
+                        expression);
+                }
+                Map<string, bool> managedVisiting = {};
+                if (!self.ownership.directManagedThreadResult(captureType)
+                        && self.ownership.threadAggregateHasManagedReference(
+                            captureType, managedVisiting)) {
+                    TypeValidator.fail(
+                        "spawn cannot capture shallow aggregate '" + name
+                            + "' containing string or class references; capture "
+                            + "managed values directly",
+                        expression);
+                }
+            }
+            captureIndex = captureIndex + 1;
+        }
+    }
+
+    public void validateExprList(Vector<Node> expressions,
+             Map<string, Node> vars) {
+        int index = 0;
+        while (index < expressions.len) {
+            Node value = expressions.get(index);
+            self.validateExpr(value,  vars);
+            self.rejectThreadValueEscape(
+                value, "embedded in aggregate values",  vars);
+            index = index + 1;
+        }
+    }
+
+    public void validateNew(Node expression,
+            Map<string, Node> vars) {
+        string className = expression.type.base;
+        Node? constructor = null;
+        Map<string, Node> substitutions = {};
+        if (expression.type.pointer_depth != 0 || expression.type.is_array
+                || expression.type.is_nullable) {
+            TypeValidator.fail("new requires an unqualified class type, got '"
+                + self.types.formatType(expression.type) + "'", expression);
+        }
+        if (className == "Mutex") {
+            if (expression.type.generic_args.len != 1) {
+                TypeValidator.fail(
+                    "new Mutex requires exactly one value type", expression);
+            }
+            if (expression.args.len != 1) {
+                TypeValidator.fail(
+                    "'new Mutex<T>()' expects exactly 1 argument", expression);
+            }
+            int mutexArgIndex = 0;
+            while (mutexArgIndex < expression.arg_names.len) {
+                if (expression.arg_names.get(mutexArgIndex) != "") {
+                    TypeValidator.fail(
+                        "'new Mutex<T>()' does not accept named arguments",
+                        expression);
+                }
+                mutexArgIndex = mutexArgIndex + 1;
+            }
+            Node expected = expression.type.generic_args.get(0);
+            Node argument = expression.args.get(0);
+            self.validateTypedInitializer(expected, argument,
+                "Mutex initializer",  vars);
+            Node? actual = self.types.inferType(argument,  vars);
+            if (actual != null
+                    && !self.contextualAggregateInitializer(argument)
+                    && !self.types.assignmentCompatible(expected, actual)) {
+                TypeValidator.fail("Mutex initializer expects '"
+                    + self.types.formatType(expected) + "' but got '"
+                    + self.types.formatType(actual) + "'", expression);
+            }
+            return;
+        }
+        if (self.state.analyzed.isClass(className)) {
+            if (self.state.analyzed.classTable.get(className).is_abstract) {
+                TypeValidator.fail(
+                    "Cannot instantiate abstract class '" + className + "'",
+                    expression);
+            }
+            constructor = self.state.analyzed.classConstructor(className);
+        } else if (self.state.analyzed.isGenericClass(className)) {
+            constructor = self.state.analyzed.genericClassConstructor(className);
+            substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, expression.type);
+        } else {
+            TypeValidator.fail("new requires a class type, got '"
+                + self.types.formatType(expression.type) + "'", expression);
+        }
+        if (constructor == null) {
+            if (expression.args.len > 0) {
+                TypeValidator.fail("Class '" + className
+                    + "' has no constructor but was called with "
+                    + Strings.fromInt(expression.args.len) + " argument(s)",
+                    expression);
+            }
+            return;
+        }
+        self.calls.validateSignature(className, constructor.params, expression,
+            substitutions, false,  vars);
+    }
+
+    public void validateMapEntries(Vector<Node> entries,
+             Map<string, Node> vars) {
+        int index = 0;
+        while (index < entries.len) {
+            Node entry = entries.get(index);
+            self.validateExpr(entry.key,  vars);
+            self.validateExpr(entry.value_node,  vars);
+            self.rejectThreadValueEscape(
+                entry.key, "embedded in aggregate values",  vars);
+            self.rejectThreadValueEscape(
+                entry.value_node, "embedded in aggregate values",  vars);
+            index = index + 1;
+        }
+    }
+
+    public void validateFStringParts(Vector<Node> parts,
+             Map<string, Node> vars) {
+        int index = 0;
+        while (index < parts.len) {
+            Node part = parts.get(index);
+            if (part.kind == NK_F_STRING_EXPR) {
+                self.validateExpr(part.expression,  vars);
+                self.rejectThreadValueEscape(
+                    part.expression, "formatted as values",  vars);
+            }
+            index = index + 1;
+        }
+    }
+
+    public void validateExprChildren(Node expression,
+             Map<string, Node> vars) {
+        if (expression.kind == NK_IDENTIFIER) {
+            string name = expression.name;
+            self.calls.rejectConstructorDefaultInstanceMember(
+                name, expression, false,  vars);
+            if (self.state.inParameterDefault && self.sourceMacros.declared(name)) {
+                Map<string, bool> contextIdentifiers = {
+                    "__func__": true,
+                    "__LINE__": true,
+                    "__FILE__": true
+                };
+                if (self.sourceMacros.expandsToAny(
+                        name, contextIdentifiers)) {
+                    TypeValidator.fail("Source macro '" + name
+                        + "' cannot be used in a default argument because it "
+                        + "expands to a context-sensitive predefined identifier",
+                        expression);
+                }
+            }
+            if (self.ownership.hostedRawLifetimeValue(name,  vars)) {
+                TypeValidator.fail("Hosted lifetime function '" + name
+                    + "' must be called directly and cannot be stored or "
+                    + "forwarded as a value", expression);
+            }
+            if (self.calls.hostedCallUsesOwnedSymbol(name,  vars)) {
+                TypeValidator.fail("Hosted function '" + name
+                    + "' cannot be stored or forwarded as a value because bare "
+                    + "__fn_ptr does not preserve its exact C ABI and effects; "
+                    + "call it directly", expression);
+            }
+            self.calls.validateGeneratedSymbolReference(
+                expression,  vars, false);
+            if (!vars.has(name)
+                    && self.state.analyzed.isAmbiguousEnumValue(name)) {
+                TypeValidator.fail("Ambiguous enum value '" + name
+                    + "'; qualify it with the enum name", expression);
+            }
+            bool known = vars.has(name) || self.state.analyzed.funcTable.has(name)
+                || self.sourceMacros.declared(name)
+                || self.state.analyzed.isClass(name)
+                || self.state.analyzed.isGenericClass(name)
+                || self.state.analyzed.isEnum(name)
+                || self.state.analyzed.isRichEnum(name)
+                || self.state.analyzed.isEnumValue(name)
+                || self.sourceRuntimeSymbols.helper(name)
+                || SemanticTypeSystem.isCIntegerIdentifier(name) || name == "NULL"
+                || name == "__func__"
+                || name == "stdin"
+                || name == "stdout" || name == "stderr";
+            if (!known) {
+                TypeValidator.fail(
+                    "Unknown identifier '" + name + "'", expression);
+            }
+        } else if (expression.kind == NK_SELF_EXPR) {
+            if (self.state.inParameterDefault && self.state.callable != null
+                    && self.state.callable.is_constructor) {
+                TypeValidator.fail(
+                    "Constructor defaults cannot reference 'self' before allocation",
+                    expression);
+            }
+            if (!vars.has("self")) {
+                TypeValidator.fail(
+                    "'self' used outside an instance method", expression);
+            }
+        } else if (expression.kind == NK_SUPER_EXPR) {
+            if (self.state.inParameterDefault && self.state.callable != null
+                    && self.state.callable.is_constructor) {
+                TypeValidator.fail(
+                    "Constructor defaults cannot reference 'super' before allocation",
+                    expression);
+            }
+            if (!vars.has("self")) {
+                TypeValidator.fail(
+                    "'super' used outside an instance method", expression);
+            }
+            Node selfType = vars.get("self");
+            if (!self.state.analyzed.classTable.has(selfType.base)
+                    || DeclarationRegistry.parentName(self.state.analyzed.classTable.get(selfType.base)) == "") {
+                TypeValidator.fail(
+                    "'super' used in a class without a parent", expression);
+            }
+        } else if (expression.kind == NK_CAST_EXPR) {
+            self.types.rejectRuntimeInterfaceType(
+                expression.target_type, expression);
+            self.validateExpr(expression.expr,  vars);
+            self.rejectThreadValueEscape(
+                expression.expr, "cast",  vars);
+            self.validatePointerIntegerCast(expression,  vars);
+        } else if (expression.kind == NK_SIZEOF_EXPR) {
+            if (expression.operand != null
+                    && expression.operand.kind == NK_SIZEOF_EXPR_OP) {
+                self.validateExpr(expression.operand.expr,  vars);
+            }
+        } else if (expression.kind == NK_LIST_LITERAL
+                || expression.kind == NK_BRACE_INITIALIZER
+                || expression.kind == NK_TUPLE_LITERAL) {
+            self.validateExprList(expression.elements,  vars);
+            if (expression.kind == NK_TUPLE_LITERAL) {
+                self.ownership.rejectOwnedElements(expression.elements,
+                    "a shallow aggregate",  vars);
+            }
+        } else if (expression.kind == NK_MAP_LITERAL) {
+            self.validateMapEntries(expression.entries,  vars);
+        } else if (expression.kind == NK_F_STRING_LITERAL) {
+            self.validateFStringParts(expression.parts,  vars);
+        } else if (expression.kind == NK_NEW_EXPR) {
+            self.contextualizeNewGenericConstructors(expression,  vars);
+            self.validateExprList(expression.args,  vars);
+            self.validateNew(expression,  vars);
+        } else if (expression.kind == NK_LAMBDA_EXPR) {
+            if (self.state.typeParams.len > 0) {
+                TypeValidator.fail(
+                    "Lambda expressions are not supported inside generic declarations",
+                    expression);
+            }
+            self.validateLambda(expression,  vars);
+        } else if (expression.kind == NK_SPAWN_EXPR) {
+            if (self.state.typeParams.len > 0 && (expression.fn == null
+                    || expression.fn.kind != NK_LAMBDA_EXPR)) {
+                TypeValidator.fail(
+                    "spawn expressions are not supported inside generic declarations",
+                    expression);
+            }
+            self.validateExpr(expression.fn,  vars);
+            if (expression.fn != null
+                    && expression.fn.kind == NK_LAMBDA_EXPR) {
+                self.validateSpawnCaptures(expression.fn,  vars);
+            }
+            Node? callable = self.types.inferType(expression.fn,  vars);
+            if (expression.fn == null
+                    || (expression.fn.kind != NK_LAMBDA_EXPR
+                        && (callable == null || callable.base != "__fn_ptr"))) {
+                TypeValidator.fail(
+                    "spawn expects a lambda or function pointer", expression);
+            } else if (expression.fn.kind != NK_LAMBDA_EXPR
+                    && callable != null) {
+                Node typedCallable = callable;
+                if (typedCallable.generic_args.len != 2
+                        || !self.operators.isVoidPointer(
+                            typedCallable.generic_args.get(0))
+                        || !self.operators.isVoidPointer(
+                            typedCallable.generic_args.get(1))) {
+                    TypeValidator.fail(
+                        "Non-lambda spawn requires __fn_ptr<void*, void*>; use a "
+                            + "lambda adapter for other signatures",
+                        expression);
+                }
+            }
+        }
+    }
+
+    public int genericConstructorParameterIndex(Vector<Node> parameters, string name) {
+        int index = 0;
+        while (index < parameters.len) {
+            if (parameters.get(index).name == name) { return index; }
+            index = index + 1;
+        }
+        return -1;
+    }
+
+    public void contextualizeGenericElements(Node expected, Vector<Node> elements,
+             Map<string, Node> variables) {
+        int index = 0;
+        while (index < elements.len) {
+            self.contextualizeGenericConstructor(
+                expected, elements.get(index),  variables);
+            index = index + 1;
+        }
+    }
+
+    public void contextualizeGenericConstructor(Node? expected, Node? expression,
+             Map<string, Node> variables) {
+        if (expected == null || expression == null) { return; }
+        Node? resolved = SemanticTypeSystem.resolveOuterTypedefType(
+            expected, self.state.analyzed.typedefTable);
+        if (resolved == null) { return; }
+        Node concrete = resolved;
+        if (expression.kind == NK_TERNARY_EXPR) {
+            self.contextualizeGenericConstructor(
+                concrete, expression.true_expr,  variables);
+            self.contextualizeGenericConstructor(
+                concrete, expression.false_expr,  variables);
+            return;
+        }
+        if (expression.kind == NK_MAP_LITERAL
+                && concrete.base == "Map"
+                && concrete.generic_args.len == 2) {
+            int entryIndex = 0;
+            while (entryIndex < expression.entries.len) {
+                Node entry = expression.entries.get(entryIndex);
+                self.contextualizeGenericConstructor(
+                    concrete.generic_args.get(0), entry.key,  variables);
+                self.contextualizeGenericConstructor(
+                    concrete.generic_args.get(1), entry.value_node,
+                     variables);
+                entryIndex = entryIndex + 1;
+            }
+            return;
+        }
+        bool aggregate = expression.kind == NK_BRACE_INITIALIZER
+            || expression.kind == NK_LIST_LITERAL
+            || expression.kind == NK_TUPLE_LITERAL;
+        if (aggregate) {
+            if (concrete.is_array) {
+                Node elementType = TypeShape.withoutOuterArray(concrete);
+                self.contextualizeGenericElements(
+                    elementType, expression.elements,  variables);
+                return;
+            }
+            if (concrete.base == "Tuple") {
+                int tupleIndex = 0;
+                while (tupleIndex < expression.elements.len
+                        && tupleIndex < concrete.generic_args.len) {
+                    self.contextualizeGenericConstructor(
+                        concrete.generic_args.get(tupleIndex),
+                        expression.elements.get(tupleIndex),  variables);
+                    tupleIndex = tupleIndex + 1;
+                }
+                return;
+            }
+            if (concrete.generic_args.len == 1
+                    && (concrete.base == "Array" || concrete.base == "List"
+                        || concrete.base == "Set" || concrete.base == "Vector")) {
+                self.contextualizeGenericElements(
+                    concrete.generic_args.get(0), expression.elements,
+                     variables);
+                return;
+            }
+            if (self.state.analyzed.structTable.has(concrete.base)) {
+                Node structure = self.state.analyzed.structTable.get(concrete.base);
+                int fieldIndex = 0;
+                while (fieldIndex < expression.elements.len
+                        && fieldIndex < structure.fields.len) {
+                    self.contextualizeGenericConstructor(
+                        structure.fields.get(fieldIndex).type,
+                        expression.elements.get(fieldIndex),  variables);
+                    fieldIndex = fieldIndex + 1;
+                }
+                return;
+            }
+        }
+        if (expression.kind != NK_CALL_EXPR
+                || expression.callee == null
+                || expression.callee.kind != NK_IDENTIFIER
+                || variables.has(expression.callee.name)) {
+            return;
+        }
+        string name = expression.callee.name;
+        if (!self.state.analyzed.isGenericClass(name)
+                || concrete.base != name) { return; }
+        Node declaration = self.state.analyzed.genericClassTable.get(name);
+        if (concrete.generic_args.len != declaration.generic_params.len) {
+            return;
+        }
+        self.state.analyzed.genericConstructorTypes.put(
+            AstIdentity.key(expression), concrete);
+        Node? constructor = self.state.analyzed.genericClassConstructor(name);
+        if (constructor == null) { return; }
+        Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(
+            self.state.analyzed, concrete);
+        self.contextualizeGenericCallParameters(
+            constructor.params, substitutions, expression,  variables);
+    }
+
+    public void contextualizeGenericCallParameters(Vector<Node> parameters,
+            Map<string, Node> substitutions, Node call,
+             Map<string, Node> variables) {
+        int positional = 0;
+        int argumentIndex = 0;
+        while (argumentIndex < call.args.len) {
+            string name = argumentIndex < call.arg_names.len
+                ? call.arg_names.get(argumentIndex) : "";
+            int parameterIndex = name == "" ? positional
+                : self.genericConstructorParameterIndex(parameters, name);
+            if (name == "") { positional = positional + 1; }
+            if (parameterIndex >= 0 && parameterIndex < parameters.len) {
+                Node parameterType = parameters.get(parameterIndex).type;
+                if (substitutions.len > 0) {
+                    parameterType = SemanticTypeSystem.resolveGenericType(
+                        parameterType, substitutions, self.state.analyzed);
+                }
+                self.contextualizeGenericConstructor(
+                    parameterType, call.args.get(argumentIndex),  variables);
+            }
+            argumentIndex = argumentIndex + 1;
+        }
+    }
+
+    public void contextualizeCallableArguments(Node callable, Node call,
+             Map<string, Node> variables) {
+        int index = 0;
+        while (index < call.args.len
+                && index + 1 < callable.generic_args.len) {
+            self.contextualizeGenericConstructor(
+                callable.generic_args.get(index + 1), call.args.get(index),
+                 variables);
+            index = index + 1;
+        }
+    }
+
+    public void contextualizeCallGenericConstructors(Node call,
+             Map<string, Node> variables) {
+        Node callee = call.callee;
+        if (callee == null) { return; }
+        Map<string, Node> substitutions = {};
+        if (callee.kind == NK_IDENTIFIER) {
+            if (variables.has(callee.name)) {
+                Node? callable = SemanticTypeSystem.directFunctionPointer(
+                    variables.get(callee.name), self.state.analyzed);
+                if (callable != null) {
+                    self.contextualizeCallableArguments(
+                        callable, call,  variables);
+                }
+                return;
+            }
+            Node? declaration = null;
+            if (self.state.analyzed.funcTable.has(callee.name)
+                    && !self.state.analyzed.hostedCallKeys.has(AstIdentity.key(call))) {
+                declaration = self.state.analyzed.funcTable.get(callee.name);
+            } else if (self.state.analyzed.isClass(callee.name)) {
+                declaration = self.state.analyzed.classConstructor(callee.name);
+            } else if (self.state.analyzed.isGenericClass(callee.name)) {
+                Node? instance = self.types.inferSpecialization(
+                    call, variables);
+                if (instance != null && instance.generic_args.len > 0) {
+                    self.state.analyzed.genericConstructorTypes.put(
+                        AstIdentity.key(call), instance);
+                    substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, instance);
+                    declaration = self.state.analyzed.genericClassConstructor(
+                        callee.name);
+                }
+            }
+            if (declaration != null) {
+                self.contextualizeGenericCallParameters(
+                    declaration.params, substitutions,
+                    call,  variables);
+            }
+            return;
+        }
+        if (callee.kind == NK_LAMBDA_EXPR) {
+            self.contextualizeGenericCallParameters(
+                callee.params, substitutions, call,  variables);
+            return;
+        }
+        if (callee.kind != NK_FIELD_ACCESS_EXPR) {
+            Node? callable = SemanticTypeSystem.directFunctionPointer(
+                self.types.inferSpecialization(callee, variables),
+                self.state.analyzed);
+            if (callable != null) {
+                self.contextualizeCallableArguments(
+                    callable, call,  variables);
+            }
+            return;
+        }
+        Node? method = null;
+        if (callee.obj != null && callee.obj.kind == NK_IDENTIFIER
+                && !variables.has(callee.obj.name)
+                && self.state.analyzed.isClass(callee.obj.name)) {
+            method = self.state.analyzed.classMethod(callee.obj.name, callee.field);
+        } else {
+            Node? receiver = self.types.inferSpecialization(
+                callee.obj, variables);
+            if (receiver != null && self.state.analyzed.isClass(receiver.base)) {
+                method = self.state.analyzed.classMethod(receiver.base, callee.field);
+            } else if (receiver != null
+                    && self.state.analyzed.isGenericClass(receiver.base)) {
+                method = self.state.analyzed.genericClassMethod(
+                    receiver.base, callee.field);
+                substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, receiver);
+            }
+        }
+        if (method != null) {
+            substitutions = SemanticTypeSystem.methodCallTypeMap(
+                self.state.analyzed, call, method, substitutions);
+            self.contextualizeGenericCallParameters(
+                method.params, substitutions, call,  variables);
+        }
+    }
+
+    public void contextualizeNewGenericConstructors(Node expression,
+             Map<string, Node> variables) {
+        Node? constructor = null;
+        Map<string, Node> substitutions = {};
+        if (self.state.analyzed.isClass(expression.type.base)) {
+            constructor = self.state.analyzed.classConstructor(expression.type.base);
+        } else if (self.state.analyzed.isGenericClass(expression.type.base)) {
+            constructor = self.state.analyzed.genericClassConstructor(
+                expression.type.base);
+            substitutions = SemanticTypeSystem.genericTypeMap(self.state.analyzed, expression.type);
+        }
+        if (constructor != null) {
+            self.contextualizeGenericCallParameters(
+                constructor.params, substitutions,
+                expression,  variables);
+        }
+    }
+}

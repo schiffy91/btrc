@@ -10,11 +10,11 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.emitter import CEmitter
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
@@ -173,6 +173,81 @@ int main() {
 }
 """
 
+PHYSICAL_SLOT_SOURCE = r"""
+#include <assert.h>
+
+struct Cell { char value; };
+
+int step = 0;
+int receiverCalls = 0;
+int indexCalls = 0;
+int rhsCalls = 0;
+char storage[1] = {'x'};
+Cell cell = {'x'};
+
+char* receiverProbe() {
+    assert(step == 0);
+    step = 1;
+    receiverCalls++;
+    return storage;
+}
+
+int indexProbe() {
+    assert(step == 1);
+    step = 2;
+    indexCalls++;
+    return 0;
+}
+
+char rhsProbe() {
+    assert(step == 2);
+    step = 3;
+    rhsCalls++;
+    return 'a';
+}
+
+Cell* cellProbe() {
+    assert(step == 0);
+    step = 1;
+    receiverCalls++;
+    return &cell;
+}
+
+char fieldRhsProbe() {
+    assert(step == 1);
+    step = 2;
+    rhsCalls++;
+    return 'b';
+}
+
+void ordinary() {
+    receiverProbe()[indexProbe()] = rhsProbe();
+}
+
+class Writer<T> {
+    public void write() {
+        receiverProbe()[indexProbe()] = rhsProbe();
+    }
+}
+
+int main() {
+    ordinary();
+    assert(step == 3 && storage[0] == 'a');
+
+    step = 0;
+    cellProbe()->value = fieldRhsProbe();
+    assert(step == 2 && cell.value == 'b');
+
+    step = 0;
+    storage[0] = 'x';
+    Writer<int> writer = new Writer<int>();
+    writer.write();
+    assert(step == 3 && storage[0] == 'a');
+    assert(receiverCalls == 3 && indexCalls == 2 && rhsCalls == 3);
+    return 0;
+}
+"""
+
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<lvalue-update>").tokenize()).parse()
@@ -186,6 +261,13 @@ def _emit_runtime() -> str:
     return CEmitter().emit(IROptimizer(IRLowerer(analyzed).lower()).optimize())
 
 
+@functools.lru_cache(maxsize=1)
+def _emit_physical_slot_runtime() -> str:
+    analyzed = _analyze(PHYSICAL_SLOT_SOURCE)
+    assert not analyzed.errors
+    return CEmitter().emit(IROptimizer(IRLowerer(analyzed).lower()).optimize())
+
+
 def test_lvalue_runtime_uses_correct_volatile_declarators():
     generated = _emit_runtime()
     main = generated[generated.index("int main(void) {") :]
@@ -193,6 +275,47 @@ def test_lvalue_runtime_uses_correct_volatile_declarators():
     assert "char* volatile text" in generated
     assert re.search(r"int\* volatile\*\s+[A-Za-z_]\w*;", generated)
     assert "__btrc_div" in generated and "__btrc_mod" in generated
+
+
+def test_projection_assignment_addresses_the_physical_slot():
+    generated = _emit_physical_slot_runtime()
+    assert "(&((" not in generated
+    assert re.search(
+        r"\(&__btrc_call_operand_\d+\[__btrc_call_operand_\d+\]\)",
+        generated,
+    )
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_projection_assignment_runtime_is_strict_c11(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    c_path = tmp_path / "physical_slot_assignment.c"
+    binary = tmp_path / "physical_slot_assignment"
+    c_path.write_text(_emit_physical_slot_runtime())
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            str(c_path),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(binary),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    subprocess.run([str(binary)], check=True, timeout=10)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")

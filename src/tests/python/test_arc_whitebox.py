@@ -5,11 +5,15 @@ path, so drive the owner directly with a real analyzed program. An ordinary
 method named ``free`` must not affect the selected lifecycle entry point.
 """
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import TypeExpr
-from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.analyzer.types import TypeIdentity
+from src.compiler.python.ir.lowering.ownership import CycleMetadata, ManagedValueSemantics
+from src.compiler.python.ir.lowering.session import LoweringSession
+from src.compiler.python.ir.lowering.types import CTypeLowerer
+from src.compiler.python.ir.nodes import IRModule
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import TypeExpr
 
 _SRC = """
 class Pool<T> {
@@ -26,44 +30,48 @@ int main() {
 """
 
 
-def _gen():
+def _owners() -> tuple[ManagedValueSemantics, CycleMetadata]:
     analyzed = SemanticAnalyzer().analyze(Parser(Lexer(_SRC, "<t>").tokenize()).parse())
-    return IRLowerer(analyzed)
+    identity = TypeIdentity()
+    session = LoweringSession(module=IRModule(), node_types=analyzed.node_types)
+    types = CTypeLowerer(session, analyzed, identity)
+    values = ManagedValueSemantics(analyzed, identity, types)
+    return values, CycleMetadata(analyzed, values, identity)
 
 
 def test_destroy_name_generic_uses_terminal_destructor():
-    g = _gen()
+    values, _ = _owners()
     te = TypeExpr(base="Pool", generic_args=[TypeExpr(base="int")])
-    name = g.managed_values.destroy_symbol(te)
+    name = values.destroy_symbol(te)
     assert name.endswith("_destroy")
 
 
 def test_destroy_name_non_generic():
-    g = _gen()
+    values, _ = _owners()
     te = TypeExpr(base="Plain", generic_args=[])
-    assert g.managed_values.destroy_symbol(te) == "Plain_destroy"
+    assert values.destroy_symbol(te) == "Plain_destroy"
 
 
 def test_cleanup_destroy_for_generic_instance_ignores_ordinary_free_method():
-    g = _gen()
+    values, _ = _owners()
     # A mangled generic-instance name whose base class has an unrelated method.
     mangled = next((m for m in ["btrc_Pool_int", "Pool_int"]), "Pool_int")
-    assert g.managed_values.cleanup_destroy_symbol(mangled) == f"{mangled}_destroy"
+    assert values.cleanup_destroy_symbol(mangled) == f"{mangled}_destroy"
 
 
 def test_generic_release_never_uses_ordinary_free_method():
-    g = _gen()
+    values, _ = _owners()
     te = TypeExpr(base="Pool", generic_args=[TypeExpr(base="int")])
-    assert g.managed_values.destroy_symbol(te) == "btrc_Pool_int_destroy"
+    assert values.destroy_symbol(te) == "btrc_Pool_int_destroy"
 
 
 def test_cleanup_destroy_for_plain_class():
-    g = _gen()
-    assert g.managed_values.cleanup_destroy_symbol("Plain") == "Plain_destroy"
+    values, _ = _owners()
+    assert values.cleanup_destroy_symbol("Plain") == "Plain_destroy"
 
 
 def test_lookup_cls_info_by_mangled_name():
-    g = _gen()
-    info = g.cycles.lookup_class_info("btrc_Pool_int")
+    _, cycles = _owners()
+    info = cycles.lookup_class_info("btrc_Pool_int")
     assert info is not None
     assert info.name == "Pool"

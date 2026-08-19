@@ -9,12 +9,14 @@ SELFHOST = REPO / "src/compiler/btrc"
 
 
 def test_type_reachability_scans_each_type_field_once() -> None:
-    source = (SELFHOST / "irgen.btrc").read_text()
-    scanner_start = source.index("void scanTextForKnownNames(")
-    scanner_end = source.index("\n}\n", scanner_start)
+    source = (SELFHOST / "ir/optimization/optimizer.btrc").read_text()
+    scanner_start = source.index("private void scanTextForKnownNames(")
+    scanner_end = source.index("\n    }\n", scanner_start)
     scanner = source[scanner_start:scanner_end]
-    collector_start = source.index("void collectStructRefsNode(")
-    collector_end = source.index("\n}\n\nvoid eliminateDeadStructs", collector_start)
+    collector_start = source.index("private void collectStructRefsNode(")
+    collector_end = source.index(
+        "\n    }\n\n    private void eliminateDeadStructs", collector_start
+    )
     collector = source[collector_start:collector_end]
 
     assert "while (index < length)" in scanner

@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import stdlib_archive as archive
-from src.compiler.python.cli_archive import StdlibArchiveBuilder
-from src.compiler.python.ir.emitter import CEmitter
+import src.compiler.python.artifacts.stdlib as archive
+from src.compiler.python.application.compiler import Compiler
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -79,7 +80,7 @@ def test_archive_exports_structured_callbacks_with_their_signatures():
         function_defs=[callback],
     )
 
-    archive.StdlibArchive().transform_module(module)
+    CompilationPipeline().stdlib_archive.transform_module(module)
 
     assert not callback.is_static
     assert not module.function_decls[0].is_static
@@ -90,7 +91,10 @@ def test_archive_exports_structured_callbacks_with_their_signatures():
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_stdlib_archive_is_warning_clean_under_strict_c11(tmp_path: Path, c_compiler: str):
     output = tmp_path / "stdlib"
-    StdlibArchiveBuilder().build(str(output))
+    compiler = Compiler(
+        CompilationPipeline(archive_repository=archive.StdlibArtifactRepository())
+    )
+    assert compiler.build_stdlib_archive(str(output)).successful
 
     subprocess.run(
         [

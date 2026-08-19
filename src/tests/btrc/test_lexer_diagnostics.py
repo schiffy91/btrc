@@ -13,8 +13,8 @@ import pytest
 REPO = Path(__file__).resolve().parents[3]
 CC = shlex.split(os.environ.get("BTRC_CC", "cc"))
 DRIVER_SOURCES = {
-    "lexer": "src/compiler/btrc/lex_main.btrc",
-    "parser": "src/compiler/btrc/parse_main.btrc",
+    "lexer": "src/compiler/btrc/tools/lex_main.btrc",
+    "parser": "src/compiler/btrc/tools/parse_main.btrc",
     "compiler": "src/compiler/btrc/btrcc_main.btrc",
 }
 
@@ -139,7 +139,7 @@ def test_reference_lexer_matches_diagnostic_contract(
     source: str,
     diagnostic: str,
 ) -> None:
-    from src.compiler.python.lexer import Lexer, LexerError
+    from src.compiler.python.lexer.lexer import Lexer, LexerError
 
     with pytest.raises(LexerError) as exc:
         Lexer(source, "<diagnostic>").tokenize()

@@ -1,11 +1,9 @@
-"""White-box tests for the analyzer's type-compatibility helpers: generic type
-formatting, the subclass/interface chain walk, and assignment compatibility.
-Driven directly on an analyzer whose tables are populated by analyze()."""
+"""Contracts for the concrete semantic type-system owner."""
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ast_nodes import TypeExpr
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import TypeExpr
 
 _SRC = """
 interface Speaker { int speak(); }
@@ -16,54 +14,54 @@ int main() { return 0; }
 """
 
 
-def _analyzer():
-    a = SemanticAnalyzer()
-    a.analyze(Parser(Lexer(_SRC, "<t>").tokenize()).parse())
-    return a
+def _types():
+    analyzer = SemanticAnalyzer()
+    analyzer.analyze(Parser(Lexer(_SRC, "<t>").tokenize()).parse())
+    return analyzer.types
 
 
 def test_is_subclass_transitive_parent_chain():
-    a = _analyzer()
-    assert a._is_subclass("C", "A") is True  # C -> B -> A
-    assert a._is_subclass("C", "C") is True
-    assert a._is_subclass("A", "C") is False
+    types = _types()
+    assert types.is_subclass("C", "A") is True  # C -> B -> A
+    assert types.is_subclass("C", "C") is True
+    assert types.is_subclass("A", "C") is False
 
 
 def test_is_subclass_interface_via_inheritance():
-    a = _analyzer()
-    assert a._is_subclass("C", "Speaker") is True  # C inherits A's interface
-    assert a._is_subclass("B", "Speaker") is True
-    assert a._is_subclass("A", "Speaker") is True
+    types = _types()
+    assert types.is_subclass("C", "Speaker") is True  # C inherits A's interface
+    assert types.is_subclass("B", "Speaker") is True
+    assert types.is_subclass("A", "Speaker") is True
 
 
 def test_format_type_with_generics_and_pointers():
-    a = _analyzer()
+    types = _types()
     t = TypeExpr(base="Map", generic_args=[TypeExpr(base="string"), TypeExpr(base="int")], pointer_depth=1)
-    assert a._format_type(t) == "Map<string, int>*"
+    assert types.format_type(t) == "Map<string, int>*"
 
 
 def test_types_compatible_subclass_and_numeric():
-    a = _analyzer()
-    assert a._types_compatible(TypeExpr(base="A"), TypeExpr(base="C")) is True
-    assert a._types_compatible(TypeExpr(base="int"), TypeExpr(base="double")) is True
+    types = _types()
+    assert types.types_compatible(TypeExpr(base="A"), TypeExpr(base="C")) is True
+    assert types.types_compatible(TypeExpr(base="int"), TypeExpr(base="double")) is True
     # Two distinct known, non-numeric types are incompatible.
-    assert a._types_compatible(TypeExpr(base="bool"), TypeExpr(base="string")) is False
+    assert types.types_compatible(TypeExpr(base="bool"), TypeExpr(base="string")) is False
 
 
 def test_types_compatible_is_structural_for_pointers_and_generics():
-    a = _analyzer()
-    assert not a._types_compatible(TypeExpr(base="int", pointer_depth=1), TypeExpr(base="int"))
-    assert not a._types_compatible(
+    types = _types()
+    assert not types.types_compatible(TypeExpr(base="int", pointer_depth=1), TypeExpr(base="int"))
+    assert not types.types_compatible(
         TypeExpr(base="Vector", generic_args=[TypeExpr(base="int")]),
         TypeExpr(base="Vector"),
     )
-    assert not a._types_compatible(
+    assert not types.types_compatible(
         TypeExpr(base="Vector", generic_args=[TypeExpr(base="int")]),
         TypeExpr(base="Vector", generic_args=[TypeExpr(base="string")]),
     )
 
 
 def test_interface_compatibility_requires_implementation():
-    a = _analyzer()
-    assert a._types_compatible(TypeExpr(base="Speaker"), TypeExpr(base="C"))
-    assert not a._types_compatible(TypeExpr(base="Speaker"), TypeExpr(base="string"))
+    types = _types()
+    assert types.types_compatible(TypeExpr(base="Speaker"), TypeExpr(base="C"))
+    assert not types.types_compatible(TypeExpr(base="Speaker"), TypeExpr(base="string"))

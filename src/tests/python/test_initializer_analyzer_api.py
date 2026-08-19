@@ -1,23 +1,15 @@
-"""Planner, composition, and call-site contracts for initializers."""
-
-import importlib.util
+"""Planner and call-site behavior contracts for initializers."""
 
 import pytest
 
-from src.compiler.python.analyzer.analysis_context import AnalysisContext
-from src.compiler.python.analyzer.core_models import Scope
-from src.compiler.python.analyzer.declarations.registry import DeclarationRegistry
-from src.compiler.python.analyzer.initializer_analyzer import (
-    InitializerAnalyzer,
+from src.compiler.python.analyzer.aggregates import (
     InitializerArrayFieldCheck,
     InitializerCompatibilityCheck,
     InitializerTypeContext,
-    InitializerTypeLayout,
 )
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.type_identity import TypeIdentity
 
 
 def _parse(source: str):
@@ -28,37 +20,6 @@ def _errors(source: str) -> list[str]:
     return SemanticAnalyzer().analyze(_parse(source)).errors
 
 
-def test_semantic_analyzer_composes_initializer_planner_dependencies():
-    analyzer = SemanticAnalyzer()
-
-    assert isinstance(analyzer.initializers, InitializerAnalyzer)
-    assert isinstance(analyzer.initializers.types, InitializerTypeLayout)
-    assert vars(analyzer.initializers) == {
-        "context": analyzer.context,
-        "registry": analyzer.declarations,
-        "types": analyzer.initializers.types,
-    }
-    assert vars(analyzer.initializers.types) == {
-        "registry": analyzer.declarations,
-    }
-
-
-def test_initializer_validation_mixin_and_recursive_api_are_removed():
-    analyzer = SemanticAnalyzer()
-    owners = {owner.__name__ for owner in SemanticAnalyzer.__mro__}
-
-    assert "InitializerValidationMixin" not in owners
-    for method in (
-        "_validate_typed_initializer",
-        "_contextualize_aggregate_initializer",
-        "_contextualize_collection_initializer",
-        "_validate_collection_element",
-        "_validate_map_initializer",
-    ):
-        assert not hasattr(analyzer, method)
-    assert importlib.util.find_spec("src.compiler.python.analyzer.initializers") is None
-
-
 def test_initializer_analyzer_plans_nested_struct_checks_directly():
     program = _parse(
         """
@@ -67,16 +28,11 @@ def test_initializer_analyzer_plans_nested_struct_checks_directly():
         """
     )
     declaration = program.declarations[1].body.statements[0]
-    context = AnalysisContext()
-    registry = DeclarationRegistry(context, Scope(), TypeIdentity())
-    registry.register(program)
-    planner = InitializerAnalyzer(
-        context,
-        registry,
-        InitializerTypeLayout(registry),
-    )
+    analyzer = SemanticAnalyzer()
+    analyzer.session.begin(program)
+    analyzer.declarations.register(program)
 
-    plan = planner.plan_aggregate(
+    plan = analyzer.aggregates.plan_aggregate_initializer(
         declaration.type,
         declaration.initializer,
         "Initializer for 'value'",
@@ -102,16 +58,11 @@ def test_initializer_analyzer_owns_structural_shape_diagnostics():
         """
     )
     declaration = program.declarations[1].body.statements[0]
-    context = AnalysisContext()
-    registry = DeclarationRegistry(context, Scope(), TypeIdentity())
-    registry.register(program)
-    planner = InitializerAnalyzer(
-        context,
-        registry,
-        InitializerTypeLayout(registry),
-    )
+    analyzer = SemanticAnalyzer()
+    analyzer.session.begin(program)
+    analyzer.declarations.register(program)
 
-    planner.plan_aggregate(
+    analyzer.aggregates.plan_aggregate_initializer(
         declaration.type,
         declaration.initializer,
         "Initializer for 'count'",
@@ -119,7 +70,10 @@ def test_initializer_analyzer_owns_structural_shape_diagnostics():
         declaration.col,
     )
 
-    assert any("has 2 initializer elements but struct 'Count' has 1 fields" in error for error in context.errors)
+    assert any(
+        "has 2 initializer elements but struct 'Count' has 1 fields" in error
+        for error in analyzer.session.errors
+    )
 
 
 @pytest.mark.parametrize(

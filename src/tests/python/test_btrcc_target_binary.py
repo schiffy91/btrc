@@ -11,9 +11,8 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.btrcc_binary_formats as binary_formats_module
-import src.compiler.python.btrcc_target_binary as target_module
-from src.compiler.python.btrcc_target_binary import (
+import src.compiler.python.artifacts.archive as archive_module
+from src.compiler.python.artifacts.archive import (
     TargetBinaryValidator,
     TargetCatalog,
 )
@@ -29,12 +28,8 @@ class _ShortReader(io.BytesIO):
         return super().read(3 if size < 0 else min(size, 3))
 
 
-@pytest.mark.parametrize(
-    "module",
-    [binary_formats_module, target_module],
-)
-def test_target_binary_behavior_has_explicit_owners(module) -> None:
-    syntax = ast.parse(Path(module.__file__).read_text())
+def test_target_binary_behavior_has_explicit_owners() -> None:
+    syntax = ast.parse(Path(archive_module.__file__).read_text())
     loose_behavior = [node.name for node in syntax.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
     assert loose_behavior == []
@@ -242,7 +237,7 @@ def test_target_binary_accepts_a_real_native_executable(tmp_path: Path) -> None:
     if compiler is None:
         pytest.skip("a native C compiler is unavailable")
     source = tmp_path / "probe.c"
-    executable = tmp_path / ("probe.exe" if target_module.os.name == "nt" else "probe")
+    executable = tmp_path / ("probe.exe" if archive_module.os.name == "nt" else "probe")
     source.write_text("int main(void) { return 0; }\n", encoding="utf-8")
     result = subprocess.run(
         [compiler, str(source), "-o", str(executable)],
@@ -276,15 +271,15 @@ def test_host_target_maps_supported_native_runners(
     machine: str,
     target: str,
 ) -> None:
-    monkeypatch.setattr(target_module.platform, "system", lambda: system)
-    monkeypatch.setattr(target_module.platform, "machine", lambda: machine)
+    monkeypatch.setattr(archive_module.platform, "system", lambda: system)
+    monkeypatch.setattr(archive_module.platform, "machine", lambda: machine)
 
     assert TargetCatalog().host_target() == target
 
 
 def test_host_target_rejects_unpublished_architectures(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(target_module.platform, "system", lambda: "Linux")
-    monkeypatch.setattr(target_module.platform, "machine", lambda: "riscv64")
+    monkeypatch.setattr(archive_module.platform, "system", lambda: "Linux")
+    monkeypatch.setattr(archive_module.platform, "machine", lambda: "riscv64")
 
     with pytest.raises(ValueError, match="unsupported bundle host: linux riscv64"):
         TargetCatalog().host_target()

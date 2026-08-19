@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.emitter import CEmitter
+from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,

@@ -1,0 +1,237 @@
+/* Standard-library snapshots, lookup, and symbol-index owners. */
+
+import std.fs;
+import std.map;
+import std.strings;
+import std.vector;
+import ./models.btrc;
+import ./source_io.btrc;
+
+class FeStdlibLookup {
+    public bool found;
+    public string path;
+    public string diagnostic;
+
+    public FeStdlibLookup(bool found, string path, string diagnostic) {
+        self.found = found;
+        self.path = path;
+        self.diagnostic = diagnostic;
+    }
+}
+
+class FeStdlibRepository {
+    private string directoryPath;
+    private FeSourceDirectoryScanner sourceDirectories;
+    private FeSourceFileReader sourceFiles;
+    private FeSourcePathPolicy sourcePaths;
+
+    public FeStdlibRepository(
+            string directory, FeSourceFileReader sourceFiles,
+            FeSourceResolutionPolicy resolutionPolicy) {
+        self.sourcePaths = FeSourcePathPolicy();
+        self.directoryPath = self.sourcePaths.absolute(directory);
+        self.sourceDirectories = FeSourceDirectoryScanner(resolutionPolicy);
+        self.sourceFiles = sourceFiles;
+    }
+
+    public string directory() {
+        return self.directoryPath;
+    }
+
+    private int snapshotIndexOf(
+            FeStdlibRootSnapshot snapshot, string path) {
+        string identity = self.sourcePaths.identity(path);
+        int index = 0;
+        while (index < snapshot.count()) {
+            if (self.sourcePaths.identity(snapshot.pathAt(index))
+                    .equals(identity)) {
+                return index;
+            }
+            index++;
+        }
+        return -1;
+    }
+
+    public bool snapshotContains(
+            FeStdlibRootSnapshot snapshot, string path) {
+        return self.snapshotIndexOf(snapshot, path) >= 0;
+    }
+
+    public bool snapshotContainsSource(
+            FeStdlibRootSnapshot snapshot, string path) {
+        if (snapshot.count() == 0) { return false; }
+        string directory = self.sourcePaths.identity(
+            self.sourcePaths.directoryName(snapshot.pathAt(0)));
+        string source = self.sourcePaths.identity(path);
+        return source.startsWith(directory + "/");
+    }
+
+    private bool containsPath(Vector<string> paths, string target) {
+        int index = 0;
+        while (index < paths.len) {
+            if (paths.get(index).equals(target)) { return true; }
+            index++;
+        }
+        return false;
+    }
+
+    private Vector<string> discoverFiles() {
+        Vector<string> ordered = [];
+        if (!FileSystem.isDir(self.directoryPath)) { return ordered; }
+        Vector<string> entries = self.sourceDirectories.sortedEntries(
+            self.directoryPath);
+        Vector<string> files = [];
+        int index = 0;
+        while (index < entries.len) {
+            string name = entries.get(index);
+            if (name.endsWith(".btrc")) { files.push(name); }
+            index++;
+        }
+        Vector<string> priority = [
+            "vector.btrc",
+            "list.btrc",
+            "strings.btrc",
+            "platform.btrc",
+            "process.btrc",
+            "fs.btrc",
+            "daemon.btrc",
+            "ui.btrc",
+        ];
+        int priorityIndex = 0;
+        while (priorityIndex < priority.len) {
+            string name = priority.get(priorityIndex);
+            if (self.containsPath(files, name)) { ordered.push(name); }
+            priorityIndex++;
+        }
+        index = 0;
+        while (index < files.len) {
+            string name = files.get(index);
+            if (!self.containsPath(priority, name)) { ordered.push(name); }
+            index++;
+        }
+        return ordered;
+    }
+
+    public FeStdlibRootSnapshot rootSnapshot() {
+        Vector<string> paths = [];
+        Vector<string> sources = [];
+        Vector<string> files = self.discoverFiles();
+        int index = 0;
+        while (index < files.len) {
+            string path = self.sourcePaths.join(self.directoryPath, files.get(index));
+            if (FileSystem.isFile(path)) {
+                string source = self.sourceFiles.readRequired(path);
+                paths.push(path);
+                sources.push(source);
+            }
+            index++;
+        }
+        return FeStdlibRootSnapshot(paths, sources);
+    }
+
+    /* Prefer captured root-module paths. The one-level nested fallback mirrors
+     * Python's stdlib lookup; its source is read once into this compilation's
+     * resolved AST and never enters the external root-symbol index. */
+    public string findFileForCompilation(
+            string includePath, FeStdlibRootSnapshot snapshot) {
+        string direct = self.sourcePaths.join(self.directoryPath, includePath);
+        if (self.snapshotContains(snapshot, direct)) { return direct; }
+        string base = self.sourcePaths.baseName(includePath);
+        if (!FileSystem.isDir(self.directoryPath)) { return ""; }
+        Vector<string> entries = self.sourceDirectories.sortedEntries(
+            self.directoryPath);
+        int index = 0;
+        while (index < entries.len) {
+            string child = self.sourcePaths.join(self.directoryPath, entries.get(index));
+            if (FileSystem.isDir(child)) {
+                string candidate = self.sourcePaths.join(child, base);
+                if (FileSystem.isFile(candidate)) { return candidate; }
+            }
+            index++;
+        }
+        return "";
+    }
+
+    public FeStdlibLookup requiredModuleForCompilation(
+            string name, FeStdlibRootSnapshot snapshot) {
+        string filename = name.endsWith(".btrc") ? name : name + ".btrc";
+        string path = self.findFileForCompilation(filename, snapshot);
+        if (!path.isEmpty()) { return FeStdlibLookup(true, path, ""); }
+        return FeStdlibLookup(
+            false,
+            "",
+            f"stdlib import 'std.{name}' not found\n  searched: {self.directoryPath}");
+    }
+
+    public Vector<string> rootPaths(FeStdlibRootSnapshot snapshot) {
+        Vector<string> paths = [];
+        int index = 0;
+        while (index < snapshot.count()) {
+            paths.push(snapshot.pathAt(index));
+            index++;
+        }
+        return paths;
+    }
+
+    public string readSourceForCompilation(
+            string path, FeStdlibRootSnapshot snapshot) {
+        int index = self.snapshotIndexOf(snapshot, path);
+        if (index >= 0) { return snapshot.sourceAt(index); }
+        return self.sourceFiles.readRequired(path);
+    }
+
+}
+
+class FeStdlibSymbolIndex {
+    private Map<string, Vector<string>> symbolFiles;
+    private FeStdlibRootSnapshot indexedSnapshot;
+    private bool initialized;
+
+    public FeStdlibSymbolIndex() {
+        self.symbolFiles = {};
+        Vector<string> emptyPaths = [];
+        Vector<string> emptySources = [];
+        self.indexedSnapshot = FeStdlibRootSnapshot(emptyPaths, emptySources);
+        self.initialized = false;
+    }
+
+    public bool currentFor(FeStdlibRootSnapshot snapshot) {
+        return self.initialized && self.indexedSnapshot.sameContents(snapshot);
+    }
+
+    public void replace(
+            FeStdlibRootSnapshot snapshot,
+            Map<string, Vector<string>> symbolFiles) {
+        self.indexedSnapshot = snapshot;
+        self.symbolFiles = symbolFiles;
+        self.initialized = true;
+    }
+
+    private bool containsPath(Vector<string> paths, string path) {
+        int index = 0;
+        while (index < paths.len) {
+            if (paths.get(index).equals(path)) { return true; }
+            index++;
+        }
+        return false;
+    }
+
+    public void mergeInto(Map<string, Vector<string>> target) {
+        Vector<string> names = self.symbolFiles.keys();
+        int nameIndex = 0;
+        while (nameIndex < names.len) {
+            string name = names.get(nameIndex);
+            Vector<string> owners = self.symbolFiles.get(name);
+            Vector<string> merged = [];
+            if (target.has(name)) { merged = target.get(name); }
+            int ownerIndex = 0;
+            while (ownerIndex < owners.len) {
+                string owner = owners.get(ownerIndex);
+                if (!self.containsPath(merged, owner)) { merged.push(owner); }
+                ownerIndex++;
+            }
+            target.put(name, merged);
+            nameIndex++;
+        }
+    }
+}

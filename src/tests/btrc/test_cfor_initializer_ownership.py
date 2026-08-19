@@ -1,5 +1,6 @@
 """Exact lexical ownership for ordinary C-style for initializers."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -28,7 +29,13 @@ def test_initializer_owners_release_exactly_once_on_every_exit(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    run_strict_pair(_compile_both(semantic_btrcc, tmp_path), tmp_path)
+    compiled = _compile_both(semantic_btrcc, tmp_path)
+    reference = dict(compiled)["reference"].read_text()
+    assert re.search(
+        r"for\s*\(\s*;\s*false\s*;\s*\(\(void\)\(",
+        reference,
+    )
+    run_strict_pair(compiled, tmp_path)
 
 
 def test_initializer_owners_are_sanitizer_clean(

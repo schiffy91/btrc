@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import cli_diagnostics
-from src.compiler.python.analyzer.core_models import Diag
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.cli.compiler_cli import CompilerCLI
-from src.compiler.python.cli_diagnostics import CompilerDiagnostics
+import src.compiler.python.cli.compiler as cli_diagnostics
+from src.compiler.python import Compiler
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.analyzer.program import Diag
+from src.compiler.python.cli.compiler import CompilerCommand, CompilerDiagnostics
 
 MODES = pytest.mark.parametrize("mode", [[], ["--no-cache"]], ids=["default", "no-cache"])
 
@@ -20,11 +20,12 @@ def test_cli_diagnostic_behavior_has_one_explicit_owner() -> None:
     module = ast.parse(Path(cli_diagnostics.__file__).read_text())
     loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
     diagnostics = CompilerDiagnostics()
-    compiler_cli = CompilerCLI(diagnostics=diagnostics)
+    compiler = Compiler()
+    compiler_cli = CompilerCommand(compiler, diagnostics=diagnostics)
 
     assert loose_behavior == []
+    assert compiler_cli.compiler is compiler
     assert compiler_cli._diagnostics is diagnostics
-    assert compiler_cli._archive_builder.__self__._diagnostics is diagnostics
 
 
 @pytest.fixture(scope="module")
@@ -43,7 +44,7 @@ def compile_err(monkeypatch, capsys, workdir, argv):
     """Drive main() in-process, expect failure, return stderr."""
     monkeypatch.chdir(workdir)
     with pytest.raises(SystemExit):
-        CompilerCLI().run([*argv, "-o", "/dev/null"])
+        CompilerCommand(Compiler()).run([*argv, "-o", "/dev/null"])
     return capsys.readouterr().err
 
 
@@ -108,7 +109,7 @@ def test_warning_diag_native_position(tmp_path, monkeypatch, capsys, workdir):
     monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
     monkeypatch.chdir(workdir)
     # Default (split-space) mode: injected diag lines are user-source native.
-    CompilerCLI().run([src, "-o", "/dev/null"])  # warnings do not abort
+    CompilerCommand(Compiler()).run([src, "-o", "/dev/null"])  # warnings do not abort
     err = capsys.readouterr().err
     assert f"warning: suspicious cast\n  --> {src}:1:14" in err
 

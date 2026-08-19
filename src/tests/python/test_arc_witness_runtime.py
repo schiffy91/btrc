@@ -9,9 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
-from src.compiler.python.ir.helpers.alloc import ALLOC
-from src.compiler.python.ir.helpers.cycles import CYCLES
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -24,7 +22,17 @@ HEADERS = """\
 #include <string.h>
 """
 
-RUNTIME = "\n\n".join(helper.c_source for helper in RuntimeHelperRegistry().declarations_for(set(ALLOC) | set(CYCLES)))
+RUNTIME_CATALOG = RuntimeHelperCatalog()
+RUNTIME = "\n\n".join(
+    helper.c_source
+    for helper in RUNTIME_CATALOG.definitions_for(
+        {
+            helper.name
+            for category in ("alloc", "cycles")
+            for helper in RUNTIME_CATALOG.definitions_in_category(category)
+        }
+    )
+)
 
 HARNESS = r"""
 typedef struct Node {

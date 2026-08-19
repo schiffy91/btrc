@@ -1,11 +1,11 @@
 """Coverage for the deterministic automatic-header namespace snapshot."""
 
-from src.compiler.python.hosted_abi_platform_names import (
-    HOSTED_PLATFORM_FUNCTION_NAMES,
-    HOSTED_PLATFORM_MACROS,
-    HOSTED_PLATFORM_OBJECT_NAMES,
-    HOSTED_PLATFORM_TYPE_NAMES,
-)
+from src.compiler.python.abi.hosted import HOSTED_ABI
+
+HOSTED_PLATFORM_FUNCTION_NAMES = HOSTED_ABI.platform_function_names
+HOSTED_PLATFORM_MACROS = HOSTED_ABI.platform_macro_names
+HOSTED_PLATFORM_OBJECT_NAMES = HOSTED_ABI.platform_object_names
+HOSTED_PLATFORM_TYPE_NAMES = HOSTED_ABI.platform_type_names
 
 
 def test_platform_snapshot_covers_supported_header_families() -> None:

@@ -1,6 +1,6 @@
 """Ownership-effect extraction across callable body shapes."""
 
-from src.compiler.python.ast_nodes import (
+from src.compiler.python.syntax.ast.generated import (
     Block,
     Identifier,
     LambdaBlock,
@@ -10,7 +10,7 @@ from src.compiler.python.ast_nodes import (
     ReleaseStmt,
     TypeExpr,
 )
-from src.compiler.python.ownership_effects import owned_transfer_param_indices
+from src.compiler.python.analyzer.ownership import OwnershipAnalyzer
 
 
 def _lambda(body):
@@ -23,7 +23,7 @@ def _lambda(body):
 def test_expression_lambda_has_no_statement_transfer_effect() -> None:
     declaration = _lambda(LambdaExprBody(expression=Identifier(name="value")))
 
-    assert owned_transfer_param_indices(declaration) == frozenset()
+    assert OwnershipAnalyzer.owned_transfer_param_indices(declaration) == frozenset()
 
 
 def test_block_lambda_unwraps_its_structured_block() -> None:
@@ -35,4 +35,4 @@ def test_block_lambda_unwraps_its_structured_block() -> None:
         ),
     )
 
-    assert owned_transfer_param_indices(declaration) == frozenset({0})
+    assert OwnershipAnalyzer.owned_transfer_param_indices(declaration) == frozenset({0})

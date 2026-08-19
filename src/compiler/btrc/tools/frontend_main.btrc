@@ -1,0 +1,94 @@
+/* Front-end driver: compose the full source for a btrc program and print it
+ * verbatim to stdout (byte-identical to btrcpy's
+ * resolve_frontend_source(...).source).
+ *
+ * Strict imports are the default. `--relaxed-imports` explicitly enables
+ * legacy whole-stdlib composition; `--no-stdlib` disables that composition
+ * without affecting explicit includes/imports.
+ *
+ * Verification:
+ *   (cd /tmp/shv && frontend F.btrc) | diff - oracle_source.txt
+ */
+
+import std.console;
+import ../cli/driver.btrc;
+import ../frontend/models.btrc;
+import ../frontend/resolver.btrc;
+import ../frontend/source_io.btrc;
+import ../frontend/stdlib.btrc;
+import ../syntax/grammar.btrc;
+
+class FrontendInspectionCommand {
+    private BtrccOutput output;
+    private FeSourceResolutionPolicy resolutionPolicy;
+    private FeSourceFileReader sourceFiles;
+
+    public FrontendInspectionCommand(
+            BtrccOutput output,
+            FeSourceResolutionPolicy resolutionPolicy) {
+        self.output = output;
+        self.resolutionPolicy = resolutionPolicy;
+        self.sourceFiles = FeSourceFileReader(resolutionPolicy);
+    }
+
+    private string usage() {
+        return "usage: frontend [--strict-imports | --relaxed-imports] "
+            + "[--no-stdlib] <file.btrc>";
+    }
+
+    public int run(int argc, char** argv) {
+        if (argc < 2) {
+            Console.error(self.usage());
+            return 1;
+        }
+
+        bool includeStdlib = true;
+        bool strictImports = true;
+        int argumentIndex = 1;
+        while (argumentIndex < argc) {
+            string option = Strings.copy(argv[argumentIndex]);
+            if (option.equals("--no-stdlib")) {
+                includeStdlib = false;
+            } else if (option.equals("--strict-imports")) {
+                strictImports = true;
+            } else if (option.equals("--relaxed-imports")) {
+                strictImports = false;
+            } else {
+                break;
+            }
+            argumentIndex++;
+        }
+        if (argumentIndex >= argc) {
+            Console.error(self.usage());
+            return 1;
+        }
+
+        string path = Strings.copy(argv[argumentIndex]);
+        string source = self.sourceFiles.readRequired(path);
+        BtrccRuntimePaths runtimePaths =
+            BtrccRuntimePaths(Strings.copy(argv[0]));
+        BtrccDataPaths dataPaths = runtimePaths.resolve();
+        if (!dataPaths.valid) {
+            Console.error(dataPaths.diagnostic);
+            return 1;
+        }
+        GrammarInfo grammar = EbnfGrammarParser(
+            self.sourceFiles.readRequired(dataPaths.grammar)).parse();
+        FeStdlibRepository stdlib = FeStdlibRepository(
+            dataPaths.stdlib, self.sourceFiles,
+            self.resolutionPolicy);
+        FeFrontendResolver resolver = FeFrontendResolver(
+            grammar, stdlib, includeStdlib, strictImports,
+            self.resolutionPolicy);
+        FeResolvedSource resolved = resolver.resolve(source, path);
+        if (self.output.write(resolved.source)) { return 0; }
+        fprintf(
+            stderr, "frontend: error: cannot write standard output\n");
+        return 1;
+    }
+}
+
+int main(int argc, char** argv) {
+    return FrontendInspectionCommand(
+        BtrccOutput(stdout), FeSourceResolutionPolicy()).run(argc, argv);
+}

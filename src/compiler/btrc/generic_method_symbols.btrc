@@ -1,7 +1,0 @@
-/* Analyzer-owned emitted symbol contract for generic method instances. */
-
-string genericMethodInstanceName(string classBase, Vector<Node> classArgs,
-                                 string methodName, Vector<Node> methodArgs) {
-    return TypeIdentity.mangleMethodInstanceSymbol(
-        classBase, classArgs, methodName, methodArgs);
-}

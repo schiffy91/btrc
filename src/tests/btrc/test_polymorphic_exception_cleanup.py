@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.runtime.generated import RUNTIME_HELPER_ROWS
 from src.tests.btrc.runtime_ownership_harness import (
     compile_reference_source,
     require_sanitizers,
@@ -22,31 +23,14 @@ STRICT_COMPILERS = tuple(compiler for name in ("gcc", "clang") if (compiler := s
 
 
 def test_both_cleanup_runtimes_dispatch_through_concrete_arc_metadata() -> None:
-    catalog = (REPO / "src/compiler/btrc/ir/runtime/trycatch/catalog.btrc").read_text()
-    cleanup = catalog[
-        catalog.index('self.sources.put("__btrc_run_cleanup_guarded"') : catalog.index(
-            'self.sources.put("__btrc_arc_guard_hook"'
-        )
-    ]
-    dependencies = catalog[
-        catalog.index('} else if (name == "__btrc_run_cleanup_guarded")') : catalog.index(
-            '} else if (name == "__btrc_arc_guard_hook")'
-        )
-    ]
+    helpers = {row.name: row for row in RUNTIME_HELPER_ROWS}
+    cleanup = helpers["__btrc_run_cleanup_guarded"]
 
-    assert "__btrc_arc_release(object, &type);" in cleanup
-    assert "if (entry.visit)" not in cleanup
-    assert "__btrc_arc_release_acyclic" not in cleanup
-    assert 'out.push("__btrc_arc_release");' in dependencies
-    assert "__btrc_arc_release_acyclic" not in dependencies
-
-    reference = (REPO / "src/compiler/python/ir/helpers/trycatch_cleanup.py").read_text()
-    reference_cleanup = reference[
-        reference.index('"__btrc_run_cleanup_guarded"') : reference.index('"__btrc_arc_guard_hook"')
-    ]
-    assert "__btrc_arc_release(object, &type);" in reference_cleanup
-    assert "if (entry.visit)" not in reference_cleanup
-    assert "__btrc_arc_release_acyclic" not in reference_cleanup
+    assert "__btrc_arc_release(object, &type);" in cleanup.c_source
+    assert "if (entry.visit)" not in cleanup.c_source
+    assert "__btrc_arc_release_acyclic" not in cleanup.c_source
+    assert "__btrc_arc_release" in cleanup.depends_on
+    assert "__btrc_arc_release_acyclic" not in cleanup.depends_on
 
 
 @pytest.mark.skipif(

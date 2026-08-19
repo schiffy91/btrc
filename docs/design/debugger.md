@@ -23,10 +23,11 @@ coordinates with no extra mapping layer.
 
 ## Compiler: `--debug` and `#line`
 
-`IRLowerer(..., line_map=...).lower()` records, per statement, the originating
-`(file, line)` (mapped from the combined stdlib+user parse via
-`FrontendSource.map_line`; `--debug` forces combined parsing so positions share
-one coordinate space). The emitter stamps **every** body line:
+`IRLowerer(..., source_map=...).lower()` records, per statement, the originating
+`(file, line)`. `CompilationPipeline.lower()` obtains that map from
+`ResolvedSource.source_map(...)`, while `SourceMap` owns the combined
+stdlib+user coordinate mapping. `--debug` forces combined parsing so positions
+share one coordinate space. The emitter stamps **every** body line:
 
 - `#line` only sets a *starting* line — each subsequent C line auto-increments.
   A btrc statement that lowers to several C lines (a `Vector` literal → N
@@ -40,17 +41,17 @@ Non-`--debug` output is byte-for-byte unchanged.
 
 ## Adapter: `src/devex/debug/`
 
-A self-contained, dependency-free Python package implementing the Debug Adapter
-Protocol over stdio:
+A cohesive Python package implementing the Debug Adapter Protocol over stdio.
+Launch it with `python -m src.devex.debug`:
 
-| file | role |
+| package | owner |
 |---|---|
-| `btrc_dap.py` | entry point |
-| `bootstrap.py` | re-exec under an interpreter that can `import lldb` (via `lldb -P`) |
-| `builder.py` | `btrcpy --debug` → `cc -g` → binary |
-| `lldb_session.py` | lldb wrapper: targets, breakpoints, stack, scopes, variables, stepping |
-| `summaries.py` | btrc-aware values: `string`→text, `Vector`→`[…]`, `Map`→`{…}`, class→fields |
-| `adapter.py` | DAP request dispatch + lldb event loop |
+| `protocol/adapter.py` | `BtrcDebugAdapter`, `ProcessEventLoop`, and client coordinates |
+| `protocol/transport.py` | `DapReader` and `DapWriter` |
+| `toolchain/build.py` | immutable `LaunchConfig`, `ProgramBuilder`, and `BuildArtifact` |
+| `backend/lldb.py` | `LldbSession`: targets, breakpoints, frames, variables, and execution |
+| `backend/values.py` | `BtrcValuePresenter` for strings, collections, and class fields |
+| `runtime/bootstrap.py` | `LldbBootstrap`, including bounded LLDB discovery and re-exec |
 
 Supported: launch, breakpoints (plus **conditional**, **hit count**, and
 **logpoints** with `{expr}` interpolation), `stopOnEntry`, continue, step
@@ -60,11 +61,12 @@ and program output.
 ## Extension wiring
 
 `package.json` contributes a `btrc` debugger and `breakpoints` for the language.
-`extension.ts` registers a `DebugAdapterDescriptorFactory` (spawns the adapter
+`ExtensionController` registers a `DebugLaunchResolver` as the
+`DebugAdapterDescriptorFactory` (spawns the adapter
 under any `python3`; it self-bootstraps to an lldb-capable one) and a
 `DebugConfigurationProvider` that auto-detects the compiler (`bin/btrcpy` or
-`python -m src.compiler.python.main`). `prepare_lsp_package.py` bundles the
-adapter into the `.vsix`.
+`python -m src.compiler.python.main`). `ExtensionBundler` stages the adapter
+under `build/devex/vscode` before the `.vsix` is written to `dist/btrc.vsix`.
 
 ## Using it
 

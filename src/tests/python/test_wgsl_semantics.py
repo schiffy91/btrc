@@ -9,9 +9,10 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.backend.wgsl_emitter import WgslEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_gpu_dispatch_failures import COMPILERS, _compile_with_gpu_stubs
 
@@ -29,7 +30,7 @@ def _shader(source: str) -> str:
     analyzed = _analyze(source)
     assert not analyzed.errors
     [kernel] = IRLowerer(analyzed).lower().gpu_kernels
-    return kernel.wgsl_source
+    return WgslEmitter.emit_ir_kernel(kernel)
 
 
 def _has(errors: list[str], text: str) -> bool:

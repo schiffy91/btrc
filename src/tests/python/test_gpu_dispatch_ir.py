@@ -2,17 +2,18 @@
 
 import re
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.ir.gen.lowerer import IRLowerer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.backend.wgsl_emitter import WgslEmitter
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     IRCall,
     IRFor,
     IRIf,
+    IRNode,
     IRStructDef,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
-from src.compiler.python.ir.optimizer_walk import IRTree
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 
@@ -44,7 +45,7 @@ def test_dispatch_helper_contains_only_ordinary_control_and_call_nodes():
         "values",
         "__gpu_len_values",
     ]
-    nodes = list(IRTree(helper.body))
+    nodes = list(IRNode.walk_value(helper.body))
     assert any(isinstance(node, IRIf) for node in nodes)
     assert any(isinstance(node, IRFor) for node in nodes)
     assert {node.callee for node in nodes if isinstance(node, IRCall) and isinstance(node.callee, str)} >= {
@@ -105,10 +106,11 @@ def test_bool_uniform_uses_host_shareable_storage_and_boolean_wgsl_use():
         ("__gpu_n", "int"),
     ]
     [kernel] = module.gpu_kernels
-    bool_field = re.search(r"\s+(btrc_p_\d+): u32,", kernel.wgsl_source)
+    shader = WgslEmitter.emit_ir_kernel(kernel)
+    bool_field = re.search(r"\s+(btrc_p_\d+): u32,", shader)
     assert bool_field is not None
-    assert f"uniforms.{bool_field.group(1)} != 0u" in kernel.wgsl_source
-    assert "enabled:" not in kernel.wgsl_source
+    assert f"uniforms.{bool_field.group(1)} != 0u" in shader
+    assert "enabled:" not in shader
 
 
 def test_gpu_kernel_dce_follows_surviving_dispatch_helper_reference():

@@ -2,15 +2,15 @@
 
 import pytest
 
-from src.compiler.python.lexer import Lexer, LexerError
-from src.compiler.python.tokens import TokenType
+from src.compiler.python.lexer.lexer import Lexer, LexerError
+from src.compiler.python.syntax.tokens import TokenKind
 
 
 def lex(source: str) -> list:
     return Lexer(source).tokenize()
 
 
-def types(source: str) -> list[TokenType]:
+def types(source: str) -> list[TokenKind]:
     return [t.type for t in lex(source)]
 
 
@@ -25,61 +25,61 @@ class TestBasicTokens:
     def test_empty_input(self):
         tokens = lex("")
         assert len(tokens) == 1
-        assert tokens[0].type == TokenType.EOF
+        assert tokens[0].type == TokenKind.EOF
 
     def test_single_int(self):
-        assert types("42") == [TokenType.INT_LIT, TokenType.EOF]
+        assert types("42") == [TokenKind.INT_LIT, TokenKind.EOF]
         assert values("42")[0] == "42"
 
     def test_hex_literal(self):
-        assert types("0xFF") == [TokenType.INT_LIT, TokenType.EOF]
+        assert types("0xFF") == [TokenKind.INT_LIT, TokenKind.EOF]
         assert values("0xFF")[0] == "0xFF"
 
     def test_hex_literal_upper(self):
-        assert types("0XAB") == [TokenType.INT_LIT, TokenType.EOF]
+        assert types("0XAB") == [TokenKind.INT_LIT, TokenKind.EOF]
         assert values("0XAB")[0] == "0XAB"
 
     def test_binary_literal(self):
-        assert types("0b1010") == [TokenType.INT_LIT, TokenType.EOF]
+        assert types("0b1010") == [TokenKind.INT_LIT, TokenKind.EOF]
         assert values("0b1010")[0] == "0b1010"
 
     def test_octal_literal(self):
-        assert types("0o777") == [TokenType.INT_LIT, TokenType.EOF]
+        assert types("0o777") == [TokenKind.INT_LIT, TokenKind.EOF]
         assert values("0o777")[0] == "0o777"
 
     def test_octal_literal_upper(self):
-        assert types("0O10") == [TokenType.INT_LIT, TokenType.EOF]
+        assert types("0O10") == [TokenKind.INT_LIT, TokenKind.EOF]
         assert values("0O10")[0] == "0O10"
 
     def test_float_literal(self):
-        assert types("3.14") == [TokenType.FLOAT_LIT, TokenType.EOF]
+        assert types("3.14") == [TokenKind.FLOAT_LIT, TokenKind.EOF]
         assert values("3.14")[0] == "3.14"
 
     def test_float_literal_with_suffix(self):
-        assert types("3.14f") == [TokenType.FLOAT_LIT, TokenType.EOF]
+        assert types("3.14f") == [TokenKind.FLOAT_LIT, TokenKind.EOF]
         assert values("3.14f")[0] == "3.14f"
 
     def test_float_literal_with_exponent(self):
-        assert types("1e10") == [TokenType.FLOAT_LIT, TokenType.EOF]
+        assert types("1e10") == [TokenKind.FLOAT_LIT, TokenKind.EOF]
         assert values("1e10")[0] == "1e10"
 
     def test_float_exponent_with_sign(self):
-        assert types("2.5e-3") == [TokenType.FLOAT_LIT, TokenType.EOF]
+        assert types("2.5e-3") == [TokenKind.FLOAT_LIT, TokenKind.EOF]
 
     def test_string_literal(self):
-        assert types('"hello"') == [TokenType.STRING_LIT, TokenType.EOF]
+        assert types('"hello"') == [TokenKind.STRING_LIT, TokenKind.EOF]
         assert values('"hello"')[0] == '"hello"'
 
     def test_string_escape(self):
-        assert types('"hello\\n"') == [TokenType.STRING_LIT, TokenType.EOF]
+        assert types('"hello\\n"') == [TokenKind.STRING_LIT, TokenKind.EOF]
         assert values('"hello\\n"')[0] == '"hello\\n"'
 
     def test_char_literal(self):
-        assert types("'a'") == [TokenType.CHAR_LIT, TokenType.EOF]
+        assert types("'a'") == [TokenKind.CHAR_LIT, TokenKind.EOF]
         assert values("'a'")[0] == "'a'"
 
     def test_char_escape(self):
-        assert types("'\\n'") == [TokenType.CHAR_LIT, TokenType.EOF]
+        assert types("'\\n'") == [TokenKind.CHAR_LIT, TokenKind.EOF]
         assert values("'\\n'")[0] == "'\\n'"
 
     @pytest.mark.parametrize(
@@ -87,7 +87,7 @@ class TestBasicTokens:
         ["'\\0'", "'\\123'", "'\\377'", "'\\x4'", "'\\x41'", "'\\x000041'"],
     )
     def test_portable_char_escape_forms(self, source):
-        assert types(source) == [TokenType.CHAR_LIT, TokenType.EOF]
+        assert types(source) == [TokenKind.CHAR_LIT, TokenKind.EOF]
 
     @pytest.mark.parametrize(
         "source",
@@ -117,15 +117,15 @@ class TestKeywords:
     def test_c_keywords(self):
         source = "int float void return if else while for"
         expected = [
-            TokenType.INT,
-            TokenType.FLOAT,
-            TokenType.VOID,
-            TokenType.RETURN,
-            TokenType.IF,
-            TokenType.ELSE,
-            TokenType.WHILE,
-            TokenType.FOR,
-            TokenType.EOF,
+            TokenKind.INT,
+            TokenKind.FLOAT,
+            TokenKind.VOID,
+            TokenKind.RETURN,
+            TokenKind.IF,
+            TokenKind.ELSE,
+            TokenKind.WHILE,
+            TokenKind.FOR,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
@@ -166,18 +166,18 @@ class TestKeywords:
         ]
         for kw in c_keywords:
             tokens = lex(kw)
-            assert tokens[0].type != TokenType.IDENT, f"'{kw}' should be a keyword, not IDENT"
+            assert tokens[0].type != TokenKind.IDENT, f"'{kw}' should be a keyword, not IDENT"
 
     def test_btrc_keywords(self):
         source = "class public private self in parallel"
         expected = [
-            TokenType.CLASS,
-            TokenType.PUBLIC,
-            TokenType.PRIVATE,
-            TokenType.SELF,
-            TokenType.IN,
-            TokenType.PARALLEL,
-            TokenType.EOF,
+            TokenKind.CLASS,
+            TokenKind.PUBLIC,
+            TokenKind.PRIVATE,
+            TokenKind.SELF,
+            TokenKind.IN,
+            TokenKind.PARALLEL,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
@@ -185,42 +185,42 @@ class TestKeywords:
         # List/Map/Array are now identifiers (defined as classes in stdlib)
         source = "List Map Array string bool"
         expected = [
-            TokenType.IDENT,
-            TokenType.IDENT,
-            TokenType.IDENT,
-            TokenType.STRING,
-            TokenType.BOOL,
-            TokenType.EOF,
+            TokenKind.IDENT,
+            TokenKind.IDENT,
+            TokenKind.IDENT,
+            TokenKind.STRING,
+            TokenKind.BOOL,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_true_false_null(self):
         source = "true false null"
-        expected = [TokenType.TRUE, TokenType.FALSE, TokenType.NULL, TokenType.EOF]
+        expected = [TokenKind.TRUE, TokenKind.FALSE, TokenKind.NULL, TokenKind.EOF]
         assert types(source) == expected
 
     def test_new_delete(self):
         source = "new delete"
-        expected = [TokenType.NEW, TokenType.DELETE, TokenType.EOF]
+        expected = [TokenKind.NEW, TokenKind.DELETE, TokenKind.EOF]
         assert types(source) == expected
 
     def test_identifier_not_keyword(self):
         source = "myVar foo_bar _private"
-        expected = [TokenType.IDENT, TokenType.IDENT, TokenType.IDENT, TokenType.EOF]
+        expected = [TokenKind.IDENT, TokenKind.IDENT, TokenKind.IDENT, TokenKind.EOF]
         assert types(source) == expected
 
     def test_var_keyword(self):
-        assert types("var") == [TokenType.VAR, TokenType.EOF]
+        assert types("var") == [TokenKind.VAR, TokenKind.EOF]
         assert values("var")[0] == "var"
 
     def test_var_in_declaration(self):
         source = "var x = 42"
         expected = [
-            TokenType.VAR,
-            TokenType.IDENT,
-            TokenType.EQ,
-            TokenType.INT_LIT,
-            TokenType.EOF,
+            TokenKind.VAR,
+            TokenKind.IDENT,
+            TokenKind.EQ,
+            TokenKind.INT_LIT,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
@@ -232,50 +232,50 @@ class TestOperators:
     def test_single_char_ops(self):
         source = "+ - * / % = < > ! & | ^ ~ . ? :"
         expected = [
-            TokenType.PLUS,
-            TokenType.MINUS,
-            TokenType.STAR,
-            TokenType.SLASH,
-            TokenType.PERCENT,
-            TokenType.EQ,
-            TokenType.LT,
-            TokenType.GT,
-            TokenType.BANG,
-            TokenType.AMP,
-            TokenType.PIPE,
-            TokenType.CARET,
-            TokenType.TILDE,
-            TokenType.DOT,
-            TokenType.QUESTION,
-            TokenType.COLON,
-            TokenType.EOF,
+            TokenKind.PLUS,
+            TokenKind.MINUS,
+            TokenKind.STAR,
+            TokenKind.SLASH,
+            TokenKind.PERCENT,
+            TokenKind.EQ,
+            TokenKind.LT,
+            TokenKind.GT,
+            TokenKind.BANG,
+            TokenKind.AMP,
+            TokenKind.PIPE,
+            TokenKind.CARET,
+            TokenKind.TILDE,
+            TokenKind.DOT,
+            TokenKind.QUESTION,
+            TokenKind.COLON,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_multi_char_ops(self):
         # Test each multi-char operator individually to avoid ambiguity
         cases = [
-            ("==", TokenType.EQ_EQ),
-            ("!=", TokenType.BANG_EQ),
-            ("<=", TokenType.LT_EQ),
-            (">=", TokenType.GT_EQ),
-            ("&&", TokenType.AMP_AMP),
-            ("||", TokenType.PIPE_PIPE),
-            ("++", TokenType.PLUS_PLUS),
-            ("--", TokenType.MINUS_MINUS),
-            ("->", TokenType.ARROW),
-            ("<<", TokenType.LT_LT),
-            (">>", TokenType.GT_GT),
-            ("+=", TokenType.PLUS_EQ),
-            ("-=", TokenType.MINUS_EQ),
-            ("*=", TokenType.STAR_EQ),
-            ("/=", TokenType.SLASH_EQ),
-            ("%=", TokenType.PERCENT_EQ),
-            ("&=", TokenType.AMP_EQ),
-            ("|=", TokenType.PIPE_EQ),
-            ("^=", TokenType.CARET_EQ),
-            ("<<=", TokenType.LT_LT_EQ),
-            (">>=", TokenType.GT_GT_EQ),
+            ("==", TokenKind.EQ_EQ),
+            ("!=", TokenKind.BANG_EQ),
+            ("<=", TokenKind.LT_EQ),
+            (">=", TokenKind.GT_EQ),
+            ("&&", TokenKind.AMP_AMP),
+            ("||", TokenKind.PIPE_PIPE),
+            ("++", TokenKind.PLUS_PLUS),
+            ("--", TokenKind.MINUS_MINUS),
+            ("->", TokenKind.ARROW),
+            ("<<", TokenKind.LT_LT),
+            (">>", TokenKind.GT_GT),
+            ("+=", TokenKind.PLUS_EQ),
+            ("-=", TokenKind.MINUS_EQ),
+            ("*=", TokenKind.STAR_EQ),
+            ("/=", TokenKind.SLASH_EQ),
+            ("%=", TokenKind.PERCENT_EQ),
+            ("&=", TokenKind.AMP_EQ),
+            ("|=", TokenKind.PIPE_EQ),
+            ("^=", TokenKind.CARET_EQ),
+            ("<<=", TokenKind.LT_LT_EQ),
+            (">>=", TokenKind.GT_GT_EQ),
         ]
         for source, expected_type in cases:
             tokens = lex(source)
@@ -288,12 +288,12 @@ class TestOperators:
 
 class TestAnnotations:
     def test_at_gpu(self):
-        assert types("@gpu") == [TokenType.AT_GPU, TokenType.EOF]
+        assert types("@gpu") == [TokenKind.AT_GPU, TokenKind.EOF]
         assert values("@gpu")[0] == "@gpu"
 
     def test_at_gpu_before_function(self):
         t = types("@gpu void foo")
-        assert t == [TokenType.AT_GPU, TokenType.VOID, TokenType.IDENT, TokenType.EOF]
+        assert t == [TokenKind.AT_GPU, TokenKind.VOID, TokenKind.IDENT, TokenKind.EOF]
 
     def test_at_unknown(self):
         with pytest.raises(LexerError):
@@ -307,15 +307,15 @@ class TestDelimiters:
     def test_delimiters(self):
         source = "( ) [ ] { } , ;"
         expected = [
-            TokenType.LPAREN,
-            TokenType.RPAREN,
-            TokenType.LBRACKET,
-            TokenType.RBRACKET,
-            TokenType.LBRACE,
-            TokenType.RBRACE,
-            TokenType.COMMA,
-            TokenType.SEMICOLON,
-            TokenType.EOF,
+            TokenKind.LPAREN,
+            TokenKind.RPAREN,
+            TokenKind.LBRACKET,
+            TokenKind.RBRACKET,
+            TokenKind.LBRACE,
+            TokenKind.RBRACE,
+            TokenKind.COMMA,
+            TokenKind.SEMICOLON,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
@@ -327,25 +327,25 @@ class TestPreprocessor:
     def test_preprocessor_include(self):
         source = "#include <stdio.h>"
         tokens = lex(source)
-        assert tokens[0].type == TokenType.PREPROCESSOR
+        assert tokens[0].type == TokenKind.PREPROCESSOR
         assert tokens[0].value == "#include <stdio.h>"
 
     def test_preprocessor_define(self):
         source = "#define MAX 100"
         tokens = lex(source)
-        assert tokens[0].type == TokenType.PREPROCESSOR
+        assert tokens[0].type == TokenKind.PREPROCESSOR
         assert tokens[0].value == "#define MAX 100"
 
     def test_preprocessor_multiline(self):
         source = "#define MACRO \\\nvalue"
         tokens = lex(source)
-        assert tokens[0].type == TokenType.PREPROCESSOR
+        assert tokens[0].type == TokenKind.PREPROCESSOR
         assert "MACRO" in tokens[0].value
 
     def test_preprocessor_followed_by_code(self):
         source = "#include <stdio.h>\nint x;"
         t = types(source)
-        assert t == [TokenType.PREPROCESSOR, TokenType.INT, TokenType.IDENT, TokenType.SEMICOLON, TokenType.EOF]
+        assert t == [TokenKind.PREPROCESSOR, TokenKind.INT, TokenKind.IDENT, TokenKind.SEMICOLON, TokenKind.EOF]
 
 
 # --- Comments ---
@@ -355,24 +355,24 @@ class TestComments:
     def test_line_comment(self):
         source = "int x; // comment\nint y;"
         expected = [
-            TokenType.INT,
-            TokenType.IDENT,
-            TokenType.SEMICOLON,
-            TokenType.INT,
-            TokenType.IDENT,
-            TokenType.SEMICOLON,
-            TokenType.EOF,
+            TokenKind.INT,
+            TokenKind.IDENT,
+            TokenKind.SEMICOLON,
+            TokenKind.INT,
+            TokenKind.IDENT,
+            TokenKind.SEMICOLON,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_block_comment(self):
         source = "int /* comment */ x;"
-        expected = [TokenType.INT, TokenType.IDENT, TokenType.SEMICOLON, TokenType.EOF]
+        expected = [TokenKind.INT, TokenKind.IDENT, TokenKind.SEMICOLON, TokenKind.EOF]
         assert types(source) == expected
 
     def test_multiline_block_comment(self):
         source = "int /* line1\nline2\nline3 */ x;"
-        expected = [TokenType.INT, TokenType.IDENT, TokenType.SEMICOLON, TokenType.EOF]
+        expected = [TokenKind.INT, TokenKind.IDENT, TokenKind.SEMICOLON, TokenKind.EOF]
         assert types(source) == expected
 
     def test_unterminated_block_comment(self):
@@ -387,60 +387,60 @@ class TestComplexInputs:
     def test_class_header(self):
         source = "class Vec3<T> {"
         expected = [
-            TokenType.CLASS,
-            TokenType.IDENT,
-            TokenType.LT,
-            TokenType.IDENT,
-            TokenType.GT,
-            TokenType.LBRACE,
-            TokenType.EOF,
+            TokenKind.CLASS,
+            TokenKind.IDENT,
+            TokenKind.LT,
+            TokenKind.IDENT,
+            TokenKind.GT,
+            TokenKind.LBRACE,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_for_in(self):
         source = "for item in list {"
         expected = [
-            TokenType.FOR,
-            TokenType.IDENT,
-            TokenType.IN,
-            TokenType.IDENT,
-            TokenType.LBRACE,
-            TokenType.EOF,
+            TokenKind.FOR,
+            TokenKind.IDENT,
+            TokenKind.IN,
+            TokenKind.IDENT,
+            TokenKind.LBRACE,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_parallel_for(self):
         source = "parallel for x in data {"
         expected = [
-            TokenType.PARALLEL,
-            TokenType.FOR,
-            TokenType.IDENT,
-            TokenType.IN,
-            TokenType.IDENT,
-            TokenType.LBRACE,
-            TokenType.EOF,
+            TokenKind.PARALLEL,
+            TokenKind.FOR,
+            TokenKind.IDENT,
+            TokenKind.IN,
+            TokenKind.IDENT,
+            TokenKind.LBRACE,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_method_call(self):
         source = "obj.method(a, b)"
         expected = [
-            TokenType.IDENT,
-            TokenType.DOT,
-            TokenType.IDENT,
-            TokenType.LPAREN,
-            TokenType.IDENT,
-            TokenType.COMMA,
-            TokenType.IDENT,
-            TokenType.RPAREN,
-            TokenType.EOF,
+            TokenKind.IDENT,
+            TokenKind.DOT,
+            TokenKind.IDENT,
+            TokenKind.LPAREN,
+            TokenKind.IDENT,
+            TokenKind.COMMA,
+            TokenKind.IDENT,
+            TokenKind.RPAREN,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_generic_type(self):
         # List is now an identifier (defined as class in stdlib)
         source = "List<int>"
-        expected = [TokenType.IDENT, TokenType.LT, TokenType.INT, TokenType.GT, TokenType.EOF]
+        expected = [TokenKind.IDENT, TokenKind.LT, TokenKind.INT, TokenKind.GT, TokenKind.EOF]
         assert types(source) == expected
 
     def test_nested_generic(self):
@@ -448,79 +448,79 @@ class TestComplexInputs:
         # Map/List are now identifiers (defined as classes in stdlib)
         source = "Map<string, List<int>>"
         expected = [
-            TokenType.IDENT,
-            TokenType.LT,
-            TokenType.STRING,
-            TokenType.COMMA,
-            TokenType.IDENT,
-            TokenType.LT,
-            TokenType.INT,
-            TokenType.GT_GT,
-            TokenType.EOF,
+            TokenKind.IDENT,
+            TokenKind.LT,
+            TokenKind.STRING,
+            TokenKind.COMMA,
+            TokenKind.IDENT,
+            TokenKind.LT,
+            TokenKind.INT,
+            TokenKind.GT_GT,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_list_literal(self):
         source = "[1, 2, 3]"
         expected = [
-            TokenType.LBRACKET,
-            TokenType.INT_LIT,
-            TokenType.COMMA,
-            TokenType.INT_LIT,
-            TokenType.COMMA,
-            TokenType.INT_LIT,
-            TokenType.RBRACKET,
-            TokenType.EOF,
+            TokenKind.LBRACKET,
+            TokenKind.INT_LIT,
+            TokenKind.COMMA,
+            TokenKind.INT_LIT,
+            TokenKind.COMMA,
+            TokenKind.INT_LIT,
+            TokenKind.RBRACKET,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_map_literal(self):
         source = '{"a": 1, "b": 2}'
         expected = [
-            TokenType.LBRACE,
-            TokenType.STRING_LIT,
-            TokenType.COLON,
-            TokenType.INT_LIT,
-            TokenType.COMMA,
-            TokenType.STRING_LIT,
-            TokenType.COLON,
-            TokenType.INT_LIT,
-            TokenType.RBRACE,
-            TokenType.EOF,
+            TokenKind.LBRACE,
+            TokenKind.STRING_LIT,
+            TokenKind.COLON,
+            TokenKind.INT_LIT,
+            TokenKind.COMMA,
+            TokenKind.STRING_LIT,
+            TokenKind.COLON,
+            TokenKind.INT_LIT,
+            TokenKind.RBRACE,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_new_expr(self):
         source = "new Vec3(1, 2, 3)"
         expected = [
-            TokenType.NEW,
-            TokenType.IDENT,
-            TokenType.LPAREN,
-            TokenType.INT_LIT,
-            TokenType.COMMA,
-            TokenType.INT_LIT,
-            TokenType.COMMA,
-            TokenType.INT_LIT,
-            TokenType.RPAREN,
-            TokenType.EOF,
+            TokenKind.NEW,
+            TokenKind.IDENT,
+            TokenKind.LPAREN,
+            TokenKind.INT_LIT,
+            TokenKind.COMMA,
+            TokenKind.INT_LIT,
+            TokenKind.COMMA,
+            TokenKind.INT_LIT,
+            TokenKind.RPAREN,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_self_access(self):
         source = "self.x = 5"
         expected = [
-            TokenType.SELF,
-            TokenType.DOT,
-            TokenType.IDENT,
-            TokenType.EQ,
-            TokenType.INT_LIT,
-            TokenType.EOF,
+            TokenKind.SELF,
+            TokenKind.DOT,
+            TokenKind.IDENT,
+            TokenKind.EQ,
+            TokenKind.INT_LIT,
+            TokenKind.EOF,
         ]
         assert types(source) == expected
 
     def test_delete_statement(self):
         source = "delete ptr;"
-        expected = [TokenType.DELETE, TokenType.IDENT, TokenType.SEMICOLON, TokenType.EOF]
+        expected = [TokenKind.DELETE, TokenKind.IDENT, TokenKind.SEMICOLON, TokenKind.EOF]
         assert types(source) == expected
 
 
@@ -598,70 +598,70 @@ class TestInvalidLiterals:
 class TestFStrings:
     def test_fstring_basic(self):
         tokens = lex('f"hello {name}"')
-        assert tokens[0].type == TokenType.FSTRING_LIT
+        assert tokens[0].type == TokenKind.FSTRING_LIT
         assert tokens[0].value == "hello {name}"
 
     def test_fstring_no_interp(self):
         tokens = lex('f"just text"')
-        assert tokens[0].type == TokenType.FSTRING_LIT
+        assert tokens[0].type == TokenKind.FSTRING_LIT
         assert tokens[0].value == "just text"
 
     def test_fstring_empty(self):
         tokens = lex('f""')
-        assert tokens[0].type == TokenType.FSTRING_LIT
+        assert tokens[0].type == TokenKind.FSTRING_LIT
         assert tokens[0].value == ""
 
     def test_f_as_identifier(self):
         """Bare 'f' not followed by quote should be an identifier."""
         tokens = lex("f + 1")
-        assert tokens[0].type == TokenType.IDENT
+        assert tokens[0].type == TokenKind.IDENT
         assert tokens[0].value == "f"
 
     def test_fstring_nested_braces(self):
         tokens = lex('f"val={fn(x)}"')
-        assert tokens[0].type == TokenType.FSTRING_LIT
+        assert tokens[0].type == TokenKind.FSTRING_LIT
         assert tokens[0].value == "val={fn(x)}"
 
     def test_fstring_multiple_interp(self):
         tokens = lex('f"{a} + {b} = {c}"')
-        assert tokens[0].type == TokenType.FSTRING_LIT
+        assert tokens[0].type == TokenKind.FSTRING_LIT
         assert tokens[0].value == "{a} + {b} = {c}"
 
 
 class TestTripleQuoteStrings:
     def test_basic_multiline(self):
         tokens = lex('"""hello\nworld"""')
-        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].type == TokenKind.STRING_LIT
         assert tokens[0].value == '"hello\\nworld"'
 
     def test_single_line(self):
         tokens = lex('"""hello"""')
-        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].type == TokenKind.STRING_LIT
         assert tokens[0].value == '"hello"'
 
     def test_empty(self):
         tokens = lex('""""""')
-        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].type == TokenKind.STRING_LIT
         assert tokens[0].value == '""'
 
     def test_embedded_double_quote(self):
         tokens = lex('"""he said "hi" there"""')
-        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].type == TokenKind.STRING_LIT
         assert tokens[0].value == '"he said "hi" there"'
 
     def test_embedded_two_double_quotes(self):
         tokens = lex('"""a""b"""')
-        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].type == TokenKind.STRING_LIT
         assert tokens[0].value == '"a""b"'
 
     def test_multiple_newlines(self):
         tokens = lex('"""a\nb\nc"""')
-        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].type == TokenKind.STRING_LIT
         assert tokens[0].value == '"a\\nb\\nc"'
 
     def test_preserves_escapes(self):
         tokens = lex('"""hello\\tworld"""')
-        assert tokens[0].type == TokenType.STRING_LIT
+        assert tokens[0].type == TokenKind.STRING_LIT
         assert tokens[0].value == '"hello\\tworld"'
 
     def test_unterminated(self):
@@ -670,9 +670,9 @@ class TestTripleQuoteStrings:
 
     def test_in_expression(self):
         tokens = lex('var s = """hello\nworld""";')
-        assert tokens[0].type == TokenType.VAR
-        assert tokens[1].type == TokenType.IDENT
-        assert tokens[2].type == TokenType.EQ
-        assert tokens[3].type == TokenType.STRING_LIT
+        assert tokens[0].type == TokenKind.VAR
+        assert tokens[1].type == TokenKind.IDENT
+        assert tokens[2].type == TokenKind.EQ
+        assert tokens[3].type == TokenKind.STRING_LIT
         assert tokens[3].value == '"hello\\nworld"'
-        assert tokens[4].type == TokenType.SEMICOLON
+        assert tokens[4].type == TokenKind.SEMICOLON

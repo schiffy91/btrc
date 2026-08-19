@@ -90,6 +90,7 @@
                   || lib.hasInfix "/__pycache__/" pathPrefix
                   || lib.hasInfix "/.pytest_cache/" pathPrefix
                   || lib.hasInfix "/.venv/" pathPrefix
+                  || lib.hasInfix "/build/" pathPrefix
                   || lib.hasInfix "/node_modules/" pathPrefix
                   || lib.hasSuffix "/.DS_Store" relativePath
                   || lib.any (suffix: lib.hasSuffix suffix relativePath) [
@@ -99,30 +100,16 @@
           };
         runtimeSource = sourceSubset {
           prefixes = runtimePrefixes;
-          excludedPrefixes = [
-            "src/devex/lsp/tests/"
-            "src/stdlib/gpu/build/"
-            "src/stdlib/gui/build/"
-          ];
+          excludedPrefixes = [ ];
         };
-        extensionVersion = (builtins.fromJSON (builtins.readFile ./src/devex/ext/package.json)).version;
+        extensionVersion = (builtins.fromJSON (builtins.readFile ./src/devex/vscode/package.json)).version;
         extensionSource = sourceSubset {
           prefixes = runtimePrefixes ++ [
             "src/devex/debug/"
-            "src/devex/ext/"
+            "src/devex/vscode/"
           ];
-          files = [ "flake.lock" ];
-          excludedPrefixes = [
-            "src/devex/debug/tests/"
-            "src/devex/ext/btrc.vsix"
-            "src/devex/ext/debug/"
-            "src/devex/ext/node_modules/"
-            "src/devex/ext/out/"
-            "src/devex/ext/server/"
-            "src/devex/lsp/tests/"
-            "src/stdlib/gpu/build/"
-            "src/stdlib/gui/build/"
-          ];
+          files = [ "LICENSE" "flake.lock" "src/devex/__init__.py" ];
+          excludedPrefixes = [ ];
         };
         lspPython = pkgs.python314.withPackages (ps: [ ps.pygls ps.lsprotocol ]);
         btrcpy = pkgs.writeShellApplication {
@@ -142,14 +129,14 @@
           runtimeInputs = [ lspPython pkgs.git ];
           text = ''
             export PYTHONPATH="${runtimeSource}''${PYTHONPATH:+:$PYTHONPATH}"
-            exec python3 -m src.devex.lsp.server "$@"
+            exec python3 -m src.devex.lsp "$@"
           '';
         };
         btrc-vscode = pkgs.buildNpmPackage {
           pname = "vscode-extension-btrc";
           version = extensionVersion;
           src = extensionSource;
-          sourceRoot = "source/src/devex/ext";
+          sourceRoot = "source/src/devex/vscode";
           npmDepsHash = "sha256-Onn3nJ4r8wTjX/32gc+75CNmid32yxdqnntB0xsZjcI=";
           npmInstallFlags = [ "--ignore-scripts" ];
           npmRebuildFlags = [ "--ignore-scripts" ];
@@ -157,16 +144,20 @@
           nativeBuildInputs = [ pkgs.esbuild lspPython ];
           buildPhase = ''
             runHook preBuild
-            python3 scripts/prepare_lsp_package.py
-            esbuild ./src/extension.ts ./src/launch.ts ./src/debug_launch.ts --bundle --outdir=out --external:vscode --format=cjs --platform=node
+            node packaging/prepare.js
+            bundle_root="$PWD/../../../build/devex/vscode"
+            cp -R node_modules "$bundle_root/node_modules"
+            cd "$bundle_root"
+            npm run typecheck
+            npm run compile
             runHook postBuild
           '';
           installPhase = ''
             runHook preInstall
             extension="$out/share/vscode/extensions/btrc-dev.btrc"
             mkdir -p "$extension"
-            cp package.json language-configuration.json LICENSE "$extension"/
-            cp -R debug icons out server syntaxes "$extension"/
+            cp package.json LICENSE "$extension"/
+            cp -R assets config out server "$extension"/
             runHook postInstall
           '';
           passthru = {

@@ -1,0 +1,13 @@
+.vscode/**
+.vscode-test/**
+src/**
+node_modules/**
+packaging/**
+package-lock.json
+server/src/tests/**
+**/__pycache__/**
+**/*.pyc
+.gitignore
+tsconfig.json
+**/*.ts
+**/*.map

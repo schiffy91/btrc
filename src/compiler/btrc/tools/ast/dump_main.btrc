@@ -1,0 +1,80 @@
+import std.bytes;
+import std.fs;
+import std.io;
+import std.strings;
+import std.vector;
+
+import ./schema.btrc;
+import ../../frontend/models.btrc;
+import ../../frontend/source_io.btrc;
+import ../../cli/driver.btrc;
+
+class AsdlDumpCommand {
+    private BtrccOutput output;
+    private FeSourceFileReader sourceFiles;
+
+    public AsdlDumpCommand(
+            BtrccOutput output,
+            FeSourceResolutionPolicy resolutionPolicy) {
+        self.output = output;
+        self.sourceFiles = FeSourceFileReader(resolutionPolicy);
+    }
+
+    private bool writeLine(string line) {
+        if (self.output.writeChunk(line, true)) { return true; }
+        fprintf(stderr, "asdl_dump: error: cannot write standard output\n");
+        return false;
+    }
+
+    public int run() {
+        string source = self.sourceFiles.readRequired(
+            "src/language/ast.asdl");
+        Vector<AType> types = AsdlParser(source).parse();
+        int typeIndex = 0;
+        while (typeIndex < types.len) {
+            AType type = types.get(typeIndex);
+            if (!self.writeLine(
+                    f"TYPE {type.name} ctors={type.ctors.len} attrs={type.attrs.len}")) {
+                return 1;
+            }
+            int constructorIndex = 0;
+            while (constructorIndex < type.ctors.len) {
+                ACtor constructor = type.ctors.get(constructorIndex);
+                if (!self.writeLine(
+                        f"  CTOR {constructor.name} fields={constructor.fields.len}")) {
+                    return 1;
+                }
+                int fieldIndex = 0;
+                while (fieldIndex < constructor.fields.len) {
+                    AField field = constructor.fields.get(fieldIndex);
+                    if (!self.writeLine(
+                            f"    F {field.typeName} {field.name} "
+                            + f"seq={field.seq} opt={field.opt}")) {
+                        return 1;
+                    }
+                    fieldIndex++;
+                }
+                constructorIndex++;
+            }
+            int attributeIndex = 0;
+            while (attributeIndex < type.attrs.len) {
+                AField field = type.attrs.get(attributeIndex);
+                if (!self.writeLine(
+                        f"    ATTR {field.typeName} {field.name} "
+                        + f"seq={field.seq} opt={field.opt}")) {
+                    return 1;
+                }
+                attributeIndex++;
+            }
+            typeIndex++;
+        }
+        if (self.output.flush()) { return 0; }
+        fprintf(stderr, "asdl_dump: error: cannot write standard output\n");
+        return 1;
+    }
+}
+
+int main() {
+    return AsdlDumpCommand(
+        BtrccOutput(stdout), FeSourceResolutionPolicy()).run();
+}

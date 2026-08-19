@@ -1,0 +1,280 @@
+import std.vector;
+import ../../../analyzer/generics.btrc;
+import ../../../analyzer/models.btrc;
+import ../../../analyzer/ownership/cycles.btrc;
+import ../../../analyzer/ownership/values.btrc;
+import ../../../generated/ast/node.btrc;
+import ../../model.btrc;
+import ../context.btrc;
+import ../types.btrc;
+import ./calls.btrc;
+import ./lifetime.btrc;
+import ./operands.btrc;
+
+/* ARC representation metadata and typed managed-slot planning. */
+
+class ManagedReleaseSlotPlan {
+    public Node expression;
+    public Node? persistentOwner;
+    public Node? persistentOwnerType;
+    public bool orderedIndex;
+    public Node? objectType;
+    public Node? indexType;
+
+    public ManagedReleaseSlotPlan(Node expression) {
+        self.expression = expression;
+        self.persistentOwner = null;
+        self.persistentOwnerType = null;
+        self.orderedIndex = false;
+        self.objectType = null;
+        self.indexType = null;
+    }
+}
+
+class ManagedReleaseSlotPlanner {
+    private ManagedValueSemantics managedValues;
+    private OwnershipOperandPlanner operandPlanner;
+
+    public ManagedReleaseSlotPlanner(
+            ManagedValueSemantics managedValues,
+            OwnershipOperandPlanner operandPlanner) {
+        self.managedValues = managedValues;
+        self.operandPlanner = operandPlanner;
+    }
+
+    private Node? persistentOwnerNode(Node expression) {
+        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            return expression.obj;
+        }
+        if (expression.kind == NK_INDEX_EXPR
+                && expression.obj.kind == NK_FIELD_ACCESS_EXPR) {
+            return expression.obj.obj;
+        }
+        return null;
+    }
+
+    public ManagedReleaseSlotPlan plan(Node expression,
+            OwnershipOperandEnvironment environment) {
+        ManagedReleaseSlotPlan result =
+            ManagedReleaseSlotPlan(expression);
+        Node? owner = self.persistentOwnerNode(expression);
+        if (owner != null) {
+            Node? ownerType = self.operandPlanner.expressionType(owner, environment);
+            if (ownerType != null && self.managedValues.isClass(
+                    self.operandPlanner.resolveType(ownerType, environment))) {
+                result.persistentOwner = owner;
+                result.persistentOwnerType = ownerType;
+            }
+        }
+        if (expression.kind != NK_INDEX_EXPR) { return result; }
+        Vector<Node> operands = [];
+        operands.push(expression.obj);
+        operands.push(expression.index);
+        result.orderedIndex = self.operandPlanner.requiresOrder(
+            operands, environment);
+        if (!result.orderedIndex) { return result; }
+        result.objectType = self.operandPlanner.expressionType(
+            expression.obj, environment);
+        result.indexType = self.operandPlanner.expressionType(
+            expression.index, environment);
+        self.operandPlanner.requireType(result.objectType, expression.obj);
+        self.operandPlanner.requireType(result.indexType, expression.index);
+        return result;
+    }
+}
+
+class ManagedReleaseSlot {
+    public IRNode target;
+    public IRNode owner;
+    public bool persistent;
+    public OwnershipBoundary boundary;
+    public ManagedReleaseSlotPlan plan;
+
+    public ManagedReleaseSlot(ManagedReleaseSlotPlan plan,
+            OwnershipBoundary boundary) {
+        self.target = IRNode.literal("0");
+        self.owner = IRNode.literal("NULL");
+        self.persistent = false;
+        self.boundary = boundary;
+        self.plan = plan;
+    }
+
+    public void emitBefore(Vector<IRNode> statements) {
+        int declarationIndex = 0;
+        while (declarationIndex < self.boundary.declarations.len) {
+            statements.push(
+                self.boundary.declarations.get(declarationIndex));
+            declarationIndex = declarationIndex + 1;
+        }
+        int prefixIndex = 0;
+        while (prefixIndex < self.boundary.prefix.len) {
+            statements.push(IRNode.expressionStatement(
+                self.boundary.prefix.get(prefixIndex)));
+            prefixIndex = prefixIndex + 1;
+        }
+        int handoffIndex = 0;
+        while (handoffIndex < self.boundary.handoffs.len) {
+            statements.push(IRNode.expressionStatement(
+                self.boundary.handoffs.get(handoffIndex)));
+            handoffIndex = handoffIndex + 1;
+        }
+    }
+
+    public void emitAfter(Vector<IRNode> statements) {
+        int suffixIndex = 0;
+        while (suffixIndex < self.boundary.suffix.len) {
+            statements.push(IRNode.expressionStatement(
+                self.boundary.suffix.get(suffixIndex)));
+            suffixIndex = suffixIndex + 1;
+        }
+    }
+}
+
+class ManagedTypeLowerer {
+    private Analyzed analyzed;
+    private ManagedValueSemantics managedValues;
+    private CycleSemantics cycles;
+    private LoweringContext context;
+    private ManagedLifetimeLowerer lifetime;
+    private CTypeLowerer cTypes;
+    private ManagedReleaseSlotPlanner releaseSlots;
+
+    public ManagedTypeLowerer(
+            Analyzed analyzed,
+            ManagedValueSemantics managedValues,
+            CycleSemantics cycles,
+            OwnershipOperandPlanner operandPlanner,
+            LoweringContext context,
+            ManagedLifetimeLowerer lifetime,
+            CTypeLowerer cTypes) {
+        self.analyzed = analyzed;
+        self.managedValues = managedValues;
+        self.cycles = cycles;
+        self.context = context;
+        self.lifetime = lifetime;
+        self.cTypes = cTypes;
+        self.releaseSlots = ManagedReleaseSlotPlanner(
+            managedValues, operandPlanner);
+    }
+
+    public ManagedReleaseSlotPlan planRelease(Node expression,
+            OwnershipOperandEnvironment environment) {
+        return self.releaseSlots.plan(expression, environment);
+    }
+
+    public IRNode releaseField(string field, Node typeExpr) {
+        Node resolved = self.cTypes.resolveBodyType(
+            typeExpr, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0);
+        IRNode storage = IRNode.fieldAccess(
+            IRNode.variable("self"), field, true);
+        if (self.managedValues.isArc(resolved)) {
+            Vector<IRNode> statements = [];
+            statements.push(IRNode.expressionStatement(
+                self.lifetime.replaceEdge(
+                    storage, IRNode.literal("NULL"), typeExpr,
+                    IRNode.variable("self"), false)));
+            return IRNode.block(statements);
+        }
+        string oldName =
+            self.context.freshTemporary("__btrc_destroy_field");
+        Vector<IRNode> statements = [];
+        statements.push(IRNode.variableDeclaration(
+            self.cTypes.lower(typeExpr), oldName, storage));
+        statements.push(IRNode.expressionStatement(
+            self.lifetime.unlinkEdge(
+                IRNode.variable(oldName), typeExpr,
+                IRNode.variable("self"))));
+        statements.push(IRNode.assignment(
+            storage, IRNode.literal("NULL")));
+        statements.push(IRNode.expressionStatement(
+            self.lifetime.releaseEdge(
+                IRNode.variable(oldName), typeExpr,
+                IRNode.literal("NULL"))));
+        return IRNode.block(statements);
+    }
+
+    public string descriptorSymbol(string emittedName) {
+        return "__btrc_" + emittedName + "_arc_type";
+    }
+
+    public IRNode headerMember(IRNode value, string member) {
+        return IRNode.fieldAccess(
+            IRNode.fieldAccess(value, "__arc", true), member, false);
+    }
+
+    public void appendHeaderField(IRStructDef definition) {
+        self.context.referenceHelper("__btrc_arc_callback_types");
+        definition.fields.push(
+            IRStructField("__btrc_arc_header", "__arc"));
+    }
+
+    public void appendHeaderInitialization(
+            string emittedName, Vector<IRNode> output) {
+        output.push(IRNode.assignment(
+            self.headerMember(IRNode.variable("self"), "rc"),
+            IRNode.literal("1")));
+        output.push(IRNode.assignment(
+            self.headerMember(IRNode.variable("self"), "edge_rc"),
+            IRNode.literal("0")));
+        output.push(IRNode.assignment(
+            self.headerMember(IRNode.variable("self"), "live_witness"),
+            IRNode.literal("NULL")));
+        output.push(IRNode.assignment(
+            self.headerMember(IRNode.variable("self"), "type"),
+            IRNode.addressOf(IRNode.variable(
+                self.descriptorSymbol(emittedName)))));
+        output.push(IRNode.assignment(
+            self.headerMember(IRNode.variable("self"), "incoming"),
+            IRNode.literal("NULL")));
+        output.push(IRNode.assignment(
+            self.headerMember(IRNode.variable("self"), "deferred_next"),
+            IRNode.literal("NULL")));
+        output.push(IRNode.assignment(
+            self.headerMember(IRNode.variable("self"), "suppress_hook"),
+            IRNode.literal("0")));
+        output.push(IRNode.assignment(
+            self.headerMember(IRNode.variable("self"), "state"),
+            IRNode.variable("__BTRC_ARC_LIVE")));
+    }
+
+    public void emitDescriptor(IRModule module,
+            string emittedName, bool hasVisitor, bool hasHook) {
+        self.context.referenceHelper("__btrc_arc_callback_types");
+        IRGlobalDecl descriptor = IRGlobalDecl(
+            "const __btrc_arc_type", self.descriptorSymbol(emittedName));
+        Vector<IRNode> values = [];
+        if (hasVisitor) {
+            values.push(IRNode.functionReference(
+                self.cycles.visitorName(emittedName)));
+        } else {
+            values.push(IRNode.literal("NULL"));
+        }
+        values.push(IRNode.functionReference(emittedName + "_destroy"));
+        if (hasHook) {
+            string hookName =
+                GenericSpecializer.destructorHookName(emittedName);
+            self.context.referenceHelper("__btrc_arc_guard_hook");
+            self.context.referenceHelper("__btrc_throw");
+            values.push(IRNode.functionReference(hookName));
+            values.push(IRNode.functionReference("__btrc_arc_guard_hook"));
+            values.push(IRNode.functionReference("__btrc_throw"));
+            IRFunctionDecl hookDeclaration = IRFunctionDecl(
+                hookName, "void", true);
+            hookDeclaration.params.push(IRParam("void*", "object"));
+            module.function_decls.push(hookDeclaration);
+        } else {
+            values.push(IRNode.literal("NULL"));
+            values.push(IRNode.literal("NULL"));
+            if (self.context.exceptionsAreEnabled()) {
+                self.context.referenceHelper("__btrc_throw");
+                values.push(IRNode.functionReference("__btrc_throw"));
+            } else {
+                values.push(IRNode.literal("NULL"));
+            }
+        }
+        descriptor.init = IRNode.initializerList(values);
+        module.global_decls.push(descriptor);
+    }
+}

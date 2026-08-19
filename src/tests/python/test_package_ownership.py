@@ -6,12 +6,12 @@ from threading import Barrier
 
 import pytest
 
-from src.compiler.python.frontend.resolver import SourceResolver
-from src.compiler.python.pkg import (
+from src.compiler.python.frontend.packages import (
     IncludeResolutionError,
-    PackageResolver,
+    PackageUniverse,
     ResolvedPackages,
 )
+from src.compiler.python.frontend.stage import FrontendStage
 
 
 def _project(root: Path, marker: str) -> tuple[Path, str]:
@@ -45,13 +45,13 @@ def test_one_source_resolver_isolates_concurrent_projects(tmp_path):
     right_path, right_source = _project(tmp_path, "right")
     ready = Barrier(2)
 
-    class CoordinatedPackageResolver(PackageResolver):
+    class CoordinatedPackageUniverse(PackageUniverse):
         def resolve_for(self, input_path: str, *, refresh: bool = False):
             packages = super().resolve_for(input_path, refresh=refresh)
             ready.wait(timeout=10)
             return packages
 
-    resolver = SourceResolver(package_resolver=CoordinatedPackageResolver())
+    resolver = FrontendStage(package_universe=CoordinatedPackageUniverse()).resolver
 
     def resolve(path: Path, source: str) -> str:
         return resolver.resolve_includes(
@@ -74,7 +74,7 @@ def test_one_source_resolver_isolates_concurrent_projects(tmp_path):
 
 def test_previous_project_cannot_leak_into_no_manifest_resolution(tmp_path):
     project_path, project_source = _project(tmp_path, "owned")
-    resolver = SourceResolver()
+    resolver = FrontendStage().resolver
 
     resolved = resolver.resolve_includes(
         project_source,
@@ -102,12 +102,12 @@ def test_failed_resolution_cannot_affect_concurrent_success(tmp_path):
     broken_source = "import bad;\nint main() { return 0; }\n"
     entered = Barrier(2)
 
-    class CoordinatedPackageResolver(PackageResolver):
+    class CoordinatedPackageUniverse(PackageUniverse):
         def resolve_for(self, input_path: str, *, refresh: bool = False):
             entered.wait(timeout=10)
             return super().resolve_for(input_path, refresh=refresh)
 
-    resolver = SourceResolver(package_resolver=CoordinatedPackageResolver())
+    resolver = FrontendStage(package_universe=CoordinatedPackageUniverse()).resolver
 
     def resolve(path: Path, source: str) -> str:
         return resolver.resolve_includes(

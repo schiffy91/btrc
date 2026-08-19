@@ -9,18 +9,15 @@ import subprocess
 
 import pytest
 
+import src.compiler.python.frontend.sources as frontend_stdlib_owner
 from src.compiler.python import Compiler
-from src.compiler.python import stdlib_ast_cache as ast_cache
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.cache_io import AtomicFileStore
-from src.compiler.python.cli.compiler_cli import CompilerCLI
-from src.compiler.python.cli_diagnostics import CompilerDiagnostics
-from src.compiler.python.frontend import stdlib as frontend_stdlib_owner
-from src.compiler.python.frontend.resolver import SourceResolver
-from src.compiler.python.frontend.stdlib import StdlibRepository
-from src.compiler.python.pkg import IncludeResolutionError
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.cli.compiler import CompilerCommand, CompilerDiagnostics
+from src.compiler.python.frontend.packages import IncludeResolutionError
+from src.compiler.python.frontend.sources import StdlibAstCache, StdlibRepository
+from src.compiler.python.frontend.stage import FrontendStage
 
-RESOLVER = SourceResolver()
+RESOLVER = FrontendStage().resolver
 STDLIB = StdlibRepository()
 
 # --------------------------------------------------------------------------
@@ -35,7 +32,7 @@ def write(path, content):
 
 
 def run_main(monkeypatch, argv):
-    CompilerCLI().run(argv)
+    CompilerCommand(Compiler()).run(argv)
 
 
 HELLO = 'int main() { print("PASS"); return 0; }\n'
@@ -507,7 +504,7 @@ def test_c_import_preserves_spaces_and_backslashes():
 
 def _parse_one(src: str):
     """Parse a snippet and return its single top-level declaration."""
-    from src.compiler.python.lexer import Lexer
+    from src.compiler.python.lexer.lexer import Lexer
     from src.compiler.python.parser.parser import Parser
 
     return Parser(Lexer(src).tokenize()).parse().declarations[0]
@@ -515,7 +512,7 @@ def _parse_one(src: str):
 
 def test_quoted_import_strips_quotes():
     # Quote stripping moved from the frontend regex into the parser.
-    from src.compiler.python.ast_nodes import QuotedPath
+    from src.compiler.python.syntax.ast.generated import QuotedPath
 
     spec = _parse_one('import "std/math.btrc";').spec
     assert isinstance(spec, QuotedPath)
@@ -524,7 +521,7 @@ def test_quoted_import_strips_quotes():
 
 def test_brace_import_expands_into_names():
     # Brace expansion moved from the frontend regex into the parser.
-    from src.compiler.python.ast_nodes import StdModules
+    from src.compiler.python.syntax.ast.generated import StdModules
 
     spec = _parse_one("import std.{a, b};").spec
     assert isinstance(spec, StdModules)
@@ -566,7 +563,7 @@ def test_cached_stdlib_decls_roundtrip(tmp_path, monkeypatch):
     assert first  # parsed
     cache_files = list(cache_dir.glob("stdlib-*.ast.json"))
     assert len(cache_files) == 1
-    assert json.loads(cache_files[0].read_text())["schema"] == ast_cache.SCHEMA_VERSION
+    assert json.loads(cache_files[0].read_text())["schema"] == StdlibAstCache.SCHEMA
 
     def unexpected_parse(_self):
         raise AssertionError("cache hit reparsed the stdlib")
@@ -614,9 +611,9 @@ def test_cached_stdlib_decls_write_failure(tmp_path, monkeypatch):
     def boom(*a, **k):
         raise OSError("disk full")
 
-    file_store = AtomicFileStore()
-    monkeypatch.setattr(file_store, "write_json", boom)
-    repository = StdlibRepository(ast_cache=ast_cache.StdlibAstCache(file_store=file_store))
+    ast_cache = StdlibAstCache()
+    monkeypatch.setattr(ast_cache, "_write_json", boom)
+    repository = StdlibRepository(ast_cache=ast_cache)
     decls = repository.cached_declarations("class TinyW { public int x; public TinyW(int x) { self.x = x; } }\n")
     assert decls
 
@@ -636,13 +633,13 @@ def test_disk_cache_write_failure_does_not_fail_compilation(tmp_path, monkeypatc
     output = tmp_path / "cacheless.c"
 
     class UnavailableCache:
-        def load(self, *_args, **_kwargs):
+        def load_text(self, *_args, **_kwargs):
             return None
 
-        def store(self, *_args, **_kwargs):
+        def store_text(self, *_args, **_kwargs):
             raise PermissionError("read-only cache root")
 
-    CompilerCLI(Compiler(cache=UnavailableCache())).run(["--no-stdlib", source, "-o", str(output)])
+    CompilerCommand(Compiler(cache=UnavailableCache())).run(["--no-stdlib", source, "-o", str(output)])
     assert "int main(void)" in output.read_text()
 
 
@@ -688,7 +685,7 @@ def test_cached_stdlib_decls_corrupt_cache(tmp_path, monkeypatch):
     decls = STDLIB.cached_declarations(stdlib_src)  # must reparse, not crash
     assert decls
     with open(path, encoding="utf-8") as cache_file:
-        assert json.load(cache_file)["schema"] == ast_cache.SCHEMA_VERSION
+        assert json.load(cache_file)["schema"] == StdlibAstCache.SCHEMA
 
 
 def test_cached_stdlib_decls_never_executes_legacy_pickle(tmp_path, monkeypatch):

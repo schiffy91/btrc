@@ -209,12 +209,12 @@ def test_gpu_archive_rule_asserts_runtime_membership() -> None:
     assert "GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)" in makefile
     assert "$(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS)" in makefile
     assert "pthreads on POSIX hosts" in runtime
-    archive_cleanup = makefile.index('rm -f "$$D/build/libbtrc_gpu.a"')
+    archive_cleanup = makefile.index('rm -f "$$O/libbtrc_gpu.a"')
     dependency_probe = makefile.index("for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c")
     assert archive_cleanup < dependency_probe
     assert '-E "$$D/$$source" -o /dev/null' in makefile
     assert '-E "$$D/btrc_gpu_surface_macos.m" -o /dev/null' in makefile
-    assert "btrc_gpu_async.o $$D/build/btrc_gpu_surface.o" in makefile
+    assert "btrc_gpu_async.o $$O/btrc_gpu_surface.o" in makefile
     assert r'grep -q "btrc_gpu_async\\.o$$"' in makefile
     assert r'grep -q "btrc_gpu_surface\\.o$$"' in makefile
 

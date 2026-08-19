@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import pytest
 
-from src.compiler.python.analyzer.semantic_analyzer import SemanticAnalyzer
-from src.compiler.python.lexer import Lexer
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.analyzer.program import SourceMacroNamespace
+from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.source_macros import SourceMacroNamespace, SourceSymbolDirective
+from src.compiler.python.syntax.tokens import SourceSymbolDirective
 
 
 def _errors(source: str) -> list[str]:

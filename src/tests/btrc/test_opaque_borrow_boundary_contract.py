@@ -145,7 +145,7 @@ INVALID_CASES = (
         "void invoke(void* value) { ((__fn_ptr<void>)value)(); } "
         "class Box {} int main() { Box owner = new Box(); "
         "invoke((void*)owner); return 0; }",
-        "parameter is not proven borrow-only",
+        "Function pointers cannot be cast",
         id="borrow-used-as-callable",
     ),
     pytest.param(
@@ -323,6 +323,8 @@ def test_comparison_result_cast_severs_managed_borrow_provenance(
 OWNED_COPY_SOURCE = (FIXTURES / "opaque_borrow_owned_copy_runtime.btrc").read_text()
 
 STDLIB_HOSTED_SHADOW_SOURCE = r"""
+import std.bytes;
+
 void* retained_memcpy_source;
 
 void* memcpy(void* destination, const void* source, size_t count) {

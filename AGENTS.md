@@ -11,10 +11,13 @@ This project is too large for a single context window. You WILL run out of memor
 
 **Before you start working:**
 1. Read this file completely
-2. Read MEMORY.md (in your auto-memory directory)
-3. Check git status to see what's been done
-4. Check the todo list
-5. Run `make test` to see what passes and what's broken
+2. Read `GOAL.md` completely
+3. Read MEMORY.md (in your auto-memory directory)
+4. Check git status and the goal checklist to preserve concurrent work
+5. Establish only the baseline permitted by the current goal phase. During the
+   architecture-first phase, use structural, generation, parse/import, and
+   diff checks; defer behavior, parity, bootstrap, and broad correctness suites
+   until the destination tree is complete.
 
 **Before context runs out:**
 1. Commit working code frequently
@@ -39,8 +42,8 @@ The Python reference compiler and self-hosted btrc compiler follow the same
 SHARED SPECS (single source of truth):
   src/language/grammar.ebnf       keywords, operators, syntax rules
   src/language/ast.asdl                   AST node types (Zephyr ASDL)
-  src/compiler/python/ast/asdl_python.py  ASDL → Python dataclasses
-  src/compiler/python/ast/gen_btrc_ast.py ASDL → btrc fat tagged nodes
+  tools/compiler_codegen/asdl.py         ASDL schema parser + value model
+  tools/compiler_codegen/ast.py          ASDL → Python + btrc AST catalogs
 
 PIPELINE:
   source.btrc
@@ -96,8 +99,9 @@ PIPELINE:
   - Operator overloading → method calls
   - Static inheritance/member lowering and interface-contract validation
 - **Produces structured IR nodes** (IRIf, IRCall, IRFor, IRBinOp, etc.)
-- **NEVER produces C text.** Runtime helpers are pre-authored in
-  `ir/helpers/`; IR generation may reference them, but does not assemble them.
+- **NEVER produces C text.** Runtime helpers are pre-authored as cohesive assets
+  under `src/runtime/c/` and described by the shared runtime manifest; IR
+  lowering selects generated catalog rows but never assembles helper source.
 
 #### Stage 5: Optimizer
 - Computes one structured function/global reachability graph
@@ -127,7 +131,27 @@ PIPELINE:
 - Product types: Program, ClassDecl, BinaryExpr, etc.
 - attributes(int line, int col) on nodes that have source locations
 - Field names ARE the API contract for analyzer, IR gen, LSP, and tests
-- NEVER hand-edit ast_nodes.py or ast/node.btrc — regenerate from ASDL
+- NEVER hand-edit syntax/ast/generated.py or generated/ast/node.btrc — regenerate from ASDL
+
+### Shared runtime and hosted ABI
+
+- `src/runtime/c/manifest.toml` is the single runtime-helper manifest.
+- The pre-authored runtime assets are `btrc_rt.h`, `core.c`, `collections.c`,
+  `cycles.c`, `mutex.c`, `process.c`, `strings.c`, `threads.c`, `trycatch.c`,
+  and `gpu.c` in `src/runtime/c/`.
+- Runtime metadata is generated into
+  `src/compiler/python/runtime/generated.py` and
+  `src/compiler/btrc/generated/runtime/catalog.btrc`; handwritten catalog,
+  selection, reference, and materialization behavior remains with the retained
+  runtime owners in each compiler.
+- `src/language/hosted_abi.toml` generates
+  `src/compiler/python/abi/generated.py` and
+  `src/compiler/btrc/generated/hosted_abi/tables.btrc`.
+- Generated modules contain data/schema declarations only. Generated Python
+  rows use immutable value types; generated btrc rows expose public fields
+  required by the language and consumers treat them as read-only by
+  convention. Generated modules never own lookup, validation, selection,
+  canonical rendering, or source-assembly behavior.
 
 ---
 
@@ -162,137 +186,118 @@ prove the strict-import path.
 
 ### File Structure
 
-```
+The destination contains exactly 81 production Python files:
+
+```text
 src/compiler/python/
-  __init__.py                   durable Compiler/Options/Result API
-  compiler.py                   application object + compiled-C cache policy
-  main.py                       thin process entry point
-  pipeline/
-    models.py                   immutable options + cross-stage results
-    pipeline.py                 ordered six-stage orchestration
-  frontend/
-    dependencies.py             ResolvedSource + typed dependency graph
-    resolver.py                 per-invocation frontend composition root
-    imports.py                  owned import/include filesystem resolution
-    stdlib.py                   stdlib discovery, composition, symbol ownership
-    parser.py                   lex/parse modes + AST provenance
-    visibility.py               per-file strict-import validation
-  pkg.py                        immutable package universe + resolution owner
+  __init__.py                     Compiler/Options/Result API only
+  main.py                         thin process entry point
+
+  application/
+    __init__.py
+    compiler.py                   Compiler
+    pipeline.py                   CompilationPipeline
+    results.py                    immutable cross-stage results
+
   cli/
-    compiler_cli.py             arguments, diagnostics, and user-facing file I/O
+    __init__.py
+    compiler.py                   CompilerCommand
+    bundle.py                     BundleCommand
 
-  ebnf.py                       EBNF grammar parser → GrammarInfo
-  tokens.py                     Token + TokenType enum
-  lexer.py                      grammar-driven tokenizer
-  lexer_literals.py             number/string literal parsing
-  ast_nodes.py                  GENERATED from src/language/ast.asdl
-  cache_io.py                   atomic JSON/text cache writes
-  artifacts/cache/compiler_cache.py
-                                toolchain fingerprints + compiled-C cache
-  stdlib_ast_cache.py           schema-validated JSON stdlib AST cache
+  frontend/
+    __init__.py
+    stage.py                      frontend composition
+    sources.py                    SourceResolver/dependency graph
+    imports.py                    ImportResolver/visibility
+    packages.py                   PackageUniverse/GitDependencyCache
 
-  parser/                        recursive descent parser (mixin-based)
-    parser.py                    assembles Parser from mixins
-    core.py                      ParserBase class, state, token helpers
-    types.py                     type expression + param parsing
-    declarations.py              class, struct, enum decls
-    decl_simple.py               function, typedef, extern decls
-    statements.py                var decls, assignments
-    control_flow.py              if, for, while, switch, try/catch
-    expressions.py               precedence climbing
-    postfix.py                   member access, subscript, call chains
-    primary.py                   atoms: literals, new, sizeof, cast, fstring
-    lambdas.py                   verbose + arrow lambda parsing
+  syntax/
+    __init__.py
+    grammar.py                    GrammarRepository, EbnfGrammarParser
+    tokens.py                     Token, TokenKind, TokenVocabulary
+    ast/
+      __init__.py
+      generated.py                generated ASDL dataclasses
+      codec.py                    AstJsonCodec
 
-  analyzer/                      semantic analysis (composition migration)
-    semantic_analyzer.py         durable SemanticAnalyzer composition root
-    core.py                      remaining orchestration + analysis context
-    core_models.py               semantic result, declaration, and symbol models
-    declarations/                owned pass-one declaration registration
-      registry.py                declaration indexes + registration cascade
-      top_level.py               values, structs, enums, and source macros
-      inheritance.py             dependency-ordered class metadata inheritance
-    statements.py                statement analysis
-    expressions.py               expression analysis + type inference
-    type_inference.py            var type deduction
-    type_utils.py                type compatibility, formatting
-    functions.py                 function/method analysis
-    validation.py                access control, inheritance checks
-    gpu.py                       @gpu function validation
+  lexer/
+    __init__.py
+    lexer.py                      Lexer and LiteralScanner
 
-  ir/                            IR pipeline
-    nodes.py                     IR node dataclass definitions
-    module.py                    translation-unit root + IR invariants
-    optimizer.py                 IROptimizer composition root
-    reachability.py              program/runtime/declaration reachability owners
-    optimizer_walk.py            IRTree + textual identifier-reference owners
-    declaration_order.py         strict-C type declaration planner
-    cleanup_validation.py        typed cleanup-slot invariant owner
-    runtime_dependencies.py      freestanding runtime materialization owner
-    emitter.py                   IR → C text (simple tree walk)
-    emitter_exprs.py             expression emission mixin
-    emitter_gpu.py               GPU kernel + dispatch emission mixin
+  parser/
+    __init__.py
+    parser.py                     complete stateful Parser
 
-    gen/                         IR generation (AST → structured IR lowering)
-      lowerer.py                 IRLowerer composition root + lower() entry point
-      lowering_context.py        explicit mutable state for one lowering run
-      call_resolver.py           call target/signature resolution owner
-      call_operands.py           source-order + lifetime operand planning owner
-      call_arguments.py          argument binding/default lowering integration
-      call_emission.py           temporary expression-dispatch integration seam
-      ownership.py               managed-value ownership policy owner
-      ownership_effects.py       call/assignment ownership-effect resolution
-      managed_values.py          managed classification + runtime identity owner
-      cycle_metadata.py          cycle graph, visitor, and metadata-state owner
-      cleanup_slots.py           typed cleanup/access adapter registry
-      ownership_lifetime.py      context-bound retain/release/cleanup owner
-      ownership_order.py         effect and operand-order classification
-      arc.py                      explicit release-statement lowering owner
-      classes.py                 class/struct lowering
-      class_members.py           field/method/property lowering
-      enums.py                   enum lowering (simple + rich)
-      statements.py              statement lowering
-      control_flow.py            if/while/for/switch/try lowering
-      expressions.py             expression lowering
-      operators.py               operator overloading → method calls
-      calls.py                   function/method call lowering
-      functions.py               function def lowering
-      methods.py                 method → free function lowering
-      fields.py                  field initialization
-      fstrings.py                f-string → snprintf lowering
-      collections.py             collection method expansion
-      iterations.py              for-in → C-style for lowering
-      lambdas.py                 lambda lifting + capture structs
-      types.py                   type-related IR generation
-      helpers.py                 runtime helper registration
-      threads.py                 spawn/Thread/Mutex lowering
-      variables.py               variable declaration lowering
-      gpu.py                     @gpu kernel IR generation
-      gpu_wgsl.py                btrc AST → WGSL text
-      generics/                  monomorphization
-        core.py                  generic infrastructure
-        user.py                  user-defined generic classes
-        user_emitter.py          generic emitter + local lifetime binding owner
-        user_emitter_stmts.py    generic class statement emitter
-        user_methods.py          generic class method lowering
+  analyzer/
+    __init__.py
+    analyzer.py                   SemanticAnalyzer composition root
+    program.py                    AnalyzedProgram/scopes/indexes
+    declarations.py              DeclarationRegistry
+    types.py                      TypeSystem
+    aggregates.py                 AggregateAnalyzer
+    expressions.py                ExpressionAnalyzer
+    calls.py                      CallAnalyzer/callable flow
+    statements.py                 StatementAnalyzer
+    flow.py                       ControlFlowAnalyzer
+    storage.py                    StorageModel
+    ownership.py                  OwnershipAnalyzer
+    generics.py                   GenericAnalyzer
+    gpu.py                        GpuAnalyzer
+    macros.py                     SourceMacroAnalyzer/Namespace
+    generated_symbols.py          GeneratedSymbolRegistry
 
-    helpers/                     runtime helper C source text
-      registry.py                aggregates all helpers into HELPERS dict
-      core.py                    helper infrastructure
-      alloc.py                   safe alloc wrappers
-      divmod.py                  division/modulo safety
-      string_pool.py             string tracking pool
-      strings.py                 string operation helpers
-      strings_ops.py             string manipulation (replace, split, etc.)
-      strings_query.py           string queries (contains, indexOf, etc.)
-      strings_convert.py         string conversions (toUpper, toLower, etc.)
-      math.py                    math helpers
-      trycatch.py                setjmp/longjmp infrastructure
-      hash.py                    hash functions for Map/Set
-      collections.py             generic collection function templates
-      cycles.py                  ARC cycle detection helpers
-      threads.py                 threading helpers (pthread wrappers)
+  abi/
+    __init__.py
+    generated.py                  generated hosted-ABI data
+    declarations.py               hosted ABI value declarations
+    hosted.py                     HostedAbiRepository
+    freestanding.py               FreestandingRuntime
 
+  ir/
+    __init__.py
+    nodes.py                      complete typed IR model/IRModule
+    verifier.py                   IRVerifier
+    optimizer.py                  IROptimizer
+
+    lowering/
+      __init__.py
+      lowerer.py                   IRLowerer composition root
+      session.py                   LoweringSession/scopes/temporaries
+      translation_unit.py          TranslationUnitLowerer
+      declarations.py              DeclarationLowerer
+      classes.py                   ClassLowerer
+      functions.py                 FunctionLowerer
+      types.py                     CTypeLowerer
+      expressions.py               ExpressionLowerer
+      calls.py                     CallLowerer
+      storage.py                   StorageLowerer
+      ownership.py                 OwnershipLowerer
+      statements.py                StatementLowerer
+      control_flow.py              ControlFlowLowerer
+      collections.py               CollectionLowerer
+      iteration.py                 IterationLowerer
+      exceptions.py                ExceptionLowerer/setjmp analysis
+      concurrency.py               ConcurrencyLowerer
+      generics.py                   GenericSpecializer only
+      gpu.py                        GpuLowerer
+
+  backend/
+    __init__.py
+    c_emitter.py                  CEmitter
+    wgsl_emitter.py               WgslEmitter
+
+  runtime/
+    __init__.py
+    catalog.py                    RuntimeHelperCatalog
+    generated.py                  generated runtime-helper data
+
+  artifacts/
+    __init__.py
+    archive.py                    ArchiveCodec/validation
+    cache.py                      CompilerCache
+    publication.py                ArtifactPublisher
+    stdlib.py                     StdlibArtifactRepository
+    selfhost.py                   SelfhostBundleBuilder
 ```
 
 Compiler tests live in `src/tests/python/`; generated language/runtime fixtures
@@ -304,9 +309,59 @@ and their golden output live alongside the topic-organized corpus in
 ## btrc Compiler (src/compiler/btrc/)
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
-AST and IR nodes. `btrcc_main.btrc` is the production driver; the unified
-language runner executes the corpus through both compilers, and the bootstrap
-suite proves a byte-stable self-hosting fixed point.
+AST and IR nodes. Its destination contains exactly 88 `.btrc` files: 82
+compiler/generated files and six explicit developer-tool files. Only
+`compiler.btrc` and the thin `btrcc_main.btrc` process entry point remain at the
+package root. The owned packages are:
+
+```text
+cli/                              BtrccDriver
+pipeline/                         stage manifest, mutable options/results, CompilerPipeline
+syntax/                           grammar, tokens, identity/canonical rendering, types, literals
+generated/ast/                    ASDL-generated Node data/schema only
+generated/hosted_abi/             generated ABI data
+generated/runtime/                generated runtime catalog data
+lexer/                            stage manifest and Lexer
+frontend/                         stage, models, source I/O, stdlib, resolver, visibility
+parser/                           stage, Parser, SourceMacroDefinition
+analyzer/                         semantic composition and domain owners
+analyzer/ownership/               managed-value and cycle semantics
+analyzer/validation/              validator plus ten focused validators
+ir/                               stage manifest, structured model, CEmitter
+ir/runtime/                       runtime catalog and reference collector
+ir/lowering/                      context, composition, and domain lowerers
+ir/lowering/ownership/            six ownership lowerers
+ir/gpu/                           WGSL emitter and GPU pipeline
+ir/optimization/                  optimizer and cleanup validation
+ir/optimization/setjmp/           effect analysis and safety planning
+tools/                            five entry points plus the ASDL schema owner
+```
+
+`pipeline/models.btrc` contains the mutable options and result transports for
+one compilation. Analyzer indexes and shared semantic records belong to
+`analyzer/models.btrc`; expression-type memo state belongs privately to
+`ExpressionTypeResolver` in `analyzer/expressions.btrc`.
+`IRStatementSequence` belongs to `ir/lowering/control_flow.btrc`.
+`AstCanonicalRenderer` in `syntax/identity.btrc` owns canonical AST formatting,
+and the parse inspection tool calls that owner; generated `Node` data owns no
+formatting behavior. The unified generator check structurally verifies that
+the handwritten renderer covers every ASDL constructor and field.
+
+The exact 88-file inventory is normative in `GOAL.md` and
+`docs/design/compiler-structure.md`. Stage manifests contain imports only;
+implementation behavior belongs to the concrete owner. The unified language
+runner executes the corpus through both compilers, and the bootstrap suite
+proves a byte-stable self-hosting fixed point.
+
+## Architecture-first verification phase
+
+While ownership moves are in progress, slices use exact-tree and stale-path
+audits, generated-source checks, AST/parse/import checks, dependency/SCC and
+loose-behavior audits, and `git diff --check`. They do not spend time repairing
+transitional behavior failures or run parity, bootstrap, compiler-corpus, or
+broad correctness suites. Once the destination tree is complete, verification
+hill-climbs through focused behavior/parity checks and then the full completion
+matrix below. Final correctness remains mandatory.
 
 ---
 
@@ -373,7 +428,8 @@ make lint                 Run ruff linter
 make format               Format with ruff
 make format-check         Check formatting without modifying files
 make test-generate-goldens  Regenerate golden .stdout files
-make stubs-generate       Regenerate built-in type stubs
+make compiler-codegen-generate
+                          Regenerate compiler and devex data from shared specs
 make extension            Package VSCode extension (.vsix)
 make extension-install    Install VSCode extension (dev)
 make examples             Build and run examples

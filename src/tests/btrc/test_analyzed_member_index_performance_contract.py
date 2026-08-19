@@ -18,8 +18,9 @@ def _function(source: str, signature: str) -> str:
 
 
 def test_member_queries_use_complete_constant_time_indexes() -> None:
-    analyzer = (SELFHOST / "analyzer.btrc").read_text()
-    index = (SELFHOST / "analyzed_member_index.btrc").read_text()
+    analyzer = (SELFHOST / "analyzer/models.btrc").read_text()
+    index = (SELFHOST / "analyzer/declarations.btrc").read_text()
+    generics = (SELFHOST / "analyzer/generics.btrc").read_text()
     analyzer_stage = (SELFHOST / "analyzer/stage.btrc").read_text()
 
     for signature in (
@@ -34,20 +35,19 @@ def test_member_queries_use_complete_constant_time_indexes() -> None:
         assert "while (" not in query
         assert "Index.has(" in query
 
-    generic_start = analyzer.index("Node? genericMember(")
-    generic_end = analyzer.index("\n}", generic_start)
-    generic_query = analyzer[generic_start:generic_end]
+    generic_start = generics.index("class Node? genericMember(")
+    generic_end = generics.index("\n    }", generic_start)
+    generic_query = generics[generic_start:generic_end]
     assert ".members" not in generic_query
     assert "while (" not in generic_query
     assert "genericMemberIndex.has(" in generic_query
 
-    registration_end = analyzer.index("/* `var` (untyped) module-level variables")
-    assert analyzer.index("indexAnalyzedMembers(a);") < registration_end
+    registration_end = index.index("/* Canonical physical storage")
+    assert index.index("self.indexAnalyzedMembers(self.analyzed);") < registration_end
     assert "analyzed.memberIndexReady = true;" in index
-    assert (
-        '#include "../analyzer.btrc"\n'
-        '#include "../analyzed_member_index.btrc"'
-    ) in analyzer_stage
+    assert "import ./models.btrc;" in analyzer_stage
+    assert "import ./declarations.btrc;" in analyzer_stage
+    assert "#include" not in analyzer_stage
 
 
 def test_indexed_method_namespace_ignores_child_value_member(

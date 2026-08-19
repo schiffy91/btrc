@@ -2,8 +2,9 @@
 import std.fs;
 import std.platform;
 
-#include "../../compiler/btrc/frontend_paths.btrc"
+import ../../compiler/btrc/frontend/source_io.btrc;
 int main() {
+    FeSourcePathPolicy sourcePaths = FeSourcePathPolicy();
     if (Platform.isWindows()) {
         if (Platform.isUnix() || Platform.isRoot()
                 || !Platform.pathSeparator().equals("\\")) { return 1; }
@@ -26,24 +27,24 @@ int main() {
         return 1;
     }
 
-    if (!fePathIsAbsoluteFor("C:\\src\\main.btrc", true)) { return 1; }
-    if (!fePathIsAbsoluteFor("C:/src/main.btrc", true)) { return 1; }
-    if (!fePathIsAbsoluteFor("\\\\server\\share\\main.btrc", true)) { return 1; }
-    if (fePathIsAbsoluteFor("C:main.btrc", true)) { return 1; }
-    if (fePathIsAbsoluteFor("\\main.btrc", true)) { return 1; }
-    if (!fePathIsRootRelativeFor("\\main.btrc", true)) { return 1; }
-    if (fePathIsAbsoluteFor("relative/main.btrc", true)) { return 1; }
+    if (!sourcePaths.isAbsoluteFor("C:\\src\\main.btrc", true)) { return 1; }
+    if (!sourcePaths.isAbsoluteFor("C:/src/main.btrc", true)) { return 1; }
+    if (!sourcePaths.isAbsoluteFor("\\\\server\\share\\main.btrc", true)) { return 1; }
+    if (sourcePaths.isAbsoluteFor("C:main.btrc", true)) { return 1; }
+    if (sourcePaths.isAbsoluteFor("\\main.btrc", true)) { return 1; }
+    if (!sourcePaths.isRootRelativeFor("\\main.btrc", true)) { return 1; }
+    if (sourcePaths.isAbsoluteFor("relative/main.btrc", true)) { return 1; }
 
-    if (!feNormalizeAbsolutePathFor(
+    if (!sourcePaths.normalizeAbsoluteFor(
         "C:\\work\\compiler\\..\\main.btrc", "C:\\cwd", true)
         .equals("C:/work/main.btrc")) { return 1; }
-    if (!feNormalizeAbsolutePathFor(
+    if (!sourcePaths.normalizeAbsoluteFor(
         "C:main.btrc", "C:/work/compiler", true)
         .equals("C:/work/compiler/main.btrc")) { return 1; }
-    if (!feNormalizeAbsolutePathFor(
+    if (!sourcePaths.normalizeAbsoluteFor(
         "\\main.btrc", "C:/work/compiler", true)
         .equals("C:/main.btrc")) { return 1; }
-    if (!feNormalizeAbsolutePathFor(
+    if (!sourcePaths.normalizeAbsoluteFor(
         "\\\\server\\share\\folder\\..\\..\\..\\main.btrc",
         "C:/ignored", true).equals("//server/share/main.btrc")) { return 1; }
 
@@ -60,7 +61,7 @@ int main() {
             .equals("\\\\host\\share\\tail")) { return 1; }
 
     /* A backslash remains an ordinary filename byte under POSIX rules. */
-    if (!feNormalizeAbsolutePathFor(
+    if (!sourcePaths.normalizeAbsoluteFor(
         "folder\\name/../main.btrc", "/work", false)
         .equals("/work/main.btrc")) { return 1; }
 

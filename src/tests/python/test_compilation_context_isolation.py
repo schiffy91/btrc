@@ -5,29 +5,24 @@ from threading import Barrier
 
 import pytest
 
-from src.compiler.python.analyzer.core import AnalyzedProgram
-from src.compiler.python.ast_nodes import Program, TypeExpr
-from src.compiler.python.ir.gen.helpers import RuntimeHelperRegistry
-from src.compiler.python.ir.gen.lowerer import IRLowerer
-from src.compiler.python.ir.gen.lowering_context import LoweringContext
+from src.compiler.python.analyzer.program import AnalyzedProgram
+from src.compiler.python.ir.lowering.session import LoweringSession
+from src.compiler.python.ir.lowering.types import CTypeLowerer
 from src.compiler.python.ir.nodes import IRModule
+from src.compiler.python.syntax.ast.generated import Program, TypeExpr
 
 
-def _generator(
+def _renderer(
     return_type: str,
     parameter_type: str,
-    *,
-    barrier: Barrier | None = None,
-    fail: bool = False,
-    repeat_in_declarations: bool = False,
-) -> IRLowerer:
+) -> tuple[CTypeLowerer, TypeExpr]:
     analyzed = AnalyzedProgram(
         program=Program(),
         generic_instances={},
         class_table={},
     )
-    generator = IRLowerer(analyzed)
-    renderer = generator.type_renderer
+    session = LoweringSession(module=IRModule(), node_types=analyzed.node_types)
+    renderer = CTypeLowerer(session, analyzed)
     callback_type = TypeExpr(
         base="__fn_ptr",
         generic_args=[
@@ -35,104 +30,114 @@ def _generator(
             TypeExpr(base=parameter_type),
         ],
     )
-
-    def register_callback_type():
-        renderer.render(callback_type)
-        if barrier is not None:
-            barrier.wait(timeout=10)
-        if fail:
-            raise RuntimeError("forced lowering failure")
-
-    # Exercise the real translation-unit owner in lower(), while keeping
-    # this regression independent of semantic-analyzer implementation details.
-    generator._emit_forward_decls = register_callback_type
-    if repeat_in_declarations:
-        generator._emit_declarations = lambda: renderer.render(callback_type)
-    return generator
+    return renderer, callback_type
 
 
-def _typedef_shapes(module) -> set[tuple[str, tuple[str, ...]]]:
+def _render_callback(
+    renderer: CTypeLowerer,
+    callback_type: TypeExpr,
+    *,
+    barrier: Barrier | None = None,
+    fail: bool = False,
+) -> None:
+    renderer.render(callback_type)
+    if barrier is not None:
+        barrier.wait(timeout=10)
+    if fail:
+        raise RuntimeError("forced lowering failure")
+
+
+def _typedef_shapes(renderer: CTypeLowerer) -> set[tuple[str, tuple[str, ...]]]:
     return {
         (
             declaration.return_type.text,
             tuple(item.text for item in declaration.param_types),
         )
-        for declaration in module.function_pointer_typedefs
+        for declaration in renderer.consume_function_pointer_typedefs()
     }
 
 
 def test_function_pointer_typedefs_are_isolated_between_threads():
     barrier = Barrier(2)
-    integer = _generator("int", "int", barrier=barrier)
-    text = _generator("bool", "string", barrier=barrier)
+    integer, integer_type = _renderer("int", "int")
+    text, text_type = _renderer("bool", "string")
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        integer_future = executor.submit(integer.lower)
-        text_future = executor.submit(text.lower)
-        integer_module = integer_future.result(timeout=20)
-        text_module = text_future.result(timeout=20)
+        integer_future = executor.submit(
+            _render_callback,
+            integer,
+            integer_type,
+            barrier=barrier,
+        )
+        text_future = executor.submit(
+            _render_callback,
+            text,
+            text_type,
+            barrier=barrier,
+        )
+        integer_future.result(timeout=20)
+        text_future.result(timeout=20)
 
-    assert _typedef_shapes(integer_module) == {("int", ("int",))}
-    assert _typedef_shapes(text_module) == {("bool", ("char*",))}
+    assert _typedef_shapes(integer) == {("int", ("int",))}
+    assert _typedef_shapes(text) == {("bool", ("char*",))}
 
 
 def test_failed_lowering_cannot_leak_typedefs_into_success():
     barrier = Barrier(2)
-    successful = _generator("int", "int", barrier=barrier)
-    failing = _generator("bool", "string", barrier=barrier, fail=True)
+    successful, successful_type = _renderer("int", "int")
+    failing, failing_type = _renderer("bool", "string")
 
     with ThreadPoolExecutor(max_workers=2) as executor:
-        success_future = executor.submit(successful.lower)
-        failure_future = executor.submit(failing.lower)
-        successful_module = success_future.result(timeout=20)
+        success_future = executor.submit(
+            _render_callback,
+            successful,
+            successful_type,
+            barrier=barrier,
+        )
+        failure_future = executor.submit(
+            _render_callback,
+            failing,
+            failing_type,
+            barrier=barrier,
+            fail=True,
+        )
+        success_future.result(timeout=20)
         with pytest.raises(RuntimeError, match="forced lowering failure"):
             failure_future.result(timeout=20)
 
-    assert _typedef_shapes(successful_module) == {("int", ("int",))}
-    fresh = _generator("double", "double").lower()
+    assert _typedef_shapes(successful) == {("int", ("int",))}
+    fresh, fresh_type = _renderer("double", "double")
+    fresh.render(fresh_type)
     assert _typedef_shapes(fresh) == {("double", ("double",))}
 
 
 def test_function_pointer_typedef_is_emitted_once_across_generation_phases():
-    module = _generator(
-        "int",
-        "int",
-        repeat_in_declarations=True,
-    ).lower()
+    renderer, callback_type = _renderer("int", "int")
+    renderer.render(callback_type)
+    renderer.render(callback_type)
 
-    assert len(module.function_pointer_typedefs) == 1
-    assert _typedef_shapes(module) == {("int", ("int",))}
+    assert _typedef_shapes(renderer) == {("int", ("int",))}
+    assert renderer.consume_function_pointer_typedefs() == []
 
 
 def test_nested_compiler_run_cannot_disturb_outer_typedef_registry():
-    outer = _generator("int", "int")
-    inner = _generator("bool", "string")
+    outer, first_outer_type = _renderer("int", "int")
+    inner, inner_type = _renderer("bool", "string")
     second_outer_type = TypeExpr(
         base="__fn_ptr",
         generic_args=[TypeExpr(base="double"), TypeExpr(base="long")],
     )
-    inner_module = None
 
-    def lower_nested_compiler():
-        nonlocal inner_module
-        outer.type_renderer.render(
-            TypeExpr(
-                base="__fn_ptr",
-                generic_args=[TypeExpr(base="int"), TypeExpr(base="int")],
-            )
-        )
-        inner_module = inner.lower()
-        outer.type_renderer.render(second_outer_type)
+    outer.render(first_outer_type)
+    inner.render(inner_type)
+    inner_shapes = _typedef_shapes(inner)
+    outer.render(second_outer_type)
 
-    outer._emit_forward_decls = lower_nested_compiler
-    outer_module = outer.lower()
-
-    assert _typedef_shapes(outer_module) == {
+    assert _typedef_shapes(outer) == {
         ("int", ("int",)),
         ("double", ("long",)),
     }
-    assert inner_module is not None
-    assert _typedef_shapes(inner_module) == {("bool", ("char*",))}
+    assert inner_shapes == {("bool", ("char*",))}
 
 
 def test_nested_operand_scopes_restore_missing_and_explicit_none_values():
@@ -145,10 +150,9 @@ def test_nested_operand_scopes_restore_missing_and_explicit_none_values():
     analyzed_type = TypeExpr(base="bool")
     inner_type = TypeExpr(base="int")
     analyzed.node_types[id(typed_node)] = analyzed_type
-    context = LoweringContext(
-        analyzed=analyzed,
+    context = LoweringSession(
         module=IRModule(),
-        helpers=RuntimeHelperRegistry(),
+        node_types=analyzed.node_types,
         owning_overrides={1: None, 2: "original"},
         type_overrides={10: None, 20: "original-type"},
     )
