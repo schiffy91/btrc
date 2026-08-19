@@ -52,6 +52,9 @@ Correctness is non-negotiable:
 
 Status recorded on 2026-08-18:
 
+- The architecture-foundation baseline is pinned at commit
+  `fce26b8502feb4019784b18cdee27028ec4e3d15`. Correctness hill-climb changes
+  compare against that immutable revision.
 - The target architecture below has been reviewed and approved as the
   destination.
 - The shared runtime foundation is implemented: one validated manifest, nine
