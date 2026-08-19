@@ -1976,7 +1976,7 @@ class DeclarationLowerer {
             output, selfName);
         self.context.referenceHelper("__btrc_arc_abandon");
         output.push(IRNode.expressionStatement(self.cleanupSlots.registerSlot(
-            self, declaration,
+            self.context, declaration,
             IRNode.functionReference("__btrc_arc_abandon"),
             IRNode.literal("NULL"), true)));
         return marker;

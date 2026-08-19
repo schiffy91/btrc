@@ -127,9 +127,9 @@ class ExpressionTypeResolver {
                     statement.finally_block)) { return true; }
             bool tryTerminates = ExpressionTypeResolver.blockTerminates(
                 statement.try_block);
-            return statement.catch_block == null ? tryTerminates
-                : tryTerminates && ExpressionTypeResolver.blockTerminates(
-                    statement.catch_block);
+            if (statement.catch_block == null) { return tryTerminates; }
+            return tryTerminates && ExpressionTypeResolver.blockTerminates(
+                statement.catch_block);
         }
         return false;
     }

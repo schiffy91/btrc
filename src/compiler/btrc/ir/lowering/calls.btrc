@@ -380,7 +380,7 @@ class CallTargetResolver {
             target.closureFunction =
                 boundary.environmentFunction(callee.name);
             target.closureStorage =
-                boundary.environmentStorage(callee.name);
+                boundary.environmentStorageName(callee.name);
             target.symbol = target.closureFunction;
             target.receiver = null;
         }
@@ -1039,12 +1039,12 @@ class CallLowerer {
         if (node == null) { return false; }
         if (node.kind == IRK_TERNARY
                 && self.optionalPresenceCondition(node.condition)) {
-            if (node.else_expr != null
-                    && node.else_expr.kind == IRK_BINARY
-                    && node.else_expr.op == "=") {
-                node.else_expr.right = fallback;
+            if (node.false_expr != null
+                    && node.false_expr.kind == IRK_BINARY
+                    && node.false_expr.op == "=") {
+                node.false_expr.right = fallback;
             } else {
-                node.else_expr = fallback;
+                node.false_expr = fallback;
             }
             return true;
         }

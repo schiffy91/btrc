@@ -493,7 +493,8 @@ class ManagedLifetimeLowerer {
         Vector<IRNode> releaseBody = [];
         releaseBody.push(IRNode.expressionStatement(
             self.releaseRuntime(target, runtimeType)));
-        return IRNode.statementExpression([], IRNode.ternary(
+        Vector<IRNode> declarations = [];
+        return IRNode.statementExpression(declarations, IRNode.ternary(
             IRNode.binary(target, "!=", IRNode.literal("NULL")),
             IRNode.commaExpression(releaseBody),
             IRNode.cast("void", IRNode.literal("0"))));

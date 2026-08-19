@@ -172,7 +172,7 @@ class CallableBoundaryContext {
         return self.environmentFunctions.get(name);
     }
 
-    public string environmentStorage(string name) {
+    public string environmentStorageName(string name) {
         return self.environmentStorage.get(name);
     }
 }
