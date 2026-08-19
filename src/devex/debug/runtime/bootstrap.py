@@ -22,6 +22,7 @@ class LldbBootstrap:
     GUARD_VARIABLE = "BTRC_DAP_BOOTSTRAPPED"
     PROBE_TIMEOUT_SECONDS = 15
     ADAPTER_MODULE = "src.devex.debug"
+    DEVTOOLS_SECURITY = "/usr/sbin/DevToolsSecurity"
 
     def __init__(
         self,
@@ -35,6 +36,7 @@ class LldbBootstrap:
         path_lookup=shutil.which,
         execve=os.execve,
         module_importer=importlib.import_module,
+        platform_name=None,
     ):
         self.environment = dict(os.environ if environment is None else environment)
         self.arguments = tuple(sys.argv[1:] if arguments is None else arguments)
@@ -45,10 +47,12 @@ class LldbBootstrap:
         self._path_lookup = path_lookup
         self._execve = execve
         self._module_importer = module_importer
+        self._platform_name = sys.platform if platform_name is None else platform_name
 
     def run(self, stdin=None, stdout=None) -> None:
         """Ensure LLDB is importable, then run the package-owned adapter."""
         self.ensure_lldb()
+        self.ensure_debugger_access()
         from ..protocol.adapter import BtrcDebugAdapter
 
         input_stream = sys.stdin.buffer if stdin is None else stdin
@@ -90,6 +94,32 @@ class LldbBootstrap:
 
         self._fail("btrc debug adapter: no Python interpreter could import both lldb and the adapter.\n")
 
+    def ensure_debugger_access(self) -> None:
+        """Fail before launch when macOS would block on debugger authorization."""
+
+        if self.debugger_access_available():
+            return
+        self._fail(
+            "btrc debug adapter: debugger access is disabled. Run "
+            "'sudo /usr/sbin/DevToolsSecurity -enable' and retry.\n"
+        )
+
+    def debugger_access_available(self) -> bool:
+        """Return whether the host can launch an inferior without an auth prompt."""
+
+        if self._platform_name != "darwin":
+            return True
+        try:
+            status = self._process_runner(
+                [self.DEVTOOLS_SECURITY, "-status"],
+                capture_output=True,
+                text=True,
+                timeout=self.PROBE_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        return status.returncode == 0 and "currently enabled" in status.stdout.lower()
+
     def _candidate_interpreters(self) -> tuple[str, ...]:
         candidates = ("/usr/bin/python3", self._path_lookup("python3"), self.executable)
         return tuple(dict.fromkeys(candidate for candidate in candidates if candidate))
@@ -99,9 +129,7 @@ class LldbBootstrap:
         environment[self.GUARD_VARIABLE] = "1"
         package_root = str(Path(__file__).resolve().parents[4])
         environment["PYTHONPATH"] = os.pathsep.join(
-            path
-            for path in (lldb_python_path, package_root, environment.get("PYTHONPATH", ""))
-            if path
+            path for path in (lldb_python_path, package_root, environment.get("PYTHONPATH", "")) if path
         )
         return environment
 

@@ -15,27 +15,31 @@ import time
 
 import pytest
 
+from src.devex.debug.runtime.bootstrap import LldbBootstrap
+
 REPO = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 ADAPTER_COMMAND = [sys.executable, "-m", "src.devex.debug"]
 
 
-def _lldb_scripting_available() -> bool:
+def _lldb_runtime_available() -> bool:
     """lldb's binary can exist while its Python scripting bridge is unavailable
     (e.g. an lldb built against a different Python than the one on PATH). The
-    adapter loads lldb via `lldb -P`; when that fails the session can't even
-    initialize, so skip rather than fail — matching this module's "skips
-    gracefully where the toolchain is unavailable" contract."""
+    adapter loads lldb via `lldb -P`, and macOS can separately require debugger
+    authorization before launching an inferior. Skip when either prerequisite
+    is missing, matching this module's "skips gracefully where the toolchain is
+    unavailable" contract."""
     lldb = shutil.which("lldb")
     if lldb is None:
         return False
     try:
-        return subprocess.run([lldb, "-P"], capture_output=True).returncode == 0
+        scripting_available = subprocess.run([lldb, "-P"], capture_output=True).returncode == 0
     except OSError:
         return False
+    return scripting_available and LldbBootstrap().debugger_access_available()
 
 
 pytestmark = pytest.mark.skipif(
-    not _lldb_scripting_available() or (shutil.which("cc") is None and shutil.which("gcc") is None),
+    not _lldb_runtime_available() or (shutil.which("cc") is None and shutil.which("gcc") is None),
     reason="needs lldb (with Python scripting) and a C compiler",
 )
 

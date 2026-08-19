@@ -1,5 +1,6 @@
 """LLDB-aware debug-adapter bootstrap tests."""
 
+import io
 import os
 import platform
 import subprocess
@@ -7,6 +8,7 @@ import types
 from pathlib import Path
 
 import pytest
+
 from src.devex.debug.runtime import bootstrap
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -39,6 +41,53 @@ def test_interpreter_probe_timeout_is_a_failed_candidate():
         raise subprocess.TimeoutExpired(command, bootstrap.LldbBootstrap.PROBE_TIMEOUT_SECONDS)
 
     assert not bootstrap.LldbBootstrap(process_runner=timeout)._can_run_adapter("hung-python", {})
+
+
+def test_darwin_debugger_access_rejects_disabled_developer_mode():
+    observed = {}
+
+    def run(command, **options):
+        observed["command"] = command
+        observed["options"] = options
+        return types.SimpleNamespace(returncode=0, stdout="Developer mode is currently disabled.\n")
+
+    errors = io.StringIO()
+    owner = bootstrap.LldbBootstrap(
+        platform_name="darwin",
+        process_runner=run,
+        error_stream=errors,
+    )
+
+    with pytest.raises(SystemExit):
+        owner.ensure_debugger_access()
+
+    assert observed == {
+        "command": ["/usr/sbin/DevToolsSecurity", "-status"],
+        "options": {
+            "capture_output": True,
+            "text": True,
+            "timeout": bootstrap.LldbBootstrap.PROBE_TIMEOUT_SECONDS,
+        },
+    }
+    assert "DevToolsSecurity -enable" in errors.getvalue()
+
+
+def test_darwin_debugger_access_accepts_enabled_developer_mode():
+    def run(_command, **_options):
+        return types.SimpleNamespace(returncode=0, stdout="Developer mode is currently enabled.\n")
+
+    owner = bootstrap.LldbBootstrap(platform_name="darwin", process_runner=run)
+
+    assert owner.debugger_access_available()
+
+
+def test_non_darwin_debugger_access_needs_no_host_probe():
+    def unexpected_probe(*_args, **_kwargs):
+        raise AssertionError("non-Darwin hosts must not run DevToolsSecurity")
+
+    owner = bootstrap.LldbBootstrap(platform_name="linux", process_runner=unexpected_probe)
+
+    assert owner.debugger_access_available()
 
 
 @pytest.mark.skipif(platform.system() != "Darwin", reason="requires Apple LLDB")

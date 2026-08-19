@@ -5,13 +5,12 @@ from lsprotocol import types as lsp
 from src.compiler.python.frontend.sources import StdlibRepository
 from src.devex.lsp.protocol.server import BtrcLanguageServer
 from src.devex.lsp.workspace.workspace import Workspace
-from src.tests.lsp import lsphelp as diagnostics_module
-from src.tests.lsp.lsphelp import CODE_ACTIONS, WORKSPACE, analyze, compute_diagnostics, get_code_actions
+from src.tests.lsp.lsphelp import CODE_ACTIONS, WORKSPACE, analyze, compute_diagnostics
 
 srv = BtrcLanguageServer(debounce_seconds=0, compiler_workspace=WORKSPACE)
 
 
-def _actions(result, uri, line, c0=0, c1=40):
+def _actions(result, uri, line, c0=0, c1=40, *, provider=CODE_ACTIONS):
     rng = lsp.Range(
         start=lsp.Position(line=line, character=c0),
         end=lsp.Position(line=line, character=c1),
@@ -21,7 +20,7 @@ def _actions(result, uri, line, c0=0, c1=40):
         range=rng,
         context=lsp.CodeActionContext(diagnostics=[]),
     )
-    return get_code_actions(result, params)
+    return provider.get_code_actions(result, params)
 
 
 def test_levenshtein_basic():
@@ -94,17 +93,17 @@ def test_explicit_stdlib_import_has_no_visibility_error_or_import_action():
     assert not any(action.title.startswith("Add import") for action in actions)
 
 
-def test_import_action_uses_the_workspace_owned_stdlib(tmp_path, monkeypatch):
+def test_import_action_uses_the_workspace_owned_stdlib(tmp_path):
     stdlib = tmp_path / "stdlib"
     stdlib.mkdir()
     (stdlib / "custom.btrc").write_text("class CustomStdlib {}\n")
     workspace = Workspace(stdlib=StdlibRepository(directory=str(stdlib)))
-    monkeypatch.setattr(diagnostics_module, "WORKSPACE", workspace)
+    server = BtrcLanguageServer(debounce_seconds=0, compiler_workspace=workspace)
     source = "int main() { CustomStdlib value = CustomStdlib(); return 0; }\n"
     uri = (tmp_path / "main.btrc").as_uri()
 
-    result = diagnostics_module.compute_diagnostics(uri, source)
-    actions = _actions(result, uri, 0)
+    result = server.analyzer.analyze(uri, source)
+    actions = _actions(result, uri, 0, provider=server.code_actions)
 
     action = next(action for action in actions if action.title.startswith("Add import"))
     assert "std.custom" in action.title
