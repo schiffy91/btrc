@@ -1534,9 +1534,21 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         category='trycatch',
         name='__btrc_trycatch_globals',
         c_source=(
-            '/* btrc try/catch runtime (dynamic) */\ntypedef struct { jmp_buf env; } _'
-            '_btrc_try_frame;\nstatic _Thread_local __btrc_try_frame** __btrc_try_stac'
-            'k = NULL;\nstatic _Thread_local char __btrc_error_msg[1024] = "";'
+            '/* btrc try/catch runtime (dynamic) */\n/* Darwin and the BSDs make setjm'
+            "p save the caller's signal mask and alternate\n * stack, which costs two "
+            'syscalls on entry to every try block. btrc never\n * throws out of a sign'
+            'al handler, so that mask is not state a catch has to\n * restore; _setjmp'
+            '/_longjmp are the POSIX spellings that leave it alone. A\n * freestanding'
+            ' shim owns its own spelling, and any other target keeps the C11\n * pair.'
+            ' Both spellings compile under -std=c11 -pedantic-errors on macOS/clang\n '
+            '* and glibc/gcc. */\n#if !defined(BTRC_TRY_SETJMP)\n#if !defined(BTRC_RT_S'
+            'ETJMP_HEADER) \\\n        && (defined(__APPLE__) || defined(__unix__) || d'
+            'efined(__linux__))\n#define BTRC_TRY_SETJMP(env) _setjmp(env)\n#define BTR'
+            'C_TRY_LONGJMP(env, value) _longjmp(env, value)\n#else\n#define BTRC_TRY_SE'
+            'TJMP(env) setjmp(env)\n#define BTRC_TRY_LONGJMP(env, value) longjmp(env, '
+            'value)\n#endif\n#endif\ntypedef struct { jmp_buf env; } __btrc_try_frame;\ns'
+            'tatic _Thread_local __btrc_try_frame** __btrc_try_stack = NULL;\nstatic _'
+            'Thread_local char __btrc_error_msg[1024] = "";'
         ),
         depends_on=('__btrc_try_level',),
         required_headers=('setjmp.h',),
@@ -1753,14 +1765,14 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         c_source=(
             'static void __btrc_run_cleanup_guarded(\n        __btrc_cleanup_entry ent'
             'ry, void* object) {\n    __btrc_push_try();\n    int guard_level = __btrc_'
-            'try_top;\n    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) return'
-            ';\n    if (entry.direct) {\n        entry.fn(object);\n    } else {\n       '
-            ' __btrc_arc_type type = {\n            .visit = entry.visit, .destroy = e'
-            'ntry.fn,\n            .hook = NULL, .guard = NULL, .raise = NULL};\n      '
-            '  /* The slot metadata is only a fallback. A base-typed slot\n         * '
-            'may hold a cyclic subclass, so the concrete ARC header\n         * must c'
-            'hoose whether release discovers a cycle. */\n        __btrc_arc_release(o'
-            'bject, &type);\n    }\n    __btrc_try_top--;\n}'
+            'try_top;\n    if (BTRC_TRY_SETJMP(__btrc_try_stack[guard_level]->env) != '
+            '0) return;\n    if (entry.direct) {\n        entry.fn(object);\n    } else '
+            '{\n        __btrc_arc_type type = {\n            .visit = entry.visit, .de'
+            'stroy = entry.fn,\n            .hook = NULL, .guard = NULL, .raise = NULL'
+            '};\n        /* The slot metadata is only a fallback. A base-typed slot\n  '
+            '       * may hold a cyclic subclass, so the concrete ARC header\n        '
+            ' * must choose whether release discovers a cycle. */\n        __btrc_arc_'
+            'release(object, &type);\n    }\n    __btrc_try_top--;\n}'
         ),
         depends_on=('__btrc_cleanup_types', '__btrc_push_try', '__btrc_arc_release'),
         required_headers=(),
@@ -1776,12 +1788,12 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'ect,\n        char* error, size_t error_capacity) {\n    char ambient[size'
             'of __btrc_error_msg];\n    memcpy(ambient, __btrc_error_msg, sizeof ambie'
             "nt);\n    if (error && error_capacity) error[0] = '\\0';\n    __btrc_push_t"
-            'ry();\n    int guard_level = __btrc_try_top;\n    if (setjmp(__btrc_try_st'
-            'ack[guard_level]->env) != 0) {\n        __btrc_copy_error_message(\n      '
-            '      error, error_capacity, __btrc_error_msg);\n        memcpy(__btrc_er'
-            'ror_msg, ambient, sizeof ambient);\n        return 1;\n    }\n    hook(obje'
-            'ct);\n    __btrc_try_top--;\n    memcpy(__btrc_error_msg, ambient, sizeof '
-            'ambient);\n    return 0;\n}'
+            'ry();\n    int guard_level = __btrc_try_top;\n    if (BTRC_TRY_SETJMP(__bt'
+            'rc_try_stack[guard_level]->env) != 0) {\n        __btrc_copy_error_messag'
+            'e(\n            error, error_capacity, __btrc_error_msg);\n        memcpy('
+            '__btrc_error_msg, ambient, sizeof ambient);\n        return 1;\n    }\n    '
+            'hook(object);\n    __btrc_try_top--;\n    memcpy(__btrc_error_msg, ambient'
+            ', sizeof ambient);\n    return 0;\n}'
         ),
         depends_on=('__btrc_arc_callback_types', '__btrc_push_try', '__btrc_copy_error_message'),
         required_headers=(),
@@ -1808,9 +1820,9 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         name='__btrc_flush_cycles_guarded',
         c_source=(
             'static void __btrc_flush_cycles_guarded(void) {\n    __btrc_push_try();\n '
-            '   int guard_level = __btrc_try_top;\n    if (setjmp(__btrc_try_stack[gua'
-            'rd_level]->env) != 0) return;\n    __btrc_flush_cycles();\n    __btrc_try_'
-            'top--;\n}'
+            '   int guard_level = __btrc_try_top;\n    if (BTRC_TRY_SETJMP(__btrc_try_'
+            'stack[guard_level]->env) != 0) return;\n    __btrc_flush_cycles();\n    __'
+            'btrc_try_top--;\n}'
         ),
         depends_on=('__btrc_push_try', '__btrc_flush_cycles'),
         required_headers=(),
@@ -1906,7 +1918,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'y_top < 0) {\n        __btrc_run_cleanups(-1);\n        fprintf(stderr, "U'
             'nhandled exception: %s\\n", __btrc_error_msg);\n        exit(1);\n    }\n   '
             ' __btrc_run_cleanups(__btrc_try_top);\n    int level = __btrc_try_top;\n  '
-            '  __btrc_try_top--;\n    longjmp(__btrc_try_stack[level]->env, 1);\n}'
+            '  __btrc_try_top--;\n    BTRC_TRY_LONGJMP(__btrc_try_stack[level]->env, 1'
+            ');\n}'
         ),
         depends_on=('__btrc_trycatch_globals', '__btrc_copy_error_message', '__btrc_run_cleanups'),
         required_headers=(),

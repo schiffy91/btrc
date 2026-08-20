@@ -210,17 +210,31 @@ blindly:
   code holds `__btrc_cleanup_mark()` results as raw integer indices at 5,905
   sites, so removing an entry silently invalidates every outstanding mark.
 
-### Known follow-up: setjmp saves the signal mask on every try entry
+### Completed: try entry no longer saves the signal mask
 
 Darwin and the BSDs make `setjmp` save the caller's signal mask and alternate
 stack, costing two syscalls on entry to every try block. btrc never throws out
 of a signal handler, so that mask is not state a catch has to restore. With the
-registration scan fixed, `sigprocmask` and `__sigaltstack` are the largest
+registration scan bounded, `sigprocmask` and `__sigaltstack` were the largest
 remaining cost in the self-hosted compiler at roughly 40% of samples.
-`_setjmp`/`_longjmp` compile clean under
-`-std=c11 -pedantic-errors -Wall -Wextra -Werror` on both macOS/clang and
-nix/glibc/gcc, so a `BTRC_TRY_SETJMP` seam that keeps the C11 pair for
-freestanding shims and unknown targets is the shape to use.
+
+Try entry and throw now go through `BTRC_TRY_SETJMP`/`BTRC_TRY_LONGJMP`, which
+select `_setjmp`/`_longjmp` on Apple and unix targets and keep the C11 pair for
+freestanding shims (`BTRC_RT_SETJMP_HEADER`) and unknown targets. Both
+spellings were verified to compile under
+`-std=c11 -pedantic-errors -Wall -Wextra -Werror` on macOS/clang and
+nix/glibc/gcc, and the ARC exception corpus passes on both.
+
+Measured on the self-hosted compiler, user CPU per invocation, output
+byte-identical to the baseline at every step:
+
+| build | user | system | speedup |
+| --- | --- | --- | --- |
+| baseline | 0.300s | 0.13s | -- |
+| bounded dedup window | 0.158s | 0.13s | 1.90x |
+| + non-signal-mask setjmp | 0.124s | 0.01s | **2.42x** |
+
+The collapse in system time is the two syscalls per try entry disappearing.
 
 Benchmark on a quiet machine. `corespotlightd` indexes the large generated C
 this work produces and will saturate a core for minutes, swinging wall-clock
