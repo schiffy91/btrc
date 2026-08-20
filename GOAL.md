@@ -230,11 +230,21 @@ byte-identical to the baseline at every step:
 
 | build | user | system | speedup |
 | --- | --- | --- | --- |
-| baseline | 0.300s | 0.13s | -- |
+| baseline | 0.308s | 0.13s | -- |
 | bounded dedup window | 0.158s | 0.13s | 1.90x |
-| + non-signal-mask setjmp | 0.124s | 0.01s | **2.42x** |
+| + non-signal-mask setjmp | 0.128s | 0.01s | 2.41x |
+| + cached thread-local reads | 0.118s | 0.01s | **2.61x** |
 
 The collapse in system time is the two syscalls per try entry disappearing.
+With those gone, `_tlv_get_addr` became the largest single cost, so
+registration reads each thread-local once into a local; the reallocating branch
+refreshes the cached stack pointer, which is the only local a resize can
+invalidate.
+
+One further shape was tried and produced no change at all: building with
+`-ftls-model=local-exec` measured identically (0.62s for five runs either way),
+because Darwin resolves thread-locals through its own TLV descriptors rather
+than the ELF TLS models that flag selects. Do not retry it on macOS.
 
 Benchmark on a quiet machine. `corespotlightd` indexes the large generated C
 this work produces and will saturate a core for minutes, swinging wall-clock

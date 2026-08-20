@@ -116,12 +116,18 @@ static inline void __btrc_register_cleanup_kind(
      * iterations of this loop to serve 41,267 matches, averaging 99.9 iterations
      * per call for a 0.27% hit rate. Entries are never moved, so a window
      * measured down from the top is stable. */
+    /* Each _Thread_local read is an out-of-line call on some targets, so read
+     * the ones this path needs once. The reallocating branch below refreshes
+     * `stack`, which is the only local a resize can invalidate. */
     const int recent = 16;
-    int oldest = __btrc_cleanup_top - (recent - 1);
+    const int try_level = __btrc_try_top;
+    int top = __btrc_cleanup_top;
+    __btrc_cleanup_entry* stack = __btrc_cleanup_stack;
+    int oldest = top - (recent - 1);
     if (oldest < 0) oldest = 0;
-    for (int i = __btrc_cleanup_top; i >= oldest; i--) {
-        __btrc_cleanup_entry* existing = &__btrc_cleanup_stack[i];
-        if (existing->try_level == __btrc_try_top && existing->slot == slot) {
+    for (int i = top; i >= oldest; i--) {
+        __btrc_cleanup_entry* existing = &stack[i];
+        if (existing->try_level == try_level && existing->slot == slot) {
             existing->take = take;
             existing->fn = fn;
             existing->visit = visit;
@@ -130,23 +136,26 @@ static inline void __btrc_register_cleanup_kind(
         }
     }
     if (__btrc_cleanup_cap < 1) __btrc_cleanup_cap = 64;
-    if (!__btrc_cleanup_stack) {
+    if (!stack) {
         if ((size_t)__btrc_cleanup_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack size overflow\n"); exit(1); }
-        __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
+        stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
             NULL, sizeof(__btrc_cleanup_entry) * (size_t)__btrc_cleanup_cap);
+        __btrc_cleanup_stack = stack;
     }
-    if (__btrc_cleanup_top == INT_MAX) { fprintf(stderr, "btrc: cleanup stack overflow\n"); exit(1); }
-    if (__btrc_cleanup_top + 1 >= __btrc_cleanup_cap) {
+    if (top == INT_MAX) { fprintf(stderr, "btrc: cleanup stack overflow\n"); exit(1); }
+    if (top + 1 >= __btrc_cleanup_cap) {
         if (__btrc_cleanup_cap > INT_MAX / 2) { fprintf(stderr, "btrc: cleanup stack capacity overflow\n"); exit(1); }
         int new_cap = __btrc_cleanup_cap * 2;
         if ((size_t)new_cap > SIZE_MAX / sizeof(__btrc_cleanup_entry)) { fprintf(stderr, "btrc: cleanup stack size overflow\n"); exit(1); }
-        __btrc_cleanup_stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
-            __btrc_cleanup_stack, sizeof(__btrc_cleanup_entry) * (size_t)new_cap);
+        stack = (__btrc_cleanup_entry*)__btrc_safe_realloc(
+            stack, sizeof(__btrc_cleanup_entry) * (size_t)new_cap);
+        __btrc_cleanup_stack = stack;
         __btrc_cleanup_cap = new_cap;
     }
-    __btrc_cleanup_top++;
-    __btrc_cleanup_stack[__btrc_cleanup_top] = (__btrc_cleanup_entry){
-        slot, take, fn, visit, __btrc_try_top, direct};
+    top++;
+    __btrc_cleanup_top = top;
+    stack[top] = (__btrc_cleanup_entry){
+        slot, take, fn, visit, try_level, direct};
 }
 /* btrc-runtime-helper:end __btrc_register_cleanup_kind */
 /* btrc-runtime-helper:begin __btrc_register_cleanup */
