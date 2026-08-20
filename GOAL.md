@@ -284,8 +284,12 @@ readings by 2x; compare user CPU time and confirm any win on a second build.
 (33:13 including the gates). The gates cost 7:36 of that, mostly
 `boundary-check` re-capturing all 301 fixtures through both compilers.
 
-Also verified separately: reference corpus 932 passed / 3 skipped; self-host
-corpus 931 passed / 3 skipped; unit + LSP + debugger 3802 passed / 30 skipped;
+Also verified separately on this tree: the optional/coalesce regressions,
+**134 passed** across both compilers; `test_gpu_boundary.py` with
+`test_gpu_explicit_output_bounds.py`, **95 passed / 2 skipped** (the two skips
+are the absent naga WGSL validator); reference corpus 932 passed / 3 skipped;
+self-host corpus 931 passed / 3 skipped; unit + LSP + debugger
+3726 passed / 26 skipped;
 `src/tests/btrc/` 1586 passed / 4 skipped **including the bootstrap fixed
 point**; frozen boundaries 301 records; generated-source check, `ruff check`,
 `ruff format --check`, and `git diff --check` clean.
