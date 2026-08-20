@@ -358,32 +358,52 @@ control-sensitive evaluation is preserved". Hoisting the assignment through
 `record_declaration` instead moves it to the top of the function, which is what
 turned one failure into five.
 
-**This is the blocker, and each way out is closed by a rule this goal sets.**
+**Four forms were measured against GCC 15.2.0.** Three of them satisfy it, so
+the earlier claim here that a fix needs whole-expression linearization was
+wrong:
 
-1. *Fix GCC.* The diagnostic is wrong about conforming C11 and would have to
-   change upstream. This is the only root-cause fix and it is external.
-2. *Change the corpus source.* It removes a deliberate callable-provenance case
-   -- weakening a test.
-3. *Suppress `-Wsequence-point` for this build.* It would hide real
-   sequence-point defects everywhere else -- weakening the gate.
-4. *Special-case this shape in the variable-declaration path.* Statement-level
-   lowering can already emit setup statements ahead of a declaration, so a
-   narrow fix is reachable there. It would only cover initializers: the same
-   construct in a return, an argument, or a condition still emits the rejected
-   form. That is a compatibility shim for one test rather than a fix, and this
-   goal forbids shims.
-5. *Let ordered runtime setup sit between an expression's operands.* This is the
-   only general fix inside the repository, and it is a redesign rather than a
-   change. The IR deliberately keeps every side effect inside one
-   `IRCommaExpr`, hoisting only side-effect-free declarations, precisely so
-   strict C11 can be emitted without GNU statement expressions. Splitting side
-   effects out means linearizing side-effecting expressions into statements --
-   three-address form -- across the whole expression lowerer, and four
-   provenance tests currently pin the ordering it would move.
+| emitted form | gcc |
+| --- | --- |
+| `((bool)(cb = make) ? cb : cb)(false)` -- what is emitted today | rejected |
+| `(((bool)(cb = make)), cb)(false)` -- comma | rejected |
+| `(store(&cb, make) ? cb : cb)(false)` -- assignment inside a call | clean |
+| `((bool)(*slot = make) ? cb : cb)(false)` -- assignment through a pointer | clean |
+| `bool c = (bool)(cb = make);` then `(c ? cb : cb)(false)` -- two statements | clean |
 
-Option 5 is real work that a future goal could take on deliberately. It is not
-a correctness defect: the compiler emits conforming C today, and Clang builds
-it at every optimization level.
+So GCC objects to an assignment and a read of one object being *syntactically
+visible* in the same full expression; hiding the assignment behind a call or a
+pointer, or moving it to its own statement, all silence it. Each is a viable
+workaround, and none is a fix:
+
+1. *Assignment through a store helper.* General -- it works in every expression
+   position. It also routes an ordinary operation through a helper call in
+   emitted C, and needs a typed helper per assigned type.
+2. *Assignment through a pointer.* Cheapest, and purely a trick: it works only
+   because GCC does not connect `*slot` with `cb`. It would break the moment
+   that analysis improves, and it obscures the generated code meanwhile.
+3. *Splitting the assignment into its own statement.* The honest shape. The
+   IR supports it at statement level -- `materialize_declaration` already
+   returns a statement list and the GPU path already builds setup lists this
+   way -- but it is only correct where the conditional is the first thing
+   evaluated in its statement. Anywhere else, hoisting reorders it ahead of
+   sibling side effects, which is what turned one failure into five when it was
+   attempted through `record_declaration` (that appends to
+   `function_declarations`, hoisting the initializer to the top of the
+   function, so the ordering was always wrong).
+
+**Why none was taken.** The diagnostic is a GCC defect, not a btrc one: the
+emitted C conforms, and Clang accepts it at every optimization level. No corpus
+program uses this construct -- exactly one test does, and it writes it
+deliberately to exercise callable provenance. Every workaround above makes the
+compiler permanently worse to satisfy a wrong warning: two of them add
+indirection to a common operation across all programs, and the third adds a
+first-evaluated-position analysis to the expression lowerer and still leaves
+the construct rejected everywhere that analysis does not hold.
+
+The root cause is external. The workarounds are in scope and are recorded here
+so the next session can take one deliberately if the trade is judged
+differently -- option 3 is the one to take, and it needs a session that can
+afford to re-verify the ordering contracts it touches.
 
 Until one of those is taken, `make test` stops at this line and never reaches
 the serial bootstrap behind it. `make bootstrap` still runs the fixed point on
