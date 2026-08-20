@@ -100,23 +100,79 @@ and fixed-array iteration use the logical extent instead of the clamped
 initialized VLAs remain rejected. The GPU output-declaration path records its
 existing `__gpu_output_size` temp as the same logical extent.
 
+### Completed: the twenty-four self-host suite failures
+
+The first complete `src/tests/runner.py --compilers=btrc src/tests/btrc/` run
+(2 h 25 m, 2490 passed) exposed twenty-four failures. Every one is fixed at its
+real owner, with the compiler-side defects listed here.
+
+Self-hosted compiler:
+
+- `ExpressionLowerer.materializeAssignmentCore` lowered a typed `=` value twice,
+  through `lowerExpr` and again through `lowerAssignedValue`. Lowering has
+  side effects, so every lambda on the right of a typed assignment was lifted
+  twice.
+- An indexed storage target was lowered through the owned-index path, which
+  materializes a volatile result temporary; the store then took the address of
+  that value. `lowerStorageTarget` keeps an index target an lvalue while
+  preserving the GPU CPU-fallback checked index.
+- A lambda nested inside another lambda was defined after the caller naming it;
+  `materializeLifted` now emits a prototype for every lifted body.
+- `int out[bound()] = kernel(arg())` evaluated the kernel arguments before the
+  declared bound and then used the bound as the array's logical length.
+  `GpuPipeline` binds the bound first, uses it as capacity, and records the
+  dispatch length for iteration and chained dispatch.
+- `TypeIdentity.symbolComponent` and `TypeComposition.appliedSubstitutionPointerDepth`
+  /`substitutionPointerDepth` were lost in the refactor; the shared identity
+  contract pins all three.
+- `ExpressionValidator` carried a second copy of the thread-observation rule;
+  it now belongs to `OwnershipValidator` alone.
+
+Python reference compiler:
+
+- Hosted `char*` results recorded a conversion request that nothing consumed, so
+  `strchr(makeOwned(), 'b')` kept an interior pointer into an operand released
+  in the same boundary. Both call paths now adopt or copy inside the boundary.
+- Collection literal leaves and an indexed setter's key were stored with their
+  own source types instead of the collection's declared element/key type.
+- A virtual store of a managed value returned the borrowed pointer, so a setter
+  that released the source left the assignment result dangling; the store
+  retains and hands back +1, as the self-hosted frontend does.
+- A hosted macro was treated as an inert enum constant, so an untyped operand
+  beside it was silently reordered; both frontends now fail closed, and a
+  trailing borrowed operand is exempt in both.
+- A rich enum payload member kept the lexical-binding rename, so a variant field
+  named after a source type was defined as `__btrc_source_Item` and read as
+  `.Item`.
+- GPU output declarations record the dispatch length, not the declared bound, as
+  the logical extent.
+
+### Verified on this checkpoint
+
+- Python unit + LSP + debugger, no cache: **3802 passed, 30 skipped**.
+- Python language corpus: **930 passed, 3 skipped** (rerun in progress after the
+  ownership fixes).
+- `test_gpu_boundary.py` + `test_gpu_explicit_output_bounds.py`: 95 passed,
+  2 skipped.
+- Frozen compiler boundaries: 301 records checked.
+- Self-hosted lexer parity: 755/755 byte-identical.
+- Generated-source check, `ruff check src/`, `ruff format --check src/`, and
+  `git diff --check` are clean.
+
 ### Immediate next steps
 
-1. Rebuild the self-host artifact from current sources; every prior `/tmp`
-   binary predates the VLA and frontend changes.
-2. Rerun `src/tests/btrc/test_semantic_validation.py::test_optional_generic_method_coalesce_keeps_result_and_cleanup_paths_separate`
-   and the full `src/tests/btrc/test_gpu_boundary.py` against that artifact.
-3. Run the complete non-bootstrap self-host suite, both language corpora, the
-   strict GCC/Clang C11 matrix, LSP, debugger, extension packaging, generated
-   checks, `make test`, and finally `make bootstrap`.
+1. Finish the authoritative rerun of both language corpora and the complete
+   non-bootstrap self-host suite against a btrcc rebuilt from this tree.
+2. Run `make test-c11`, `make extension`, `make test`, and finally
+   `make bootstrap`.
+3. Remove only ignored caches/build products after every gate passes.
 
 ### Known follow-up (documented, not yet fixed)
 
 The self-hosted compiler emits `int values[size()]` for a runtime array bound:
 it never duplicates the bound, so it has no double-evaluation defect, but it
 also never clamps, so a bound that evaluates to zero declares a zero-length VLA
-(undefined behavior in C11) and GPU dispatch falls back to the physical
-`sizeof`/`sizeof` capacity. Mirroring the Python `ArrayBound` owner in
+(undefined behavior in C11). Mirroring the Python `ArrayBound` owner in
 `ir/lowering/statements.btrc` is the remaining parity item for this defect.
 
 ## Objective
