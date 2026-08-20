@@ -1437,9 +1437,9 @@ channel = "asset.trycatch_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
 baseline_sha256 = "aa851e085554c048b119ea587348aaee4a2f60ec889bfa6541ef0d04830fabcd"
 accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
-accepted_sha256 = "092f48abb1627dfd3558f2e9af5a53fffc3202747e2dd64d98738fd8cbeaa6d8"
-reason = "Try/catch entry no longer saves the signal mask and cleanup registration no longer scans every live entry; both are runtime cost removals that leave emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_arc_exception.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
+accepted_sha256 = "b0356e887c066b5a73c6f79438d7bcda012236b789bd03184471efea2b27a96f"
+reason = "Cleanup registration no longer scans every live entry to find a slot to supersede; it is a runtime cost removal that leaves emitted C byte-identical."
+regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0000"
@@ -1758,10 +1758,6 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_guard_hook"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0030.bin"
 baseline_sha256 = "59077e6d1a652c18f06ad7e447d8a760b77734b5ee3bdde45e4384860fc0427a"
-accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0030.bin"
-accepted_sha256 = "4b24b6a1d989167be3be0757a586de7c802674158839a1e0685caa6dc8997bd5"
-reason = "Try/catch entry no longer saves the signal mask and cleanup registration no longer scans every live entry; both are runtime cost removals that leave emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_arc_exception.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0031"
@@ -2456,10 +2452,6 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_flush_cycles_guarded"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0099.bin"
 baseline_sha256 = "67dc3c57d731d9db040e95c817d2b463e858ebe2bb310907c613317d0cc0c3b6"
-accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0099.bin"
-accepted_sha256 = "cb5937bee8222116c8522f883801c5cc08a3ceef40778544ee21db8e1b8e5c5f"
-reason = "Try/catch entry no longer saves the signal mask and cleanup registration no longer scans every live entry; both are runtime cost removals that leave emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_arc_exception.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0100"
@@ -3110,8 +3102,8 @@ baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0159.bin"
 baseline_sha256 = "deba8e0417508305b8353e2e24bfb7f5c2c9a50f9a4b558de4b0e76a476bad2a"
 accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0159.bin"
 accepted_sha256 = "623c66431acea0951c7c63ebbfe526f5b0cb311bfb08f5144c21279504df5a5a"
-reason = "Try/catch entry no longer saves the signal mask and cleanup registration no longer scans every live entry; both are runtime cost removals that leave emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_arc_exception.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
+reason = "Cleanup registration no longer scans every live entry to find a slot to supersede; it is a runtime cost removal that leaves emitted C byte-identical."
+regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0160"
@@ -3192,10 +3184,6 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_run_cleanup_guarded"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0167.bin"
 baseline_sha256 = "6788220c02764e9a35d2797fe0a008f41cb08fecc0c9f620c7a0dcbf421805d3"
-accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0167.bin"
-accepted_sha256 = "264849a53d6f1b0a2d4db74492a446e79897687ed5947c634f2c4876c4cd17f7"
-reason = "Try/catch entry no longer saves the signal mask and cleanup registration no longer scans every live entry; both are runtime cost removals that leave emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_arc_exception.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0168"
@@ -3656,10 +3644,6 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_throw"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0209.bin"
 baseline_sha256 = "dde5640c9ee147bb5b976736c15bf7d71858f7194b51d34b2370e27db6e6a179"
-accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0209.bin"
-accepted_sha256 = "2f8c40eba068b76106f025819232dfde730f5cfe743364ac3c503d45690d26fe"
-reason = "Try/catch entry no longer saves the signal mask and cleanup registration no longer scans every live entry; both are runtime cost removals that leave emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_arc_exception.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0210"
@@ -3740,10 +3724,6 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_trycatch_globals"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0217.bin"
 baseline_sha256 = "7d1fd916786ca4843168e25a90fcd4dc0dce2b3a42fc2342110747af8e7ad609"
-accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0217.bin"
-accepted_sha256 = "2176e068af0624b5ebe05cbeac901bf96d0880a5dc1b68400be9a20ef358216d"
-reason = "Try/catch entry no longer saves the signal mask and cleanup registration no longer scans every live entry; both are runtime cost removals that leave emitted C byte-identical."
-regressions = ["src/tests/memory/test_cleanup_slot_reuse.btrc", "src/tests/memory/test_arc_exception.btrc", "src/tests/memory/test_empty_managed_local.btrc"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0218"

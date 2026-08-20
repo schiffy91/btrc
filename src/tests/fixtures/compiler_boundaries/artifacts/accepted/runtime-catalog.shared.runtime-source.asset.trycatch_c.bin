@@ -3,23 +3,6 @@ static _Thread_local volatile int __btrc_try_top = -1;
 /* btrc-runtime-helper:end __btrc_try_level */
 /* btrc-runtime-helper:begin __btrc_trycatch_globals */
 /* btrc try/catch runtime (dynamic) */
-/* Darwin and the BSDs make setjmp save the caller's signal mask and alternate
- * stack, which costs two syscalls on entry to every try block. btrc never
- * throws out of a signal handler, so that mask is not state a catch has to
- * restore; _setjmp/_longjmp are the POSIX spellings that leave it alone. A
- * freestanding shim owns its own spelling, and any other target keeps the C11
- * pair. Both spellings compile under -std=c11 -pedantic-errors on macOS/clang
- * and glibc/gcc. */
-#if !defined(BTRC_TRY_SETJMP)
-#if !defined(BTRC_RT_SETJMP_HEADER) \
-        && (defined(__APPLE__) || defined(__unix__) || defined(__linux__))
-#define BTRC_TRY_SETJMP(env) _setjmp(env)
-#define BTRC_TRY_LONGJMP(env, value) _longjmp(env, value)
-#else
-#define BTRC_TRY_SETJMP(env) setjmp(env)
-#define BTRC_TRY_LONGJMP(env, value) longjmp(env, value)
-#endif
-#endif
 typedef struct { jmp_buf env; } __btrc_try_frame;
 static _Thread_local __btrc_try_frame** __btrc_try_stack = NULL;
 static _Thread_local char __btrc_error_msg[1024] = "";
@@ -176,7 +159,7 @@ static void __btrc_run_cleanup_guarded(
         __btrc_cleanup_entry entry, void* object) {
     __btrc_push_try();
     int guard_level = __btrc_try_top;
-    if (BTRC_TRY_SETJMP(__btrc_try_stack[guard_level]->env) != 0) return;
+    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) return;
     if (entry.direct) {
         entry.fn(object);
     } else {
@@ -200,7 +183,7 @@ static int __btrc_arc_guard_hook(
     if (error && error_capacity) error[0] = '\0';
     __btrc_push_try();
     int guard_level = __btrc_try_top;
-    if (BTRC_TRY_SETJMP(__btrc_try_stack[guard_level]->env) != 0) {
+    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) {
         __btrc_copy_error_message(
             error, error_capacity, __btrc_error_msg);
         memcpy(__btrc_error_msg, ambient, sizeof ambient);
@@ -224,7 +207,7 @@ static _Noreturn void __btrc_raise_captured(
 static void __btrc_flush_cycles_guarded(void) {
     __btrc_push_try();
     int guard_level = __btrc_try_top;
-    if (BTRC_TRY_SETJMP(__btrc_try_stack[guard_level]->env) != 0) return;
+    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) return;
     __btrc_flush_cycles();
     __btrc_try_top--;
 }
@@ -301,7 +284,7 @@ static _Noreturn void __btrc_throw(const char* msg) {
     __btrc_run_cleanups(__btrc_try_top);
     int level = __btrc_try_top;
     __btrc_try_top--;
-    BTRC_TRY_LONGJMP(__btrc_try_stack[level]->env, 1);
+    longjmp(__btrc_try_stack[level]->env, 1);
 }
 /* btrc-runtime-helper:end __btrc_throw */
 /* btrc-runtime-helper:begin __btrc_try_state_cleanup */

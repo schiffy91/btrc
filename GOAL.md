@@ -210,41 +210,52 @@ blindly:
   code holds `__btrc_cleanup_mark()` results as raw integer indices at 5,905
   sites, so removing an entry silently invalidates every outstanding mark.
 
-### Completed: try entry no longer saves the signal mask
+### Attempted and reverted: try entry still saves the signal mask
 
 Darwin and the BSDs make `setjmp` save the caller's signal mask and alternate
 stack, costing two syscalls on entry to every try block. btrc never throws out
 of a signal handler, so that mask is not state a catch has to restore. With the
-registration scan bounded, `sigprocmask` and `__sigaltstack` were the largest
-remaining cost in the self-hosted compiler at roughly 40% of samples.
+registration scan bounded, `sigprocmask` and `__sigaltstack` are the largest
+remaining cost in the self-hosted compiler at roughly 40% of samples, and
+switching to `_setjmp`/`_longjmp` measured a further 19% (0.158s to 0.128s user
+CPU per invocation).
 
-Try entry and throw now go through `BTRC_TRY_SETJMP`/`BTRC_TRY_LONGJMP`, which
-select `_setjmp`/`_longjmp` on Apple and unix targets and keep the C11 pair for
-freestanding shims (`BTRC_RT_SETJMP_HEADER`) and unknown targets. Both
-spellings were verified to compile under
-`-std=c11 -pedantic-errors -Wall -Wextra -Werror` on macOS/clang and
-nix/glibc/gcc, and the ARC exception corpus passes on both.
+It was **reverted**, and the reason is worth keeping. The change added a
+`BTRC_TRY_SETJMP` macro to the `__btrc_trycatch_globals` helper block, ahead of
+its `typedef struct { jmp_buf env; } __btrc_try_frame;` line. The stdlib
+archive header generator does a *textual* transformation of that block to emit
+a forward declaration of `__btrc_try_frame`, and the inserted preprocessor
+lines made it emit `typedef struct;` instead. Sixteen tests failed: the
+cross-translation-unit ARC hooks, the strict-C11 archive builds, the
+freestanding reference build, three corpus cases, and
+`test_cleanup_setjmp_is_confined_to_non_inline_guards`, which pins `setjmp(`
+to exactly one occurrence in each of the two non-inline guards and so encodes
+the confinement contract the macro spelling broke.
+
+Two constraints for anyone retrying it. The text shape of
+`__btrc_trycatch_globals` is load-bearing for the archive header generator, so
+the spelling seam cannot live there; and the confinement test is a real
+contract, so a new spelling has to keep `setjmp` textually confined to the two
+guards or update that contract deliberately. Nothing short of a full
+`make test` catches this -- the corpus, the ARC suites, and strict-C11
+compiles of ordinary programs all pass with the change in place, because none
+of them exercise the archive header path.
+
+### Verified on the runtime performance work
 
 Measured on the self-hosted compiler, user CPU per invocation, output
 byte-identical to the baseline at every step:
 
-| build | user | system | speedup |
-| --- | --- | --- | --- |
-| baseline | 0.308s | 0.13s | -- |
-| bounded dedup window | 0.158s | 0.13s | 1.90x |
-| + non-signal-mask setjmp | 0.128s | 0.01s | 2.41x |
-| + cached thread-local reads | 0.118s | 0.01s | **2.61x** |
+| build | user | speedup |
+| --- | --- | --- |
+| baseline | 0.308s | -- |
+| bounded dedup window | 0.158s | 1.90x |
+| + cached thread-local reads | 0.150s | **2.05x** |
 
-The collapse in system time is the two syscalls per try entry disappearing.
-With those gone, `_tlv_get_addr` became the largest single cost, so
-registration reads each thread-local once into a local; the reallocating branch
-refreshes the cached stack pointer, which is the only local a resize can
-invalidate.
-
-One further shape was tried and produced no change at all: building with
-`-ftls-model=local-exec` measured identically (0.62s for five runs either way),
-because Darwin resolves thread-locals through its own TLV descriptors rather
-than the ELF TLS models that flag selects. Do not retry it on macOS.
+One further shape produced no change at all: building with
+`-ftls-model=local-exec` measured identically, because Darwin resolves
+thread-locals through its own TLV descriptors rather than the ELF TLS models
+that flag selects. Do not retry it on macOS.
 
 Benchmark on a quiet machine. `corespotlightd` indexes the large generated C
 this work produces and will saturate a core for minutes, swinging wall-clock
