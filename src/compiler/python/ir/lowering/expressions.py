@@ -165,7 +165,15 @@ class UnaryMaterialization:
 
 @dataclass(frozen=True, slots=True)
 class AssignmentMaterialization:
+    """An assignment whose target operands are stabilized by the boundary.
+
+    ``operand_targets`` names the storage type each operand is prepared
+    against, so an indexed setter's key converts to the collection's declared
+    key type and the boundary owns the converted value's lifetime.
+    """
+
     node: AssignExpr
+    operand_targets: tuple[TypeExpr | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -448,6 +456,8 @@ class ExpressionLowerer:
             operand_targets = (None, *materialization.argument_targets)
         elif isinstance(materialization, CollectionLiteralMaterialization) and materialization.leaf_targets:
             operand_targets = materialization.leaf_targets
+        elif isinstance(materialization, AssignmentMaterialization) and materialization.operand_targets:
+            operand_targets = materialization.operand_targets
         else:
             operand_targets = (None,) * len(nodes)
         prepared = self._prepare_operand_evaluation(
@@ -1986,7 +1996,10 @@ class ExpressionLowerer:
             sequenced = self._sequence_operands(
                 target_nodes,
                 provenance,
-                materialization=AssignmentMaterialization(node),
+                materialization=AssignmentMaterialization(
+                    node,
+                    self._assignment_operand_targets(storage_plan, target_nodes),
+                ),
                 result_type=result_type,
                 keep_nodes=self._ownership.kept_target_operands(node.target, target_nodes, provenance),
                 promote_result=bool(
@@ -2001,6 +2014,15 @@ class ExpressionLowerer:
             if sequenced is not None:
                 return sequenced
         return self._lower_assignment_plain(node, provenance)
+
+    @staticmethod
+    def _assignment_operand_targets(storage_plan, target_nodes) -> tuple[TypeExpr | None, ...]:
+        """Name the storage type each staged assignment-target operand needs."""
+
+        if storage_plan.kind is not StorageKind.INDEXED or storage_plan.index_type is None:
+            return ()
+        index_node = storage_plan.target.index
+        return tuple(storage_plan.index_type if operand is index_node else None for operand in target_nodes)
 
     def _lower_assignment_plain(self, node: AssignExpr, provenance: CallableProvenance) -> IRExpr:
         """Materialize an assignment after target-owner stabilization."""

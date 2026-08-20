@@ -7,7 +7,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.storage import StorageModel
-from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity
+from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeShapeError
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -233,6 +233,13 @@ class StorageLowerer:
                 kind = StorageKind.INDEXED
                 getter = f"{prefix}_get" if operator != "=" else None
                 setter = f"{prefix}_set"
+                # The setter's declared key governs the index, so a class key
+                # converts to the collection's key type instead of being stored
+                # with its own source type.
+                index_type = (
+                    self.resolved_indexed_type(protocol.setter.params[0].type, receiver_type, protocol.class_info)
+                    or index_type
+                )
 
         managed_value_type = self._owned_identifier_slot(target, target_type, provenance)
         if managed_value_type is not None:
@@ -255,6 +262,26 @@ class StorageLowerer:
             getter=getter,
             setter=setter,
         )
+
+    def resolved_indexed_type(self, declared, receiver_type, class_info) -> TypeExpr | None:
+        """Resolve one indexed method's declared type against its receiver."""
+
+        if declared is None or receiver_type is None:
+            return None
+        parameters = getattr(class_info, "generic_params", None) or ()
+        arguments = receiver_type.generic_args or ()
+        if not parameters or len(parameters) != len(arguments):
+            return self._types.canonical_type(declared)
+        substitutions = dict(zip(parameters, arguments, strict=True))
+        try:
+            resolved = self._type_identity.substitute(
+                declared,
+                substitutions,
+                reference_resolver=self._types.canonical_type,
+            )
+        except TypeShapeError as error:
+            raise CodegenError(str(error)) from error
+        return self._types.canonical_type(resolved)
 
     def target_requires_receiver(self, plan: StoragePlan) -> bool:
         return bool(
