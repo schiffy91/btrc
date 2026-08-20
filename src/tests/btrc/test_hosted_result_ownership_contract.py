@@ -10,11 +10,9 @@ import pytest
 
 from src.compiler.python.application.pipeline import CompilationPipeline
 from src.compiler.python.application.results import CompilerOptions
-from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.frontend.sources import StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.tests.btrc.production_readiness_harness import compile_diagnostic_pair, run_strict_pair
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
@@ -128,17 +126,14 @@ def _compile_hosted_shadow_pair(
     analyzed = pipeline.analyze(parsed.program)
     assert not analyzed.errors, analyzed.errors
     reference_c = tmp_path / "hosted-result-shadow.reference.c"
-    reference_c.write_text(
-        CEmitter().emit(
-            IROptimizer(
-                IRLowerer(
-                    analyzed,
-                    debug=False,
-                    source_file=program.name,
-                ).lower()
-            ).optimize()
-        )
-    )
+    # Stage 5 is finalized by the pipeline: optimizing in place and emitting
+    # directly would skip runtime materialization and the IR verifier.
+    lowered = IRLowerer(
+        analyzed,
+        debug=False,
+        source_file=program.name,
+    ).lower()
+    reference_c.write_text(pipeline.emit(pipeline.optimize(lowered, options)))
     return ("selfhost", selfhost_c), ("reference", reference_c)
 
 

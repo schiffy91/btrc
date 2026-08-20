@@ -831,7 +831,10 @@ class ExpressionLowerer:
             arguments = self._abi_call_arguments(plan, values, source_types)
             if callable_environment is not None:
                 arguments.append(self._callable_environment_argument(callable_environment))
-            return self._calls.materialize(plan, callee, receiver, arguments)
+            return self._calls.materialize_requested_hosted_result(
+                plan.source,
+                self._calls.materialize(plan, callee, receiver, arguments),
+            )
 
         evaluation = self._call_boundary.start()
         row_values: dict[object, IRExpr] = {}
