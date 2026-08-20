@@ -249,14 +249,19 @@ def test_disk_unit_cache_detects_same_size_same_mtime_rewrite(tmp_path):
     assert second.decls[0].name == "B"
 
 
-def test_live_document_and_overlay_sources_share_the_compiler_size_limit(tmp_path):
-    workspace = Workspace(source_reader=SourceFileReader(max_bytes=4))
+def test_live_document_and_overlay_sources_have_no_compiler_size_ceiling(tmp_path):
+    """Editor buffers and overlays are bounded by the host, never by a quota."""
 
-    with pytest.raises(ValueError, match="4-byte source limit"):
-        workspace.parse_active(str(tmp_path / "active.btrc"), "12345")
+    workspace = Workspace()
+    payload = "".join(f"int filler_{index} = {index};\n" for index in range(20000))
 
-    workspace.overlay_provider = lambda _path: "12345"
-    assert workspace.get_file_unit(str(tmp_path / "import.btrc")) is None
+    active = workspace.parse_active(str(tmp_path / "active.btrc"), payload)
+    assert active.error is None
+
+    workspace.overlay_provider = lambda _path: payload
+    overlaid = workspace.get_file_unit(str(tmp_path / "import.btrc"))
+    assert overlaid is not None
+    assert overlaid.error is None
 
 
 def test_disk_units_delegate_to_the_bounded_source_reader(tmp_path):
