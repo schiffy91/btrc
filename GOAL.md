@@ -942,6 +942,16 @@ dist/btrc.vsix
 - [x] Establish frozen compiler outputs for tokens, AST, IR, optimized IR, C,
       diagnostics, and runtime helper specifications from the completed
       destination architecture.
+- [ ] **Remove the arbitrary frontend resource ceilings.** Neither compiler may
+      reject an otherwise valid program merely because resolved source exceeds
+      64 MiB, the graph contains more than 10,000 files, import nesting exceeds
+      256 levels, or a directory contains more than 100,000 entries. Replace
+      recursive traversal, whole-directory materialization, and avoidable
+      source concatenation with iterative/streaming designs that scale with the
+      host's available resources. Retain integer-overflow checks and report real
+      filesystem/allocation failures, but do not impose compiler-defined size,
+      file-count, depth, or scan-count quotas. Remove the constants, parity
+      assertions, and README language from both frontends in the same slice.
 - [ ] Complete all bit-perfect comparisons and the full verification matrix.
 - [x] Perform a final loose-function, import-cycle, package-root, generated-file,
       and source-output audit.
