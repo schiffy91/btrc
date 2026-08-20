@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
@@ -896,6 +897,7 @@ class ExpressionLowerer:
         if callable_environment is not None:
             arguments.append(self._callable_environment_argument(callable_environment))
         call = self._calls.materialize(plan, lowered_callee, lowered_receiver, arguments)
+        call = self._calls.materialize_requested_hosted_result(plan.source, call)
         return self._call_boundary.materialize(
             evaluation,
             call,
@@ -1463,14 +1465,7 @@ class ExpressionLowerer:
         provenance: CallableProvenance,
     ):
         """Lower and materialize one target-directed value plan."""
-        plan = self._calls.plan_value(node, target_type, provenance)
-        requests = self._session.hosted_result_conversion_requests
-        key = id(node)
-        missing = object()
-        previous = requests.get(key, missing)
-        if plan.hosted_mode is not None:
-            requests[key] = (plan.hosted_mode, plan.target_type)
-        try:
+        with self.hosted_result_request(node, target_type, provenance) as plan:
             contextual_type = (
                 plan.target_type
                 if plan.source_type is None
@@ -1480,18 +1475,12 @@ class ExpressionLowerer:
             )
             with self._session.operand_scope(
                 {},
-                {key: contextual_type} if contextual_type is not None else None,
+                {id(node): contextual_type} if contextual_type is not None else None,
             ):
                 lowered = self.lower_expr(
                     node,
                     provenance,
                 )
-        finally:
-            if plan.hosted_mode is not None:
-                if previous is missing:
-                    requests.pop(key, None)
-                else:
-                    requests[key] = previous
         return self.materialize_prepared_value(
             plan,
             lowered,
@@ -1510,6 +1499,31 @@ class ExpressionLowerer:
             plan,
             lowered,
         )
+
+    @contextmanager
+    def hosted_result_request(self, node, target_type, provenance: CallableProvenance):
+        """Record one target-directed hosted conversion while ``node`` lowers.
+
+        A hosted ``char*`` result must be adopted or copied inside the call's own
+        operand boundary, before any owned operand it aliases is released. The
+        request tells that boundary which conversion the consumer needs.
+        """
+
+        plan = self._calls.plan_value(node, target_type, provenance)
+        requests = self._session.hosted_result_conversion_requests
+        key = id(node)
+        missing = object()
+        previous = requests.get(key, missing)
+        if plan.hosted_mode is not None:
+            requests[key] = (plan.hosted_mode, plan.target_type)
+        try:
+            yield plan
+        finally:
+            if plan.hosted_mode is not None:
+                if previous is missing:
+                    requests.pop(key, None)
+                else:
+                    requests[key] = previous
 
     def materialize_prepared_value(
         self,

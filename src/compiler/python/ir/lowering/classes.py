@@ -138,7 +138,12 @@ class ClassLowerer:
                     init_provenance,
                 )
                 target = IRFieldAccess(obj=IRVar(name="self"), field=member.name, arrow=True)
-                lowered_initializer = self._lower_field_init(member, init_provenance)
+                with self._expressions.hosted_result_request(
+                    member.initializer,
+                    member.type,
+                    init_provenance,
+                ):
+                    lowered_initializer = self._lower_field_init(member, init_provenance)
                 prepared = self._expressions.prepare_lowered_value(
                     member.initializer,
                     member.type,

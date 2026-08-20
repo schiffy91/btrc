@@ -2784,8 +2784,32 @@ class CallLowerer:
             string_conversion=self.requires_string_conversion(resolved_target, source_type),
         )
 
-    @staticmethod
+    def materialize_hosted_string_result(self, lowered: IRExpr, mode: str) -> IRExpr:
+        """Turn a hosted ``char*`` result into a tracked managed string.
+
+        An ``adopt`` effect hands over an allocation the runtime may free, so it
+        only needs tracking. An ``alias`` or ``independent`` effect points into
+        storage this expression does not own -- often an operand released at the
+        end of the same boundary -- so it is copied before it is tracked.
+        """
+
+        value = lowered
+        if mode == COPY:
+            self._session.require_helper("__btrc_strdup")
+            value = IRCall(callee="__btrc_strdup", args=[value], helper_ref="__btrc_strdup")
+        self._session.require_helper("__btrc_str_track")
+        return IRCall(callee="__btrc_str_track", args=[value], helper_ref="__btrc_str_track")
+
+    def materialize_requested_hosted_result(self, source, call: IRExpr) -> IRExpr:
+        """Apply one recorded hosted result conversion to its own call IR."""
+
+        request = self._session.hosted_result_conversion_requests.get(id(source))
+        if request is None or request[0] not in {ADOPT, COPY}:
+            return call
+        return self.materialize_hosted_string_result(call, request[0])
+
     def materialize_value(
+        self,
         plan: ValuePreparationPlan,
         lowered: IRExpr,
         *,
@@ -2793,6 +2817,9 @@ class CallLowerer:
     ) -> PreparedValue:
         """Materialize resolved value facts from explicitly lowered IR."""
         if plan.hosted_mode in {ADOPT, COPY}:
+            # The conversion is applied to the call result inside its own
+            # operand boundary, before any owned operand it points into is
+            # released; by this point the value is already tracked.
             return PreparedValue(
                 value=lowered,
                 effective_type=plan.effective_type,
