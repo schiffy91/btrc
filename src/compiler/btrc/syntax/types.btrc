@@ -130,13 +130,30 @@ class TypeComposition {
             || (baseIsReference && innerStorage > 0);
     }
 
+    /* The pointer depth an applied placeholder still contributes once its
+     * nullable outer layer collapses into the resolved reference. This is the
+     * single definition of that rule; compose() and every substitution
+     * consumer read it rather than restating the arithmetic. */
+    class int appliedSubstitutionPointerDepth(
+            Node placeholder, bool referenceShape) {
+        return placeholder.pointer_depth
+            - (TypeComposition.nullableCollapsesReferenceLayer(
+                placeholder, referenceShape) ? 1 : 0);
+    }
 
+    /* The composed pointer depth of one placeholder-to-resolved substitution. */
+    class int substitutionPointerDepth(Node placeholder, Node resolved) {
+        return resolved.pointer_depth
+            + TypeComposition.appliedSubstitutionPointerDepth(
+                placeholder, TypeComposition.resolvedReferenceShape(resolved));
+    }
 
     class Node compose(Node applied, Node resolved, bool referenceShape) {
         bool collapseApplied = TypeComposition.nullableCollapsesReferenceLayer(
             applied, referenceShape);
-        int appliedPointerDepth = applied.pointer_depth
-            - (collapseApplied ? 1 : 0);
+        int appliedPointerDepth =
+            TypeComposition.appliedSubstitutionPointerDepth(
+                applied, referenceShape);
         int survivingShellStorage = appliedPointerDepth
             + (applied.is_array ? 1 : 0);
         Node result = TypeShape.copy(resolved);

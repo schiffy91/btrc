@@ -5066,21 +5066,24 @@ class ExpressionLowerer {
                 plan.targetType, plan.valueType, targetC);
         }
 
-        IRNode value = self.lowerExpr(
-            assignment.value_node, variableTypes, callableFlow);
-        if (assignment.op == "=" && plan.targetType != null) {
-            value = self.lowerAssignedValue(
-                assignment.value_node,
-                plan.targetType, variableTypes, callableFlow);
-            value = self.strings.upcastClassPointer(
-                plan.targetType, plan.valueType, value);
-            if (assignment.target.kind != NK_IDENTIFIER) {
-                return self.lowerDirectStore(
-                    target, value, plan.targetType,
-                    self.directGenericTargetC(
-                        assignment.target,
-                        plan.targetType, variableTypes));
-            }
+        /* A typed `=` coerces its value against the target type. Lowering has
+         * side effects — lifted lambdas, temporaries, helper references — so
+         * the value is lowered exactly once, through whichever path applies. */
+        bool coercedValue = assignment.op == "=" && plan.targetType != null;
+        IRNode value = coercedValue
+            ? self.strings.upcastClassPointer(
+                plan.targetType, plan.valueType,
+                self.lowerAssignedValue(
+                    assignment.value_node,
+                    plan.targetType, variableTypes, callableFlow))
+            : self.lowerExpr(
+                assignment.value_node, variableTypes, callableFlow);
+        if (coercedValue && assignment.target.kind != NK_IDENTIFIER) {
+            return self.lowerDirectStore(
+                target, value, plan.targetType,
+                self.directGenericTargetC(
+                    assignment.target,
+                    plan.targetType, variableTypes));
         }
         if (plan.callableTarget && assignment.op == "=") {
             callableFlow.setBindingAbi(

@@ -13,7 +13,6 @@ from src.compiler.python.ir.nodes import (
     IRCast,
     IRContinue,
     IRDoWhile,
-    IRExpr,
     IRExprStmt,
     IRLiteral,
     IRStatementSequence,
@@ -294,26 +293,26 @@ class StatementLowerer:
                 self._expressions.lower_gpu_arguments(plan.initializer, provenance),
                 provenance,
             )
-            length_setup: tuple[IRStmt, ...] = ()
-            if explicit_size is not None:
-                array_size = self._storage.materialize_array_size(plan, explicit_size)
-                logical_size: IRExpr | None = explicit_size
-            else:
-                dispatch_bound = self._storage.materialize_dispatch_length(output.array_length or IRLiteral(text="0"))
-                length_setup = dispatch_bound.setup
-                array_size = dispatch_bound.physical
-                logical_size = dispatch_bound.logical
+            # A declared bound is the writable capacity; the dispatch length is
+            # how much of it the kernel actually fills, and that is what
+            # iteration and chained dispatch must see.
+            dispatch_bound = self._storage.materialize_dispatch_length(output.array_length or IRLiteral(text="0"))
+            array_size = (
+                self._storage.materialize_array_size(plan, explicit_size)
+                if explicit_size is not None
+                else dispatch_bound.physical
+            )
             declaration = self._storage.materialize_declaration(
                 plan,
                 provenance,
                 initializer=None,
                 array_size=array_size,
-                logical_length=logical_size,
+                logical_length=dispatch_bound.logical,
             )
             return [
                 *size_setup,
                 *output.setup,
-                *length_setup,
+                *dispatch_bound.setup,
                 *declaration,
                 IRExprStmt(expr=output.call),
             ]

@@ -1,5 +1,6 @@
 """Call arguments produce one structured IR value per source expression."""
 
+import re
 from pathlib import Path
 
 from src.tests.btrc.production_readiness_harness import (
@@ -8,6 +9,11 @@ from src.tests.btrc.production_readiness_harness import (
 )
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
+
+# One lifted body per lambda expression. Count definitions rather than every
+# mention: a frontend may additionally forward-declare its static helpers, and
+# that choice says nothing about how many times the argument was lowered.
+_LAMBDA_DEFINITION = re.compile(r"^static int __btrc_lambda_\d+\([^)]*\) \{$", re.MULTILINE)
 
 
 SINGLE_LOWERING_SOURCE = """
@@ -57,7 +63,7 @@ def test_print_and_constructor_arguments_are_lowered_once_without_dce(
         "single-lowering",
     )
     for _frontend, generated in compiled:
-        assert generated.read_text().count("static int __btrc_lambda_") == 2
+        assert len(_LAMBDA_DEFINITION.findall(generated.read_text())) == 2
     run_strict_pair(compiled, tmp_path)
 
 
@@ -74,5 +80,5 @@ def test_function_pointer_reassignment_rhs_is_lowered_once_without_dce(
         "fnptr-reassignment-single-lowering",
     )
     for _frontend, generated in compiled:
-        assert generated.read_text().count("static int __btrc_lambda_") == 1
+        assert len(_LAMBDA_DEFINITION.findall(generated.read_text())) == 1
     run_strict_pair(compiled, tmp_path)

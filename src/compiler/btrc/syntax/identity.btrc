@@ -1052,6 +1052,16 @@ class TypeIdentity {
     }
 
 
+    /* Injective C-identifier component for one type. Types that already spell
+     * a safe legacy identifier keep it; everything else takes the reserved
+     * length-delimited encoding. Mirrors TypeIdentity.symbol_component. */
+    class string symbolComponent(Node typeExpr) {
+        if (TypeIdentity.legacyComponentPossible(typeExpr)) {
+            return TypeIdentity.legacyComponent(typeExpr);
+        }
+        return "ZQt" + TypeIdentity.encode(typeExpr);
+    }
+
     /* Structural primitive: unlike writable class specializations, Tuple and
      * __fn_ptr are allowed to carry qualified component types. */
     class string mangleGenericSymbol(string base, Vector<Node> args) {

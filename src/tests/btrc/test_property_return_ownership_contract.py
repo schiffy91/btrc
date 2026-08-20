@@ -1,5 +1,6 @@
 """Dual-frontend ownership contracts for custom property projections."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,9 @@ def test_custom_property_getter_abi_is_owned_by_shared_class_lowerers() -> None:
     assert "def _getter_body(" in python_classes
     getter = python_classes[python_classes.index("    def _getter_body(") :]
     assert "self._session.current_return_owned = True" in getter
-    assert "self._statements.lower_block(prop.getter_body" in getter
+    # The call may wrap across lines; the invariant is that the shared
+    # StatementLowerer owns the body, not how the call is formatted.
+    assert "self._statements.lower_block(prop.getter_body," in re.sub(r"\s+", "", getter)
 
     assert selfhost_classes.count("class DeclarationLowerer {") == 1
     assert "public void emitProperty(" in selfhost_classes
