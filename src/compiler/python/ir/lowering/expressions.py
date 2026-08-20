@@ -142,7 +142,15 @@ class PreparedStaticInitializer:
 
 @dataclass(frozen=True, slots=True)
 class CollectionLiteralMaterialization:
+    """A collection literal whose leaves are stabilized by the boundary.
+
+    ``leaf_targets`` carries the collection's declared element (and, for a map,
+    key/value) types so each leaf is prepared against its storage target rather
+    than being pushed with its own source type.
+    """
+
     plan: object
+    leaf_targets: tuple[TypeExpr | None, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -436,11 +444,12 @@ class ExpressionLowerer:
         opaque_context: str = "expression",
     ):
         """Materialize an expression's eager operands through one boundary."""
-        operand_targets = (
-            (None, *materialization.argument_targets)
-            if isinstance(materialization, SyncMethodMaterialization)
-            else (None,) * len(nodes)
-        )
+        if isinstance(materialization, SyncMethodMaterialization):
+            operand_targets = (None, *materialization.argument_targets)
+        elif isinstance(materialization, CollectionLiteralMaterialization) and materialization.leaf_targets:
+            operand_targets = materialization.leaf_targets
+        else:
+            operand_targets = (None,) * len(nodes)
         prepared = self._prepare_operand_evaluation(
             nodes,
             provenance,
@@ -824,7 +833,24 @@ class ExpressionLowerer:
             key, source, value, type_expr, row_owned, keep, transferred = row
             override_types = {entry: fact_types[entry] for entry in evaluation.values if entry in fact_types}
             if type_expr is None:
-                self._ownership.reject_opaque_ordering(source, "call arguments", typed_declaration=True)
+                # A trailing borrowed operand has nothing sequenced after it, so
+                # its unknown type never has to be spelled; every other position
+                # would need a C type to stage it.
+                trailing = bool(
+                    row_index + 1 == len(rows)
+                    and (row_index > 0 or plan.receiver is not None)
+                    and not row_owned
+                    and not keep
+                )
+                if not trailing:
+                    self._ownership.reject_opaque_ordering(source, "call arguments", typed_declaration=True)
+                if value is None:
+                    with self._session.operand_scope(evaluation.values, override_types, evaluation.ownership):
+                        value = self.lower_expr(source, provenance)
+                row_values[key] = value
+                if isinstance(key, int) and key in explicit_by_index:
+                    source_types[key] = explicit_by_index[key][4]
+                continue
             if isinstance(key, ProjectionDependencyKey):
                 with self._session.operand_scope(evaluation.values, override_types, evaluation.ownership):
                     value = self.lower_expr(source, provenance)
@@ -2297,7 +2323,10 @@ class ExpressionLowerer:
     ) -> IRExpr:
         """Sequence dynamic collection leaves before retaining them in storage."""
         plan = self._collections.plan_literal(node)
-        materialization = CollectionLiteralMaterialization(plan)
+        materialization = CollectionLiteralMaterialization(
+            plan,
+            self._collections.literal_leaf_targets(plan),
+        )
         leaves = list(plan.leaves)
         result_type = self._session.type_of(node)
         sequenced = self._sequence_operands(

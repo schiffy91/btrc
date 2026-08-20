@@ -614,6 +614,24 @@ class CollectionLowerer:
             entry_width=2,
         )
 
+    def literal_leaf_targets(self, plan: CollectionLiteralPlan) -> tuple[TypeExpr | None, ...]:
+        """Return the storage target type each literal leaf is prepared against.
+
+        A collection's declared element type governs its leaves, so a
+        ``Vector<string>`` literal converts a class element through ``toString``
+        instead of storing the class pointer.
+        """
+
+        collection_type = self._session.type_of(plan.source)
+        arguments = collection_type.generic_args if collection_type is not None else []
+        if plan.entry_width == 1:
+            element = arguments[0] if arguments else None
+            return (element,) * len(plan.leaves)
+        if len(arguments) != 2:
+            return (None,) * len(plan.leaves)
+        key, value = arguments
+        return tuple(key if index % 2 == 0 else value for index in range(len(plan.leaves)))
+
     def materialize_literal(
         self,
         plan: CollectionLiteralPlan,

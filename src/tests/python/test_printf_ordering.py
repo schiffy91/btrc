@@ -159,7 +159,14 @@ def test_user_printf_remains_a_normal_declared_call(tmp_path, c_compiler):
 
 @pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
-def test_hosted_constant_macro_operand_needs_no_fake_ordering_temporary(tmp_path, c_compiler):
+def test_hosted_constant_macro_operand_is_never_given_an_invented_type(tmp_path, c_compiler):
+    """A macro's expansion is unknown, so nothing may spell a C type for it.
+
+    Both frontends sequence the typed operand of such a call; what neither may
+    do is materialize the macro itself into a temporary whose type the compiler
+    guessed. It is passed straight through to the hosted call.
+    """
+
     generated = emit_c(
         """
         #include <signal.h>
@@ -173,7 +180,8 @@ def test_hosted_constant_macro_operand_needs_no_fake_ordering_temporary(tmp_path
         """
     )
 
-    assert "(void)(signal(signalNumber, SIG_IGN));" in generated
-    assert "(void)(signal(signalNumber, SIG_DFL));" in generated
+    assert not re.search(r"__btrc_call_operand_\d+\s*=\s*SIG_(?:IGN|DFL)\b", generated)
+    assert re.search(r"signal\([^;]*,\s*SIG_IGN\)", generated)
+    assert re.search(r"signal\([^;]*,\s*SIG_DFL\)", generated)
     result = _compile_and_run(tmp_path, c_compiler, generated)
     assert result.returncode == 0, result.stderr
