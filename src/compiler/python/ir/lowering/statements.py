@@ -13,6 +13,7 @@ from src.compiler.python.ir.nodes import (
     IRCast,
     IRContinue,
     IRDoWhile,
+    IRExpr,
     IRExprStmt,
     IRLiteral,
     IRStatementSequence,
@@ -293,20 +294,28 @@ class StatementLowerer:
                 self._expressions.lower_gpu_arguments(plan.initializer, provenance),
                 provenance,
             )
+            length_setup: tuple[IRStmt, ...] = ()
+            if explicit_size is not None:
+                array_size = self._storage.materialize_array_size(plan, explicit_size)
+                logical_size: IRExpr | None = explicit_size
+            else:
+                dispatch_bound = self._storage.materialize_dispatch_length(
+                    output.array_length or IRLiteral(text="0")
+                )
+                length_setup = dispatch_bound.setup
+                array_size = dispatch_bound.physical
+                logical_size = dispatch_bound.logical
             declaration = self._storage.materialize_declaration(
                 plan,
                 provenance,
                 initializer=None,
-                array_size=(
-                    self._storage.materialize_array_size(plan, explicit_size)
-                    if explicit_size is not None
-                    else self._storage.safe_array_size(output.array_length or IRLiteral(text="0"))
-                ),
-                logical_length=explicit_size,
+                array_size=array_size,
+                logical_length=logical_size,
             )
             return [
                 *size_setup,
                 *output.setup,
+                *length_setup,
                 *declaration,
                 IRExprStmt(expr=output.call),
             ]

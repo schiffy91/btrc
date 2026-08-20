@@ -942,6 +942,29 @@ class StorageLowerer:
             logical=bound,
         )
 
+    def materialize_dispatch_length(self, length: IRExpr) -> ArrayBound:
+        """Bind a GPU result's dispatch length so it can be read more than once.
+
+        The declaration clamps the length for C storage while chained dispatch
+        and iteration keep the unclamped value, so an empty result stays empty
+        instead of inheriting its one-element physical capacity.
+        """
+
+        if isinstance(length, (IRVar, IRLiteral)):
+            return ArrayBound(setup=(), physical=self.safe_array_size(length), logical=length)
+        declaration = IRVarDecl(
+            c_type=CType(text="int"),
+            name=self._session.fresh_temp("__gpu_output_length"),
+            init=length,
+        )
+        self._session.record_declaration(declaration)
+        bound = IRVar(name=declaration.name)
+        return ArrayBound(
+            setup=(declaration,),
+            physical=self.safe_array_size(bound),
+            logical=bound,
+        )
+
     def _array_bound_c_type(self, plan: VariableDeclarationPlan) -> str:
         """Render the declared bound's own scalar type so nothing is truncated."""
 
