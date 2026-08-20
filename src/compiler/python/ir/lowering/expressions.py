@@ -823,7 +823,7 @@ class ExpressionLowerer:
             key, source, value, type_expr, row_owned, keep, transferred = row
             override_types = {entry: fact_types[entry] for entry in evaluation.values if entry in fact_types}
             if type_expr is None:
-                self._ownership.reject_opaque_ordering(source, "call operand")
+                self._ownership.reject_opaque_ordering(source, "call arguments", typed_declaration=True)
             if isinstance(key, ProjectionDependencyKey):
                 with self._session.operand_scope(evaluation.values, override_types, evaluation.ownership):
                     value = self.lower_expr(source, provenance)

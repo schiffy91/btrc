@@ -2835,7 +2835,10 @@ class ExpressionLowerer {
     public IRNode lowerStorageTarget(
             Node target, Map<string, Node> varTypes,
             CallableFlowState callableFlow) {
-        if (target.kind == NK_INDEX_EXPR) {
+        /* A GPU CPU-fallback body still needs its checked index; that path
+         * already yields an lvalue. */
+        if (target.kind == NK_INDEX_EXPR
+                && !self.gpuPipeline.cpuActive()) {
             return self.lowerIndexCore(target, varTypes, callableFlow);
         }
         return self.lowerExpr(target, varTypes, callableFlow);

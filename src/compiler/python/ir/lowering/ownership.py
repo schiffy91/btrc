@@ -2442,8 +2442,14 @@ class OwnershipLowerer:
         return self._types.canonical_type(type_expr)
 
     def _enum_constant_identifier(self, node) -> bool:
-        enum_table = self._analyzed.enum_table
-        return node.name in HOSTED_ABI.macros or any(node.name in values for values in enum_table.values())
+        """Whether one identifier names a declared enum constant.
+
+        A hosted macro is deliberately excluded: its expansion is unknown, so it
+        can neither be assumed free of effects nor reordered against a sibling.
+        The self-hosted frontend makes the same fail-closed judgement.
+        """
+
+        return any(node.name in values for values in self._analyzed.enum_table.values())
 
     @staticmethod
     def reject_opaque_ordering(node, context: str, *, typed_declaration: bool = False) -> None:
