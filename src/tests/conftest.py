@@ -8,6 +8,7 @@ white-box unit tests) and src/tests/btrc/ (self-hosted compiler tests).
 
 import contextlib
 import hashlib
+import inspect
 import os
 import shlex
 import subprocess
@@ -134,9 +135,12 @@ def _btrcc_fingerprint(compiler: list[str]) -> str:
     """Identify one self-host compiler by everything that can change it.
 
     The artifact is a pure function of the compiler sources, the shared
-    specifications, the runtime C, the generators, and the C toolchain that
-    links it. Hashing all of them lets one build serve every worker and every
-    later run, while a single edited byte anywhere produces a different key.
+    specifications, the runtime C, the generators, the C toolchain that links
+    it, and the recipe below that drives them. Hashing all of them lets one
+    build serve every worker and every later run, while a single edited byte
+    anywhere produces a different key. The recipe is included because changing
+    a build flag changes the artifact without touching any input file, and a
+    key that missed that would hand back a stale binary as if it were current.
     """
 
     digest = hashlib.sha256()
@@ -155,6 +159,7 @@ def _btrcc_fingerprint(compiler: list[str]) -> str:
         check=False,
     )
     digest.update(version.stdout.encode())
+    digest.update(inspect.getsource(_build_immutable_btrcc).encode())
     return digest.hexdigest()[:32]
 
 
