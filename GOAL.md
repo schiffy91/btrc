@@ -290,10 +290,16 @@ corpus 931 passed / 3 skipped; unit + LSP + debugger 3802 passed / 30 skipped;
 point**; frozen boundaries 301 records; generated-source check, `ruff check`,
 `ruff format --check`, and `git diff --check` clean.
 
-**The bootstrap has not run on the current tree.** `make test` runs it as a
-serial line after the parallel one, and `make` stops at the first failure, so
-the single failure below prevents it from executing. The 1586-passing
-`src/tests/btrc/` run above predates the runtime performance commits.
+`make bootstrap` on the current tree: **1 passed in 28:30** -- the self-hosted
+compiler reproduces itself byte-for-byte with the runtime performance work and
+the reference-collector fix in place. It has to be run as its own target:
+`make test` sequences it behind the parallel line, and `make` stops at the
+failure below before reaching it.
+
+End-to-end cost of a complete verification on this machine: 7:36 of gates,
+25:51 for 7,291 tests at `-n 8`, and 28:30 for the serial bootstrap -- about an
+hour, with the bootstrap and the boundary gate together accounting for well
+over half of it.
 
 ### Remaining failure: GCC rejects conforming C11 under -Wsequence-point
 
