@@ -1519,7 +1519,7 @@ class OwnershipLowerer:
     def _assignment_owns_result(self, expression: AssignExpr, provenance: CallableBodyFacts) -> bool:
         result_type = self._session.type_of(expression)
         target = expression.target
-        rhs_owned = self._virtual_assignment_owns(target, expression.value, provenance)
+        rhs_owned = self._virtual_assignment_owns(target)
         return bool(
             self._values.is_managed(result_type)
             and (
@@ -1545,17 +1545,20 @@ class OwnershipLowerer:
     ) -> bool:
         """Whether a virtual store's RHS already supplies the assignment result +1."""
         return bool(
-            expression.op == "=" and self._virtual_assignment_owns(expression.target, expression.value, provenance)
+            expression.op == "=" and self._virtual_assignment_owns(expression.target)
         )
 
-    def _virtual_assignment_owns(self, target, value, provenance: CallableBodyFacts) -> bool:
+    def _virtual_assignment_owns(self, target) -> bool:
+        """Whether a virtual store of a managed value yields a +1 result.
+
+        A property or indexed setter can invalidate whatever the value was
+        borrowed from, so the store retains it and the assignment result is
+        always owned, exactly as the self-hosted frontend spells it.
+        """
+
         if not self._virtual_assignment_target(target):
             return False
-        if self.owns_result(value, provenance=provenance):
-            return True
-        target_type = self._types.canonical_type(self._session.type_of(target))
-        source_type = self._types.canonical_type(self._session.type_of(value))
-        return self._values.is_string(target_type) and self._types.has_to_string(source_type)
+        return self._values.is_managed(self._types.canonical_type(self._session.type_of(target)))
 
     def _virtual_assignment_target(self, target) -> bool:
         if isinstance(target, IndexExpr):

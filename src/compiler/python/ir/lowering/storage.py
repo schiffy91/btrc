@@ -678,7 +678,11 @@ class StorageLowerer:
         target.declarations.append(value_decl)
         value = IRVar(name=value_decl.name)
         sequence = [IRBinOp(left=value, op="=", right=lowered_value)]
-        if managed and value_owned:
+        if managed and not value_owned:
+            # The setter may release whatever the value was borrowed from, so
+            # the store owns its own reference and hands it back +1.
+            sequence.append(self._lifetime.retain_value(value, plan.target_type))
+        if managed:
             self._lifetime.protect_temporary(
                 value_decl,
                 plan.target_type,
@@ -687,7 +691,7 @@ class StorageLowerer:
                 "__btrc_store_value_cleanup",
             )
         sequence.extend(self._store_operations(target, value))
-        if managed and value_owned:
+        if managed:
             handoff_decl = self._temporary(plan.target_type, "__btrc_store_result", managed=True)
             target.declarations.append(handoff_decl)
             handoff = IRVar(name=handoff_decl.name)
