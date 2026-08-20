@@ -18,3 +18,28 @@ def test_textual_include_fixtures_are_not_standalone_corpus_programs():
     selected = set(language_test_files(TESTS))
 
     assert selected.isdisjoint(INCLUDE_FIXTURES)
+
+
+def test_every_runnable_program_has_a_stdout_golden():
+    required = set()
+    for relative in language_test_files(TESTS):
+        source = TESTS / relative
+        expected = source.parent / "expected" / f"{source.stem}.stdout"
+        required.add(expected.relative_to(TESTS).as_posix())
+
+    actual = {path.relative_to(TESTS).as_posix() for path in TESTS.rglob("expected/*.stdout")}
+
+    assert required - actual == set()
+    assert actual - required == set()
+
+
+def test_stderr_goldens_are_adjacent_to_runnable_programs():
+    allowed = set()
+    for relative in language_test_files(TESTS):
+        source = TESTS / relative
+        expected = source.parent / "expected" / f"{source.stem}.stderr"
+        allowed.add(expected.relative_to(TESTS).as_posix())
+
+    actual = {path.relative_to(TESTS).as_posix() for path in TESTS.rglob("expected/*.stderr")}
+
+    assert actual - allowed == set()

@@ -47,6 +47,7 @@ EXPECTED_INTERNAL_IMPORTS = {
         "calls.py",
         "collections.py",
         "expressions.py",
+        "generics.py",
         "ownership.py",
         "session.py",
         "statements.py",
@@ -90,6 +91,7 @@ EXPECTED_INTERNAL_IMPORTS = {
         "concurrency.py",
         "exceptions.py",
         "expressions.py",
+        "generics.py",
         "gpu.py",
         "ownership.py",
         "session.py",
@@ -98,7 +100,7 @@ EXPECTED_INTERNAL_IMPORTS = {
     },
     "generics.py": set(),
     "gpu.py": {"calls.py", "ownership.py", "session.py", "storage.py", "types.py"},
-    "iteration.py": {"calls.py", "ownership.py", "session.py", "storage.py", "types.py"},
+    "iteration.py": {"calls.py", "expressions.py", "ownership.py", "session.py", "storage.py", "types.py"},
     "lowerer.py": {
         "calls.py",
         "classes.py",
@@ -158,6 +160,7 @@ EXPECTED_PRIMARY_RETAINED = {
         "LoweringSession",
         "CTypeLowerer",
         "DefaultArgumentLoweringContext",
+        "MutexConstructorLowerer",
         "OwnershipLowerer",
         "ManagedValueSemantics",
         "OwnershipOperandOrder",
@@ -283,6 +286,7 @@ EXPECTED_PRIMARY_RETAINED = {
         "ExpressionLowerer",
         "StorageLowerer",
         "OwnershipLowerer",
+        "CallableStorageBoundary",
         "ManagedValueSemantics",
         "ManagedLifetimeLowerer",
         "CleanupScopeState",
@@ -646,6 +650,13 @@ def test_full_internal_import_graph_is_exact_and_acyclic() -> None:
     assert _cyclic_components(graph) == []
 
 
+def test_mutex_constructor_port_is_narrow_and_preserves_import_direction() -> None:
+    owner = _owner_class(LOWERING_ROOT / "calls.py", "MutexConstructorLowerer")
+    assert _annotation_names(owner.bases[0]) == {"Protocol"}
+    assert [node.name for node in owner.body if isinstance(node, ast.FunctionDef)] == ["create_mutex_value"]
+    assert "concurrency.py" not in _internal_import_graph()["calls.py"]
+
+
 def test_internal_code_imports_concrete_owners_not_the_package_facade() -> None:
     facade_imports: list[str] = []
     wildcards: list[str] = []
@@ -779,6 +790,7 @@ def test_callable_provenance_is_fresh_per_body_and_never_a_retained_service() ->
             ("functions.py", "materialize_default_helpers"): 1,
             ("functions.py", "materialize_deferred_functions"): 1,
             ("functions.py", "emit_function_decl"): 1,
+            ("functions.py", "lower_specialization"): 1,
             ("functions.py", "lower_lambda"): 1,
             ("translation_unit.py", "emit_global_var"): 1,
         }
@@ -914,6 +926,23 @@ def test_runtime_helper_selection_is_owned_per_lowering_session() -> None:
     translation_unit_source = (LOWERING_ROOT / "translation_unit.py").read_text()
     assert "runtime_helpers=catalog.selection()" in lowerer_source
     assert "self._session.runtime_helpers.definitions()" in translation_unit_source
+
+
+def test_assignment_materialization_consumes_the_ownership_plan() -> None:
+    owner = _owner_class(LOWERING_ROOT / "expressions.py", "ExpressionLowerer")
+    method = next(node for node in owner.body if isinstance(node, ast.FunctionDef) and node.name == "_lower_assignment")
+    ownership_calls = {
+        node.func.attr
+        for node in ast.walk(method)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and _self_chain(node.func.value) == ("_ownership",)
+    }
+    assert {
+        "assignment_target_operands",
+        "kept_target_operands",
+        "assignment_rhs_supplies_owned_result",
+    } <= ownership_calls
 
 
 def test_no_behavior_callbacks_or_callback_bags_remain() -> None:

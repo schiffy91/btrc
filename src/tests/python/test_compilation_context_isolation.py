@@ -154,27 +154,34 @@ def test_nested_operand_scopes_restore_missing_and_explicit_none_values():
         module=IRModule(),
         node_types=analyzed.node_types,
         owning_overrides={1: None, 2: "original"},
+        ownership_overrides={100: False, 200: True},
         type_overrides={10: None, 20: "original-type"},
     )
 
     with context.operand_scope(
         {1: "outer-none", 2: "outer", 3: "outer-added"},
         {10: "outer-none-type", 20: "outer-type", 30: "outer-added-type"},
+        {100: True, 200: False, 300: True},
     ):
         outer_values = context.owning_overrides.copy()
         outer_types = context.type_overrides.copy()
+        outer_ownership = context.ownership_overrides.copy()
         with context.operand_scope(
             {1: "inner-none", 2: "inner", 3: None, 4: "inner-added"},
             {10: "inner-none-type", 20: "inner-type", 30: None, 40: "inner-added-type"},
+            {100: False, 200: True, 300: False, 400: True},
         ):
             assert context.owning_overrides[4] == "inner-added"
             assert context.type_overrides[40] == "inner-added-type"
+            assert context.ownership_overrides[400] is True
 
         assert context.owning_overrides == outer_values
         assert context.type_overrides == outer_types
+        assert context.ownership_overrides == outer_ownership
 
     assert context.owning_overrides == {1: None, 2: "original"}
     assert context.type_overrides == {10: None, 20: "original-type"}
+    assert context.ownership_overrides == {100: False, 200: True}
 
     assert context.type_of(typed_node) is analyzed_type
     with context.operand_scope({}, {id(typed_node): None}):

@@ -9,6 +9,29 @@ Read this ENTIRE file before writing any code.
 
 This project is too large for a single context window. You WILL run out of memory.
 
+### Active Claude Code handoff (2026-08-19)
+
+The complete in-progress refactor/correctness checkpoint is committed on
+`codex/compiler-refactor-handoff`. Its large diff is intentional; preserve it
+as one dependency-connected campaign. Read the **Active Handoff** section of
+`GOAL.md` before making any change.
+
+The architecture destination and frozen-boundary infrastructure are complete,
+but the correctness hill-climb is not. Start with the exact Python VLA failure
+`test_gpu_vla_capacity_does_not_replay_the_declared_bound[python]`: an effectful
+bound is duplicated by `StorageLowerer.safe_array_size`. Then rerun the new
+optional-method/coalesce node against the last current self-host compiler,
+finish the GPU boundary file, resume the three self-host discovery suffixes,
+and run the final serial matrix. Do not start with `make test`; the ordered
+commands, last artifact hashes, completed evidence, and remaining gates are in
+`GOAL.md`.
+
+The last current-tree self-host artifact at handoff is
+`/tmp/btrc-current-joint-stage1.N37NYk/btrcc` with SHA-256
+`3432ef09bb04eeebce72ad7e0bf09ba59895d557ad5363225a99dc6b8aa6f5d2`.
+It is an ephemeral convenience, not a tracked build product. Rebuild it if the
+path is absent or after changing self-host production sources.
+
 **Before you start working:**
 1. Read this file completely
 2. Read `GOAL.md` completely

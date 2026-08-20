@@ -170,12 +170,12 @@ def test_optimizer_materializes_flush_helper_for_edge_only_program() -> None:
 
 def test_self_hosted_cycle_boundary_mirrors_edge_and_return_contracts() -> None:
     source = SELF_HOSTED_BOUNDARIES.read_text()
-    detector = source[source.index("public bool containsCyclableRelease") : source.index("private IRNode forcedFlush")]
-    rewriter = source[source.index("private void rewriteCycleReturns") : source.index("public void forceBoundary")]
+    detector = source[source.index("private bool containsCyclableRelease") : source.index("private IRNode forcedFlush")]
+    rewriter = source[source.index("private void rewriteReturns") : source.index("private void forceBoundary")]
 
     for helper in EDGE_RELEASE_HELPERS:
         assert f'node.callee == "{helper}"' in detector
-    assert "self.context.freshTemporary" in rewriter
+    assert "self.temporaryNames.fresh" in rewriter
     assert "self.isMaterializedReturn" in rewriter
     assert "is_cycle_return_temp = true" in rewriter
     assert rewriter.index("statement.value != null") < rewriter.index("self.forcedFlush()")

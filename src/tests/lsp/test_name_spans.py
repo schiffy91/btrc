@@ -11,9 +11,7 @@ values now carry real positions.
 from lsprotocol import types as lsp
 
 from src.devex.lsp.features.navigation import DefinitionMap
-from src.tests.lsp.lsphelp import RESOLVER, get_definition
-from src.tests.lsp.lsphelp import get_document_symbols
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import RESOLVER, analyze, get_definition, get_document_symbols, pos_of
 
 SRC = """\
 interface Shape {

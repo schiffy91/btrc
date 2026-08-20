@@ -15,7 +15,7 @@ from ..nodes import IRModule, IRVarDecl
 if TYPE_CHECKING:
     from src.compiler.python.frontend.sources import SourceMap
 
-    from .generics import SpecializedDeclarationView
+    from .generics import SpecializationView
 
 
 _MISSING = object()
@@ -44,6 +44,7 @@ class LoweringSession:
     source_map: SourceMap | None = None
     function_declarations: list[IRVarDecl] = field(default_factory=list)
     owning_overrides: dict[int, object] = field(default_factory=dict)
+    ownership_overrides: dict[int, bool] = field(default_factory=dict)
     type_overrides: dict[int, object] = field(default_factory=dict)
     local_ownership_scopes: list[dict[str, str | None]] = field(default_factory=list)
     hosted_result_conversion_requests: dict[int, tuple[str, object]] = field(default_factory=dict)
@@ -67,17 +68,26 @@ class LoweringSession:
     in_trycatch_depth: int = 0
     temporaries: TemporaryNames = field(default_factory=TemporaryNames)
     lambda_counter: int = 0
-    active_specialization: SpecializedDeclarationView | None = None
+    active_specialization: SpecializationView | None = None
+    persistent_edge_owner_c_name: str | None = None
     c_array_scopes: list[dict[str, bool]] = field(default_factory=list)
     control_context: list[object] = field(default_factory=list)
-    cleanup_scope_markers: list[object] = field(default_factory=list)
-    managed_scope_stack: list[object] = field(default_factory=list)
+
+    def source_type_of(self, node: object) -> TypeExpr | None:
+        """Return the analyzed or operand-overridden type before specialization."""
+        override = self.type_overrides.get(id(node), _MISSING)
+        return override if override is not _MISSING else self.node_types.get(id(node))  # type: ignore[return-value]
 
     def type_of(self, node: object) -> TypeExpr | None:
-        override = self.type_overrides.get(id(node), _MISSING)
-        if override is not _MISSING:
-            return override  # type: ignore[return-value]
-        return self.node_types.get(id(node))
+        type_expr = self.source_type_of(node)
+        specialization = self.active_specialization
+        if specialization is not None:
+            return specialization.substitution.resolve(type_expr)
+        return type_expr
+
+    def type_of_is_specialized(self, node: object) -> bool:
+        specialization = self.active_specialization
+        return bool(specialization is not None and specialization.substitution.applies_to(self.source_type_of(node)))
 
     def fresh_temp(self, prefix: str = "__tmp") -> str:
         return self.temporaries.fresh(prefix)
@@ -98,6 +108,12 @@ class LoweringSession:
     def require_runtime_header(self, header: str) -> None:
         self.runtime_headers.add(header)
 
+    def consume_runtime_headers(self) -> tuple[str, ...]:
+        """Return deterministic native-header requirements exactly once."""
+        headers = tuple(sorted(self.runtime_headers))
+        self.runtime_headers.clear()
+        return headers
+
     @property
     def is_unevaluated(self) -> bool:
         return self.unevaluated_depth > 0
@@ -116,25 +132,39 @@ class LoweringSession:
         self,
         values: Mapping[int, object],
         types: Mapping[int, object] | None = None,
+        ownership: Mapping[int, bool] | None = None,
     ) -> Iterator[None]:
         previous_values = {key: self.owning_overrides.get(key, _MISSING) for key in values}
         previous_types = {key: self.type_overrides.get(key, _MISSING) for key in (types or {})}
+        previous_ownership = {key: self.ownership_overrides.get(key, _MISSING) for key in (ownership or {})}
         self.owning_overrides.update(values)
         self.type_overrides.update(types or {})
+        self.ownership_overrides.update(ownership or {})
         try:
             yield
         finally:
             self._restore(self.owning_overrides, previous_values)
             self._restore(self.type_overrides, previous_types)
+            self._restore(self.ownership_overrides, previous_ownership)
 
     @contextmanager
-    def specialization(self, view: SpecializedDeclarationView) -> Iterator[None]:
+    def specialization(self, view: SpecializationView) -> Iterator[None]:
         previous = self.active_specialization
         self.active_specialization = view
         try:
             yield
         finally:
             self.active_specialization = previous
+
+    @contextmanager
+    def persistent_edge_scope(self, owner_c_name: str | None) -> Iterator[None]:
+        """Bind explicit keep/release statements to one physical edge owner."""
+        previous = self.persistent_edge_owner_c_name
+        self.persistent_edge_owner_c_name = owner_c_name
+        try:
+            yield
+        finally:
+            self.persistent_edge_owner_c_name = previous
 
     @contextmanager
     def enum_values(

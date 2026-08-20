@@ -2,10 +2,10 @@
 
 import re
 
-from src.compiler.python.syntax.ast.generated import FunctionDecl, TypeExpr
 from src.compiler.python.backend.wgsl_emitter import WgslEmitter
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import FunctionDecl, TypeExpr
 
 
 def test_btrc_type_to_wgsl():

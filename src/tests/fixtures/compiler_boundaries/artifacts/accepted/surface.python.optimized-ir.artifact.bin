@@ -1,0 +1,195 @@
+{
+  "$format": "btrc-ir-v1",
+  "module": {
+    "$type": "IRModule",
+    "preprocessor_decls": [
+      {
+        "$type": "IRMacroDef",
+        "name": "_DEFAULT_SOURCE",
+        "params": null,
+        "replacement": ""
+      },
+      {
+        "$type": "IRMacroDef",
+        "name": "_DARWIN_C_SOURCE",
+        "params": null,
+        "replacement": ""
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdio.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdlib.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "string.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdbool.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdint.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "ctype.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "math.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "assert.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "limits.h",
+        "is_system": true
+      }
+    ],
+    "freestanding": false,
+    "runtime_roots": {
+      "$set": []
+    },
+    "needs_runtime": true,
+    "debug": false,
+    "debug_cfile": "",
+    "struct_forwards": [],
+    "function_pointer_typedefs": [],
+    "function_decls": [],
+    "helper_decls": [
+      {
+        "$type": "IRHelperDecl",
+        "category": "string",
+        "name": "__btrc_string_or_empty",
+        "c_source": "static inline const char* __btrc_string_or_empty(const char* s) {\n    return s ? s : \"\";\n}",
+        "depends_on": [],
+        "required_headers": []
+      }
+    ],
+    "enum_defs": [],
+    "typedef_defs": [],
+    "tagged_union_defs": [],
+    "struct_defs": [],
+    "ordered_type_declarations": [],
+    "_type_declaration_snapshot": {
+      "$tuple": [
+        {
+          "$tuple": [
+            "enum_defs",
+            {
+              "$tuple": []
+            }
+          ]
+        },
+        {
+          "$tuple": [
+            "function_pointer_typedefs",
+            {
+              "$tuple": []
+            }
+          ]
+        },
+        {
+          "$tuple": [
+            "typedef_defs",
+            {
+              "$tuple": []
+            }
+          ]
+        },
+        {
+          "$tuple": [
+            "tagged_union_defs",
+            {
+              "$tuple": []
+            }
+          ]
+        },
+        {
+          "$tuple": [
+            "struct_defs",
+            {
+              "$tuple": []
+            }
+          ]
+        }
+      ]
+    },
+    "_ordered_type_declaration_keys": {
+      "$tuple": []
+    },
+    "global_decls": [],
+    "function_defs": [
+      {
+        "$type": "IRFunctionDef",
+        "name": "main",
+        "return_type": {
+          "$type": "CType",
+          "text": "int"
+        },
+        "params": [],
+        "body": {
+          "$type": "IRBlock",
+          "stmts": [
+            {
+              "$type": "IRExprStmt",
+              "expr": {
+                "$type": "IRCall",
+                "callee": "printf",
+                "args": [
+                  {
+                    "$type": "IRLiteral",
+                    "text": "\"%s\\n\""
+                  },
+                  {
+                    "$type": "IRCall",
+                    "callee": "__btrc_string_or_empty",
+                    "args": [
+                      {
+                        "$type": "IRLiteral",
+                        "text": "\"PASS\""
+                      }
+                    ],
+                    "helper_ref": "__btrc_string_or_empty",
+                    "cleanup_slot": null,
+                    "never_returns": false
+                  }
+                ],
+                "helper_ref": "",
+                "cleanup_slot": null,
+                "never_returns": false
+              }
+            },
+            {
+              "$type": "IRReturn",
+              "value": {
+                "$type": "IRLiteral",
+                "text": "0"
+              }
+            }
+          ]
+        },
+        "is_static": false,
+        "archive_export": false
+      }
+    ],
+    "gpu_kernels": [],
+    "_generated_runtime_preprocessor": [],
+    "_freestanding_system_includes_lowered": false
+  }
+}

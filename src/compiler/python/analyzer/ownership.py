@@ -114,7 +114,7 @@ class CallableValueSemantics:
             return None
         if isinstance(value, (BraceInitializer, ListLiteral)):
             if expected.is_array:
-                element_type = TypeSystem.strip_outer_storage(expected, array=True)
+                element_type = self.types.strip_outer_storage(expected, array=True)
                 return ((element_type, element) for element in value.elements)
             if expected.base in {"Array", "List", "Set", "Vector"} and len(expected.generic_args) == 1:
                 return ((expected.generic_args[0], element) for element in value.elements)
@@ -328,13 +328,6 @@ class OwnershipAnalyzer:
         return bool(signature and self.is_managed_result_type(signature[0]))
 
     def _managed_callable_value_is_erased(self, expected, value) -> bool:
-        canonical_expected = self.types.canonical_type(expected)
-        if (
-            canonical_expected is not None
-            and canonical_expected.base == "bool"
-            and (canonical_expected.pointer_depth == 0)
-        ):
-            return False
         addressed = value
         while isinstance(addressed, CastExpr):
             addressed = addressed.expr
@@ -350,6 +343,8 @@ class OwnershipAnalyzer:
         if value is None:
             return False
         expected = self.types.canonical_type(expected)
+        if expected is not None and expected.base == "bool" and expected.pointer_depth == 0:
+            return False
         if expected is not None and self.is_managed_return_callable_type(expected):
             return False
         slots = self._callable_values.literal_slots(expected, value) if expected is not None else None

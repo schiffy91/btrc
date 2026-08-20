@@ -9,10 +9,8 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python import Compiler
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -48,17 +46,15 @@ int main() {
 
 @functools.lru_cache(maxsize=1)
 def _emit_string_runtime() -> str:
-    analyzed = (
-        Compiler()
-        .compile_frontend(
-            STRING_SOURCE,
-            __file__,
-            filename="<stdlib-string-safety>",
-        )
-        .analyzed
-    )
+    compiler = Compiler()
+    analyzed = compiler.compile_frontend(
+        STRING_SOURCE,
+        __file__,
+        filename="<stdlib-string-safety>",
+    ).analyzed
     assert not analyzed.errors
-    return CEmitter().emit(IROptimizer(IRLowerer(analyzed).lower()).optimize())
+    module = compiler.pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
+    return compiler.pipeline.emit(module)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")

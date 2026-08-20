@@ -1,0 +1,1 @@
+{"asset":"cycles.c","btrc_order":103,"category":"cycles","dependencies":[],"headers":["stdatomic.h"],"name":"__btrc_arc_lock_state","provided_objects":[],"provided_types":[],"python_order":141,"source_sha256":"feb73e6cccd13b9d49eb80870a0a6ea546e98868a3fbfbcef53a6417b0ed43e6","source_size":392,"source_visible":false}

@@ -3,15 +3,15 @@
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.syntax.ast.generated import TypeExpr
-from src.compiler.python.ir.lowering.types import CodegenError
+from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError
 from src.compiler.python.ir.lowering.generics import TypeSubstitution
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.session import LoweringSession
-from src.compiler.python.ir.lowering.types import CTypeLowerer
+from src.compiler.python.ir.lowering.types import CodegenError, CTypeLowerer
 from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.analyzer.types import TypeIdentity, TypeShapeError
+from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.tests.python.test_codegen import emit_c
 
 
@@ -137,12 +137,14 @@ def test_nested_array_composition_is_analyzer_error_and_codegen_guard():
     """)
 
     assert any("nested array composition" in error.lower() for error in result.errors)
-    with pytest.raises(CodegenError, match="nested array composition"):
+    with pytest.raises(TypeShapeError, match="nested array composition"):
         TypeSubstitution(
             arguments={"T": _type("int", is_array=True)},
             typedefs={},
             identity=IDENTITY,
         ).resolve(_type("T", is_array=True))
+    with pytest.raises(CodegenError, match="nested array composition"):
+        IRLowerer(result).lower()
 
 
 @pytest.mark.parametrize("qualifier", ("const", "static", "extern", "volatile"))

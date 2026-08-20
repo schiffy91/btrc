@@ -1,0 +1,189 @@
+/* btrc-runtime-helper:begin __btrc_thread_spawn */
+typedef void (*__btrc_thread_result_dispose)(void*, void*);
+typedef void (*__btrc_thread_arg_dispose)(void*);
+typedef struct {
+    void* (*fn)(void*);
+    void* arg;
+    __btrc_thread_arg_dispose dispose_arg;
+    void* result;
+    void* result_context;
+    __btrc_thread_result_dispose dispose_result;
+    __btrc_raise_fn raise_result;
+    __btrc_raise_fn raise_worker;
+    int has_worker_error;
+    char worker_error[1024];
+    pthread_t handle;
+} __btrc_thread_t;
+
+static int __btrc_thread_guard(
+        __btrc_thread_t* t, __btrc_hook_fn hook, void* object) {
+    char error[1024];
+    error[0] = '\0';
+    int failed = __btrc_arc_guard_hook(
+        hook, object, error, sizeof error);
+    if (failed && !t->has_worker_error) {
+        memcpy(t->worker_error, error, sizeof t->worker_error);
+        t->has_worker_error = 1;
+    }
+    return failed;
+}
+
+static void __btrc_thread_entry_thunk(void* raw) {
+    __btrc_thread_t* t = (__btrc_thread_t*)raw;
+    t->result = t->fn(t->arg);
+}
+
+static void __btrc_thread_arc_cleanup_thunk(void* unused) {
+    (void)unused;
+    __btrc_arc_thread_state_cleanup();
+}
+
+static void* __btrc_thread_wrapper(void* raw) {
+    __btrc_thread_t* t = (__btrc_thread_t*)raw;
+    (void)__btrc_thread_guard(
+        t, __btrc_thread_entry_thunk, t);
+    if (t->dispose_arg)
+        (void)__btrc_thread_guard(t, t->dispose_arg, t->arg);
+    t->arg = NULL;
+    t->dispose_arg = NULL;
+    int cleanup_failed = __btrc_thread_guard(
+        t, __btrc_thread_arc_cleanup_thunk, NULL);
+    if (cleanup_failed)
+        __btrc_arc_thread_state_finalize();
+    __btrc_try_state_cleanup();
+    return NULL;
+}
+
+static __btrc_thread_t* __btrc_thread_spawn(
+        void* (*fn)(void*), void* arg,
+        __btrc_thread_arg_dispose dispose_arg,
+        const void* result_context, size_t context_size,
+        __btrc_thread_result_dispose dispose_result,
+        __btrc_raise_fn raise_result) {
+    if (!fn) { fprintf(stderr, "btrc: cannot spawn a null thread function\n"); exit(1); }
+    if (dispose_arg && !arg) { fprintf(stderr, "btrc: cannot dispose a null thread argument\n"); exit(1); }
+    if ((!result_context) != (context_size == 0) || (result_context && !dispose_result)) { fprintf(stderr, "btrc: invalid thread result disposal context\n"); exit(1); }
+    if (raise_result && !dispose_result) { fprintf(stderr, "btrc: invalid thread result raise callback\n"); exit(1); }
+    __btrc_thread_t* t = (__btrc_thread_t*)__btrc_safe_realloc(
+        NULL, sizeof(__btrc_thread_t));
+    t->fn = fn;
+    t->arg = arg;
+    t->dispose_arg = dispose_arg;
+    t->result = NULL;
+    t->result_context = NULL;
+    if (context_size != 0) {
+        t->result_context = __btrc_safe_realloc(NULL, context_size);
+        memcpy(t->result_context, result_context, context_size);
+    }
+    t->dispose_result = dispose_result;
+    t->raise_result = raise_result;
+    t->raise_worker = __btrc_throw;
+    t->has_worker_error = 0;
+    t->worker_error[0] = '\0';
+    int err = pthread_create(&t->handle, NULL, __btrc_thread_wrapper, t);
+    if (err != 0) { fprintf(stderr, "btrc: pthread_create failed (%d)\n", err); free(t->result_context); free(t); exit(1); }
+    return t;
+}
+/* btrc-runtime-helper:end __btrc_thread_spawn */
+/* btrc-runtime-helper:begin __btrc_thread_finish */
+static void __btrc_thread_finish(__btrc_thread_t* t) {
+    int err = pthread_join(t->handle, NULL);
+    if (err != 0) { fprintf(stderr, "btrc: pthread_join failed (%d)\n", err); exit(1); }
+}
+/* btrc-runtime-helper:end __btrc_thread_finish */
+/* btrc-runtime-helper:begin __btrc_thread_destroy_handle */
+static void __btrc_thread_destroy_handle(__btrc_thread_t* t) {
+    free(t->result_context);
+    free(t);
+}
+/* btrc-runtime-helper:end __btrc_thread_destroy_handle */
+/* btrc-runtime-helper:begin __btrc_thread_box_dispose */
+static inline void __btrc_thread_box_dispose(
+        void* result, void* context) {
+    (void)context;
+    free(result);
+}
+/* btrc-runtime-helper:end __btrc_thread_box_dispose */
+/* btrc-runtime-helper:begin __btrc_thread_arc_dispose */
+static inline void __btrc_thread_arc_dispose(
+        void* result, void* context) {
+    __btrc_arc_release(
+        result, (const __btrc_arc_type*)context);
+    __btrc_flush_cycles();
+}
+/* btrc-runtime-helper:end __btrc_thread_arc_dispose */
+/* btrc-runtime-helper:begin __btrc_thread_string_dispose */
+static inline void __btrc_thread_string_dispose(
+        void* result, void* context) {
+    (void)context;
+    __btrc_string_release((const char*)result);
+}
+/* btrc-runtime-helper:end __btrc_thread_string_dispose */
+/* btrc-runtime-helper:begin __btrc_thread_dispose_guarded */
+typedef struct {
+    __btrc_thread_result_dispose callback;
+    void* result;
+    void* context;
+} __btrc_thread_dispose_call;
+static void __btrc_thread_dispose_thunk(void* raw) {
+    __btrc_thread_dispose_call* call =
+        (__btrc_thread_dispose_call*)raw;
+    call->callback(call->result, call->context);
+}
+static int __btrc_thread_dispose_guarded(
+        __btrc_thread_result_dispose callback,
+        void* result, void* context,
+        char* error, size_t error_capacity) {
+    __btrc_thread_dispose_call call = {callback, result, context};
+    return __btrc_arc_guard_hook(
+        __btrc_thread_dispose_thunk, &call, error, error_capacity);
+}
+/* btrc-runtime-helper:end __btrc_thread_dispose_guarded */
+/* btrc-runtime-helper:begin __btrc_thread_join */
+static void* __btrc_thread_join(__btrc_thread_t* t) {
+    if (!t) { fprintf(stderr, "btrc: cannot join a consumed thread handle\n"); exit(1); }
+    __btrc_thread_finish(t);
+    if (t->has_worker_error) {
+        char worker_error[1024];
+        char dispose_error[1024];
+        dispose_error[0] = '\0';
+        memcpy(worker_error, t->worker_error, sizeof worker_error);
+        __btrc_raise_fn raise = t->raise_worker;
+        if (t->dispose_result)
+            (void)__btrc_thread_dispose_guarded(
+                t->dispose_result, t->result, t->result_context,
+                dispose_error, sizeof dispose_error);
+        __btrc_thread_destroy_handle(t);
+        __btrc_raise_captured(raise, worker_error);
+    }
+    void* result = t->result;
+    __btrc_thread_destroy_handle(t);
+    return result;
+}
+/* btrc-runtime-helper:end __btrc_thread_join */
+/* btrc-runtime-helper:begin __btrc_thread_free */
+static void __btrc_thread_free(void* raw) {
+    __btrc_thread_t* t = (__btrc_thread_t*)raw;
+    if (!t) return;
+    __btrc_thread_finish(t);
+    char error[1024];
+    error[0] = '\0';
+    char dispose_error[1024];
+    dispose_error[0] = '\0';
+    int has_error = t->has_worker_error;
+    __btrc_raise_fn raise = t->raise_worker;
+    if (has_error)
+        memcpy(error, t->worker_error, sizeof error);
+    int has_dispose_error = t->dispose_result
+        && __btrc_thread_dispose_guarded(
+            t->dispose_result, t->result, t->result_context,
+            dispose_error, sizeof dispose_error);
+    if (!has_error && has_dispose_error) {
+        memcpy(error, dispose_error, sizeof error);
+        raise = t->raise_result;
+        has_error = 1;
+    }
+    __btrc_thread_destroy_handle(t);
+    if (has_error) __btrc_raise_captured(raise, error);
+}
+/* btrc-runtime-helper:end __btrc_thread_free */

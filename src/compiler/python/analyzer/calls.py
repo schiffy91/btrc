@@ -36,6 +36,7 @@ from src.compiler.python.syntax.ast.generated import (
     Identifier,
     LambdaExpr,
     ListLiteral,
+    MapLiteral,
     TernaryExpr,
     TypeExpr,
 )
@@ -120,6 +121,10 @@ class CallAnalyzer:
             elif isinstance(step, InitializerTypeContext):
                 self.session.record_node_type(step.value, step.expected)
                 self.generics.collect_type_instances(step.expected)
+                if isinstance(step.value, ListLiteral) and step.value.elements:
+                    self.generics.record_class_method_use(step.expected, "push")
+                elif isinstance(step.value, MapLiteral) and step.value.entries:
+                    self.generics.record_class_method_use(step.expected, "put")
         return plan.contextual
 
     def type_of(self, expression):
@@ -905,6 +910,8 @@ class CallAnalyzer:
             self.generics.record_method_instance(
                 expr, cls, method, receiver_type, self._generic_method_plan(expr, method.params)
             )
+        elif receiver_type is not None:
+            self.generics.record_class_method_use(receiver_type, method.name)
 
     def validate_constructor_args(self, cls, args, arg_names, line, col, substitutions=None):
         if (
@@ -1192,6 +1199,8 @@ class CallAnalyzer:
     def validate_managed_string_source(self, expected, value, subject, line=0, col=0) -> None:
         target = self.types.canonical_type(expected)
         actual = self.types.canonical_type(self.type_of(value))
+        if self.types.requires_string_conversion(target, actual):
+            self.generics.record_class_method_use(actual, "toString")
         if not self._managed_string_target(target) or not self._raw_c_string(actual):
             return
         contract = self._direct_hosted_return_contract(value)

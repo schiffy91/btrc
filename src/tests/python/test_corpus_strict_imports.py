@@ -168,7 +168,7 @@ def corpus_import_audit() -> CorpusImportAuditResult:
 def test_corpus_declares_every_direct_stdlib_owner(
     corpus_import_audit: CorpusImportAuditResult,
 ) -> None:
-    assert corpus_import_audit.source_count == 1116
+    assert corpus_import_audit.source_count == 1114
     assert corpus_import_audit.duplicate_modules == ()
     assert corpus_import_audit.unknown_modules == ()
     assert corpus_import_audit.direct_owner_diagnostics == ()

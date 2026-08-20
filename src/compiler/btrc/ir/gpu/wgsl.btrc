@@ -384,8 +384,8 @@ class GpuWgslEmitter {
             }
             named = named + 1;
         }
-        bool sourceFunction = self.semantics.builtin(name)
-            && !self.semantics.callResolvesToBuiltin(
+        bool sourceFunction =
+            self.semantics.callResolvesToSourceSymbol(
                 expression, self.varTypes);
         if (sourceFunction || self.names.has(name)) {
             self.gpuLoweringFail(expression, "call to '" + name

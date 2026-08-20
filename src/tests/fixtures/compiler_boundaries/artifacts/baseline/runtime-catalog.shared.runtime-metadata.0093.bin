@@ -1,0 +1,1 @@
+{"asset":"process.c","btrc_order":183,"category":"process","dependencies":[],"headers":["errno.h","pthread.h","signal.h"],"name":"__btrc_exec_signal_guard_begin","provided_objects":[],"provided_types":[],"python_order":198,"source_sha256":"c9c96c46965e09adeec7fe66a1a168202f1b16c52cfd2a1756db7847b9fc95ba","source_size":342,"source_visible":true}

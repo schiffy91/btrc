@@ -1,0 +1,10 @@
+error: 'BoundaryOwner' is defined in owner.btrc but consumer.btrc does not import it
+  --> $REPOSITORY/build/verification/compiler-boundaries/workspace/sources/strict-import-error/consumer.btrc:1:1
+   |
+ 1 | BoundaryOwner makeOwner() {
+   | ^
+error: 'BoundaryOwner' is defined in owner.btrc but consumer.btrc does not import it
+  --> $REPOSITORY/build/verification/compiler-boundaries/workspace/sources/strict-import-error/consumer.btrc:2:16
+   |
+ 2 |     return new BoundaryOwner();
+   |                ^

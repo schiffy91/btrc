@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from .verification import GeneratedArtifact
+from . import GeneratedArtifact
 
 
 class RuntimeManifestError(ValueError):
@@ -118,6 +118,8 @@ class RuntimeHelperSpec:
     source: str
     dependencies: tuple[str, ...]
     headers: tuple[str, ...]
+    provided_types: tuple[str, ...]
+    provided_objects: tuple[str, ...]
     source_visible: bool
     python_order: int | None
     btrc_order: int | None
@@ -154,8 +156,19 @@ class RuntimeManifest:
     _CALL_FEATURE_KEYS = frozenset({"prefix", "macro"})
     _HEADER_FEATURE_KEYS = frozenset({"header", "macro"})
     _HELPER_KEYS = frozenset(
-        {"name", "category", "asset", "dependencies", "headers", "source_visible", "order"}
+        {
+            "name",
+            "category",
+            "asset",
+            "dependencies",
+            "headers",
+            "provided_types",
+            "provided_objects",
+            "source_visible",
+            "order",
+        }
     )
+    _OPTIONAL_HELPER_KEYS = frozenset({"provided_types", "provided_objects"})
     _CATALOGS = ("python", "btrc")
     _ASSETS = (
         "core.c",
@@ -175,16 +188,14 @@ class RuntimeManifest:
         try:
             manifest_data = manifest_path.read_bytes()
             if b"\x00" in manifest_data or b"\r" in manifest_data:
-                raise RuntimeManifestError(
-                    f"runtime manifest must be NUL-free UTF-8 with LF endings: {manifest_path}"
-                )
+                raise RuntimeManifestError(f"runtime manifest must be NUL-free UTF-8 with LF endings: {manifest_path}")
             document = tomllib.loads(manifest_data.decode("utf-8"))
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
             raise RuntimeManifestError(f"cannot read runtime manifest {manifest_path}: {error}") from error
         cls._require_keys(document, cls._ROOT_KEYS, "runtime manifest")
         schema_version = cls._integer(document, "schema_version", "runtime manifest")
         marker_version = cls._integer(document, "marker_version", "runtime manifest")
-        if schema_version != 1 or marker_version != 1:
+        if schema_version != 3 or marker_version != 1:
             raise RuntimeManifestError(
                 f"unsupported runtime manifest versions: schema={schema_version}, marker={marker_version}"
             )
@@ -199,9 +210,7 @@ class RuntimeManifest:
         try:
             header_data = header_path.read_bytes()
             if b"\x00" in header_data or b"\r" in header_data:
-                raise RuntimeManifestError(
-                    f"freestanding header must be NUL-free UTF-8 with LF endings: {header_path}"
-                )
+                raise RuntimeManifestError(f"freestanding header must be NUL-free UTF-8 with LF endings: {header_path}")
             header_source = header_data.decode("utf-8")
         except (OSError, UnicodeDecodeError) as error:
             raise RuntimeManifestError(f"cannot read freestanding header {header_path}: {error}") from error
@@ -245,7 +254,12 @@ class RuntimeManifest:
             context = f"helpers[{index}]"
             if not isinstance(raw_helper, dict):
                 raise RuntimeManifestError(f"{context} must be a table")
-            cls._require_keys(raw_helper, cls._HELPER_KEYS, context)
+            cls._require_keys(
+                raw_helper,
+                cls._HELPER_KEYS,
+                context,
+                optional=cls._OPTIONAL_HELPER_KEYS,
+            )
             name = cls._string(raw_helper, "name", context)
             category = cls._string(raw_helper, "category", context)
             asset = cls._string(raw_helper, "asset", context)
@@ -273,6 +287,18 @@ class RuntimeManifest:
                 raise RuntimeManifestError(f"{context}.source_visible must be a boolean")
             dependencies = cls._string_tuple(raw_helper, "dependencies", context)
             headers = cls._string_tuple(raw_helper, "headers", context)
+            provided_types = cls._provided_identifiers(
+                raw_helper,
+                "provided_types",
+                source_entry[1],
+                context,
+            )
+            provided_objects = cls._provided_identifiers(
+                raw_helper,
+                "provided_objects",
+                source_entry[1],
+                context,
+            )
             helpers.append(
                 RuntimeHelperSpec(
                     name=name,
@@ -281,6 +307,8 @@ class RuntimeManifest:
                     source=source_entry[1],
                     dependencies=dependencies,
                     headers=headers,
+                    provided_types=provided_types,
+                    provided_objects=provided_objects,
                     source_visible=source_visible,
                     python_order=python_order,
                     btrc_order=btrc_order,
@@ -311,6 +339,18 @@ class RuntimeManifest:
         names = [helper.name for helper in self.helpers]
         if len(names) != len(set(names)):
             raise RuntimeManifestError("runtime helper names must be unique")
+        type_providers = {
+            provided_type: helper.name for helper in self.helpers for provided_type in helper.provided_types
+        }
+        provided_type_count = sum(len(helper.provided_types) for helper in self.helpers)
+        if len(type_providers) != provided_type_count:
+            raise RuntimeManifestError("runtime provided types must have exactly one provider")
+        object_providers = {
+            provided_object: helper.name for helper in self.helpers for provided_object in helper.provided_objects
+        }
+        provided_object_count = sum(len(helper.provided_objects) for helper in self.helpers)
+        if len(object_providers) != provided_object_count:
+            raise RuntimeManifestError("runtime provided objects must have exactly one provider")
         known = set(names)
         for helper in self.helpers:
             self._unique(helper.dependencies, f"helper {helper.name} dependencies")
@@ -358,9 +398,7 @@ class RuntimeManifest:
             if current == 2:
                 return
             if current == 1:
-                raise RuntimeManifestError(
-                    f"{catalog} runtime dependency cycle: {' -> '.join((*path, name))}"
-                )
+                raise RuntimeManifestError(f"{catalog} runtime dependency cycle: {' -> '.join((*path, name))}")
             state[name] = 1
             for dependency in index[name].dependencies:
                 visit(dependency, (*path, name))
@@ -412,12 +450,13 @@ class RuntimeManifest:
         context: str,
         *,
         allow_missing: bool = False,
+        optional: frozenset[str] = frozenset(),
     ) -> None:
         unknown = set(table) - allowed
         if unknown:
             raise RuntimeManifestError(f"unknown {context} keys: {', '.join(sorted(unknown))}")
         if not allow_missing:
-            missing = allowed - set(table)
+            missing = allowed - optional - set(table)
             if missing:
                 raise RuntimeManifestError(f"missing {context} keys: {', '.join(sorted(missing))}")
 
@@ -460,6 +499,29 @@ class RuntimeManifest:
         cls._unique(result, f"{context}.{key}")
         return result
 
+    @classmethod
+    def _optional_string_tuple(cls, table: dict[str, Any], key: str, context: str) -> tuple[str, ...]:
+        if key not in table:
+            return ()
+        return cls._string_tuple(table, key, context)
+
+    @classmethod
+    def _provided_identifiers(
+        cls,
+        table: dict[str, Any],
+        key: str,
+        source: str,
+        context: str,
+    ) -> tuple[str, ...]:
+        identifiers = cls._optional_string_tuple(table, key, context)
+        invalid = [identifier for identifier in identifiers if not cls._IDENTIFIER.fullmatch(identifier)]
+        if invalid:
+            raise RuntimeManifestError(f"{context}.{key} contains non-C identifiers: {', '.join(invalid)}")
+        absent = [identifier for identifier in identifiers if not re.search(rf"\b{re.escape(identifier)}\b", source)]
+        if absent:
+            raise RuntimeManifestError(f"{context}.{key} are absent from helper source: {', '.join(absent)}")
+        return identifiers
+
     @staticmethod
     def _unique(values: tuple[str, ...], context: str) -> None:
         if len(values) != len(set(values)):
@@ -496,6 +558,8 @@ class RuntimeCatalogGenerator:
             "    c_source: str",
             "    depends_on: tuple[str, ...]",
             "    required_headers: tuple[str, ...]",
+            "    provided_types: tuple[str, ...]",
+            "    provided_objects: tuple[str, ...]",
             "    source_visible: bool",
             "",
             "",
@@ -516,6 +580,8 @@ class RuntimeCatalogGenerator:
                     "        ),",
                     f"        depends_on={helper.dependencies!r},",
                     f"        required_headers={helper.headers!r},",
+                    f"        provided_types={helper.provided_types!r},",
+                    f"        provided_objects={helper.provided_objects!r},",
                     f"        source_visible={helper.source_visible!r},",
                     "    ),",
                 ]
@@ -557,6 +623,8 @@ class RuntimeCatalogGenerator:
             "    public Vector<string> source_chunks;",
             "    public Vector<string> dependencies;",
             "    public Vector<string> headers;",
+            "    public Vector<string> provided_types;",
+            "    public Vector<string> provided_objects;",
             "    public bool source_visible;",
             "",
             "    public GeneratedRuntimeHelperRow(",
@@ -565,12 +633,16 @@ class RuntimeCatalogGenerator:
             "            Vector<string> source_chunks,",
             "            Vector<string> dependencies,",
             "            Vector<string> headers,",
+            "            Vector<string> provided_types,",
+            "            Vector<string> provided_objects,",
             "            bool source_visible) {",
             "        self.category = category;",
             "        self.name = name;",
             "        self.source_chunks = source_chunks;",
             "        self.dependencies = dependencies;",
             "        self.headers = headers;",
+            "        self.provided_types = provided_types;",
+            "        self.provided_objects = provided_objects;",
             "        self.source_visible = source_visible;",
             "    }",
             "}",
@@ -602,6 +674,8 @@ class RuntimeCatalogGenerator:
                     "            ],",
                     f"            {self._btrc_vector(helper.dependencies)},",
                     f"            {self._btrc_vector(helper.headers)},",
+                    f"            {self._btrc_vector(helper.provided_types)},",
+                    f"            {self._btrc_vector(helper.provided_objects)},",
                     f"            {'true' if helper.source_visible else 'false'}));",
                 ]
             )

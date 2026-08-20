@@ -6,7 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -241,9 +242,10 @@ def test_type_declarations_follow_transitive_typed_references():
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_pruned_declaration_closure_is_strict_c11(tmp_path: Path, c_compiler: str):
     module = _strict_declaration_module()
-    IROptimizer(module).optimize()
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(module, CompilerOptions())
     source = tmp_path / "optimized_declarations.c"
-    source.write_text(CEmitter().emit(module))
+    source.write_text(pipeline.emit(module))
 
     subprocess.run(
         [

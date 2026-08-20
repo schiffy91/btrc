@@ -3,28 +3,43 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, ClassVar
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
 from src.compiler.python.analyzer.types import TypeIdentity
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
+    IRAssign,
     IRBinOp,
     IRBlock,
     IRCall,
+    IRCase,
     IRCast,
     IRCommaExpr,
     IRCompoundLiteral,
+    IRDeref,
+    IRDoWhile,
     IRExpr,
     IRExprStmt,
+    IRFieldAccess,
+    IRFor,
+    IRFunctionDef,
     IRFunctionRef,
     IRIf,
+    IRIndex,
     IRInitializerList,
     IRLiteral,
+    IRNode,
+    IRReturn,
+    IRStatementSequence,
+    IRStmt,
     IRStmtExpr,
+    IRSwitch,
+    IRUnaryOp,
     IRVar,
     IRVarDecl,
+    IRWhile,
 )
 from src.compiler.python.syntax.ast.generated import BraceInitializer, ListLiteral, MapLiteral, TupleLiteral, TypeExpr
 
@@ -60,10 +75,30 @@ class StaticAggregatePlan:
     field_types: tuple[TypeExpr, ...] | None
 
 
+@dataclass(frozen=True, slots=True)
+class CollectionLiteralPlan:
+    """A dynamic collection shape whose leaves await ordered lowering."""
+
+    source: ListLiteral | MapLiteral
+    leaves: tuple[object, ...]
+    entry_width: int
+
+
 class CollectionLowerer:
     """Own collections lowering for one run."""
 
     _COLLECTION_CLASS_BASES = frozenset({"Array", "List", "Map", "Set", "Vector"})
+    _ASSIGNMENT_OPERATORS = frozenset({"=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="})
+    _MUTATING_CALL_SLOT: ClassVar[dict[str, int]] = {
+        "__btrc_arc_replace_edge": 0,
+        "__btrc_safe_realloc": 0,
+        "free": 0,
+        "memcpy": 0,
+        "memmove": 0,
+        "memset": 0,
+        "qsort": 0,
+        "realloc": 0,
+    }
 
     def __init__(
         self,
@@ -89,12 +124,240 @@ class CollectionLowerer:
         self._cleanup_slots = cleanup_slots
         self._cleanup_scope = cleanup_scope
 
+    @classmethod
+    def owns_persistent_element_edges(cls, class_name: str) -> bool:
+        """Whether explicit keeps in this class publish collection-owned slots."""
+        return class_name in cls._COLLECTION_CLASS_BASES
+
+    def protect_topology_mutation(
+        self,
+        function: IRFunctionDef,
+        collection_type: TypeExpr,
+    ) -> bool:
+        """Exclude one physical collection edit from concurrent ARC snapshots."""
+        concrete = self._types.canonical_type(collection_type) or collection_type
+        if (
+            concrete.base not in self._COLLECTION_CLASS_BASES
+            or not self._cycles.generic_instance_needs_visitor(
+                concrete.base,
+                list(concrete.generic_args),
+            )
+            or function.body is None
+            or not self._contains_self_storage_mutation(function.body)
+        ):
+            return False
+
+        token_name = self._session.fresh_temp("__btrc_topology_scope")
+        cleanup_enabled = self._cleanup_scope.exception_cleanup_active()
+        marker_name = self._session.fresh_temp("__btrc_topology_cleanup") if cleanup_enabled else None
+        self._session.require_helper("__btrc_arc_topology_begin")
+        self._session.require_helper("__btrc_arc_topology_complete")
+
+        prologue: list[IRStmt] = []
+        if marker_name is not None:
+            self._session.require_helper("__btrc_cleanup_mark")
+            prologue.append(
+                IRVarDecl(
+                    c_type=CType(text="int"),
+                    name=marker_name,
+                    init=IRCall(
+                        callee="__btrc_cleanup_mark",
+                        args=[],
+                        helper_ref="__btrc_cleanup_mark",
+                    ),
+                )
+            )
+        token_declaration = IRVarDecl(
+            c_type=CType(text="void*"),
+            name=token_name,
+            init=IRCall(
+                callee="__btrc_arc_topology_begin",
+                args=[],
+                helper_ref="__btrc_arc_topology_begin",
+            ),
+        )
+        prologue.append(token_declaration)
+        if marker_name is not None:
+            self._session.require_helper("__btrc_arc_topology_cleanup")
+            prologue.append(
+                IRExprStmt(
+                    expr=self._cleanup_slots.register(
+                        token_declaration,
+                        IRFunctionRef(name="__btrc_arc_topology_cleanup"),
+                        direct=True,
+                    )
+                )
+            )
+
+        self._rewrite_topology_block(function, function.body, token_name, marker_name)
+        if IRStatementSequence(function.body.stmts).may_fall_through():
+            function.body.stmts.extend(self._topology_epilogue(token_name, marker_name))
+        function.body.stmts[0:0] = prologue
+        return True
+
+    def _topology_epilogue(self, token_name: str, marker_name: str | None) -> list[IRStmt]:
+        statements: list[IRStmt] = [
+            IRExprStmt(
+                expr=IRCall(
+                    callee="__btrc_arc_topology_complete",
+                    args=[
+                        IRCast(
+                            target_type=CType(text="void* volatile*"),
+                            expr=IRAddressOf(expr=IRVar(name=token_name)),
+                        )
+                    ],
+                    helper_ref="__btrc_arc_topology_complete",
+                )
+            )
+        ]
+        if marker_name is not None:
+            self._session.require_helper("__btrc_discard_cleanups_to")
+            statements.append(
+                IRExprStmt(
+                    expr=IRCall(
+                        callee="__btrc_discard_cleanups_to",
+                        args=[IRVar(name=marker_name)],
+                        helper_ref="__btrc_discard_cleanups_to",
+                    )
+                )
+            )
+        return statements
+
+    def _rewrite_topology_block(
+        self,
+        function: IRFunctionDef,
+        block: IRBlock,
+        token_name: str,
+        marker_name: str | None,
+    ) -> None:
+        rewritten: list[IRStmt] = []
+        for statement in block.stmts:
+            self._rewrite_nested_topology_returns(
+                function,
+                statement,
+                token_name,
+                marker_name,
+            )
+            if isinstance(statement, IRReturn):
+                if statement.value is not None:
+                    result_name = self._session.fresh_temp("__btrc_topology_return")
+                    rewritten.append(
+                        IRVarDecl(
+                            c_type=function.return_type,
+                            name=result_name,
+                            init=statement.value,
+                        )
+                    )
+                    statement.value = IRVar(name=result_name)
+                rewritten.extend(self._topology_epilogue(token_name, marker_name))
+            rewritten.append(statement)
+        block.stmts = rewritten
+
+    def _rewrite_nested_topology_returns(
+        self,
+        function: IRFunctionDef,
+        statement: IRStmt,
+        token_name: str,
+        marker_name: str | None,
+    ) -> None:
+        if isinstance(statement, IRBlock):
+            self._rewrite_topology_block(function, statement, token_name, marker_name)
+        elif isinstance(statement, IRIf):
+            self._rewrite_topology_block(function, statement.then_block, token_name, marker_name)
+            if statement.else_block is not None:
+                self._rewrite_topology_block(function, statement.else_block, token_name, marker_name)
+        elif isinstance(statement, (IRWhile, IRDoWhile, IRFor)):
+            self._rewrite_topology_block(function, statement.body, token_name, marker_name)
+        elif isinstance(statement, IRSwitch):
+            for case in statement.cases:
+                self._rewrite_topology_case(function, case, token_name, marker_name)
+
+    def _rewrite_topology_case(
+        self,
+        function: IRFunctionDef,
+        case: IRCase,
+        token_name: str,
+        marker_name: str | None,
+    ) -> None:
+        block = IRBlock(stmts=case.body)
+        self._rewrite_topology_block(function, block, token_name, marker_name)
+        case.body = block.stmts
+
+    def _contains_self_storage_mutation(self, value: object) -> bool:
+        aliases: set[str] = set()
+        while self._collect_self_storage_aliases(value, aliases):
+            pass
+        return any(self._is_self_storage_mutation(node, aliases) for node in IRNode.walk_value(value))
+
+    def _collect_self_storage_aliases(self, value: object, aliases: set[str]) -> bool:
+        changed = False
+        for node in IRNode.walk_value(value):
+            if isinstance(node, IRVarDecl) and node.init is not None:
+                changed |= self._add_self_storage_alias(node.name, node.init, aliases)
+            elif isinstance(node, IRAssign) and isinstance(node.target, IRVar):
+                changed |= self._add_self_storage_alias(node.target.name, node.value, aliases)
+            elif isinstance(node, IRBinOp) and node.op == "=" and isinstance(node.left, IRVar):
+                changed |= self._add_self_storage_alias(node.left.name, node.right, aliases)
+        return changed
+
+    def _add_self_storage_alias(self, name: str, source: object, aliases: set[str]) -> bool:
+        if name in aliases or not self._is_rooted_in_self(source, aliases):
+            return False
+        aliases.add(name)
+        return True
+
+    def _is_self_storage_mutation(self, value: object, aliases: set[str]) -> bool:
+        if isinstance(value, IRAssign) and self._is_self_storage(value.target, aliases):
+            return True
+        if (
+            isinstance(value, IRBinOp)
+            and value.op in self._ASSIGNMENT_OPERATORS
+            and self._is_self_storage(value.left, aliases)
+        ):
+            return True
+        if isinstance(value, IRUnaryOp) and value.op in {"++", "--"} and self._is_self_storage(value.operand, aliases):
+            return True
+        if isinstance(value, IRCall) and isinstance(value.callee, str):
+            slot = self._MUTATING_CALL_SLOT.get(value.callee)
+            if slot is not None and slot < len(value.args):
+                return self._is_rooted_in_self(value.args[slot], aliases)
+        return False
+
+    def _is_self_storage(self, value: object, aliases: set[str]) -> bool:
+        if isinstance(value, (IRFieldAccess, IRIndex)):
+            return self._is_rooted_in_self(value.obj, aliases)
+        if isinstance(value, IRDeref):
+            return self._is_rooted_in_self(value.expr, aliases)
+        if isinstance(value, IRUnaryOp) and value.op == "*":
+            return self._is_rooted_in_self(value.operand, aliases)
+        return False
+
+    def _is_rooted_in_self(self, value: object, aliases: set[str]) -> bool:
+        if isinstance(value, IRVar):
+            return value.name == "self" or value.name in aliases
+        if isinstance(value, (IRFieldAccess, IRIndex)):
+            return self._is_rooted_in_self(value.obj, aliases)
+        if isinstance(value, (IRAddressOf, IRCast, IRDeref)):
+            return self._is_rooted_in_self(value.expr, aliases)
+        if isinstance(value, IRUnaryOp):
+            return self._is_rooted_in_self(value.operand, aliases)
+        if isinstance(value, IRBinOp) and value.op in {"+", "-"}:
+            return self._is_rooted_in_self(
+                value.left,
+                aliases,
+            ) or self._is_rooted_in_self(value.right, aliases)
+        return False
+
     def plan_brace(self, node: BraceInitializer, provenance: CallableProvenance) -> AggregatePlan:
         """Resolve one context-typed aggregate without lowering elements."""
         node_type = self._session.type_of(node)
         self._reject_shallow_initializer(node, node_type, provenance)
         canonical = self._types.canonical_type(node_type)
-        if canonical and canonical.base in self._analyzed.class_table and canonical.generic_args:
+        if (
+            canonical
+            and canonical.generic_args
+            and (canonical.base in self._analyzed.class_table or canonical.base in self._COLLECTION_CLASS_BASES)
+        ):
             if not node.elements:
                 return AggregatePlan(
                     source=node,
@@ -144,7 +407,7 @@ class CollectionLowerer:
         """Build structured aggregate IR from explicitly lowered operands."""
         if plan.constructor is not None:
             return IRCall(callee=f"{plan.constructor}_new", args=[])
-        if plan.c_type is not None and plan.field_names:
+        if plan.c_type is not None:
             return IRCompoundLiteral(
                 c_type=CType(text=plan.c_type),
                 fields=list(zip(plan.field_names, lowered_elements)),
@@ -201,8 +464,12 @@ class CollectionLowerer:
             self._reject_owned_elements(node.elements, "a shallow aggregate", provenance)
 
     def _reject_owned_elements(self, elements, aggregate: str, provenance: CallableProvenance) -> None:
+        source_flow = provenance.plan_evaluation(elements)
         for element in elements:
-            if self._ownership.owns_result(element, provenance=provenance):
+            entry = source_flow.entries.get(id(element), source_flow.incoming)
+            with provenance.at_flow(entry):
+                owns_result = self._ownership.owns_result(element, provenance=provenance)
+            if owns_result:
                 raise CodegenError(
                     "caller-owned temporary cannot be embedded in "
                     f"{aggregate}; aggregate class elements are shallow "
@@ -233,17 +500,147 @@ class CollectionLowerer:
         )
         return [IRIf(condition=slot, then_block=IRBlock(stmts=[IRExprStmt(expr=call)]))]
 
+    def cycle_storage_visit_stmts(
+        self,
+        type_expr: TypeExpr,
+        collection: IRExpr,
+    ) -> list[IRStmt] | None:
+        """Traverse the physical managed slots of a built-in collection."""
+        concrete = self._types.canonical_type(type_expr) or type_expr
+        arguments = list(concrete.generic_args)
+        if concrete.base in {"Array", "Vector"} and len(arguments) == 1:
+            return self._dense_cycle_storage_visit_stmts(
+                collection,
+                arguments[0],
+            )
+        if concrete.base == "Map" and len(arguments) == 2:
+            return self._hashed_cycle_storage_visit_stmts(
+                collection,
+                (("keys", arguments[0]), ("values", arguments[1])),
+            )
+        if concrete.base == "Set" and len(arguments) == 1:
+            return self._hashed_cycle_storage_visit_stmts(
+                collection,
+                (("keys", arguments[0]),),
+            )
+        return None
+
+    def _dense_cycle_storage_visit_stmts(
+        self,
+        collection: IRExpr,
+        element_type: TypeExpr,
+    ) -> list[IRStmt]:
+        index_name = self._session.fresh_temp("__btrc_visit_index")
+        index = IRVar(name=index_name)
+        slot = IRIndex(
+            obj=IRFieldAccess(obj=collection, field="data", arrow=True),
+            index=index,
+        )
+        visits = self.slot_visit_stmts(element_type, slot)
+        if not visits:
+            return []
+        return [
+            self._cycle_storage_loop(
+                collection,
+                index_name,
+                "len",
+                visits,
+            )
+        ]
+
+    def _hashed_cycle_storage_visit_stmts(
+        self,
+        collection: IRExpr,
+        slots: tuple[tuple[str, TypeExpr], ...],
+    ) -> list[IRStmt]:
+        index_name = self._session.fresh_temp("__btrc_visit_index")
+        index = IRVar(name=index_name)
+        visits = [
+            statement
+            for field_name, field_type in slots
+            for statement in self.slot_visit_stmts(
+                field_type,
+                IRIndex(
+                    obj=IRFieldAccess(obj=collection, field=field_name, arrow=True),
+                    index=index,
+                ),
+            )
+        ]
+        if not visits:
+            return []
+        occupied = IRIndex(
+            obj=IRFieldAccess(obj=collection, field="occupied", arrow=True),
+            index=index,
+        )
+        return [
+            self._cycle_storage_loop(
+                collection,
+                index_name,
+                "cap",
+                [IRIf(condition=occupied, then_block=IRBlock(stmts=visits))],
+            )
+        ]
+
+    @staticmethod
+    def _cycle_storage_loop(
+        collection: IRExpr,
+        index_name: str,
+        bound_field: str,
+        body: list[IRStmt],
+    ) -> IRFor:
+        return IRFor(
+            init=IRVarDecl(c_type=CType(text="int"), name=index_name, init=IRLiteral(text="0")),
+            condition=IRBinOp(
+                left=IRVar(name=index_name),
+                op="<",
+                right=IRFieldAccess(obj=collection, field=bound_field, arrow=True),
+            ),
+            update=IRUnaryOp(op="++", operand=IRVar(name=index_name), prefix=False),
+            body=IRBlock(stmts=body),
+        )
+
+    @staticmethod
+    def plan_literal(node: ListLiteral | MapLiteral) -> CollectionLiteralPlan:
+        """Preserve literal source order without traversing any leaf."""
+        if isinstance(node, ListLiteral):
+            return CollectionLiteralPlan(
+                source=node,
+                leaves=tuple(node.elements),
+                entry_width=1,
+            )
+        return CollectionLiteralPlan(
+            source=node,
+            leaves=tuple(leaf for entry in node.entries for leaf in (entry.key, entry.value)),
+            entry_width=2,
+        )
+
+    def materialize_literal(
+        self,
+        plan: CollectionLiteralPlan,
+        lowered_leaves: list[IRExpr],
+    ) -> IRExpr:
+        """Allocate and populate one collection from stabilized leaf values."""
+        if len(lowered_leaves) != len(plan.leaves):
+            raise ValueError("collection literal materialization requires every planned leaf")
+        if plan.entry_width == 1:
+            assert isinstance(plan.source, ListLiteral)
+            return self.lower_list_literal(plan.source, lowered_leaves)
+        if plan.entry_width != 2 or not isinstance(plan.source, MapLiteral):
+            raise ValueError("unsupported collection literal entry shape")
+        entries = [(lowered_leaves[index], lowered_leaves[index + 1]) for index in range(0, len(lowered_leaves), 2)]
+        return self.lower_map_literal(plan.source, entries)
+
     def lower_list_literal(
         self,
         node: ListLiteral,
         lowered_elements: list[IRExpr],
     ):
         """Build a typed list/vector and consume caller-owned elements."""
-        list_type = self._analyzed.node_types.get(id(node))
+        list_type = self._session.type_of(node)
         element_type = (
             list_type.generic_args[0]
             if list_type is not None and list_type.generic_args
-            else self._analyzed.node_types.get(id(node.elements[0]))
+            else self._session.type_of(node.elements[0])
             if node.elements
             else TypeExpr(base="int")
         )
@@ -267,12 +664,12 @@ class CollectionLowerer:
         lowered_entries: list[tuple[IRExpr, IRExpr]],
     ):
         """Build a typed map and consume caller-owned keys and values."""
-        map_type = self._analyzed.node_types.get(id(node))
+        map_type = self._session.type_of(node)
         if map_type is not None and len(map_type.generic_args) == 2:
             key_type, value_type = map_type.generic_args
         elif node.entries:
-            key_type = self._analyzed.node_types.get(id(node.entries[0].key)) or TypeExpr(base="string")
-            value_type = self._analyzed.node_types.get(id(node.entries[0].value)) or TypeExpr(base="int")
+            key_type = self._session.type_of(node.entries[0].key) or TypeExpr(base="string")
+            value_type = self._session.type_of(node.entries[0].value) or TypeExpr(base="int")
             map_type = TypeExpr(base="Map", generic_args=[key_type, value_type])
         else:
             key_type, value_type = (TypeExpr(base="string"), TypeExpr(base="int"))

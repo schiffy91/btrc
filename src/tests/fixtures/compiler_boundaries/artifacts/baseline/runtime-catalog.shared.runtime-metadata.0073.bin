@@ -1,0 +1,1 @@
+{"asset":"process.c","btrc_order":174,"category":"process","dependencies":[],"headers":["errno.h","unistd.h"],"name":"__btrc_close_descriptors_from","provided_objects":[],"provided_types":[],"python_order":189,"source_sha256":"d4e3944fdefd8655c6f8e733fcc23aeda589c5a91dd274f93acdbbdf8fb2db71","source_size":1284,"source_visible":true}

@@ -1,9 +1,9 @@
 """Class members preserve explicit declarator-array storage."""
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.syntax.ast.generated import ClassDecl, FieldDecl, IntLiteral
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import ClassDecl, FieldDecl, IntLiteral
 
 
 def test_fixed_class_field_array_suffix_is_typed_storage():

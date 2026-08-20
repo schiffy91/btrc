@@ -37,8 +37,8 @@ import tempfile
 import time
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.frontend.stage import FrontendStage
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer

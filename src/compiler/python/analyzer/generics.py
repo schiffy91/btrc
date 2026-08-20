@@ -5,9 +5,16 @@ from __future__ import annotations
 from dataclasses import dataclass, fields, is_dataclass
 from typing import TYPE_CHECKING
 
-from src.compiler.python.analyzer.program import DeclarationIndex
+from src.compiler.python.analyzer.program import (
+    ClassCallableIdentity,
+    ClassCallableKind,
+    DeclarationIndex,
+    GenericClassCallableDependency,
+    GenericMethodInstanceDependency,
+    GenericTemplateDependency,
+)
 from src.compiler.python.analyzer.types import TypeShapeError
-from src.compiler.python.syntax.ast.generated import Identifier, LambdaExpr, TypeExpr
+from src.compiler.python.syntax.ast.generated import AssignExpr, Identifier, LambdaExpr, TypeExpr
 
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalysisSession
@@ -22,6 +29,14 @@ _RUNTIME_GENERIC_MIN_ARITIES = {"Tuple": 2, "__fn_ptr": 1}
 class GenericMethodInferencePlan:
     arguments: tuple
     bindings: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class GenericSpecializationScanPlan:
+    """Cached type and compound-operator facts revisited under substitutions."""
+
+    type_uses: tuple[tuple[TypeExpr, frozenset[str]], ...]
+    compound_assignments: tuple[AssignExpr, ...]
 
 
 class GenericAnalyzer:
@@ -46,7 +61,7 @@ class GenericAnalyzer:
         """
         processed_classes: set[tuple] = set()
         processed_methods: set[tuple] = set()
-        scan_plans: dict[int, tuple[tuple[TypeExpr, frozenset[str]], ...]] = {}
+        scan_plans: dict[int, GenericSpecializationScanPlan] = {}
         saved_class = self.session.current_class
         saved_method = self.session.current_method
         self.session.current_class = None
@@ -56,7 +71,11 @@ class GenericAnalyzer:
                 class_work = self._pending_classes(processed_classes)
                 method_work = self._pending_methods(processed_methods)
                 if not class_work and (not method_work):
-                    return
+                    self._close_template_dependencies()
+                    class_work = self._pending_classes(processed_classes)
+                    method_work = self._pending_methods(processed_methods)
+                    if not class_work and (not method_work):
+                        return
                 for base, args, key in class_work:
                     processed_classes.add(key)
                     self._scan_class_instance(base, args, scan_plans)
@@ -138,6 +157,202 @@ class GenericAnalyzer:
         substitutions.update(zip(method.generic_params, method_args))
         self._scan_value(method, substitutions, (), scan_plans)
 
+    def record_class_method_use(self, receiver_type: TypeExpr | None, method_name: str) -> None:
+        """Record demand for one ordinary method on a generic class instance."""
+        self.record_class_callable_use(receiver_type, "method", method_name)
+
+    def record_class_callable_use(
+        self,
+        receiver_type: TypeExpr | None,
+        kind: ClassCallableKind,
+        callable_name: str,
+    ) -> None:
+        """Record one method or property-accessor demand on a generic instance."""
+        receiver = self.types.canonical_type(receiver_type)
+        cls = self.index.class_table.get(receiver.base) if receiver is not None else None
+        if cls is None or not cls.generic_params:
+            return
+        callable_identity = ClassCallableIdentity(receiver.base, kind, callable_name)
+        if kind == "method":
+            member = cls.methods.get(callable_name)
+            if member is None or member.generic_params:
+                return
+        elif kind == "get":
+            member = cls.properties.get(callable_name)
+            if member is None or not member.has_getter:
+                return
+        elif kind == "set":
+            member = cls.properties.get(callable_name)
+            if member is None or not member.has_setter:
+                return
+        else:
+            raise ValueError(f"unknown class callable kind: {kind}")
+        dependency = GenericClassCallableDependency(receiver, callable_identity)
+        bucket = self._active_template_dependency_bucket()
+        if bucket is not None:
+            self._append_dependency(bucket, dependency)
+            return
+        self._select_class_callable(receiver, callable_identity)
+
+    def _active_template_dependency_bucket(self) -> list[GenericTemplateDependency] | None:
+        """Return the dependency list owned by the active generic template body."""
+        current_class = self.session.current_class
+        current_method = self.session.current_method
+        if current_class is not None and current_method is not None and current_method.generic_params:
+            return self.session.generic_method_callable_dependencies.setdefault(
+                (current_class.name, current_method.name), []
+            )
+        if current_class is not None and current_class.generic_params:
+            owner_identity = self.session.current_class_callable
+            if owner_identity is None:
+                return self.session.generic_class_lifecycle_dependencies.setdefault(current_class.name, [])
+            return self.session.generic_class_callable_dependencies.setdefault(owner_identity, [])
+        return None
+
+    def _close_template_dependencies(self) -> None:
+        """Close template bodies over concrete method and class-callable demand."""
+        processed_lifecycles: set[tuple] = set()
+        processed_methods: set[tuple] = set()
+        processed_callables: set[tuple] = set()
+        while True:
+            pending: list[tuple[tuple[GenericTemplateDependency, ...], dict[str, TypeExpr]]] = []
+
+            for owner, dependencies in tuple(self.session.generic_class_lifecycle_dependencies.items()):
+                cls = self.index.class_table.get(owner)
+                if cls is None:
+                    continue
+                for arguments in tuple(self.session.generic_instances.get(owner, ())):
+                    key = (owner, tuple(self.types.type_shape_key(argument) for argument in arguments))
+                    if key in processed_lifecycles:
+                        continue
+                    processed_lifecycles.add(key)
+                    pending.append((tuple(dependencies), dict(zip(cls.generic_params, arguments))))
+
+            for (instance_owner, method_name), instances in tuple(self.session.generic_method_instances.items()):
+                cls = self.index.class_table.get(instance_owner)
+                method = cls.methods.get(method_name) if cls is not None else None
+                if cls is None or method is None:
+                    continue
+                definition_owner = cls.method_owners.get(method_name, instance_owner)
+                dependencies = tuple(
+                    self.session.generic_method_callable_dependencies.get((definition_owner, method_name), ())
+                )
+                for class_arguments, method_arguments in tuple(instances):
+                    key = (
+                        instance_owner,
+                        method_name,
+                        tuple(self.types.type_shape_key(argument) for argument in class_arguments),
+                        tuple(self.types.type_shape_key(argument) for argument in method_arguments),
+                    )
+                    if key in processed_methods:
+                        continue
+                    processed_methods.add(key)
+                    substitutions = dict(zip(cls.generic_params, class_arguments))
+                    substitutions.update(zip(method.generic_params, method_arguments))
+                    pending.append((dependencies, substitutions))
+
+            for callable_identity, instances in tuple(self.session.generic_class_callable_instances.items()):
+                cls = self.index.class_table.get(callable_identity.owner)
+                if cls is None:
+                    continue
+                for arguments in instances:
+                    key = (
+                        callable_identity,
+                        tuple(self.types.type_shape_key(arg) for arg in arguments),
+                    )
+                    if key in processed_callables:
+                        continue
+                    processed_callables.add(key)
+                    dependencies = tuple(self.session.generic_class_callable_dependencies.get(callable_identity, ()))
+                    pending.append((dependencies, dict(zip(cls.generic_params, arguments))))
+
+            if not pending:
+                return
+            for dependencies, substitutions in pending:
+                for dependency in dependencies:
+                    self._select_resolved_dependency(dependency, substitutions)
+
+    def _select_resolved_dependency(
+        self,
+        dependency: GenericTemplateDependency,
+        substitutions: dict[str, TypeExpr],
+    ) -> None:
+        if isinstance(dependency, GenericMethodInstanceDependency):
+            class_arguments = tuple(
+                self.types.substitute_type(argument, substitutions) if substitutions else argument
+                for argument in dependency.class_arguments
+            )
+            method_arguments = tuple(
+                self.types.substitute_type(argument, substitutions) if substitutions else argument
+                for argument in dependency.method_arguments
+            )
+            if any(argument is None for argument in (*class_arguments, *method_arguments)):
+                return
+            self._select_method_dependency(
+                GenericMethodInstanceDependency(
+                    owner=dependency.owner,
+                    method_name=dependency.method_name,
+                    class_arguments=class_arguments,
+                    method_arguments=method_arguments,
+                    line=dependency.line,
+                    col=dependency.col,
+                )
+            )
+            return
+        resolved = (
+            self.types.substitute_type(dependency.receiver, substitutions) if substitutions else dependency.receiver
+        )
+        if resolved is None:
+            return
+        callable_identity = ClassCallableIdentity(
+            resolved.base,
+            dependency.callable.kind,
+            dependency.callable.name,
+        )
+        self._select_class_callable(resolved, callable_identity)
+
+    def _select_class_callable(
+        self,
+        receiver: TypeExpr | None,
+        callable_identity: ClassCallableIdentity,
+    ) -> None:
+        receiver = self.types.canonical_type(receiver)
+        cls = self.index.class_table.get(receiver.base) if receiver is not None else None
+        if (
+            receiver is None
+            or cls is None
+            or not cls.generic_params
+            or len(receiver.generic_args) != len(cls.generic_params)
+            or callable_identity.owner != receiver.base
+        ):
+            return
+        bucket = self.session.generic_class_callable_instances.setdefault(callable_identity, [])
+        target = tuple(self.types.type_shape_key(argument) for argument in receiver.generic_args)
+        if any(tuple(self.types.type_shape_key(argument) for argument in existing) == target for existing in bucket):
+            return
+        bucket.append(tuple(receiver.generic_args))
+
+    def _append_dependency(
+        self,
+        bucket: list[GenericTemplateDependency],
+        dependency: GenericTemplateDependency,
+    ) -> None:
+        target = self._dependency_key(dependency)
+        if any(self._dependency_key(existing) == target for existing in bucket):
+            return
+        bucket.append(dependency)
+
+    def _dependency_key(self, dependency: GenericTemplateDependency) -> tuple:
+        if isinstance(dependency, GenericClassCallableDependency):
+            return ("class_callable", self.types.type_shape_key(dependency.receiver), dependency.callable)
+        return (
+            "generic_method",
+            dependency.owner,
+            dependency.method_name,
+            tuple(self.types.type_shape_key(argument) for argument in dependency.class_arguments),
+            tuple(self.types.type_shape_key(argument) for argument in dependency.method_arguments),
+        )
+
     def _scan_value(self, value, substitutions, unresolved, scan_plans) -> None:
         key = id(value)
         plan = scan_plans.get(key)
@@ -145,16 +360,51 @@ class GenericAnalyzer:
             plan = self._build_scan_plan(value)
             scan_plans[key] = plan
         substitution_names = substitutions.keys()
-        for type_expr, referenced_names in plan:
+        for type_expr, referenced_names in plan.type_uses:
             resolved = type_expr
             if substitutions and (not referenced_names.isdisjoint(substitution_names)):
                 resolved = self.types.substitute_type(type_expr, substitutions)
             if resolved is not None and resolved.generic_args:
                 self.collect_type_instances(resolved, unresolved)
+        self._scan_compound_operator_dependencies(plan.compound_assignments, substitutions)
+
+    def _scan_compound_operator_dependencies(self, assignments, substitutions) -> None:
+        """Select concrete operator and conversion callables hidden by template types."""
+        for assignment in assignments:
+            target = self._specialized_node_type(assignment.target, substitutions)
+            source = self._specialized_node_type(assignment.value, substitutions)
+            if target is None or source is None:
+                continue
+            resolved = self.types.operator_method(target, assignment.op[:-1])
+            if resolved is None:
+                continue
+            method, method_substitutions = resolved
+            self._select_class_callable(
+                target,
+                ClassCallableIdentity.method(target.base, method.name),
+            )
+            if not method.params:
+                continue
+            expected = method.params[0].type
+            if method_substitutions:
+                expected = self.types.substitute_type(expected, method_substitutions)
+            if self.types.requires_string_conversion(expected, source):
+                self._select_class_callable(
+                    source,
+                    ClassCallableIdentity.method(source.base, "toString"),
+                )
+
+    def _specialized_node_type(self, node, substitutions):
+        type_expr = self.session.node_types.get(id(node))
+        if type_expr is None:
+            return None
+        resolved = self.types.substitute_type(type_expr, substitutions) if substitutions else type_expr
+        return self.types.canonical_type(resolved)
 
     def _build_scan_plan(self, root):
         """Index type-bearing nodes once for every reused template subtree."""
         plan: list[tuple[TypeExpr, frozenset[str]]] = []
+        compound_assignments: list[AssignExpr] = []
         seen_values: set[int] = set()
         seen_types: set[int] = set()
 
@@ -182,12 +432,14 @@ class GenericAnalyzer:
             if not is_dataclass(value) or id(value) in seen_values:
                 return
             seen_values.add(id(value))
+            if isinstance(value, AssignExpr) and value.op != "=":
+                compound_assignments.append(value)
             add_type(self.session.node_types.get(id(value)))
             for field in fields(value):
                 visit(getattr(value, field.name))
 
         visit(root)
-        return tuple(plan)
+        return GenericSpecializationScanPlan(tuple(plan), tuple(compound_assignments))
 
     @staticmethod
     def _substitution_names(type_expr):
@@ -199,14 +451,7 @@ class GenericAnalyzer:
         return frozenset(names)
 
     def record_method_instance(self, expr, cls, method, obj_type, plan: GenericMethodInferencePlan):
-        """Record a monomorphization target for a generic-method call site.
-
-        ``expr`` is the CallExpr, ``cls``/``method`` the resolved receiver class
-        and method, ``obj_type`` the receiver's (concrete) TypeExpr. Inference of
-        each method type parameter is best-effort: if any cannot be resolved to a
-        concrete type, the call site is skipped (no instance recorded), which
-        keeps existing non-generic methods and unresolved cases harmless.
-        """
+        """Record or defer the monomorphization target for a generic-method call."""
         class_subs = {}
         if cls.generic_params and obj_type.generic_args:
             class_subs = dict(zip(cls.generic_params, obj_type.generic_args))
@@ -214,24 +459,73 @@ class GenericAnalyzer:
         if method_subs is None:
             return
         method_args = tuple(method_subs[gp] for gp in method.generic_params)
-        if not self._all_concrete(method_args, method.generic_params):
-            return
         class_args = tuple(obj_type.generic_args) if obj_type.generic_args else ()
-        owner = f"{obj_type.base}.{method.name}"
-        if not self._validate_generic_arguments(owner, method_args, expr.line, expr.col):
+        dependency = GenericMethodInstanceDependency(
+            owner=obj_type.base,
+            method_name=method.name,
+            class_arguments=class_args,
+            method_arguments=method_args,
+            line=expr.line,
+            col=expr.col,
+        )
+        if not self._validate_method_dependency(dependency):
             return
-        full_subs = {**class_subs, **method_subs}
-        signature_types = [method.return_type, *(param.type for param in method.params)]
-        if not self._validate_substitution_shapes(owner, signature_types, full_subs, expr.line, expr.col):
+        self.session.generic_method_call_args[id(expr)] = method_args
+        bucket = self._active_template_dependency_bucket()
+        if bucket is not None:
+            self._append_dependency(bucket, dependency)
             return
-        key = (obj_type.base, method.name)
+        self._select_method_dependency(dependency, already_validated=True)
+
+    def _validate_method_dependency(self, dependency: GenericMethodInstanceDependency) -> bool:
+        cls = self.index.class_table.get(dependency.owner)
+        method = cls.methods.get(dependency.method_name) if cls is not None else None
+        if cls is None or method is None:
+            return False
+        if len(dependency.class_arguments) != len(cls.generic_params) or len(dependency.method_arguments) != len(
+            method.generic_params
+        ):
+            return False
+        owner = f"{dependency.owner}.{dependency.method_name}"
+        if not self._validate_generic_arguments(
+            owner,
+            dependency.method_arguments,
+            dependency.line,
+            dependency.col,
+        ):
+            return False
+        substitutions = dict(zip(cls.generic_params, dependency.class_arguments))
+        substitutions.update(zip(method.generic_params, dependency.method_arguments))
+        signature_types = [method.return_type, *(parameter.type for parameter in method.params)]
+        return self._validate_substitution_shapes(
+            owner,
+            signature_types,
+            substitutions,
+            dependency.line,
+            dependency.col,
+        )
+
+    def _select_method_dependency(
+        self,
+        dependency: GenericMethodInstanceDependency,
+        *,
+        already_validated: bool = False,
+    ) -> None:
+        if not already_validated and not self._validate_method_dependency(dependency):
+            return
+        cls = self.index.class_table.get(dependency.owner)
+        method = cls.methods.get(dependency.method_name) if cls is not None else None
+        if cls is None or method is None:
+            return
+        key = (dependency.owner, dependency.method_name)
         bucket = self.session.generic_method_instances.setdefault(key, [])
-        entry = (class_args, method_args)
+        entry = (dependency.class_arguments, dependency.method_arguments)
         if not self._method_instance_seen(bucket, entry):
             bucket.append(entry)
-        self.session.generic_method_call_args[id(expr)] = method_args
-        for t in [method.return_type] + [p.type for p in method.params]:
-            resolved = self.types.substitute_type(t, full_subs)
+        substitutions = dict(zip(cls.generic_params, dependency.class_arguments))
+        substitutions.update(zip(method.generic_params, dependency.method_arguments))
+        for type_expr in [method.return_type, *(parameter.type for parameter in method.params)]:
+            resolved = self.types.substitute_type(type_expr, substitutions)
             if resolved and resolved.generic_args:
                 self.collect_type_instances(resolved)
 
@@ -342,22 +636,6 @@ class GenericAnalyzer:
                     return None
                 binding = self.types.strip_outer_storage(binding)
         return binding
-
-    def _all_concrete(self, args, unresolved=()) -> bool:
-        """True if every TypeExpr in ``args`` is fully concrete (no type params).
-
-        Only parameters declared by the generic method are unresolved. A real
-        user type named ``T`` is otherwise a perfectly concrete type.
-        """
-        unresolved = set(unresolved)
-        return all(self._type_is_concrete(a, unresolved) for a in args)
-
-    def _type_is_concrete(self, t, unresolved) -> bool:
-        if t is None:
-            return False
-        if t.base in unresolved:
-            return False
-        return all(self._type_is_concrete(a, unresolved) for a in t.generic_args or [])
 
     def _normalize_type_key(self, type_expr: TypeExpr) -> tuple:
         return self.types.type_shape_key(type_expr)
@@ -486,6 +764,7 @@ class GenericAnalyzer:
             return
         if cls is not None and len(args) != len(cls.generic_params):
             return
+        self.session.generic_resolved_type_facts.append((type_expr, type_expr.line, type_expr.col))
         if not any(
             tuple(self._normalize_type_key(argument) for argument in existing) == normalized for existing in instances
         ):

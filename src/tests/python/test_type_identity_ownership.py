@@ -97,6 +97,20 @@ def test_type_substitution_deeply_snapshots_mutable_type_inputs() -> None:
         substitution._argument_values = ()
 
 
+def test_type_substitution_detects_parameters_through_frozen_typedef_chains() -> None:
+    substitution = TypeSubstitution(
+        {"T": TypeExpr(base="int")},
+        {
+            "Value": TypeExpr(base="T"),
+            "Nested": TypeExpr(base="Vector", generic_args=[TypeExpr(base="Value")]),
+        },
+        TypeIdentity(),
+    )
+
+    assert substitution.applies_to(TypeExpr(base="Nested"))
+    assert not substitution.applies_to(TypeExpr(base="Unrelated"))
+
+
 def test_pipeline_passes_one_identity_to_concrete_lowerer() -> None:
     source = ast.parse((PYTHON_COMPILER / "application/pipeline.py").read_text())
     lower_method = next(node for node in ast.walk(source) if isinstance(node, ast.FunctionDef) and node.name == "lower")

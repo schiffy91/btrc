@@ -1,0 +1,1 @@
+{"asset":"threads.c","btrc_order":190,"category":"threads","dependencies":["__btrc_thread_spawn"],"headers":[],"name":"__btrc_thread_box_dispose","provided_objects":[],"provided_types":[],"python_order":205,"source_sha256":"cbd843c4a7e39a93c2a515591f5ee4e3f06c87e3ed82b1a53ae329c67ee25bf0","source_size":123,"source_visible":false}

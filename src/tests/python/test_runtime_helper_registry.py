@@ -27,6 +27,8 @@ def test_generated_python_catalog_exactly_matches_the_shared_manifest() -> None:
         assert row.c_source == helper.source
         assert row.depends_on == helper.dependencies
         assert row.required_headers == helper.headers
+        assert row.provided_types == helper.provided_types
+        assert row.provided_objects == helper.provided_objects
         assert row.source_visible is helper.source_visible
 
 

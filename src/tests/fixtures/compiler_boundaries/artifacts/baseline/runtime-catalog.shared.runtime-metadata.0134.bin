@@ -1,0 +1,1 @@
+{"asset":"process.c","btrc_order":177,"category":"process","dependencies":[],"headers":["errno.h","fcntl.h","unistd.h"],"name":"__btrc_move_descriptor_outside_stdio","provided_objects":[],"provided_types":[],"python_order":192,"source_sha256":"3f6da7a7a5c79e8fd5f23cb7ba4906f4116ec3e9c6dfeba97803c376607dbcc8","source_size":1019,"source_visible":true}

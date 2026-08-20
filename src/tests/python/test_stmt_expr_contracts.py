@@ -45,15 +45,18 @@ def _module(source: str) -> IRModule:
     ],
 )
 def test_generated_setups_are_declarations_only(source):
-    stmt_exprs = [
-        node
-        for node in IRNode.walk_value(_module(source))
-        if isinstance(node, IRStmtExpr)
-    ]
+    stmt_exprs = [node for node in IRNode.walk_value(_module(source)) if isinstance(node, IRStmtExpr)]
     assert stmt_exprs
     for expression in stmt_exprs:
         assert expression.stmts
-        assert all(isinstance(declaration, IRVarDecl) and declaration.init is None for declaration in expression.stmts)
+        assert all(
+            isinstance(declaration, IRVarDecl)
+            and (
+                declaration.init is None
+                or (isinstance(declaration.init, IRLiteral) and declaration.init.text in {"0", "NULL", "false"})
+            )
+            for declaration in expression.stmts
+        )
 
 
 def test_emitter_rejects_side_effectful_hoisting():

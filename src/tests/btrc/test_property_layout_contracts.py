@@ -117,6 +117,12 @@ def test_inherited_wrappers_and_managed_backing_run_strictly(semantic_btrcc: Pat
     assert "Base_get_value(((Base*)self))" in result.stdout
     assert "Base_set_owned(((Base*)self), value)" in result.stdout
     assert "&self->_prop_next" in result.stdout
+    guarded_setter = result.stdout.split(
+        "void Base_set_guarded(Base* self, Item* value) {",
+        1,
+    )[1].split("\n}", 1)[0]
+    assert "__btrc_arc_replace_edge" in guarded_setter
+    assert "_prop_guarded" in guarded_setter
 
     _strict_build_and_run(generated, tmp_path / "property-layout")
 
@@ -177,6 +183,13 @@ def test_generic_properties_compile_strictly_and_run(semantic_btrcc: Path, tmp_p
     assert "int btrc_Box_int_get_automatic(" in result.stdout
     assert "void btrc_Box_int_set_mixed(" in result.stdout
     assert "Item* btrc_Box_Item_p1_get_custom(" in result.stdout
+    item_mixed_setter = result.stdout.split(
+        "static void btrc_Box_Item_p1_set_mixed(btrc_Box_Item_p1* self, Item* value) {",
+        1,
+    )[1].split("\n}", 1)[0]
+    assert "__btrc_arc_replace_edge" in item_mixed_setter
+    assert "_prop_mixed" in item_mixed_setter
+    assert "Item_destroy" in item_mixed_setter
 
     _strict_build_and_run(generated, tmp_path / "generic-property-layout")
     reference, reference_generated = _compile_reference_source(tmp_path, source)

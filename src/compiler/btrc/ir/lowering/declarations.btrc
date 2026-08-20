@@ -34,6 +34,7 @@ class DeclarationLowerer {
     private ManagedValueSemantics managedValues;
     private CycleSemantics cycles;
     private CleanupSlotRegistry cleanupSlots;
+    private CallableValueSemantics callableValues;
     private CallableBoundaryPolicy callableBoundaries;
     private LoweringContext context;
     private ManagedLifetimeLowerer managedLifetime;
@@ -49,6 +50,7 @@ class DeclarationLowerer {
             DeclarationRegistry semanticDeclarations,
             ManagedValueSemantics managedValues, CycleSemantics cycles,
             CleanupSlotRegistry cleanupSlots,
+            CallableValueSemantics callableValues,
             CallableBoundaryPolicy callableBoundaries,
             LoweringContext context, ManagedLifetimeLowerer managedLifetime,
             ManagedTypeLowerer managedTypes,
@@ -60,6 +62,7 @@ class DeclarationLowerer {
         self.semanticDeclarations = semanticDeclarations;
         self.managedValues = managedValues; self.cycles = cycles;
         self.cleanupSlots = cleanupSlots;
+        self.callableValues = callableValues;
         self.callableBoundaries = callableBoundaries;
         self.context = context; self.managedLifetime = managedLifetime;
         self.managedTypes = managedTypes;
@@ -438,12 +441,17 @@ class DeclarationLowerer {
         CallableFlowState callableFlow = CallableFlowState();
         if (d.initializer != null) {
             Map<string, Node> globalTypes = {};
-            self.callableBoundaries.rejectPersistentStorage(
-                d.type, d.initializer,
+            CallableBoundaryContext callableContext =
                 callableFlow.boundaryContext(
                     globalTypes, self.context.activeTypeMap,
                     self.context.genericBody
-                        || self.context.callDefaultTypeDepth > 0),
+                        || self.context.callDefaultTypeDepth > 0);
+            bool unsafe = callableFlow.persistentStorageUnsafe(
+                d.type, d.initializer,
+                self.callableValues,
+                callableContext);
+            self.callableBoundaries.rejectPersistentStorage(
+                d.type, d.initializer, callableContext, unsafe,
                 "global storage");
         }
         bool inferredArray = d.initializer != null
@@ -499,9 +507,9 @@ class DeclarationLowerer {
     /* A supported preprocessor directive becomes a validated typed declaration;
      * #pragma pack has already become per-struct metadata. */
     public void emitPreprocessor(Node d, IRModule m) {
-        string text = preprocessorTrim(d.text);
+        string text = self.preprocessorTrim(d.text);
         if (self.isPackPragma(text)) { return; }
-        lowerPreprocessorDirective(d.text, m);
+        self.lowerPreprocessorDirective(d.text, m);
     }
 
     /* Emit one generic instance: struct, typed callable declarations, then
@@ -575,9 +583,6 @@ class DeclarationLowerer {
             if (mem.kind == NK_METHOD_DECL && !mem.is_constructor
                     && mem.name != "__del__"
                     && mem.generic_params.len == 0) {
-                Node rrt = SemanticTypeSystem.resolveGenericType(
-                    mem.return_type, typeMap,
-                    self.analyzed);
                 string retC = self.cTypes.lowerGeneric(
                     mem.return_type, typeMap);
                 IRFunctionDecl methodDeclaration = IRFunctionDecl(
@@ -700,7 +705,7 @@ class DeclarationLowerer {
                 hookBody.push(destructorBlock.stmts.get(hookStatement));
                 hookStatement = hookStatement + 1;
             }
-            m.functions.push(buildDestructorHook(mangled, hookBody));
+            m.functions.push(self.buildDestructorHook(mangled, hookBody));
         }
 
         /* --- _destroy --- (terminal destructor). Source lifecycle behavior is
@@ -1120,7 +1125,7 @@ class DeclarationLowerer {
                 hookBody.push(blk.stmts.get(k));
                 k = k + 1;
             }
-            m.functions.push(buildDestructorHook(name, hookBody));
+            m.functions.push(self.buildDestructorHook(name, hookBody));
         }
         /* Release class-instance fields (own + inherited), in source order. */
         bool hasFieldReleases = self.emitFieldReleases(name, body);
@@ -1224,22 +1229,6 @@ class DeclarationLowerer {
             i = i + 1;
         }
         return any;
-    }
-
-    /* True if any managed var in `managed` is of a cyclable class — drives the
-     * phased scope-release path. Mirrors the has_cyclable check in
-     * arc._emit_scope_release. */
-    public bool anyCyclable(Vector<Managed> managed) {
-        int i = 0;
-        while (i < managed.len) {
-            Managed owner = managed.get(i);
-            if (owner.cleanupKind == "arc"
-                    && self.cycles.runtimeTypeMayCycle(owner.cls)) {
-                return true;
-            }
-            i = i + 1;
-        }
-        return false;
     }
 
     /* Lower a method to X_method(self, params...) (mirrors emit_method). */
@@ -2068,13 +2057,19 @@ class DeclarationLowerer {
             if (field.kind == NK_FIELD_DECL && field.access != "class"
                     && storage != "" && field.initializer != null) {
                 Node fieldType = self.instanceInitializerFieldType(field, generic, typeMap);
-                rejectInstanceArrayDefaultAtCodegen(field, fieldType);
-                self.callableBoundaries.rejectPersistentStorage(
-                    fieldType, field.initializer,
+                self.rejectInstanceArrayDefaultAtCodegen(field, fieldType);
+                CallableBoundaryContext callableContext =
                     callableFlow.boundaryContext(
                         variables, self.context.activeTypeMap,
                         self.context.genericBody
-                            || self.context.callDefaultTypeDepth > 0),
+                            || self.context.callDefaultTypeDepth > 0);
+                bool unsafe = callableFlow.persistentStorageUnsafe(
+                    fieldType, field.initializer,
+                    self.callableValues,
+                    callableContext);
+                self.callableBoundaries.rejectPersistentStorage(
+                    fieldType, field.initializer,
+                    callableContext, unsafe,
                     "instance field storage");
                 PreparedValue prepared =
                     self.expressions.prepareTargetValue(
@@ -2120,7 +2115,8 @@ class DeclarationLowerer {
     }
 
     private bool preprocessorIdentifierPart(char value) {
-        return preprocessorIdentifierStart(value) || TypeIdentity.asciiDigit(value);
+        return self.preprocessorIdentifierStart(value)
+            || TypeIdentity.asciiDigit(value);
     }
 
     private bool preprocessorTrigraphSuffix(char value) {
@@ -2133,7 +2129,7 @@ class DeclarationLowerer {
         int index = 0;
         while (index + 2 < value.length()) {
             if (value[index] == '?' && value[index + 1] == '?'
-                    && preprocessorTrigraphSuffix(value[index + 2])) {
+                    && self.preprocessorTrigraphSuffix(value[index + 2])) {
                 return true;
             }
             index = index + 1;
@@ -2143,7 +2139,8 @@ class DeclarationLowerer {
 
     private string preprocessorTrimLeft(string value) {
         int start = 0;
-        while (start < value.length() && preprocessorSpace(value[start])) {
+        while (start < value.length()
+                && self.preprocessorSpace(value[start])) {
             start = start + 1;
         }
         return value.substring(start, value.length() - start);
@@ -2152,8 +2149,12 @@ class DeclarationLowerer {
     private string preprocessorTrim(string value) {
         int start = 0;
         int end = value.length();
-        while (start < end && preprocessorSpace(value[start])) { start = start + 1; }
-        while (end > start && preprocessorSpace(value[end - 1])) { end = end - 1; }
+        while (start < end && self.preprocessorSpace(value[start])) {
+            start = start + 1;
+        }
+        while (end > start && self.preprocessorSpace(value[end - 1])) {
+            end = end - 1;
+        }
         return value.substring(start, end - start);
     }
 
@@ -2163,12 +2164,15 @@ class DeclarationLowerer {
     }
 
     private bool validPreprocessorIdentifier(string value) {
-        if (value.length() == 0 || !preprocessorIdentifierStart(value[0])) {
+        if (value.length() == 0
+                || !self.preprocessorIdentifierStart(value[0])) {
             return false;
         }
         int index = 1;
         while (index < value.length()) {
-            if (!preprocessorIdentifierPart(value[index])) { return false; }
+            if (!self.preprocessorIdentifierPart(value[index])) {
+                return false;
+            }
             index = index + 1;
         }
         return true;
@@ -2186,7 +2190,7 @@ class DeclarationLowerer {
             }
             index = index + 1;
         }
-        return !containsPreprocessorTrigraph(header);
+        return !self.containsPreprocessorTrigraph(header);
     }
 
     private bool sameStructuredInclude(IRPreprocessorDecl left,
@@ -2203,7 +2207,7 @@ class DeclarationLowerer {
         if (declaration.kind == IR_PREPROCESSOR_INCLUDE) {
             int index = 0;
             while (index < module.preprocessor_decls.len) {
-                if (sameStructuredInclude(
+                if (self.sameStructuredInclude(
                         module.preprocessor_decls.get(index), declaration)) {
                     return;
                 }
@@ -2214,18 +2218,19 @@ class DeclarationLowerer {
     }
 
     public void requireSystemInclude(IRModule module, string header) {
-        if (!validIncludeHeader(header)) {
-            preprocessorFail("invalid generated include header");
+        if (!self.validIncludeHeader(header)) {
+            self.preprocessorFail("invalid generated include header");
         }
-        appendPreprocessorDecl(module, IRPreprocessorDecl.include(header, true));
+        self.appendPreprocessorDecl(
+            module, IRPreprocessorDecl.include(header, true));
     }
 
     public void addStandardPreprocessorDecls(IRModule module) {
         Vector<string> noParams = [];
-        appendPreprocessorDecl(module, IRPreprocessorDecl.macro(
+        self.appendPreprocessorDecl(module, IRPreprocessorDecl.macro(
             "_DEFAULT_SOURCE", false, noParams, ""));
         Vector<string> noParams2 = [];
-        appendPreprocessorDecl(module, IRPreprocessorDecl.macro(
+        self.appendPreprocessorDecl(module, IRPreprocessorDecl.macro(
             "_DARWIN_C_SOURCE", false, noParams2, ""));
 
         Vector<string> headers = [
@@ -2234,15 +2239,15 @@ class DeclarationLowerer {
         ];
         int index = 0;
         while (index < headers.len) {
-            requireSystemInclude(module, headers.get(index));
+            self.requireSystemInclude(module, headers.get(index));
             index = index + 1;
         }
     }
 
     private IRPreprocessorDecl parseIncludeDirective(string payload, string source) {
-        string value = preprocessorTrim(payload);
+        string value = self.preprocessorTrim(payload);
         if (value.length() < 3) {
-            preprocessorFail("malformed #include directive: " + source);
+            self.preprocessorFail("malformed #include directive: " + source);
         }
         char opening = value[0];
         char closing = value[value.length() - 1];
@@ -2250,34 +2255,34 @@ class DeclarationLowerer {
         if ((!isSystem && opening != '"')
                 || (isSystem && closing != '>')
                 || (!isSystem && closing != '"')) {
-            preprocessorFail("malformed #include directive: " + source);
+            self.preprocessorFail("malformed #include directive: " + source);
         }
         string header = value.substring(1, value.length() - 2);
-        if (!validIncludeHeader(header)) {
-            preprocessorFail("malformed #include directive: " + source);
+        if (!self.validIncludeHeader(header)) {
+            self.preprocessorFail("malformed #include directive: " + source);
         }
         return IRPreprocessorDecl.include(header, isSystem);
     }
 
     private Vector<string> parseMacroParameters(string value, string source) {
         Vector<string> params = [];
-        string parameterText = preprocessorTrim(value);
+        string parameterText = self.preprocessorTrim(value);
         if (parameterText == "") { return params; }
         int start = 0;
         int index = 0;
         while (index <= parameterText.length()) {
             if (index == parameterText.length() || parameterText[index] == ',') {
-                string parameter = preprocessorTrim(
+                string parameter = self.preprocessorTrim(
                     parameterText.substring(start, index - start));
                 bool finalVariadic = parameter == "..."
                     && index == parameterText.length();
-                if (!validPreprocessorIdentifier(parameter)
+                if (!self.validPreprocessorIdentifier(parameter)
                         && !finalVariadic) {
-                    preprocessorFail(
+                    self.preprocessorFail(
                         "invalid function-like macro parameters: " + source);
                 }
                 if (params.contains(parameter)) {
-                    preprocessorFail(
+                    self.preprocessorFail(
                         "duplicate function-like macro parameter: " + source);
                 }
                 params.push(parameter);
@@ -2289,26 +2294,27 @@ class DeclarationLowerer {
     }
 
     private IRPreprocessorDecl parseMacroDirective(string payload, string source) {
-        if (payload.length() == 0 || !preprocessorSpace(payload[0])) {
-            preprocessorFail("malformed #define directive: " + source);
+        if (payload.length() == 0 || !self.preprocessorSpace(payload[0])) {
+            self.preprocessorFail("malformed #define directive: " + source);
         }
         int index = 0;
-        while (index < payload.length() && preprocessorSpace(payload[index])) {
+        while (index < payload.length()
+                && self.preprocessorSpace(payload[index])) {
             index = index + 1;
         }
         int nameStart = index;
         if (index >= payload.length()
-                || !preprocessorIdentifierStart(payload[index])) {
-            preprocessorFail("malformed #define directive: " + source);
+                || !self.preprocessorIdentifierStart(payload[index])) {
+            self.preprocessorFail("malformed #define directive: " + source);
         }
         index = index + 1;
         while (index < payload.length()
-                && preprocessorIdentifierPart(payload[index])) {
+                && self.preprocessorIdentifierPart(payload[index])) {
             index = index + 1;
         }
         string name = payload.substring(nameStart, index - nameStart);
         if (index >= payload.length() || payload[index] != '(') {
-            string replacement = preprocessorTrimLeft(
+            string replacement = self.preprocessorTrimLeft(
                 payload.substring(index, payload.length() - index));
             Vector<string> noParams = [];
             return IRPreprocessorDecl.macro(name, false, noParams, replacement);
@@ -2319,64 +2325,72 @@ class DeclarationLowerer {
             close = close + 1;
         }
         if (close >= payload.length()) {
-            preprocessorFail("malformed function-like #define: " + source);
+            self.preprocessorFail(
+                "malformed function-like #define: " + source);
         }
-        Vector<string> params = parseMacroParameters(
+        Vector<string> params = self.parseMacroParameters(
             payload.substring(index + 1, close - index - 1), source);
-        string replacement = preprocessorTrimLeft(
+        string replacement = self.preprocessorTrimLeft(
             payload.substring(close + 1, payload.length() - close - 1));
         return IRPreprocessorDecl.macro(name, true, params, replacement);
     }
 
     private void lowerPreprocessorDirective(string sourceText, IRModule module) {
-        if (containsPreprocessorTrigraph(sourceText)) {
-            preprocessorFail(
+        if (self.containsPreprocessorTrigraph(sourceText)) {
+            self.preprocessorFail(
                 "C11 trigraphs in preprocessor directives are unsupported");
         }
         int rawIndex = 0;
         while (rawIndex < sourceText.length()) {
             if (sourceText[rawIndex] == '\n' || sourceText[rawIndex] == '\r') {
-                preprocessorFail("multi-line preprocessor directives are unsupported");
+                self.preprocessorFail(
+                    "multi-line preprocessor directives are unsupported");
             }
             rawIndex = rawIndex + 1;
         }
-        string source = preprocessorTrim(sourceText);
+        string source = self.preprocessorTrim(sourceText);
         if (source.length() == 0 || source[source.length() - 1] == '\\') {
-            preprocessorFail("multi-line preprocessor directives are unsupported");
+            self.preprocessorFail(
+                "multi-line preprocessor directives are unsupported");
         }
         if (source[0] != '#') {
-            preprocessorFail("malformed preprocessor directive: " + source);
+            self.preprocessorFail(
+                "malformed preprocessor directive: " + source);
         }
         int index = 1;
-        while (index < source.length() && preprocessorSpace(source[index])) {
+        while (index < source.length()
+                && self.preprocessorSpace(source[index])) {
             index = index + 1;
         }
         int nameStart = index;
         if (index >= source.length()
-                || !preprocessorIdentifierStart(source[index])) {
-            preprocessorFail("malformed preprocessor directive: " + source);
+                || !self.preprocessorIdentifierStart(source[index])) {
+            self.preprocessorFail(
+                "malformed preprocessor directive: " + source);
         }
         index = index + 1;
         while (index < source.length()
-                && preprocessorIdentifierPart(source[index])) {
+                && self.preprocessorIdentifierPart(source[index])) {
             index = index + 1;
         }
         string directive = source.substring(nameStart, index - nameStart);
         string payload = source.substring(index, source.length() - index);
         if (directive == "include") {
-            appendPreprocessorDecl(
-                module, parseIncludeDirective(payload, source));
+            self.appendPreprocessorDecl(
+                module, self.parseIncludeDirective(payload, source));
             return;
         }
         if (directive == "define") {
-            appendPreprocessorDecl(
-                module, parseMacroDirective(payload, source));
+            self.appendPreprocessorDecl(
+                module, self.parseMacroDirective(payload, source));
             return;
         }
         if (directive == "pragma") {
-            preprocessorFail("unsupported #pragma directive: " + source);
+            self.preprocessorFail(
+                "unsupported #pragma directive: " + source);
         }
-        preprocessorFail("unsupported preprocessor directive '#" + directive + "'");
+        self.preprocessorFail(
+            "unsupported preprocessor directive '#" + directive + "'");
     }
 
     /* Translation-unit storage and ARC replacement for class-access fields. */
@@ -2418,12 +2432,18 @@ class DeclarationLowerer {
                     }
                 }
                 if (field.initializer != null) {
-                    self.callableBoundaries.rejectPersistentStorage(
-                        field.type, field.initializer,
+                    CallableBoundaryContext callableContext =
                         callableFlow.boundaryContext(
                             empty, self.context.activeTypeMap,
                             self.context.genericBody
-                                || self.context.callDefaultTypeDepth > 0),
+                                || self.context.callDefaultTypeDepth > 0);
+                    bool unsafe = callableFlow.persistentStorageUnsafe(
+                        field.type, field.initializer,
+                        self.callableValues,
+                        callableContext);
+                    self.callableBoundaries.rejectPersistentStorage(
+                        field.type, field.initializer,
+                        callableContext, unsafe,
                         "class field storage");
                     global.init = self.expressions.lowerStaticInitializer(
                         field.initializer, field.type, empty,

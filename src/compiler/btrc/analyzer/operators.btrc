@@ -531,14 +531,24 @@ class OperatorSemantics {
         return null;
     }
 
-    /* `obj?.value ?? fallback` is a value-domain coalesce, not a null test on the
-     * scalar result.  The optional access already carries the presence condition
-     * as a structured ternary; lowering replaces only its false branch. */
+    private bool isOptionalValueExpression(Node? expression) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR) {
+            return expression.optional;
+        }
+        return expression.kind == NK_CALL_EXPR
+            && expression.callee != null
+            && expression.callee.kind == NK_FIELD_ACCESS_EXPR
+            && expression.callee.optional;
+    }
+
+    /* `obj?.value ?? fallback` and `obj?.method() ?? fallback` are value-domain
+     * coalesces, not null tests on their scalar results.  The optional expression
+     * already carries the presence condition as structured IR; lowering replaces
+     * only its absent value definition. */
     public bool isOptionalValueCoalesce(
             Node? leftExpression, Node? leftType, Node? rightType) {
-        return leftExpression != null
-            && leftExpression.kind == NK_FIELD_ACCESS_EXPR
-            && leftExpression.optional
+        return self.isOptionalValueExpression(leftExpression)
             && NumericSemantics.isType(leftType, self.analyzed)
             && NumericSemantics.isType(rightType, self.analyzed);
     }

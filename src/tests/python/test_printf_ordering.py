@@ -99,6 +99,47 @@ def test_generic_printf_uses_the_same_ordering_boundary(tmp_path, c_compiler):
 
 @pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_variadic_tail_preserves_named_default_order_and_c_promotions(tmp_path, c_compiler):
+    generated = emit_c(
+        """
+        int trace = 0;
+
+        int mark(int digit) {
+            trace = trace * 10 + digit;
+            return digit;
+        }
+
+        int pack(int a, int b = mark(4), int c = mark(5)) {
+            return a * 100 + b * 10 + c;
+        }
+
+        int main() {
+            char buffer[64];
+            int written = snprintf(
+                buffer,
+                sizeof(buffer),
+                "%d %.1f %d %d",
+                pack(c = mark(3), a = mark(1)),
+                (float)2.5,
+                mark(6),
+                trace
+            );
+            if (written != 14) { return 1; }
+            if (strcmp(buffer, "143 2.5 6 3146") != 0) { return 2; }
+            return trace == 3146 ? 0 : 3;
+        }
+        """
+    )
+
+    call = next(line for line in generated.splitlines() if "snprintf(" in line)
+    assert call.count("__btrc_call_operand_") >= 7
+    assert "((double)__btrc_call_operand_" in call
+    result = _compile_and_run(tmp_path, c_compiler, generated)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_user_printf_remains_a_normal_declared_call(tmp_path, c_compiler):
     generated = emit_c(
         """
@@ -112,5 +153,27 @@ def test_user_printf_remains_a_normal_declared_call(tmp_path, c_compiler):
 
     assert "int __btrc_source_printf(int first, int second)" in generated
     assert "int printf(int first, int second)" not in generated
+    result = _compile_and_run(tmp_path, c_compiler, generated)
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires GCC or Clang")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_hosted_constant_macro_operand_needs_no_fake_ordering_temporary(tmp_path, c_compiler):
+    generated = emit_c(
+        """
+        #include <signal.h>
+
+        int main() {
+            int signalNumber = (int)SIGPIPE;
+            signal(signalNumber, SIG_IGN);
+            signal(signalNumber, SIG_DFL);
+            return 0;
+        }
+        """
+    )
+
+    assert "(void)(signal(signalNumber, SIG_IGN));" in generated
+    assert "(void)(signal(signalNumber, SIG_DFL));" in generated
     result = _compile_and_run(tmp_path, c_compiler, generated)
     assert result.returncode == 0, result.stderr

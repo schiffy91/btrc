@@ -11,6 +11,7 @@ from src.compiler.python.ir.nodes import (
     IRFunctionRef,
     IRGlobalDecl,
     IRHelperDecl,
+    IRInclude,
     IRLiteral,
     IRMacroDef,
     IRModule,
@@ -22,6 +23,7 @@ from src.compiler.python.ir.nodes import (
     IRVar,
 )
 from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 
 def _fn(name, body_stmts=None):
@@ -418,3 +420,55 @@ def test_typed_global_initializer_keeps_helper_dependency_closure():
         "base_types",
         "consumer_helper",
     ]
+
+
+def test_structured_runtime_call_rematerializes_catalog_closure_without_dce():
+    module = IRModule(
+        function_defs=[
+            _fn(
+                "archive_entry",
+                [IRExprStmt(expr=IRCall(callee="__btrc_close_descriptors_except"))],
+            )
+        ]
+    )
+
+    IROptimizer(module, dce=False).optimize()
+
+    names = [helper.name for helper in module.helper_decls]
+    assert names.index("__btrc_close_descriptors_from") < names.index("__btrc_close_descriptors_except")
+    assert IRInclude(header="errno.h") in module.preprocessor_decls
+    assert IRInclude(header="unistd.h") in module.preprocessor_decls
+
+
+def test_live_runtime_object_reference_rematerializes_catalog_provider():
+    module = IRModule(
+        function_defs=[
+            _fn(
+                "main",
+                [IRExprStmt(expr=IRVar(name="__btrc_mutex_arc_descriptor"))],
+            )
+        ]
+    )
+
+    IROptimizer(module).optimize()
+
+    assert "__btrc_mutex_arc_type" in {helper.name for helper in module.helper_decls}
+
+
+def test_dead_runtime_object_reference_does_not_retain_catalog_provider():
+    catalog = RuntimeHelperCatalog()
+    module = IRModule(
+        helper_decls=[IRHelperDecl.from_runtime(catalog.definition("__btrc_mutex_arc_type"))],
+        function_defs=[
+            _fn("main"),
+            _fn(
+                "dead",
+                [IRExprStmt(expr=IRVar(name="__btrc_mutex_arc_descriptor"))],
+            ),
+        ],
+    )
+
+    IROptimizer(module, runtime_catalog=catalog).optimize()
+
+    assert [function.name for function in module.function_defs] == ["main"]
+    assert "__btrc_mutex_arc_type" not in {helper.name for helper in module.helper_decls}

@@ -14,16 +14,16 @@ import src.compiler.python.artifacts.publication as transaction_module
 from src.compiler.python.artifacts.cache import ToolchainFingerprint
 from src.compiler.python.artifacts.publication import (
     ArtifactPublisher,
+    ArtifactStorage,
     PublishedArtifact,
 )
-from src.compiler.python.artifacts.publication import ArtifactStorage
-from src.compiler.python.artifacts.stdlib import StdlibArchivePublisher
 from src.compiler.python.artifacts.stdlib import (
     HEADER_NAME,
     IMPL_NAME,
     MANIFEST_NAME,
     MANIFEST_SCHEMA,
     ArchiveVersionError,
+    StdlibArchivePublisher,
     StdlibArtifactRepository,
 )
 

@@ -1,0 +1,1 @@
+{"asset":"trycatch.c","btrc_order":89,"category":"trycatch","dependencies":["__btrc_try_level"],"headers":["setjmp.h"],"name":"__btrc_trycatch_globals","provided_objects":[],"provided_types":[],"python_order":90,"source_sha256":"e8f4e0aaf8b3167e9611a70ffd84c170fd0369fd17b5e5f4c3676589476c603d","source_size":208,"source_visible":false}

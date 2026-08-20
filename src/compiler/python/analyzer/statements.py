@@ -8,7 +8,12 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.expressions import ExpressionValuePlan
-from src.compiler.python.analyzer.program import DeclarationIndex, LambdaBodyFacts, SymbolInfo
+from src.compiler.python.analyzer.program import (
+    ClassCallableIdentity,
+    DeclarationIndex,
+    LambdaBodyFacts,
+    SymbolInfo,
+)
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
     BinaryExpr,
@@ -791,6 +796,10 @@ class StatementAnalyzer:
             self.analyze_expression(stmt.iterable)
             iter_type = self.expressions.infer_type(stmt.iterable)
             elem_type = self.types.element_type(iter_type, stmt.line, stmt.col)
+            class_info = self.index.class_table.get(iter_type.base) if iter_type else None
+            if class_info and "iterLen" in class_info.methods and "iterGet" in class_info.methods:
+                self.generics.record_class_method_use(iter_type, "iterLen")
+                self.generics.record_class_method_use(iter_type, "iterGet")
         if self.types.contains_thread_storage(elem_type):
             self.session.error("parallel-for variables cannot own a Thread handle", stmt.line, stmt.col)
         self.session.loop_depth += 1
@@ -886,6 +895,11 @@ class StatementAnalyzer:
         class_info = self.index.class_table.get(iter_type.base) if iter_type else None
         owned_first = bool(class_info and "iterLen" in class_info.methods and ("iterGet" in class_info.methods))
         owned_second = bool(owned_first and "iterValueAt" in class_info.methods)
+        if owned_first:
+            self.generics.record_class_method_use(iter_type, "iterLen")
+            self.generics.record_class_method_use(iter_type, "iterGet")
+        if stmt.var_name2 and owned_second:
+            self.generics.record_class_method_use(iter_type, "iterValueAt")
         with self.session.scope_frame():
             if elem_type and self._claim_local_binding(stmt.var_name, "loop variable", stmt.line, stmt.col):
                 self.session.scope.define(
@@ -1185,7 +1199,9 @@ class StatementAnalyzer:
 
     def _analyze_class(self, decl):
         prev_class = self.session.current_class
+        prev_class_callable = self.session.current_class_callable
         self.session.current_class = self.index.class_table[decl.name]
+        self.session.current_class_callable = None
         for member in decl.members:
             if isinstance(member, FieldDecl):
                 member.type = self.types.upgrade_class_type(member.type)
@@ -1221,11 +1237,19 @@ class StatementAnalyzer:
             elif isinstance(member, PropertyDecl):
                 self._analyze_property(member)
         self.session.current_class = prev_class
+        self.session.current_class_callable = prev_class_callable
 
     def _analyze_method(self, method):
         prev_method = self.session.current_method
+        prev_class_callable = self.session.current_class_callable
         prev_callable = self.session.current_callable
         self.session.current_method = method
+        owner = self.session.current_class.name if self.session.current_class is not None else ""
+        self.session.current_class_callable = (
+            None
+            if method.is_constructor or method.name == "__del__"
+            else ClassCallableIdentity.method(owner, method.name)
+        )
         self.session.current_callable = method
         prev_gpu = self.session.in_gpu_function
         self.session.in_gpu_function = method.is_gpu
@@ -1249,6 +1273,7 @@ class StatementAnalyzer:
         with self.session.scope_frame():
             self._analyze_method_body(method, is_constructor)
         self.session.current_method = prev_method
+        self.session.current_class_callable = prev_class_callable
         self.session.current_callable = prev_callable
         self.session.in_gpu_function = prev_gpu
         self.session.current_return_type = prev_return_type
@@ -1319,11 +1344,17 @@ class StatementAnalyzer:
         """Analyze a C#-style property declaration."""
         self.generics.collect_type_instances(prop.type)
         prop.type = self.types.upgrade_class_type(prop.type)
-        synthetic_method = MethodDecl(access=prop.access, return_type=prop.type, name=f"_prop_{prop.name}")
         prev_method = self.session.current_method
+        prev_class_callable = self.session.current_class_callable
         prev_return_type = self.session.current_return_type
-        self.session.current_method = synthetic_method
+        owner = self.session.current_class.name if self.session.current_class is not None else ""
         if prop.getter_body:
+            self.session.current_class_callable = ClassCallableIdentity.getter(owner, prop.name)
+            self.session.current_method = MethodDecl(
+                access=prop.access,
+                return_type=prop.type,
+                name=f"_prop_get_{prop.name}",
+            )
             self.session.current_return_type = self.aggregates.array_value_type(prop.type)
             with self.session.scope_frame():
                 self_type = self.types.current_self_type()
@@ -1336,6 +1367,12 @@ class StatementAnalyzer:
                         prop.col,
                     )
         if prop.setter_body:
+            self.session.current_class_callable = ClassCallableIdentity.setter(owner, prop.name)
+            self.session.current_method = MethodDecl(
+                access=prop.access,
+                return_type=TypeExpr(base="void"),
+                name=f"_prop_set_{prop.name}",
+            )
             self.session.current_return_type = TypeExpr(base="void")
             previous_virtual_setter = self.session.in_virtual_setter
             self.session.in_virtual_setter = True
@@ -1348,6 +1385,7 @@ class StatementAnalyzer:
                 self._analyze_root_block(prop.setter_body)
             self.session.in_virtual_setter = previous_virtual_setter
         self.session.current_method = prev_method
+        self.session.current_class_callable = prev_class_callable
         self.session.current_return_type = prev_return_type
 
     def _analyze_function(self, func):

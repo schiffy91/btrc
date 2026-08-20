@@ -1,0 +1,1 @@
+{"asset":"threads.c","btrc_order":190,"category":"threads","dependencies":["__btrc_thread_spawn"],"headers":[],"name":"__btrc_thread_destroy_handle","provided_objects":[],"provided_types":[],"python_order":205,"source_sha256":"cb96d9149575ba22f7387459903231207720031f95cf277deb843413509fe921","source_size":106,"source_visible":false}

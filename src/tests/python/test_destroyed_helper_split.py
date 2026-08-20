@@ -3,8 +3,8 @@
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.application.pipeline import StdlibArchiveAdapter
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline, StdlibArchiveAdapter
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     CType,
@@ -29,8 +29,9 @@ def _emit_c(source: str) -> str:
     program = Parser(Lexer(source, "<test>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
-    module = IROptimizer(IRLowerer(analyzed).lower()).optimize()
-    return CEmitter().emit(module)
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
+    return pipeline.emit(module)
 
 
 def _optimized_helper_names(root: str) -> set[str]:

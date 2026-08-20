@@ -11,7 +11,8 @@ from src.compiler.python.syntax.ast.generated import Program
 
 from ..analyzer.program import AnalyzedProgram
 from ..frontend.sources import ResolvedSource, SourceDependencyGraph
-from ..ir.nodes import IRModule
+from ..ir.nodes import IRCanonicalRenderer, IRModule
+from ..syntax.ast.codec import AstCanonicalRenderer
 from ..syntax.tokens import Token
 
 
@@ -160,26 +161,14 @@ class CompilerResult:
             split_spaces=self.split_source_spaces,
         )
 
+    def ast_dump_lines(self) -> tuple[str, ...]:
+        return tuple(AstCanonicalRenderer().render(self.program).splitlines())
+
     def ir_dump_lines(self) -> tuple[str, ...]:
         module = self.ir_module
         if module is None:
             return ()
-        lines = [
-            f"# IRModule: {len(module.enum_defs)} enums, "
-            f"{len(module.struct_defs)} structs, "
-            f"{len(module.function_defs)} functions, "
-            f"{len(module.helper_decls)} helpers"
-        ]
-        for enum in module.enum_defs:
-            values = ", ".join(f"{value.name}={value.value}" if value.value else value.name for value in enum.values)
-            lines.append(f"enum {enum.name or '<anonymous>'} {{ {values} }}")
-        for struct in module.struct_defs:
-            fields = ", ".join(f"{field.c_type} {field.name}" for field in struct.fields)
-            lines.append(f"struct {struct.name} {{ {fields} }}")
-        for function in module.function_defs:
-            params = ", ".join(f"{param.c_type} {param.name}" for param in function.params)
-            lines.append(f"fn {function.name}({params}) -> {function.return_type}")
-        return tuple(lines)
+        return tuple(IRCanonicalRenderer().render(module).splitlines())
 
     @classmethod
     def profile_snapshot(cls, profile: dict[str, float] | None) -> Mapping[str, float]:

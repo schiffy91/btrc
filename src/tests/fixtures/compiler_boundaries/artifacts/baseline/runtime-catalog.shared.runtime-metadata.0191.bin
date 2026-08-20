@@ -1,0 +1,1 @@
+{"asset":"strings.c","btrc_order":18,"category":"string_ownership","dependencies":["__btrc_string_release"],"headers":[],"name":"__btrc_string_release_cleanup","provided_objects":[],"provided_types":[],"python_order":19,"source_sha256":"a0ea7226f32ed4f5b58e251621dbc2a812c596054aa72e8eb85b4a5abefaee09","source_size":112,"source_visible":false}

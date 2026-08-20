@@ -1,9 +1,7 @@
 """Member-method signature help (with parameters + nesting), and references /
 rename for classes, functions, and methods."""
 
-from src.tests.lsp.lsphelp import get_references, get_rename_edits, prepare_rename
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import analyze, get_references, get_rename_edits, get_signature_help, pos_of, prepare_rename
 
 SRC = """\
 class Calc {

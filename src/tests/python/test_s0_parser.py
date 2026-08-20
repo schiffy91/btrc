@@ -2,6 +2,8 @@
 
 import pytest
 
+from src.compiler.python.lexer.lexer import Lexer, LexerError
+from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import (
     BinaryExpr,
     CastExpr,
@@ -11,8 +13,6 @@ from src.compiler.python.syntax.ast.generated import (
     SizeofExpr,
     UnaryExpr,
 )
-from src.compiler.python.lexer.lexer import Lexer, LexerError
-from src.compiler.python.parser.parser import Parser
 
 
 def parse(source: str) -> Program:

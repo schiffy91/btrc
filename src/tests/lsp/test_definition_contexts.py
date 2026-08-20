@@ -1,8 +1,7 @@
 """Go-to-definition for variables declared in every statement context (the
 definition-side mirror of the hover scan), plus rich enums, structs, typedefs."""
 
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import analyze, get_definition, pos_of
 
 SRC = """\
 import std.{vector, map};

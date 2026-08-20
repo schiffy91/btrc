@@ -1,0 +1,8 @@
+int dead() {
+    return 7;
+}
+
+int main() {
+    print("PASS");
+    return 0;
+}

@@ -5,15 +5,17 @@ uses and assert that go-to-definition, find-references, and hover use exact
 analyzer-truth resolution (the occurrence table) rather than token heuristics.
 """
 
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import get_hover_info
 from src.tests.lsp.lsphelp import (
+    analyze,
     build_index,
+    get_definition,
+    get_hover_info,
+    get_references,
+    hover_text,
     occurrence_at,
+    pos_of,
     references_to,
 )
-from src.tests.lsp.lsphelp import get_references
-from src.tests.lsp.lsphelp import analyze, hover_text, pos_of
 
 
 def _def_pos(loc):

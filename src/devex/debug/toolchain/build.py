@@ -8,8 +8,8 @@ debug information so LLDB can resolve btrc breakpoints and stack frames.
 from __future__ import annotations
 
 import os
-import signal
 import shlex
+import signal
 import subprocess
 import sys
 import tempfile

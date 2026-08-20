@@ -131,6 +131,29 @@ def test_same_abi_typedef_explicit_cast_and_floating_mix_remain_valid():
     assert analyzed.errors == []
 
 
+@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_abi_dependent_integer_increment_preserves_its_operand_type(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    c_source = emit_c("""
+        #include <signal.h>
+
+        volatile sig_atomic_t pending = 0;
+
+        int main() {
+            pending++;
+            ++pending;
+            pending--;
+            --pending;
+            return (int)pending;
+        }
+    """)
+
+    _strict_build_and_run(c_source, tmp_path, c_compiler)
+
+
 def test_fixed_and_least_width_typedef_mix_is_deterministic():
     analyzed = _analyze("""
         int main() {

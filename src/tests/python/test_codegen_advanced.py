@@ -3,7 +3,16 @@ plumbing), ARC cleanup for generic-typed fields, interface subtyping, thread
 lambdas with expression bodies, and C-for headers built from varied expressions
 (the structured expression emitter)."""
 
+import re
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
 from src.tests.python.test_codegen import emit_c
+
+COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def test_trycatch_nested_in_every_control_structure():
@@ -126,8 +135,6 @@ def test_property_getter_with_managed_local_returns_declared_type():
     c = emit_c(src)
     # The getter's return temp (if any) must be `int`, never a stray pointer type.
     assert "__auto_type" not in c
-    import re
-
     bad = re.search(r"\b(?!int\b)[A-Za-z_]\w*\*? __btrc_ret_\d+ = .*?get\(", c)
     assert bad is None, f"return temp has wrong type: {bad.group(0) if bad else ''}"
 
@@ -155,7 +162,12 @@ def test_capturing_iife_materializes_typed_call_site_environment():
         }
     """)
     assert "struct __btrc_lambda_1_env __btrc_lambda_1_call_env;" in c
-    assert "(__btrc_lambda_1_call_env.offset = offset)" in c
+    capture = re.search(
+        r"\((__btrc_call_operand_\d+) = offset\).*?"
+        r"\(__btrc_lambda_1_call_env\.offset = \1\)",
+        c,
+    )
+    assert capture is not None
     assert "(&__btrc_lambda_1_call_env)" in c
     assert "({" not in c
 
@@ -176,6 +188,46 @@ def test_nested_lambda_block_uses_inner_callable_return_type():
     assert "return __btrc_lambda_2(100" in c
 
 
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_nested_captured_lambda_environment_runs_under_strict_c11(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    c = emit_c("""
+        int main() {
+            int offset = 10;
+            var outer = (int x) => {
+                int base = x + offset;
+                var inner = (int y) => y + base;
+                return inner(100);
+            };
+            return outer(5) == 115 ? 0 : 1;
+        }
+    """)
+    source = tmp_path / "nested-captured-lambda.c"
+    executable = tmp_path / "nested-captured-lambda"
+    source.write_text(c)
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run([str(executable)], check=True, capture_output=True, text=True)
+
+
 def test_nested_lambda_environment_mapping_is_function_local():
     c = emit_c("""
         int main() {
@@ -188,8 +240,10 @@ def test_nested_lambda_environment_mapping_is_function_local():
             return outer() + inner();
         }
     """)
-    main = c.split("int main(void)", 1)[1]
+    main = c.split("int main(void)", 1)[1].split("\n}\n", 1)[0]
     outer_call = main.index(" = outer()")
     inner_call = main.index(" = inner()")
     assert outer_call < inner_call
     assert "__inner_env" not in main
+    assert "struct __btrc_lambda_3_env __inner_env;" in c
+    assert "return __btrc_lambda_3(((void*)(&__inner_env)));" in c

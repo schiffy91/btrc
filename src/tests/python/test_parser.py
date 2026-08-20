@@ -2,6 +2,8 @@
 
 import pytest
 
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import ParseError, Parser
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
     BinaryExpr,
@@ -61,9 +63,6 @@ from src.compiler.python.syntax.ast.generated import (
     VarDeclStmt,
     WhileStmt,
 )
-from src.compiler.python.lexer.lexer import Lexer
-from src.compiler.python.parser.parser import ParseError
-from src.compiler.python.parser.parser import Parser
 
 
 def parse(source: str) -> Program:

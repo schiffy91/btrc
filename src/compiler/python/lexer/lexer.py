@@ -89,14 +89,9 @@ class LiteralDecoder:
         else:
             value = int(body, 0)
         decimal = not (
-            body.startswith(("0x", "0X", "0b", "0B", "0o", "0O"))
-            or (len(body) > 1 and body.startswith("0"))
+            body.startswith(("0x", "0X", "0b", "0B", "0o", "0O")) or (len(body) > 1 and body.startswith("0"))
         )
-        maximum = (
-            cls._SIGNED_INTEGER_MAX
-            if decimal and suffix in {"", "l", "ll"}
-            else cls._UNSIGNED_INTEGER_MAX
-        )
+        maximum = cls._SIGNED_INTEGER_MAX if decimal and suffix in {"", "l", "ll"} else cls._UNSIGNED_INTEGER_MAX
         if value > maximum:
             raise ValueError(f"integer literal '{raw}' exceeds the portable C integer domain")
         return value

@@ -65,13 +65,14 @@ from .types import CodegenError, CTypeLowerer
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalyzedProgram
 
-    from .calls import CallableProvenance, CallLowerer
+    from .calls import CallableEvaluationPlan, CallableProvenance, CallLowerer
     from .ownership import (
         CleanupScopeState,
         ManagedLifetimeLowerer,
         ManagedValueSemantics,
         OwnershipLowerer,
         OwnershipOperandOrder,
+        ProjectionStorageOperand,
     )
     from .session import LoweringSession
     from .storage import StorageLowerer
@@ -91,6 +92,32 @@ class GpuArgumentPlan:
     cleanup: list[IRExpr]
     helper_args: list[IRExpr]
     dispatch_length: IRExpr | None
+
+
+@dataclass(frozen=True, slots=True)
+class GpuSourceArgumentPlan:
+    """One explicit GPU source operand and its backing-storage contract."""
+
+    source: object
+    type_expr: TypeExpr | None
+    owned: bool
+    pin: bool
+    projection_storage: tuple[ProjectionStorageOperand, ...]
+    requires_capacity: bool
+
+
+@dataclass(frozen=True, slots=True)
+class GpuSourceArguments:
+    """Source-ordered operands stabilized before GPU ABI materialization."""
+
+    declarations: tuple[IRVarDecl, ...]
+    assignments: tuple[IRExpr, ...]
+    cleanup: tuple[IRExpr, ...]
+    values: tuple[IRExpr, ...]
+    capacities: tuple[IRExpr | None, ...]
+    stabilized: tuple[bool, ...]
+    owned: tuple[bool, ...]
+    pinned: tuple[bool, ...]
 
 
 @dataclass
@@ -150,6 +177,7 @@ class GpuOutputTarget:
     cleanup: list[IRExpr]
     data: IRExpr
     capacity: IRExpr
+    result: IRExpr
 
 
 class GpuLowerer:
@@ -187,12 +215,11 @@ class GpuLowerer:
 
         return self._gpu_cpu_array_lengths.get(name)
 
-    def finalize_translation_unit(self):
-        return None
-
     def emit_gpu_kernel(self, decl: FunctionDecl) -> None:
         """Retain a typed shader body and host-dispatch metadata in IR."""
         name = decl.name
+        if name in self._gpu_kernels:
+            return
         param_buffers: list[IRGpuBuffer] = []
         uniform_params: list[tuple[str, object]] = []
         bool_uniform_params: list[str] = []
@@ -345,7 +372,7 @@ class GpuLowerer:
     def materialize_direct_gpu_call(
         self,
         node: CallExpr,
-        lowered_arguments: list[IRExpr],
+        lowered_arguments: GpuSourceArguments,
         provenance: CallableProvenance,
     ) -> IRExpr:
         """Materialize one kernel call from operands lowered by ExpressionLowerer."""
@@ -360,6 +387,68 @@ class GpuLowerer:
             call=node,
         )
 
+    def plan_source_arguments(
+        self,
+        call: CallExpr,
+        provenance: CallableProvenance,
+    ) -> tuple[GpuSourceArgumentPlan, ...]:
+        """Describe explicit GPU operands before expression lowering."""
+        if not self.is_direct_gpu_call(call, provenance):
+            raise CodegenError("GPU source arguments require a direct kernel call")
+        declaration = self._analyzed.function_table[call.callee.name]
+        source_flow = provenance.plan_evaluation(call.args)
+        bindings, _bound_nodes, argument_types, owned_flags, pin_flags = self.plan_gpu_argument_bindings(
+            declaration,
+            call.args,
+            GpuLowerer._arg_names(call),
+            provenance,
+            flow=source_flow,
+        )
+        effects = [
+            bool(is_default or self._ownership.has_observable_effect(argument))
+            for _index, argument, is_default in bindings
+        ]
+        plans = []
+        for binding_index, ((parameter_index, argument, is_default), argument_type) in enumerate(
+            zip(bindings, argument_types)
+        ):
+            if is_default:
+                continue
+            parameter = declaration.params[parameter_index]
+            entry = source_flow.entries.get(id(argument), source_flow.incoming)
+            with provenance.at_flow(entry):
+                projection_storage = self._ownership.projection_storage_operands(
+                    argument,
+                    provenance,
+                    call=call,
+                    parameter_index=parameter_index,
+                    has_later_effects=any(effects[binding_index + 1 :]),
+                )
+            plans.append(
+                GpuSourceArgumentPlan(
+                    source=argument,
+                    type_expr=argument_type,
+                    owned=owned_flags[binding_index],
+                    pin=pin_flags[binding_index],
+                    projection_storage=projection_storage,
+                    requires_capacity=bool(
+                        parameter.type and parameter.type.is_array and not GpuLowerer.is_heap_collection(argument_type)
+                    ),
+                )
+            )
+        if len(plans) != len(call.args):
+            raise CodegenError(f"@gpu call '{declaration.name}' arguments were not planned exactly once")
+        return tuple(plans)
+
+    def source_array_capacity(
+        self,
+        source,
+        lowered: IRExpr,
+        provenance: CallableProvenance,
+    ) -> IRExpr:
+        """Derive a fixed-array extent before its stabilized value decays."""
+        return self.bare_array_argument_length(source, lowered, provenance)
+
     def argument_c_type(self, parameter_type, argument_type) -> str:
         effective = argument_type or parameter_type
         return self._types.render(effective) if effective is not None else "int"
@@ -368,7 +457,15 @@ class GpuLowerer:
     def buffer_length_name(parameter_name: str) -> str:
         return f"__gpu_len_{parameter_name}"
 
-    def plan_gpu_argument_bindings(self, declaration, ast_args, arg_names, provenance: CallableProvenance):
+    def plan_gpu_argument_bindings(
+        self,
+        declaration,
+        ast_args,
+        arg_names,
+        provenance: CallableProvenance,
+        *,
+        flow: CallableEvaluationPlan | None = None,
+    ):
         bindings = []
         seen = set()
         for slot, argument, is_default in self._calls.bind_arg_nodes_to_params(declaration.params, ast_args, arg_names):
@@ -382,10 +479,18 @@ class GpuLowerer:
             self._session.type_of(argument) or declaration.params[index].type
             for index, argument, _is_default in bindings
         ]
-        owned = [
-            bool(GpuLowerer._heap_collection(type_expr) and self._owns_result(argument, provenance))
-            for (_index, argument, _is_default), type_expr in zip(bindings, types)
-        ]
+        owned = []
+        for (_index, argument, _is_default), type_expr in zip(bindings, types):
+            if not GpuLowerer._heap_collection(type_expr):
+                owned.append(False)
+                continue
+            entry = flow.entries.get(id(argument)) if flow is not None else None
+            if entry is None:
+                result_owned = self._owns_result(argument, provenance)
+            else:
+                with provenance.at_flow(entry):
+                    result_owned = self._owns_result(argument, provenance)
+            owned.append(bool(result_owned))
         pins = self._operand_order.source_order_pin_flags(
             [argument for _index, argument, _is_default in bindings], types, owned
         )
@@ -503,10 +608,7 @@ class GpuLowerer:
         return (declarations, prefix, suffix)
 
     def _owns_result(self, expression, provenance: CallableProvenance) -> bool:
-        return bool(
-            id(expression) not in self._session.owning_overrides
-            and self._ownership.owns_result(expression, provenance=provenance)
-        )
+        return self._ownership.lowered_result_is_owned(expression, provenance=provenance)
 
     def _override_value(self, expression):
         return self._session.owning_overrides.get(id(expression))
@@ -516,16 +618,25 @@ class GpuLowerer:
         declaration: FunctionDecl,
         ast_args: list,
         arg_names: list[str],
-        ir_args: list[IRExpr],
+        lowered_arguments: GpuSourceArguments,
         provenance: CallableProvenance,
         *,
         call=None,
     ) -> GpuArgumentPlan:
         """Evaluate in source order, then expose values in parameter order."""
+        ir_args = lowered_arguments.values
         if len(ast_args) != len(ir_args):
             raise CodegenError(f"@gpu call '{declaration.name}' arguments were not lowered exactly once")
-        declarations: list[IRVarDecl] = []
-        assignments: list[IRExpr] = []
+        if len(lowered_arguments.capacities) != len(ir_args):
+            raise CodegenError(f"@gpu call '{declaration.name}' capacities were not planned exactly once")
+        if len(lowered_arguments.stabilized) != len(ir_args):
+            raise CodegenError(f"@gpu call '{declaration.name}' stabilization was not planned exactly once")
+        if len(lowered_arguments.owned) != len(ir_args):
+            raise CodegenError(f"@gpu call '{declaration.name}' ownership was not planned exactly once")
+        if len(lowered_arguments.pinned) != len(ir_args):
+            raise CodegenError(f"@gpu call '{declaration.name}' pinning was not planned exactly once")
+        declarations: list[IRVarDecl] = list(lowered_arguments.declarations)
+        assignments: list[IRExpr] = list(lowered_arguments.assignments)
         cleanup: list[IRExpr] = []
         values: dict[int, IRExpr] = {}
         lengths: dict[int, IRExpr] = {}
@@ -550,6 +661,10 @@ class GpuLowerer:
                     )
             else:
                 argument = ir_args[source_index]
+                source_capacity = lowered_arguments.capacities[source_index]
+                source_stabilized = lowered_arguments.stabilized[source_index]
+                source_owned = lowered_arguments.owned[source_index]
+                source_pinned = lowered_arguments.pinned[source_index]
                 source_index += 1
             argument_type = argument_types[binding_index]
             temp = self._session.fresh_temp("__gpu_arg")
@@ -560,8 +675,14 @@ class GpuLowerer:
             assignments.append(IRBinOp(left=IRVar(name=temp), op="=", right=argument))
             stable = IRVar(name=temp)
             stable_overrides[id(ast_argument)] = stable
-            owned = owned_flags[binding_index]
-            pinned = bool(GpuLowerer.is_heap_collection(argument_type) and pin_flags[binding_index])
+            owned = bool(
+                (owned_flags[binding_index] if is_default else source_owned) and (is_default or not source_stabilized)
+            )
+            pinned = bool(
+                (is_default or not source_stabilized)
+                and GpuLowerer.is_heap_collection(argument_type)
+                and (pin_flags[binding_index] if is_default else source_pinned)
+            )
             if owned or pinned:
                 owned_declarations, owned_prefix, owned_suffix = self.argument_lifetime_cleanup(
                     declaration_node, stable, argument_type, c_type_text, pin=pinned
@@ -584,17 +705,21 @@ class GpuLowerer:
                         declaration, index, ast_argument, is_default=is_default, lengths=lengths
                     )
                     if length is None:
-                        length = self.capture_array_length(
-                            ast_argument,
-                            argument,
-                            declarations,
-                            assignments,
-                            provenance,
-                        )
+                        if not is_default and source_capacity is not None:
+                            length = source_capacity
+                        else:
+                            length = self.capture_array_length(
+                                ast_argument,
+                                argument,
+                                declarations,
+                                assignments,
+                                provenance,
+                            )
                 values[index] = data
                 lengths[index] = length
         if source_index != len(ir_args):
             raise CodegenError(f"@gpu call '{declaration.name}' arguments were not bound exactly once")
+        cleanup.extend(lowered_arguments.cleanup)
         helper_args: list[IRExpr] = []
         dispatch_length = None
         for index, parameter in enumerate(declaration.params):
@@ -645,7 +770,7 @@ class GpuLowerer:
                 return GpuLowerer.bare_array_length(
                     IRVar(name=self._ownership.source_binding_c_name(argument.name, provenance))
                 )
-        argument_type = self._analyzed.node_types.get(id(argument))
+        argument_type = self._session.type_of(argument)
         if (
             isinstance(argument, FieldAccessExpr)
             and lowered_argument is not None
@@ -687,9 +812,13 @@ class GpuLowerer:
         )
 
     def lower_gpu_cpu_builtin(self, name: str, ast_args: list, ir_args: list):
-        if not self._session.gpu_cpu_index or name not in WGSL_CALL_BUILTINS:
+        if not self._session.gpu_cpu_index:
             return None
-        argument_types = [self._analyzed.node_types.get(id(argument)) for argument in ast_args]
+        if name == "gpu_id" and name not in self._analyzed.function_table:
+            return IRVar(name=self._session.gpu_cpu_index)
+        if name not in WGSL_CALL_BUILTINS:
+            return None
+        argument_types = [self._session.type_of(argument) for argument in ast_args]
         base = argument_types[0].base if argument_types and argument_types[0] is not None else "float"
         if name == "abs":
             return IRCall(callee="fabsf" if base == "float" else "abs", args=ir_args)
@@ -711,7 +840,10 @@ class GpuLowerer:
 
     def is_gpu_cpu_builtin(self, name: str) -> bool:
         """Whether CPU fallback lowering owns this source builtin call."""
-        return bool(self._session.gpu_cpu_index and name in WGSL_CALL_BUILTINS)
+        return bool(
+            self._session.gpu_cpu_index
+            and (name in WGSL_CALL_BUILTINS or (name == "gpu_id" and name not in self._analyzed.function_table))
+        )
 
     @staticmethod
     def _integer_extreme(name: str, left, right):
@@ -735,7 +867,7 @@ class GpuLowerer:
             raise CodegenError("array-returning @gpu worker cannot return without a value")
         if lowered_value is None:
             raise CodegenError("GPU item return value was not materialized")
-        value_type = self._analyzed.node_types.get(id(node.value))
+        value_type = self._session.type_of(node.value)
         if value_type is not None and value_type.is_array:
             if not isinstance(node.value, Identifier):
                 raise CodegenError("whole-array @gpu return must name a source buffer")
@@ -861,7 +993,7 @@ class GpuLowerer:
         self,
         call: CallExpr,
         target: IRExpr,
-        lowered_arguments: list[IRExpr],
+        lowered_arguments: GpuSourceArguments,
         provenance: CallableProvenance,
     ) -> GpuOutputDeclaration:
         """Lower an output kernel used to initialize a C array declaration."""
@@ -891,14 +1023,22 @@ class GpuLowerer:
         ast_target,
         target: IRExpr,
         target_capacity: IRExpr | None,
-        lowered_arguments: list[IRExpr],
+        lowered_arguments: GpuSourceArguments,
         provenance: CallableProvenance,
+        *,
+        result_owned: bool,
     ) -> IRExpr:
         """Lower direct output readback through an existing array lvalue."""
         name = self.output_gpu_call_name(call, provenance)
         if name is None:
             raise CodegenError("expected an array-returning @gpu call")
-        output = self.assignment_target(ast_target, target, target_capacity, provenance)
+        output = self.assignment_target(
+            ast_target,
+            target,
+            target_capacity,
+            provenance,
+            result_owned=result_owned,
+        )
         spec, arguments = self._prepare_site(
             name,
             call.args,
@@ -911,14 +1051,14 @@ class GpuLowerer:
         arguments.assignments[:0] = output.assignments
         arguments.cleanup.extend(output.cleanup)
         helper_call = IRCall(callee=spec.helper_name, args=[*arguments.helper_args, output.data, output.capacity])
-        return GpuLowerer._expression_local_call(arguments, helper_call)
+        return GpuLowerer._expression_local_call(arguments, helper_call, result=output.result)
 
     def _prepare_site(
         self,
         function_name: str,
         ast_args: list,
         arg_names: list[str],
-        ir_args: list[IRExpr],
+        ir_args: GpuSourceArguments,
         provenance: CallableProvenance,
         *,
         call=None,
@@ -1022,12 +1162,20 @@ class GpuLowerer:
         )
 
     @staticmethod
-    def _expression_local_call(arguments: GpuArgumentPlan, call: IRCall) -> IRExpr:
+    def _expression_local_call(
+        arguments: GpuArgumentPlan,
+        call: IRCall,
+        *,
+        result: IRExpr | None = None,
+    ) -> IRExpr:
+        expressions = [*arguments.assignments, call, *arguments.cleanup]
+        if result is not None:
+            expressions.append(result)
         if not arguments.declarations:
-            return call
+            return expressions[0] if len(expressions) == 1 else IRCommaExpr(expressions=expressions)
         return IRStmtExpr(
             stmts=arguments.declarations,
-            result=IRCommaExpr(expressions=[*arguments.assignments, call, *arguments.cleanup]),
+            result=IRCommaExpr(expressions=expressions),
         )
 
     @staticmethod
@@ -1730,9 +1878,11 @@ class GpuLowerer:
         ir_target: IRExpr,
         target_capacity: IRExpr | None,
         provenance: CallableProvenance,
+        *,
+        result_owned: bool,
     ) -> GpuOutputTarget:
         """Resolve writable data and a proven capacity for a direct assignment."""
-        target_type = self._analyzed.node_types.get(id(ast_target))
+        target_type = self._session.type_of(ast_target)
         if GpuLowerer.is_heap_collection(target_type):
             return self.collection_assignment_target(
                 ast_target,
@@ -1742,6 +1892,7 @@ class GpuLowerer:
                     id(ast_target) not in self._session.owning_overrides
                     and self._ownership.owns_result(ast_target, provenance=provenance)
                 ),
+                result_owned=result_owned,
             )
         if target_type is None or target_type.pointer_depth > 0:
             raise GpuLowerer._unknown_capacity(ast_target)
@@ -1768,6 +1919,7 @@ class GpuLowerer:
             cleanup=[],
             data=ir_target,
             capacity=GpuLowerer.bare_array_length(ir_target),
+            result=ir_target,
         )
 
     def array_projection_assignment_target(
@@ -1792,6 +1944,7 @@ class GpuLowerer:
             cleanup=[],
             data=data,
             capacity=length,
+            result=data,
         )
 
     def collection_assignment_target(
@@ -1801,6 +1954,7 @@ class GpuLowerer:
         ir_target,
         *,
         owned,
+        result_owned,
     ) -> GpuOutputTarget:
         """Pin the collection denoted by the LHS before lowering RHS effects."""
         temp_name = self._session.fresh_temp("__gpu_output_target")
@@ -1819,12 +1973,23 @@ class GpuLowerer:
             "__btrc_gpu_output_cleanup",
             active=self._cleanup_scope.exception_cleanup_active(),
         )
-        cleanup = self._lifetime.release_and_clear(
-            stable,
-            target_type,
-            declarations,
-            self._types.render(target_type),
-        )
+        result_name = self._session.fresh_temp("__gpu_output_result")
+        result_declaration = IRVarDecl(c_type=CType(text=self._types.render(target_type)), name=result_name)
+        declarations.append(result_declaration)
+        self._session.record_declaration(result_declaration)
+        result = IRVar(name=result_name)
+        cleanup = [IRBinOp(left=result, op="=", right=stable)]
+        if result_owned:
+            cleanup.append(IRBinOp(left=stable, op="=", right=IRLiteral(text="NULL")))
+        else:
+            cleanup.extend(
+                self._lifetime.release_and_clear(
+                    stable,
+                    target_type,
+                    declarations,
+                    self._types.render(target_type),
+                )
+            )
         from src.compiler.python.analyzer.types import TypeSystem
 
         data_name = self._session.fresh_temp("__gpu_output_data")
@@ -1846,7 +2011,12 @@ class GpuLowerer:
             )
         )
         return GpuOutputTarget(
-            declarations=declarations, assignments=assignments, cleanup=cleanup, data=data, capacity=length
+            declarations=declarations,
+            assignments=assignments,
+            cleanup=cleanup,
+            data=data,
+            capacity=length,
+            result=result,
         )
 
     def _local_c_array_status(self, name: str) -> bool | None:

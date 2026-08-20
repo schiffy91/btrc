@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
 from enum import StrEnum
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NamedTuple, Protocol
 
 from src.compiler.python.abi.declarations import DEALLOC_FREE, RETURN_ALIAS, RETURN_FRESH, RETURN_INDEPENDENT
 from src.compiler.python.abi.hosted import HOSTED_ABI
+from src.compiler.python.analyzer.ownership import OwnershipAnalyzer
 from src.compiler.python.analyzer.program import AnalyzedProgram
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import (
@@ -28,6 +29,7 @@ from src.compiler.python.ir.nodes import (
     IRCast,
     IRCommaExpr,
     IRExpr,
+    IRFieldAccess,
     IRFunctionDecl,
     IRLiteral,
     IRParam,
@@ -46,22 +48,26 @@ from src.compiler.python.syntax.ast.generated import (
     FieldAccessExpr,
     FStringExpr,
     FStringLiteral,
+    FunctionDecl,
     Identifier,
     IndexExpr,
     IntLiteral,
     LambdaExpr,
     ListLiteral,
     MapLiteral,
+    MethodDecl,
     NewExpr,
     NullLiteral,
+    RichEnumVariant,
     SpawnExpr,
     TernaryExpr,
     TupleLiteral,
     TypeExpr,
     UnaryExpr,
+    expr,
 )
 
-from .types import CodegenError, CTypeLowerer
+from .types import CodegenError, CTypeLowerer, DefaultArgumentTypeState
 
 if TYPE_CHECKING:
     from src.compiler.python.frontend.sources import SourceMap
@@ -75,25 +81,10 @@ if TYPE_CHECKING:
     )
     from .session import LoweringSession
 
-_STRING_METHODS = frozenset(
-    (
-        "toString",
-        "str",
-        "trim",
-        "toUpper",
-        "toLower",
-        "substring",
-        "replace",
-        "repeat",
-        "reverse",
-        "capitalize",
-        "join",
-        "split",
-    )
-)
 ADOPT = "adopt"
 COPY = "copy"
 REJECT = "reject"
+# These are dispatch views over the analyzer-owned string-method specification.
 _STRING_METHODS = {name: spec.helper for name, spec in STRING_METHODS.items() if spec.helper}
 _STRING_TRACK_METHODS = {name for name, spec in STRING_METHODS.items() if spec.tracked}
 _STRING_CONVERSION_METHODS = STRING_CONVERSIONS
@@ -108,7 +99,6 @@ class _DeclarationScope:
 
 @dataclass(frozen=True)
 class _DefaultArgumentState:
-    substitutions: Mapping[str, TypeExpr] | None = None
     declaration: _DeclarationScope | None = None
 
 
@@ -119,11 +109,16 @@ class DefaultArgumentLoweringContext:
     """Own call-default substitutions and declaration provenance for one run."""
 
     def __init__(self, type_identity: TypeIdentity | None = None) -> None:
-        self._type_identity = type_identity if type_identity is not None else TypeIdentity()
+        self._type_state = DefaultArgumentTypeState(type_identity if type_identity is not None else TypeIdentity())
         self._state = ContextVar(
             f"btrc_default_arguments_{id(self)}",
             default=_EMPTY_DEFAULT_ARGUMENT_STATE,
         )
+
+    @property
+    def type_state(self) -> DefaultArgumentTypeState:
+        """Expose the invocation-owned substitution state to type lowering."""
+        return self._type_state
 
     @contextmanager
     def scope(
@@ -137,10 +132,7 @@ class DefaultArgumentLoweringContext:
     ) -> Iterator[None]:
         """Activate one nested argument or declaration lowering scope."""
         current = self._state.get()
-        substitutions = current.substitutions
         default_type_map = getattr(param, "default_type_map", None) if is_default and param is not None else None
-        if default_type_map:
-            substitutions = MappingProxyType(dict(default_type_map))
         declaration = current.declaration
         if function_name is not None:
             declaration = _DeclarationScope(
@@ -150,21 +142,18 @@ class DefaultArgumentLoweringContext:
             )
         token = self._state.set(
             _DefaultArgumentState(
-                substitutions=substitutions,
                 declaration=declaration,
             )
         )
         try:
-            yield
+            with self._type_state.scope(default_type_map):
+                yield
         finally:
             self._state.reset(token)
 
     def resolve_type(self, type_expr: TypeExpr | None) -> TypeExpr | None:
         """Apply the active default parameter's concrete type substitutions."""
-        substitutions = self._state.get().substitutions
-        if not substitutions or type_expr is None:
-            return type_expr
-        return self._type_identity.substitute(type_expr, substitutions)
+        return self._type_state.resolve(type_expr)
 
     def predefined_identifier(self, node) -> str | None:
         """Freeze a predefined identifier at its declaration site."""
@@ -225,6 +214,7 @@ class OperandEvaluation:
     handoffs: list
     suffix: list
     values: dict[int, object]
+    ownership: dict[int, bool]
 
     @property
     def before_value(self) -> list:
@@ -272,7 +262,7 @@ class CallBoundaryLowerer:
     @staticmethod
     def start() -> OperandEvaluation:
         """Create an empty source-ordered operand transaction."""
-        return OperandEvaluation([], [], [], [], {})
+        return OperandEvaluation([], [], [], [], {}, {})
 
     def evaluate(self, operands: list[CallOperand]) -> OperandEvaluation:
         """Prepare already lowered operands in source order."""
@@ -289,6 +279,7 @@ class CallBoundaryLowerer:
         """Append one explicitly lowered operand to a typed transaction."""
         if self._session.is_unevaluated:
             evaluation.values[id(operand.node)] = operand.lowered
+            evaluation.ownership[id(operand.node)] = False
             return
         declarations = evaluation.declarations
         prefix = evaluation.prefix
@@ -331,6 +322,7 @@ class CallBoundaryLowerer:
             else:
                 suffix.extend(self._lifetime.release_and_clear(value, operand.type_expr, declarations, operand.c_type))
         overrides[id(operand.node)] = call_value
+        evaluation.ownership[id(operand.node)] = bool(operand.owned and operand.transferred)
 
     @staticmethod
     def _append_opaque_result(sequence, suffix, call, result: CallResultPlan) -> None:
@@ -427,6 +419,87 @@ class CallableStorageBoundary:
             return
         raise CodegenError(
             f"Managed-return callback cannot cross {boundary}; bare __fn_ptr storage erases its return ABI"
+        )
+
+    def reject_local_declaration(
+        self,
+        expected_type: TypeExpr | None,
+        value: object | None,
+        provenance: CallableProvenance,
+    ) -> None:
+        """Keep direct local callables typed while validating aggregate slots."""
+        resolved = expected_type or provenance.type_of(value)
+        if self.is_callable(resolved):
+            self._reject_environment_callable(
+                resolved,
+                value,
+                "local callable storage",
+                provenance,
+                allow_direct_lambda=True,
+            )
+            return
+        self.reject_persistent_escape(
+            resolved,
+            value,
+            "aggregate storage",
+            provenance,
+        )
+
+    def reject_assignment(self, assignment: AssignExpr, provenance: CallableProvenance) -> None:
+        """Reject an assignment that erases a callback's return ABI."""
+        if assignment.op != "=":
+            return
+        target = assignment.target
+        target_type = provenance.type_of(target)
+        if (
+            isinstance(target, Identifier)
+            and self.is_managed_callable(target_type)
+            and provenance.is_local(target.name)
+        ):
+            return
+        if isinstance(target, Identifier):
+            boundary = "aggregate storage" if provenance.is_local(target.name) else "global storage"
+        elif isinstance(target, FieldAccessExpr):
+            boundary = "field storage"
+        elif isinstance(target, IndexExpr):
+            boundary = "indexed storage"
+        else:
+            boundary = "persistent storage"
+
+        evaluation = provenance.plan_evaluation((assignment,))
+        value_entry = evaluation.entries.get(id(assignment.value), evaluation.incoming)
+        with provenance.at_flow(value_entry):
+            self.reject_persistent_escape(
+                target_type,
+                assignment.value,
+                boundary,
+                provenance,
+            )
+
+    def reject_call_argument(
+        self,
+        parameter,
+        value: object | None,
+        provenance: CallableProvenance,
+    ) -> None:
+        """Keep an untagged callable parameter on the borrowed-return ABI."""
+        self._reject_environment_callable(
+            parameter.type,
+            value,
+            f"parameter '{parameter.name}'",
+            provenance,
+        )
+        if not self._contains_unsafe_managed_callback(parameter.type, value, provenance):
+            return
+        if not self.is_managed_callable(parameter.type):
+            raise CodegenError(
+                f"Managed-return callback cannot cross parameter '{parameter.name}'; "
+                "an erased or opaque value cannot preserve its return ownership ABI"
+            )
+        raise CodegenError(
+            f"Managed-return callback for parameter {parameter.name} erases "
+            "its source-owned return ABI; bare __fn_ptr parameters accept only "
+            "borrowed C callbacks"
         )
 
     def reject_address_escape(self, operand: object | None, provenance: CallableProvenance) -> None:
@@ -939,7 +1012,14 @@ class CallableProvenance:
                 result[name] = displaced
         self._bindings = result
 
-    def bind_local(self, name: str, type_expr: TypeExpr | None, initializer: object | None) -> None:
+    def bind_local(
+        self,
+        name: str,
+        type_expr: TypeExpr | None,
+        initializer: object | None,
+        *,
+        environment: CallableEnvironment | None = None,
+    ) -> None:
         self._declare(name)
         resolved = self._canonical(type_expr)
         if not self._is_callable_type(resolved):
@@ -948,6 +1028,24 @@ class CallableProvenance:
         self._bindings[name] = CallableBinding(
             type_expr=resolved,
             return_abi=self.return_abi(initializer) if initializer is not None else CallableReturnABI.BORROWED,
+            environment=environment,
+        )
+
+    def bind_captured_local(
+        self,
+        name: str,
+        type_expr: TypeExpr | None,
+        initializer: object,
+        *,
+        function_name: str,
+        variable_name: str,
+    ) -> None:
+        """Bind one stack closure to its lifted function and environment."""
+        self.bind_local(
+            name,
+            type_expr,
+            initializer,
+            environment=CallableEnvironment(function_name, variable_name),
         )
 
     def bind_borrowed(self, name: str, type_expr: TypeExpr | None) -> None:
@@ -1142,6 +1240,49 @@ class CallableProvenance:
             yield
         finally:
             self.restore(current)
+
+    @contextmanager
+    def declaration_default_callable_scope(
+        self,
+        parameters,
+        parameter_index: int,
+        bound_nodes,
+        flow_entries: Mapping[int, CallableFlowSnapshot] | None = None,
+    ):
+        """Resolve a default in its declaration scope with prior argument ABIs."""
+        prior_abis = []
+        for index in range(parameter_index):
+            node = bound_nodes[index]
+            parameter = parameters[index]
+            if node is parameter.default:
+                prior_abis.append(None)
+                continue
+            if node is None:
+                prior_abis.append(CallableReturnABI.BORROWED)
+                continue
+            entry = flow_entries.get(id(node)) if flow_entries is not None else None
+            if entry is None:
+                prior_abis.append(self.evaluated_return_abi(node))
+            else:
+                with self.at_flow(entry):
+                    prior_abis.append(self.evaluated_return_abi(node))
+        caller_bindings = self._bindings
+        self._bindings = {}
+        base = len(self._scopes)
+        scope = self.begin_scope()
+        self._declaration_scope_bases.append(base)
+        try:
+            for index in range(parameter_index):
+                parameter = parameters[index]
+                abi = prior_abis[index]
+                if abi is None:
+                    abi = self.evaluated_return_abi(bound_nodes[index])
+                self.bind_with_abi(parameter.name, parameter.type, abi)
+            yield
+        finally:
+            self._declaration_scope_bases.pop()
+            self.finish_scope(scope)
+            self._bindings = caller_bindings
 
     def conditional_branch_entries(
         self, expression: object
@@ -1652,7 +1793,20 @@ class ValuePreparationPlan:
     target_type: TypeExpr | None
     hosted_mode: str | None
     source_owned: bool
+    lowered_owned: bool
     string_conversion: bool
+
+    @property
+    def effective_type(self) -> TypeExpr | None:
+        if self.string_conversion:
+            return TypeExpr(base="string")
+        if self.hosted_mode in {ADOPT, COPY}:
+            return self.target_type
+        return self.source_type or self.target_type
+
+    @property
+    def owned(self) -> bool:
+        return bool(self.lowered_owned or self.string_conversion or self.hosted_mode in {ADOPT, COPY})
 
 
 @dataclass(frozen=True)
@@ -1663,14 +1817,70 @@ class PrintfArg:
     value: IRExpr
 
 
+class CallDispatch(StrEnum):
+    """The lowering owner selected for one analyzed source call."""
+
+    DIRECT = "direct"
+    CALLABLE = "callable"
+    STRING_HELPER = "string_helper"
+    STRING_SPECIAL = "string_special"
+    STRING_CONVERSION = "string_conversion"
+    BUILTIN_TO_STRING = "builtin_to_string"
+    BUILTIN_LEN = "builtin_len"
+    BUILTIN_PRINT = "builtin_print"
+    MUTEX_CONSTRUCTOR = "mutex_constructor"
+    IMMEDIATE_LAMBDA = "immediate_lambda"
+
+
 @dataclass(frozen=True, slots=True)
 class CallPlan:
-    source: object
-    callee: object
-    operands: tuple[object, ...]
-    argument_names: tuple[str | None, ...]
-    declaration: object | None
-    result_type: object | None
+    source: CallExpr | NewExpr
+    dispatch: CallDispatch
+    callee: expr | str | None
+    receiver: expr | None
+    parameters: tuple[ResolvedCallParameter, ...]
+    bindings: tuple[CallArgumentBinding, ...]
+    declaration: FunctionDecl | MethodDecl | RichEnumVariant | None
+    variadic: bool = False
+    receiver_type: TypeExpr | None = None
+    member_name: str = ""
+    rich_enum_constructor: RichEnumConstructorPlan | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class RichEnumConstructorPlan:
+    """The shallow payload boundary selected by a rich-enum variant call."""
+
+    enum_name: str
+    variant_name: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResolvedCallParameter:
+    """One call parameter after target-specific generic substitution."""
+
+    name: str
+    type: TypeExpr
+    default: expr | None
+    keep: bool
+    transferred: bool
+    default_type_map: Mapping[str, TypeExpr]
+
+
+class CallArgumentBinding(NamedTuple):
+    """One source-ordered explicit or parameter-ordered default binding."""
+
+    parameter_index: int | None
+    source: expr
+    is_default: bool
+
+
+class MutexConstructorLowerer(Protocol):
+    """Narrow concurrency port for the language-level Mutex constructor."""
+
+    def create_mutex_value(self, value: IRExpr, value_type: TypeExpr) -> IRExpr:
+        """Materialize one typed Mutex owner."""
+        ...
 
 
 class CallLowerer:
@@ -1686,6 +1896,7 @@ class CallLowerer:
         ownership: OwnershipLowerer,
         values: ManagedValueSemantics,
         operand_order: OwnershipOperandOrder,
+        mutex_constructor: MutexConstructorLowerer,
     ) -> None:
         self._session = session
         self._analyzed = analyzed
@@ -1695,31 +1906,407 @@ class CallLowerer:
         self._ownership = ownership
         self._values = values
         self._operand_order = operand_order
+        self._mutex_constructor = mutex_constructor
         self._default_argument_helpers: set[str] = set()
 
-    def plan(self, node):
-        declaration = None
-        callee_name = getattr(node.callee, "name", None)
-        if callee_name is not None:
-            declaration = self._analyzed.function_table.get(callee_name)
+    def plan(self, node: CallExpr) -> CallPlan:
+        result_type = self._types.resolve_active_type(self._session.type_of(node))
+        dispatch = CallDispatch.DIRECT
+        receiver = None
+        receiver_type = None
+        member_name = ""
+        rich_enum_constructor = None
+        variant = self.rich_enum_variant_target(node)
+        if variant is not None:
+            enum_name, declaration = variant
+            callee = f"{enum_name}_{declaration.name}"
+            rich_enum_constructor = RichEnumConstructorPlan(
+                enum_name=enum_name,
+                variant_name=declaration.name,
+            )
+        elif isinstance(node.callee, Identifier) and not self._session.local_is_declared(node.callee.name):
+            class_info = self._analyzed.class_table.get(node.callee.name)
+            if class_info is not None:
+                if (
+                    result_type is None
+                    or result_type.base != node.callee.name
+                    or len(result_type.generic_args) != len(class_info.generic_params)
+                ):
+                    raise CodegenError(f"generic constructor '{node.callee.name}()' has no concrete analyzed call type")
+                callee = self.constructor_symbol(result_type)
+                declaration = class_info.constructor
+            else:
+                callee = node.callee
+                declaration = self._analyzed.function_table.get(node.callee.name)
+                if declaration is None and self._callable_signature(node.callee) is not None:
+                    dispatch = CallDispatch.CALLABLE
+                elif declaration is None and node.callee.name == "Mutex":
+                    dispatch = CallDispatch.MUTEX_CONSTRUCTOR
+                    callee = None
+                elif declaration is None and node.callee.name == "len" and node.args:
+                    dispatch = CallDispatch.BUILTIN_LEN
+                    callee = None
+                    receiver_type = self._types.canonical_type(self._session.type_of(node.args[0]))
+                elif declaration is None and node.callee.name == "print":
+                    dispatch = CallDispatch.BUILTIN_PRINT
+                    callee = None
+        elif isinstance(node.callee, FieldAccessExpr):
+            receiver_type = self._types.resolve_active_type(
+                self._types.canonical_type(self._session.type_of(node.callee.obj))
+            )
+            member_name = node.callee.field
+            dispatch = self._builtin_method_dispatch(receiver_type, member_name)
+            if dispatch is not None:
+                callee = None
+                declaration = None
+                receiver = node.callee.obj
+            else:
+                method = self._method_target(node)
+                if method is not None:
+                    callee, declaration, receiver = method
+                    dispatch = CallDispatch.DIRECT
+                else:
+                    callee = node.callee
+                    declaration = None
+                    dispatch = CallDispatch.CALLABLE
+        else:
+            callee = node.callee
+            callee_name = getattr(callee, "name", None)
+            declaration = self._analyzed.function_table.get(callee_name) if callee_name is not None else None
+            dispatch = CallDispatch.IMMEDIATE_LAMBDA if isinstance(callee, LambdaExpr) else CallDispatch.CALLABLE
+        variadic = self._hosted_call_is_variadic(node)
+        parameters = self._resolved_parameters(
+            node,
+            declaration,
+            dispatch,
+            result_type=result_type,
+            receiver_type=receiver_type,
+        )
+        bindings = tuple(
+            self.bind_arg_nodes_to_params(
+                list(parameters),
+                list(node.args),
+                self.arg_names_for(node, len(node.args)),
+                variadic=variadic,
+            )
+        )
         return CallPlan(
             source=node,
-            callee=node.callee,
-            operands=tuple(node.args),
-            argument_names=tuple(argument.name for argument in node.args),
+            dispatch=dispatch,
+            callee=callee,
+            receiver=receiver,
+            parameters=parameters,
+            bindings=bindings,
             declaration=declaration,
-            result_type=self._session.type_of(node),
+            variadic=variadic,
+            receiver_type=receiver_type,
+            member_name=member_name,
+            rich_enum_constructor=rich_enum_constructor,
         )
+
+    def reject_owned_rich_enum_arguments(
+        self,
+        plan: CallPlan,
+        provenance: CallableProvenance,
+        flow_entries: Mapping[int, CallableFlowSnapshot] | None = None,
+    ) -> None:
+        """Reject +1 values that a shallow variant payload cannot retain."""
+        constructor = plan.rich_enum_constructor
+        if constructor is None:
+            return
+        for binding in plan.bindings:
+            if binding.is_default or binding.parameter_index is None:
+                continue
+            parameter = plan.parameters[binding.parameter_index]
+            entry = flow_entries.get(id(binding.source)) if flow_entries is not None else None
+            if entry is None:
+                preparation = self.plan_value(binding.source, parameter.type, provenance)
+            else:
+                with provenance.at_flow(entry):
+                    preparation = self.plan_value(binding.source, parameter.type, provenance)
+            if not (
+                preparation.source_owned or preparation.string_conversion or preparation.hosted_mode in {ADOPT, COPY}
+            ):
+                continue
+            payload = f"{constructor.enum_name}.{constructor.variant_name}"
+            raise CodegenError(
+                "caller-owned temporary cannot be embedded in rich-enum "
+                f"payload '{payload}'; aggregate class elements are shallow "
+                "borrowed references, so bind the owner to a local first"
+            )
+
+    def _resolved_parameters(
+        self,
+        node,
+        declaration,
+        dispatch: CallDispatch,
+        *,
+        result_type: TypeExpr | None,
+        receiver_type: TypeExpr | None,
+    ) -> tuple[ResolvedCallParameter, ...]:
+        """Resolve the exact parameter contract without traversing expressions."""
+        builtin = self._builtin_parameters(node, dispatch, result_type, receiver_type)
+        if builtin is not None:
+            return builtin
+        hosted = self._hosted_parameters(node)
+        if hosted is not None:
+            return hosted
+        if isinstance(node.callee, LambdaExpr):
+            return self._resolved_declared_parameters(node.callee.params, {})
+        if declaration is not None:
+            substitutions = self._call_substitutions(node, result_type, receiver_type)
+            return self._resolved_declared_parameters(declaration.params, substitutions, declaration)
+        signature = self._callable_signature(node.callee)
+        if signature is None:
+            return ()
+        return tuple(
+            ResolvedCallParameter(
+                name=str(index + 1),
+                type=self._types.resolve_active_type(parameter_type) or parameter_type,
+                default=None,
+                keep=False,
+                transferred=False,
+                default_type_map=MappingProxyType({}),
+            )
+            for index, parameter_type in enumerate(signature[1:])
+        )
+
+    def _builtin_parameters(
+        self,
+        node,
+        dispatch: CallDispatch,
+        result_type: TypeExpr | None,
+        receiver_type: TypeExpr | None,
+    ) -> tuple[ResolvedCallParameter, ...] | None:
+        if dispatch is CallDispatch.MUTEX_CONSTRUCTOR:
+            if result_type is None or result_type.base != "Mutex" or len(result_type.generic_args) != 1:
+                raise CodegenError("Mutex constructor has no concrete analyzed payload type")
+            return (self._synthetic_parameter("value", result_type.generic_args[0]),)
+        if dispatch is CallDispatch.BUILTIN_PRINT:
+            return tuple(
+                self._synthetic_parameter(
+                    str(index),
+                    TypeExpr(base="string")
+                    if self._types.has_to_string(self._session.type_of(argument))
+                    else self._session.type_of(argument) or TypeExpr(base="int"),
+                )
+                for index, argument in enumerate(node.args)
+            )
+        if dispatch is CallDispatch.BUILTIN_LEN:
+            return tuple(self._synthetic_parameter("value", self._session.type_of(node.args[0])) for _ in node.args[:1])
+        if dispatch in {
+            CallDispatch.STRING_HELPER,
+            CallDispatch.STRING_SPECIAL,
+            CallDispatch.STRING_CONVERSION,
+        }:
+            spec = STRING_METHODS.get(getattr(node.callee, "field", ""))
+            argument_types = spec.argument_types if spec is not None else ()
+            return tuple(
+                self._synthetic_parameter(str(index), TypeExpr(base=argument_type))
+                for index, argument_type in enumerate(argument_types)
+            )
+        if dispatch is CallDispatch.BUILTIN_TO_STRING:
+            return ()
+        return None
+
+    def _hosted_parameters(self, node) -> tuple[ResolvedCallParameter, ...] | None:
+        callee = getattr(node, "callee", None)
+        if not isinstance(callee, Identifier) or id(node) not in self._analyzed.hosted_call_ids:
+            return None
+        spec = HOSTED_ABI.function(callee.name)
+        if spec is None or spec.parameters is None:
+            return None
+        return tuple(
+            self._synthetic_parameter(str(index), parameter.as_type_expr())
+            for index, parameter in enumerate(spec.parameters)
+        )
+
+    def _hosted_call_is_variadic(self, node) -> bool:
+        """Return the analyzed hosted signature's variable-tail contract."""
+        callee = getattr(node, "callee", None)
+        if not isinstance(callee, Identifier) or id(node) not in self._analyzed.hosted_call_ids:
+            return False
+        spec = HOSTED_ABI.function(callee.name)
+        return bool(spec is not None and spec.variadic)
+
+    def _resolved_declared_parameters(
+        self,
+        parameters,
+        substitutions: Mapping[str, TypeExpr],
+        declaration=None,
+    ) -> tuple[ResolvedCallParameter, ...]:
+        transferred = (
+            OwnershipAnalyzer.owned_transfer_param_indices(declaration) if declaration is not None else frozenset()
+        )
+        resolved = []
+        for index, parameter in enumerate(parameters):
+            type_expr = self._types.substitute_concrete_type(parameter.type, dict(substitutions))
+            type_expr = self._types.resolve_active_type(type_expr)
+            if type_expr is None:
+                raise CodegenError(f"cannot resolve call parameter type for '{parameter.name}'")
+            resolved.append(
+                ResolvedCallParameter(
+                    name=parameter.name,
+                    type=type_expr,
+                    default=parameter.default,
+                    keep=parameter.keep,
+                    transferred=index in transferred,
+                    default_type_map=MappingProxyType(dict(substitutions)),
+                )
+            )
+        return tuple(resolved)
+
+    def _synthetic_parameter(self, name: str, type_expr: TypeExpr | None) -> ResolvedCallParameter:
+        resolved = self._types.resolve_active_type(type_expr)
+        if resolved is None:
+            raise CodegenError(f"cannot resolve call parameter type for '{name}'")
+        return ResolvedCallParameter(
+            name=name,
+            type=resolved,
+            default=None,
+            keep=False,
+            transferred=False,
+            default_type_map=MappingProxyType({}),
+        )
+
+    def _call_substitutions(
+        self,
+        node,
+        result_type: TypeExpr | None,
+        receiver_type: TypeExpr | None,
+    ) -> dict[str, TypeExpr]:
+        substitutions: dict[str, TypeExpr] = {}
+        callee = getattr(node, "callee", None)
+        if isinstance(node, NewExpr):
+            class_info = self._analyzed.class_table.get(node.type.base)
+            if class_info is not None and result_type is not None:
+                substitutions.update(zip(class_info.generic_params, result_type.generic_args))
+            return substitutions
+        if isinstance(callee, Identifier):
+            class_info = self._analyzed.class_table.get(callee.name)
+            if class_info is not None and result_type is not None:
+                substitutions.update(zip(class_info.generic_params, result_type.generic_args))
+            return substitutions
+        if not isinstance(callee, FieldAccessExpr) or receiver_type is None:
+            return substitutions
+        class_info = self._analyzed.class_table.get(receiver_type.base)
+        if class_info is None:
+            return substitutions
+        substitutions.update(zip(class_info.generic_params, receiver_type.generic_args))
+        method = class_info.methods.get(callee.field)
+        method_args = self._analyzed.generic_method_call_args.get(id(node), ())
+        if method is not None:
+            substitutions.update(zip(method.generic_params, method_args))
+        return substitutions
+
+    def _callable_signature(self, callee) -> tuple[TypeExpr, ...] | None:
+        callee_type = self._session.type_of(callee)
+        if callee_type is None and isinstance(callee, Identifier):
+            callee_type = self._analyzed.global_var_types.get(callee.name)
+        signature = self._types.function_pointer_signature(callee_type)
+        return tuple(signature) if signature is not None else None
+
+    def _builtin_method_dispatch(
+        self,
+        receiver_type: TypeExpr | None,
+        member_name: str,
+    ) -> CallDispatch | None:
+        """Classify calls owned by the language rather than a source declaration."""
+        if self._type_identity.is_scalar_string(receiver_type):
+            if member_name in _STRING_METHODS:
+                return CallDispatch.STRING_HELPER
+            if member_name in {"equals", "byteLen", "len", "length"}:
+                return CallDispatch.STRING_SPECIAL
+            if member_name in _STRING_CONVERSION_METHODS:
+                return CallDispatch.STRING_CONVERSION
+            return None
+        if member_name != "toString" or receiver_type is None:
+            return None
+        if receiver_type.pointer_depth or receiver_type.is_array or receiver_type.generic_args:
+            return None
+        if (
+            receiver_type.base == "bool"
+            or receiver_type.base in TypeSystem.NUMERIC_TYPES
+            or receiver_type.base in self._analyzed.enum_table
+            or receiver_type.base in self._analyzed.rich_enum_table
+        ):
+            return CallDispatch.BUILTIN_TO_STRING
+        return None
+
+    def _method_target(self, node: CallExpr):
+        """Resolve a declared class method to its concrete free-function symbol."""
+        callee = node.callee
+        if self._types.function_pointer_signature(self._session.type_of(callee)) is not None:
+            return None
+        receiver = callee.obj
+        if isinstance(receiver, Identifier) and not self._session.local_is_declared(receiver.name):
+            class_info = self._analyzed.class_table.get(receiver.name)
+            if class_info is not None:
+                method = class_info.methods.get(callee.field)
+                if method is None:
+                    return None
+                return (f"{receiver.name}_{callee.field}", method, None)
+        receiver_type = self._types.resolve_active_type(self._types.canonical_type(self._session.type_of(receiver)))
+        class_info = self._analyzed.class_table.get(receiver_type.base) if receiver_type is not None else None
+        method = class_info.methods.get(callee.field) if class_info is not None else None
+        if method is None:
+            return None
+        prefix = receiver_type.base
+        if receiver_type.generic_args and class_info.generic_params:
+            prefix = self._type_identity.specialization_symbol(receiver_type.base, receiver_type.generic_args)
+        if method.generic_params:
+            method_args = self._analyzed.generic_method_call_args.get(id(node))
+            if method_args is not None:
+                method_args = tuple(self._types.resolve_active_type(argument) or argument for argument in method_args)
+                prefix = self._type_identity.method_instance_symbol(
+                    receiver_type.base,
+                    tuple(receiver_type.generic_args if class_info.generic_params else ()),
+                    method.name,
+                    method_args,
+                )
+                return (prefix, method, receiver if method.access != "class" else None)
+        return (f"{prefix}_{method.name}", method, receiver if method.access != "class" else None)
 
     def plan_new(self, node: NewExpr, instance_type: TypeExpr) -> CallPlan:
         """Plan a constructor call without lowering any source operand."""
+        dispatch = CallDispatch.MUTEX_CONSTRUCTOR if instance_type.base == "Mutex" else CallDispatch.DIRECT
+        if dispatch is CallDispatch.MUTEX_CONSTRUCTOR:
+            declaration = None
+            parameters = self._resolved_parameters(
+                node,
+                declaration,
+                dispatch,
+                result_type=instance_type,
+                receiver_type=None,
+            )
+            callee = None
+        else:
+            class_info = self._analyzed.class_table.get(instance_type.base)
+            declaration = class_info.constructor if class_info is not None else None
+            parameters = (
+                self._resolved_declared_parameters(
+                    declaration.params,
+                    self._call_substitutions(node, instance_type, None),
+                    declaration,
+                )
+                if declaration is not None
+                else ()
+            )
+            callee = self.constructor_symbol(instance_type)
         return CallPlan(
             source=node,
-            callee=self.constructor_symbol(instance_type),
-            operands=tuple(node.args),
-            argument_names=tuple(CallLowerer.arg_names_for(node, len(node.args))),
-            declaration=self._analyzed.class_table.get(instance_type.base),
-            result_type=instance_type,
+            dispatch=dispatch,
+            callee=callee,
+            receiver=None,
+            parameters=parameters,
+            bindings=tuple(
+                self.bind_arg_nodes_to_params(
+                    list(parameters),
+                    list(node.args),
+                    self.arg_names_for(node, len(node.args)),
+                )
+            ),
+            declaration=declaration,
         )
 
     def constructor_symbol(self, instance_type: TypeExpr) -> str:
@@ -1729,13 +2316,172 @@ class CallLowerer:
             type_name = self._type_identity.specialization_symbol(instance_type.base, instance_type.generic_args)
         return f"{type_name}_new"
 
-    def materialize(self, plan, lowered_callee, lowered_operands):
-        callee = lowered_callee
-        if isinstance(callee, IRVar):
-            callee = callee.name
-        if not isinstance(callee, str):
-            return IRCall(callee="__btrc_invoke", args=[callee, *lowered_operands])
-        return IRCall(callee=callee, args=list(lowered_operands))
+    def materialize(
+        self,
+        plan: CallPlan,
+        lowered_callee: str | IRExpr | None,
+        lowered_receiver: IRExpr | None,
+        lowered_arguments: Sequence[IRExpr],
+    ) -> IRExpr:
+        source_callee = getattr(plan.source, "callee", None)
+        if isinstance(source_callee, Identifier) and plan.declaration is None:
+            intrinsic = self._types.lower_generic_intrinsic(
+                source_callee.name,
+                list(lowered_arguments),
+                [self._session.type_of(binding.source) for binding in plan.bindings if not binding.is_default],
+            )
+            if intrinsic is not None:
+                return intrinsic
+        arguments = list(lowered_arguments)
+        operands = [*(() if lowered_receiver is None else (lowered_receiver,)), *arguments]
+        if plan.dispatch is CallDispatch.STRING_HELPER:
+            return self._materialize_string_helper(plan.member_name, operands)
+        if plan.dispatch is CallDispatch.STRING_SPECIAL:
+            return self._materialize_string_special(plan.member_name, operands)
+        if plan.dispatch is CallDispatch.STRING_CONVERSION:
+            return self._materialize_string_conversion(plan.member_name, operands)
+        if plan.dispatch is CallDispatch.BUILTIN_TO_STRING:
+            return self._materialize_builtin_to_string(plan.receiver_type, operands)
+        if plan.dispatch is CallDispatch.BUILTIN_LEN:
+            return self._materialize_builtin_len(plan.receiver_type, operands)
+        if plan.dispatch is CallDispatch.BUILTIN_PRINT:
+            return self._materialize_builtin_print(plan, arguments)
+        if plan.dispatch is CallDispatch.MUTEX_CONSTRUCTOR:
+            if len(arguments) != 1 or len(plan.parameters) != 1:
+                raise CodegenError("Mutex construction requires one typed value")
+            return self._mutex_constructor.create_mutex_value(
+                arguments[0],
+                plan.parameters[0].type,
+            )
+        if lowered_callee is None:
+            raise ValueError("direct or callable dispatch requires a lowered callee")
+        return IRCall(callee=lowered_callee, args=operands)
+
+    def _materialize_builtin_len(
+        self,
+        receiver_type: TypeExpr | None,
+        operands: list[IRExpr],
+    ) -> IRExpr:
+        if not operands:
+            raise ValueError("len dispatch requires one operand")
+        receiver = operands[0]
+        if self._type_identity.is_scalar_string(receiver_type):
+            helper = "__btrc_string_length"
+            self._session.require_helper(helper)
+            return IRCall(callee=helper, args=[receiver], helper_ref=helper)
+        return IRFieldAccess(obj=receiver, field="len", arrow=True)
+
+    def _materialize_builtin_print(self, plan: CallPlan, operands: list[IRExpr]) -> IRExpr:
+        if not operands:
+            return IRCall(callee="printf", args=[IRLiteral(text='"\\n"')])
+        formats = []
+        arguments = []
+        explicit_sources = [binding.source for binding in plan.bindings if not binding.is_default]
+        for source, value in zip(explicit_sources, operands):
+            source_type = self._types.canonical_type(self._session.type_of(source))
+            if self._types.has_to_string(source_type):
+                source_type = TypeExpr(base="string")
+            adapted = self.adapt_printf_arg(
+                value,
+                source_type,
+                self._types.format_spec(source_type),
+            )
+            formats.append(adapted.format_spec)
+            arguments.append(adapted.value)
+        return IRCall(
+            callee="printf",
+            args=[IRLiteral(text=f'"{" ".join(formats)}\\n"'), *arguments],
+        )
+
+    def _materialize_string_helper(self, method: str, operands: list[IRExpr]) -> IRExpr:
+        helper = _STRING_METHODS[method]
+        self._session.require_helper(helper)
+        call = IRCall(callee=helper, args=operands, helper_ref=helper)
+        if method not in _STRING_TRACK_METHODS:
+            return call
+        self._session.require_helper("__btrc_str_track")
+        return IRCall(callee="__btrc_str_track", args=[call], helper_ref="__btrc_str_track")
+
+    @staticmethod
+    def _materialize_string_special(method: str, operands: list[IRExpr]) -> IRExpr:
+        receiver, *arguments = operands
+        if method == "equals":
+            compared = IRCall(callee="strcmp", args=[receiver, *arguments])
+            return IRBinOp(left=compared, op="==", right=IRLiteral(text="0"))
+        if method in {"byteLen", "len", "length"}:
+            return IRCast(
+                target_type=CType(text="int"),
+                expr=IRCall(callee="strlen", args=[receiver]),
+            )
+        raise ValueError(f"unsupported string special method: {method}")
+
+    def _materialize_string_conversion(self, method: str, operands: list[IRExpr]) -> IRExpr:
+        receiver = operands[0]
+        c_function, cast_to = _STRING_CONVERSION_METHODS[method]
+        arguments = [receiver]
+        if c_function in {"strtof", "strtod"}:
+            arguments.append(IRLiteral(text="NULL"))
+        helper_ref = ""
+        if c_function.startswith("__btrc_"):
+            helper_ref = c_function
+            self._session.require_helper(c_function)
+        call = IRCall(callee=c_function, args=arguments, helper_ref=helper_ref)
+        if cast_to:
+            return IRCast(target_type=CType(text=cast_to), expr=call)
+        return call
+
+    def _materialize_builtin_to_string(
+        self,
+        receiver_type: TypeExpr | None,
+        operands: list[IRExpr],
+    ) -> IRExpr:
+        if receiver_type is None or not operands:
+            raise ValueError("built-in toString dispatch requires a typed receiver")
+        receiver = operands[0]
+        base = receiver_type.base
+        if base == "bool":
+            return IRTernary(
+                condition=receiver,
+                true_expr=IRLiteral(text='"true"'),
+                false_expr=IRLiteral(text='"false"'),
+            )
+        if base in self._analyzed.enum_table or base in self._analyzed.rich_enum_table:
+            return IRCast(
+                target_type=CType(text="char*"),
+                expr=IRCall(callee=f"{base}_toString", args=[receiver]),
+            )
+        helper = self._to_string_helper(base)
+        self._session.require_helper(helper)
+        self._session.require_helper("__btrc_str_track")
+        converted = IRCall(callee=helper, args=[receiver], helper_ref=helper)
+        return IRCall(callee="__btrc_str_track", args=[converted], helper_ref="__btrc_str_track")
+
+    @staticmethod
+    def _to_string_helper(base: str) -> str:
+        if base in {"unsigned long long", "unsigned long long int", "size_t"}:
+            return "__btrc_ulongLongToString"
+        if base in {"long long", "long long int", "signed long long", "signed long long int"}:
+            return "__btrc_longLongToString"
+        if base in {"unsigned long", "unsigned long int"}:
+            return "__btrc_ulongToString"
+        if base in {"long", "long int", "signed long", "signed long int"}:
+            return "__btrc_longToString"
+        if base in {
+            "uint",
+            "byte",
+            "unsigned",
+            "unsigned int",
+            "unsigned short",
+            "unsigned short int",
+            "unsigned char",
+        }:
+            return "__btrc_uintToString"
+        return {
+            "float": "__btrc_floatToString",
+            "double": "__btrc_doubleToString",
+            "long double": "__btrc_longDoubleToString",
+            "char": "__btrc_charToString",
+        }.get(base, "__btrc_intToString")
 
     @staticmethod
     def arg_names_for(node, count: int) -> list[str]:
@@ -1746,21 +2492,25 @@ class CallLowerer:
 
     @staticmethod
     def bind_arg_nodes_to_params(
-        params: list, ast_args: list, arg_names: list[str]
-    ) -> list[tuple[int | None, object, bool]]:
+        params: list,
+        ast_args: list,
+        arg_names: list[str],
+        *,
+        variadic: bool = False,
+    ) -> list[CallArgumentBinding]:
         """Bind explicit arguments, then omitted defaults, without lowering.
 
         Explicit nodes stay in source evaluation order. Omitted defaults follow in
         parameter order. The boolean marks synthesized default arguments.
         """
         if not params:
-            return [(None, argument, False) for argument in ast_args]
+            return [CallArgumentBinding(None, argument, False) for argument in ast_args]
         names = list(arg_names or [])
         names.extend([""] * (len(ast_args) - len(names)))
         param_indices = {param.name: index for index, param in enumerate(params)}
         positional_index = 0
         bound: set[int] = set()
-        result: list[tuple[int | None, object, bool]] = []
+        result: list[CallArgumentBinding] = []
         for index, argument in enumerate(ast_args):
             name = names[index]
             if name:
@@ -1768,12 +2518,14 @@ class CallLowerer:
             else:
                 param_index = positional_index
                 positional_index += 1
+                if variadic and param_index >= len(params):
+                    param_index = None
             if param_index is not None and param_index < len(params):
                 bound.add(param_index)
-            result.append((param_index, argument, False))
+            result.append(CallArgumentBinding(param_index, argument, False))
         for index, param in enumerate(params):
             if index not in bound and param.default is not None:
-                result.append((index, param.default, True))
+                result.append(CallArgumentBinding(index, param.default, True))
         return result
 
     @staticmethod
@@ -1940,7 +2692,7 @@ class CallLowerer:
             direct = self._analyzed.class_table.get(receiver.name)
             if direct is not None:
                 return direct
-        receiver_type = self._types.canonical_type(self._analyzed.node_types.get(id(receiver)))
+        receiver_type = self._types.canonical_type(self._session.type_of(receiver))
         return self._analyzed.class_table.get(receiver_type.base) if receiver_type else None
 
     def _helper_params(self, target, params, param_index, provenance: CallableProvenance):
@@ -1953,6 +2705,26 @@ class CallLowerer:
     def hosted_string_conversion_mode(self, expression, target_type, source_type) -> str | None:
         """Classify raw-char-pointer to managed-string conversion."""
         return self._conversion_mode(expression, target_type, source_type)
+
+    def argument_target_type(
+        self,
+        parameter: ResolvedCallParameter,
+        argument,
+    ) -> TypeExpr:
+        """Select the ownership-safe preparation target for one bound argument."""
+        source_type = self._types.canonical_type(self._session.type_of(argument))
+        target_type = self._types.canonical_type(parameter.type)
+        if (
+            not parameter.keep
+            and not parameter.transferred
+            and self._managed_string(target_type)
+            and self._raw_c_string(source_type)
+        ):
+            # A borrowed string parameter reads the ABI-compatible char pointer;
+            # only keep/transfer boundaries require an owned managed conversion.
+            assert source_type is not None
+            return source_type
+        return parameter.type
 
     def _conversion_mode(self, expression, target_type, source_type) -> str | None:
         target = self._types.canonical_type(target_type)
@@ -1995,9 +2767,9 @@ class CallLowerer:
         source_type = self._types.canonical_type(self._session.type_of(node))
         resolved_target = self._types.canonical_type(target_type)
         hosted_mode = self.hosted_string_conversion_mode(node, resolved_target, source_type)
-        source_owned = bool(
-            id(node) not in self._session.owning_overrides and self._ownership.owns_result(node, provenance=provenance)
-        )
+        overridden = id(node) in self._session.owning_overrides
+        source_owned = bool(not overridden and self._ownership.owns_result(node, provenance=provenance))
+        lowered_owned = self._ownership.lowered_result_is_owned(node, provenance=provenance)
         if hosted_mode == REJECT:
             raise CodegenError(
                 "raw char* to managed string conversion reached IR without a proven hosted ownership effect"
@@ -2008,6 +2780,7 @@ class CallLowerer:
             target_type=resolved_target,
             hosted_mode=hosted_mode,
             source_owned=source_owned,
+            lowered_owned=lowered_owned,
             string_conversion=self.requires_string_conversion(resolved_target, source_type),
         )
 
@@ -2022,8 +2795,8 @@ class CallLowerer:
         if plan.hosted_mode in {ADOPT, COPY}:
             return PreparedValue(
                 value=lowered,
-                effective_type=plan.target_type,
-                owned=True,
+                effective_type=plan.effective_type,
+                owned=plan.owned,
                 converted=True,
             )
         if plan.string_conversion:
@@ -2031,14 +2804,14 @@ class CallLowerer:
                 raise ValueError("string conversion requires materialized call IR")
             return PreparedValue(
                 value=converted,
-                effective_type=TypeExpr(base="string"),
-                owned=True,
+                effective_type=plan.effective_type,
+                owned=plan.owned,
                 converted=True,
             )
         return PreparedValue(
             value=lowered,
-            effective_type=plan.source_type or plan.target_type,
-            owned=plan.source_owned,
+            effective_type=plan.effective_type,
+            owned=plan.owned,
         )
 
     def materialize_string_conversion(self, plan: ValuePreparationPlan, receiver: IRExpr) -> IRExpr:
@@ -2060,6 +2833,9 @@ class CallLowerer:
             [node for node, _prepared in prepared_values],
             [prepared.effective_type for _node, prepared in prepared_values],
             [prepared.owned for _node, prepared in prepared_values],
+            effects=[
+                bool(self._operand_order.has_effect(node) or prepared.converted) for node, prepared in prepared_values
+            ],
         )
 
     def adapt_printf_arg(self, value: IRExpr, value_type: TypeExpr | None, format_spec: str) -> PrintfArg:
@@ -2131,6 +2907,37 @@ class CallLowerer:
         if format_spec == "%u":
             return PrintfArg(format_spec=format_spec, value=IRCast(target_type=CType(text="unsigned int"), expr=value))
         return PrintfArg(format_spec=format_spec, value=value)
+
+    def promote_variadic_argument(
+        self,
+        type_expr: TypeExpr | None,
+        value: IRExpr,
+    ) -> IRExpr:
+        """Apply C's default argument promotions at a typed variadic tail."""
+        resolved = self._types.canonical_type(type_expr)
+        if resolved is None or resolved.pointer_depth or resolved.is_array:
+            return value
+        if resolved.base == "float":
+            return IRCast(target_type=CType(text="double"), expr=value)
+        if (
+            resolved.base
+            in {
+                "bool",
+                "byte",
+                "char",
+                "signed char",
+                "unsigned char",
+                "short",
+                "short int",
+                "signed short",
+                "signed short int",
+                "unsigned short",
+                "unsigned short int",
+            }
+            or resolved.base in self._analyzed.enum_table
+        ):
+            return IRCast(target_type=CType(text="int"), expr=value)
+        return value
 
     def _is_by_value_aggregate(self, value_type: TypeExpr | None) -> bool:
         if value_type is None or value_type.pointer_depth > 0 or value_type.is_array:

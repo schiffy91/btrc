@@ -6,6 +6,7 @@ import pytest
 
 from src.tests.btrc.test_mutex_value_contract import (
     COMPILERS,
+    REPO,
     _build_and_run,
     _compile_pair,
     _strict_matrix,
@@ -17,6 +18,18 @@ pytestmark = pytest.mark.skipif(
     not COMPILERS,
     reason="requires a pthread C11 compiler",
 )
+
+
+def test_selfhost_mutex_transport_storage_resolves_active_specialization() -> None:
+    source = (REPO / "src/compiler/btrc/ir/lowering/concurrency.btrc").read_text()
+    start = source.index("    public string threadResultStorageC(")
+    end = source.index("\n    }", start)
+    storage = source[start:end]
+
+    assert "self.cTypes.resolveBodyType(" in storage
+    assert "self.context.activeTypeMap" in storage
+    assert "TypeShape.copy(concreteType)" in storage
+    assert "TypeShape.copy(resultType)" not in storage
 
 
 def _optimization_matrix(compiled, tmp_path):

@@ -3,9 +3,9 @@ from pathlib import Path
 
 import pytest
 
+import src.compiler.python.frontend.sources as frontend_sources
 from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.packages import IncludeResolutionError, PackageUniverse
-import src.compiler.python.frontend.sources as frontend_sources
 from src.compiler.python.frontend.sources import (
     SourceDirectoryScanner,
     SourceResolutionPolicy,

@@ -1,0 +1,1 @@
+{"asset":"cycles.c","btrc_order":105,"category":"cycles","dependencies":[],"headers":["stdatomic.h"],"name":"__btrc_arc_snapshot_gate_state","provided_objects":[],"provided_types":[],"python_order":154,"source_sha256":"a034e80d5aabf3fd817a9ddc771abb87807231758a205d3dbd11f54376ab0906","source_size":117,"source_visible":false}

@@ -439,3 +439,114 @@ def test_source_gpu_id_cannot_be_reinterpreted_as_a_gpu_builtin(
     for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
         assert result.returncode != 0
         assert "resolves to a source symbol" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        pytest.param(
+            """
+                int helper(int value) { return value; }
+                @gpu void update(int[] values) {
+                    values[0] = helper(values[0]);
+                }
+                int main() { return 0; }
+            """,
+            id="ordinary-helper",
+        ),
+        pytest.param(
+            """
+                float sqrt(float value) { return value; }
+                @gpu void update(float[] values) {
+                    values[0] = sqrt(values[0]);
+                }
+                int main() { return 0; }
+            """,
+            id="math-spelling",
+        ),
+    ],
+)
+def test_source_calls_are_rejected_in_dormant_gpu_bodies(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+) -> None:
+    for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
+        assert result.returncode != 0
+        assert "resolves to a source symbol" in result.stderr
+
+
+def test_source_calls_in_gpu_defaults_remain_host_evaluated(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        int defaultScale() { return 2; }
+        @gpu void update(int[] values, int scale = defaultScale()) {
+            int index = gpu_id();
+            values[index] *= scale;
+        }
+        int main() { return 0; }
+    """
+    compiled = compile_pair(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "host-evaluated-gpu-default",
+        include_stdlib=False,
+    )
+    run_strict_pair(compiled, tmp_path)
+
+
+@pytest.mark.parametrize(
+    ("call", "diagnostic"),
+    [
+        pytest.param("gpu_id(1)", "gpu_id() takes no arguments", id="arity"),
+        pytest.param(
+            "gpu_id(value=1)",
+            "WGSL built-ins do not accept named arguments",
+            id="named-argument",
+        ),
+    ],
+)
+def test_gpu_id_call_shape_is_checked_in_dormant_gpu_bodies(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    call: str,
+    diagnostic: str,
+) -> None:
+    source = f"""
+        @gpu void update(int[] values) {{ values[0] = {call}; }}
+        int main() {{ return 0; }}
+    """
+    for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
+        assert result.returncode != 0
+        assert diagnostic in result.stderr
+
+
+def test_gpu_id_without_gpu_context_is_rejected(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = "int main() { return gpu_id(); }"
+    for result in compile_diagnostic_pair(semantic_btrcc, tmp_path, source):
+        assert result.returncode != 0
+        assert "gpu_id() can only be called inside @gpu functions" in result.stderr
+
+
+def test_source_gpu_id_remains_an_ordinary_call_outside_gpu(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        int gpu_id(int value) { return value + 1; }
+        int main() { return gpu_id(41) == 42 ? 0 : 1; }
+    """
+    compiled = compile_pair(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "ordinary-source-gpu-id",
+        include_stdlib=False,
+    )
+    run_strict_pair(compiled, tmp_path)

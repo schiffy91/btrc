@@ -7,6 +7,11 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.nodes import IRCall, IRFieldAccess, IRFor, IRNode, IRSizeof, IRStmtExpr, IRVar, IRVarDecl
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 from src.tests.btrc.runtime_ownership_harness import (
     require_sanitizers,
     sanitized_build_and_run,
@@ -104,6 +109,73 @@ def _source(*, generic: bool) -> str:
             return 0;
         }}
     """
+
+
+def test_reference_projection_extent_uses_stable_physical_storage() -> None:
+    program = Parser(Lexer(_source(generic=False), "<fixed-array-forin>").tokenize()).parse()
+    analyzed = SemanticAnalyzer().analyze(program)
+    assert not analyzed.errors
+    module = IRLowerer(analyzed).lower()
+    exercise = next(function for function in module.function_defs if function.name == "exercise")
+    statements = exercise.body.stmts
+
+    def call_names(value) -> list[str]:
+        return [
+            node.callee
+            for node in IRNode.walk_value(value)
+            if isinstance(node, IRCall) and isinstance(node.callee, str)
+        ]
+
+    assert sum(call_names(statement).count("Holder_new") for statement in statements) == 1
+    assert sum(call_names(statement).count("makePacket") for statement in statements) == 1
+
+    projection_extents: dict[bool, tuple[int, IRFieldAccess]] = {}
+    bare_extent_roots = set()
+    for index, statement in enumerate(statements):
+        if not isinstance(statement, IRVarDecl):
+            continue
+        sizeofs = [node for node in IRNode.walk_value(statement.init) if isinstance(node, IRSizeof)]
+        for sizeof in sizeofs:
+            assert not any(isinstance(node, (IRCall, IRStmtExpr)) for node in IRNode.walk_value(sizeof.operand))
+        direct = next(
+            (sizeof.operand for sizeof in sizeofs if isinstance(sizeof.operand, (IRFieldAccess, IRVar))),
+            None,
+        )
+        if isinstance(direct, IRVar):
+            bare_extent_roots.add(direct.name)
+        elif isinstance(direct, IRFieldAccess) and direct.field == "values":
+            projection_extents[direct.arrow] = (index, direct)
+
+    assert {"ordinary", "globalValues", "cached"} <= bare_extent_roots
+    assert set(projection_extents) == {False, True}
+    managed_extent_index, managed_projection = projection_extents[True]
+    value_extent_index, value_projection = projection_extents[False]
+    assert isinstance(managed_projection.obj, IRVar)
+    assert isinstance(value_projection.obj, IRVar)
+
+    managed_call_index = next(
+        index for index, statement in enumerate(statements) if "Holder_new" in call_names(statement)
+    )
+    value_call_index = next(
+        index for index, statement in enumerate(statements) if "makePacket" in call_names(statement)
+    )
+    managed_loop_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if index > managed_extent_index and isinstance(statement, IRFor)
+    )
+    value_loop_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if index > value_extent_index and isinstance(statement, IRFor)
+    )
+    release_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if index > managed_loop_index and any(name.startswith("__btrc_arc_release") for name in call_names(statement))
+    )
+    assert managed_call_index < managed_extent_index < managed_loop_index < release_index
+    assert value_call_index < value_extent_index < value_loop_index
 
 
 def test_generic_gpu_result_array_forin_smoke(

@@ -1,8 +1,7 @@
 """Hover across symbol kinds: field, local variable, parameter, method, class,
 and documented keywords. Asserts the hover text names the symbol/type."""
 
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import SAMPLE, analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import SAMPLE, analyze, get_hover_info, hover_text, pos_of
 
 
 def _hov(needle, occurrence=1, offset=1):

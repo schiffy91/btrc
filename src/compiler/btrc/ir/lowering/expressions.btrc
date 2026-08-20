@@ -54,6 +54,7 @@ class ExpressionLowerer {
     private OwnershipSemantics ownershipSemantics;
     private CallOwnershipLowerer callOwnership;
     private ManagedLifetimeLowerer managedLifetime;
+    private ManagedTypeLowerer managedTypes;
     private AggregateValueLowerer aggregateValues;
     private GpuPipeline gpuPipeline;
     private CTypeLowerer cTypes;
@@ -73,7 +74,9 @@ class ExpressionLowerer {
             CallableValueLowerer callableLowering,
             AssignmentLowerer assignments, LoweringContext context,
             OwnershipOperandPlanner operandPlanner, OwnershipSemantics ownershipSemantics,
-            CallOwnershipLowerer callOwnership, ManagedLifetimeLowerer managedLifetime,
+            CallOwnershipLowerer callOwnership,
+            ManagedLifetimeLowerer managedLifetime,
+            ManagedTypeLowerer managedTypes,
             AggregateValueLowerer aggregateValues,
             GpuPipeline gpuPipeline,
             CTypeLowerer cTypes, CallTargetResolver callTargets,
@@ -90,6 +93,7 @@ class ExpressionLowerer {
         self.assignments = assignments; self.context = context;
         self.operandPlanner = operandPlanner; self.ownershipSemantics = ownershipSemantics;
         self.callOwnership = callOwnership; self.managedLifetime = managedLifetime;
+        self.managedTypes = managedTypes;
         self.aggregateValues = aggregateValues;
         self.gpuPipeline = gpuPipeline;
         self.cTypes = cTypes; self.callTargets = callTargets;
@@ -167,17 +171,17 @@ class ExpressionLowerer {
         IRNode slot = IRNode.dereference(IRNode.variable(slotName));
         IRNode value = IRNode.variable(valueName);
         statements.push(IRNode.assignment(slot, IRNode.literal("NULL")));
-        IRNode destroy;
+        Vector<IRNode> destroyBody = [];
         if (self.managedValues.isManaged(resolvedType)) {
-            destroy = self.managedLifetime.releaseValue(
-                value, resolvedType);
+            destroyBody.push(IRNode.expressionStatement(
+                self.managedLifetime.releaseValue(
+                    value, resolvedType)));
         } else {
             Vector<IRNode> destroyArgs = [];
             destroyArgs.push(value);
-            destroy = IRNode.call("free", destroyArgs);
+            destroyBody.push(IRNode.expressionStatement(
+                IRNode.call("free", destroyArgs)));
         }
-        Vector<IRNode> destroyBody = [];
-        destroyBody.push(IRNode.expressionStatement(destroy));
         statements.push(IRNode.ifStatement(
             IRNode.binary(value, "!=", IRNode.literal("NULL")),
             IRNode.block(destroyBody), null));
@@ -196,7 +200,8 @@ class ExpressionLowerer {
         }
         string runtimeType = self.managedValues.runtimeType(resolvedType);
         self.managedLifetime.registerManaged(
-            name, self.context.sourceCName(name), runtimeType);
+            name, self.context.sourceCName(name), runtimeType,
+            resolvedType, self.cTypes.lower(resolvedType));
         self.managedLifetime.maybeRegisterCleanup(
             name, runtimeType, prefix);
         return runtimeType;
@@ -793,7 +798,7 @@ class ExpressionLowerer {
             self.callTargets.defaultTarget(
                 call, varTypes,
                 self.callableContext(varTypes, callableFlow));
-        string symbol = self.calls.defaultHelperSymbol(
+        string symbol = self.calls.ensureDefaultHelper(
             target, operand.parameterIndex);
         Vector<IRNode> arguments = [];
         if (target.selfType != null) {
@@ -872,12 +877,106 @@ class ExpressionLowerer {
             prepared.owned && operand.transferred);
     }
 
+    private IRNode lowerImmediateLambdaCallWithOwnership(
+            Node call, Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        OwnershipCallPlan plan = self.callOwnership.plan(
+            call, self.context.ownershipEnvironment(
+                varTypes, self.gpuPipeline.cpuActive()), callableFlow);
+        if (plan.target.kind != CALL_TARGET_IMMEDIATE_LAMBDA
+                || call.callee == null) {
+            print("internal compiler error: immediate lambda call has no typed target");
+            exit(1);
+        }
+        self.completeCallPlan(plan, varTypes);
+        int defaultIndex = 0;
+        while (defaultIndex < plan.operands.len) {
+            if (plan.operands.get(defaultIndex).defaultArgument) {
+                print("immediate lambda defaults require a declaration-owned helper");
+                exit(1);
+            }
+            defaultIndex = defaultIndex + 1;
+        }
+
+        CallableLambdaPlan lambda = self.callableLowering.prepareLambda(
+            call.callee, varTypes,
+            self.callableContext(varTypes, callableFlow));
+        OwnershipBoundary boundary = self.callOwnership.boundary();
+        Vector<IRNode> captureValues = [];
+        int captureIndex = 0;
+        while (captureIndex < lambda.captures.len) {
+            string capture = lambda.captures.get(captureIndex);
+            if (!varTypes.has(capture)) {
+                print("internal compiler error: immediate lambda capture has no type");
+                exit(1);
+            }
+            Node captureType = varTypes.get(capture);
+            Node concreteCaptureType = self.cTypes.resolveBodyType(
+                captureType, self.context.activeTypeMap,
+                self.context.genericBody
+                    || self.context.callDefaultTypeDepth > 0);
+            string captureCType = self.cTypes.lower(
+                concreteCaptureType);
+            if (self.context.genericBody
+                    || self.context.callDefaultTypeDepth > 0) {
+                captureCType = self.cTypes.lowerGeneric(
+                    captureType, self.context.activeTypeMap);
+            }
+            captureValues.push(boundary.stageValue(
+                concreteCaptureType, captureCType,
+                IRNode.variable(self.context.sourceCName(capture)),
+                false,
+                self.managedValues.isManaged(concreteCaptureType),
+                false));
+            captureIndex = captureIndex + 1;
+        }
+
+        CallableInvocationEnvironment invocation =
+            self.callableLowering.prepareInvocationEnvironment(
+                lambda, captureValues);
+        self.appendOwnershipNodes(
+            boundary.declarations, invocation.declarations);
+        self.appendOwnershipNodes(
+            boundary.prefix, invocation.prefix);
+
+        int argumentIndex = 0;
+        while (argumentIndex < plan.operands.len) {
+            self.addCallOperand(
+                boundary, call, plan, argumentIndex,
+                varTypes, callableFlow);
+            argumentIndex = argumentIndex + 1;
+        }
+        Vector<IRNode> arguments = self.lowerResolvedCallArguments(
+            plan.target, call, varTypes, callableFlow);
+        IRNode lowered = self.callableLowering.materializeInvocation(
+            lambda, arguments, invocation);
+        Node? resultType = self.resolvedExpressionType(
+            call, varTypes);
+        bool promoteResult = resultType != null
+            && self.managedValues.isManaged(
+                self.cTypes.resolveBodyType(
+                    resultType, self.context.activeTypeMap,
+                    self.context.genericBody
+                        || self.context.callDefaultTypeDepth > 0))
+            && !plan.resultOwned;
+        boundary.resultOwned = plan.resultOwned;
+        boundary.restore();
+        return boundary.finish(
+            lowered, resultType, promoteResult,
+            resultType == null, call);
+    }
+
     public IRNode lowerCallWithOwnership(
             Node call, Map<string, Node> varTypes, CallableFlowState callableFlow) {
         if (self.context.unevaluatedDepth > 0) {
             return self.lowerCallCore(call, varTypes, callableFlow);
         }
         self.rejectCallClosureEscapes(call, varTypes, callableFlow);
+        if (call.callee != null
+                && call.callee.kind == NK_LAMBDA_EXPR) {
+            return self.lowerImmediateLambdaCallWithOwnership(
+                call, varTypes, callableFlow);
+        }
         if (call.callee != null
                 && call.callee.kind == NK_FIELD_ACCESS_EXPR
                 && call.callee.optional) {
@@ -1678,7 +1777,10 @@ class ExpressionLowerer {
                 }
             }
         }
-        return self.cTypes.lower(targetType);
+        return self.cTypes.lower(self.cTypes.resolveBodyType(
+            targetType, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0));
     }
 
     public IRNode lowerDirectCompound(string compoundOp,
@@ -2409,6 +2511,222 @@ class ExpressionLowerer {
         return IRNode.ternary(condition, trueValue, falseValue);
     }
 
+    private bool optionalPresenceCondition(IRNode? condition) {
+        if (condition == null || condition.kind != IRK_BINOP
+                || condition.op != "!="
+                || condition.left == null
+                || condition.right == null) {
+            return false;
+        }
+        return condition.left.kind == IRK_VAR
+            && condition.right.kind == IRK_LITERAL
+            && (condition.right.text == "NULL"
+                || condition.right.text == "0");
+    }
+
+    /* Return only the variable carried by an expression's result path.  Casts,
+     * assignments, statement expressions, and the final comma operand preserve
+     * that path; no other operand is a def-use edge for the enclosing value. */
+    private string optionalResultVariable(IRNode? node) {
+        if (node == null) { return ""; }
+        if (node.kind == IRK_VAR) { return node.name; }
+        if (node.kind == IRK_CAST) {
+            return self.optionalResultVariable(node.expr);
+        }
+        if (node.kind == IRK_BINOP && node.op == "=") {
+            return self.optionalResultVariable(node.right);
+        }
+        if (node.kind == IRK_STMT_EXPR) {
+            return self.optionalResultVariable(node.result);
+        }
+        if (node.kind == IRK_COMMA_EXPR && node.args.len > 0) {
+            return self.optionalResultVariable(
+                node.args.get(node.args.len - 1));
+        }
+        return "";
+    }
+
+    /* Find a direct definition only when it is itself on the terminal result
+     * path.  In particular, this never searches a cleanup guard or an arbitrary
+     * call/binary operand. */
+    private IRNode? optionalResultAssignment(
+            IRNode? node, string resultName) {
+        if (node == null) { return null; }
+        if (node.kind == IRK_BINOP && node.op == "="
+                && node.left != null && node.left.kind == IRK_VAR
+                && node.left.name == resultName) {
+            return node;
+        }
+        if (node.kind == IRK_CAST) {
+            return self.optionalResultAssignment(
+                node.expr, resultName);
+        }
+        if (node.kind == IRK_STMT_EXPR) {
+            return self.optionalResultAssignment(
+                node.result, resultName);
+        }
+        if (node.kind == IRK_COMMA_EXPR && node.args.len > 0) {
+            return self.optionalResultAssignment(
+                node.args.get(node.args.len - 1), resultName);
+        }
+        return null;
+    }
+
+    /* Optional calls define their result inside the presence ternary rather
+     * than through a following top-level assignment.  Require both branches to
+     * carry the sought result before rewriting the absent branch.  A release
+     * guard therefore cannot be mistaken for the optional value definition. */
+    private bool replaceOptionalResultDefinition(
+            IRNode node, string resultName, IRNode fallback) {
+        if (node.kind == IRK_CAST) {
+            return self.replaceOptionalResultDefinition(
+                node.expr, resultName, fallback);
+        }
+        if (node.kind == IRK_STMT_EXPR) {
+            return self.replaceOptionalResultDefinition(
+                node.result, resultName, fallback);
+        }
+        if (node.kind == IRK_COMMA_EXPR && node.args.len > 0) {
+            return self.replaceOptionalResultDefinition(
+                node.args.get(node.args.len - 1),
+                resultName, fallback);
+        }
+        if (node.kind != IRK_TERNARY
+                || !self.optionalPresenceCondition(node.condition)
+                || self.optionalResultVariable(node.true_expr)
+                    != resultName) {
+            return false;
+        }
+        IRNode? absentAssignment = self.optionalResultAssignment(
+            node.false_expr, resultName);
+        if (absentAssignment == null) { return false; }
+        absentAssignment.right = fallback;
+        return true;
+    }
+
+    private bool optionalNodeDefinesResult(
+            IRNode node, string resultName) {
+        if (self.optionalResultAssignment(
+                node, resultName) != null) {
+            return true;
+        }
+        if (node.kind == IRK_CAST) {
+            return self.optionalNodeDefinesResult(
+                node.expr, resultName);
+        }
+        if (node.kind == IRK_STMT_EXPR) {
+            return self.optionalNodeDefinesResult(
+                node.result, resultName);
+        }
+        if (node.kind == IRK_COMMA_EXPR) {
+            if (node.args.len == 0
+                    || self.optionalResultVariable(
+                        node.args.get(node.args.len - 1))
+                        != resultName) {
+                return false;
+            }
+            int index = node.args.len - 1;
+            while (index >= 0) {
+                if (self.optionalNodeDefinesResult(
+                        node.args.get(index), resultName)) {
+                    return true;
+                }
+                index = index - 1;
+            }
+            return false;
+        }
+        if (node.kind != IRK_TERNARY) { return false; }
+        return self.optionalNodeDefinesResult(
+                node.true_expr, resultName)
+            || self.optionalNodeDefinesResult(
+                node.false_expr, resultName);
+    }
+
+    /* Walk one comma sequence backward along its result's def-use path.  This
+     * follows handoff aliases past later clears, stops at the newest concrete
+     * definition, and only inspects a ternary when its branches define the
+     * value being sought. */
+    private bool replaceOptionalSequenceFallback(
+            IRNode sequence, IRNode fallback) {
+        if (sequence.args.len == 0) { return false; }
+        int resultIndex = sequence.args.len - 1;
+        IRNode result = sequence.args.get(resultIndex);
+        if (self.replaceOptionalFallback(result, fallback)) {
+            return true;
+        }
+        string resultName = self.optionalResultVariable(result);
+        if (resultName == "") { return false; }
+        int index = resultIndex - 1;
+        while (index >= 0) {
+            IRNode definition = sequence.args.get(index);
+            IRNode? assignment = self.optionalResultAssignment(
+                definition, resultName);
+            if (assignment != null) {
+                if (self.replaceOptionalFallback(
+                        definition, fallback)) {
+                    return true;
+                }
+                string alias = self.optionalResultVariable(
+                    assignment.right);
+                if (alias == "") { return false; }
+                resultName = alias;
+                index = index - 1;
+                continue;
+            }
+            if (self.replaceOptionalResultDefinition(
+                    definition, resultName, fallback)) {
+                return true;
+            }
+            if (self.optionalResultVariable(definition)
+                    == resultName
+                    && self.replaceOptionalFallback(
+                        definition, fallback)) {
+                return true;
+            }
+            if (self.optionalNodeDefinesResult(
+                    definition, resultName)) {
+                return false;
+            }
+            index = index - 1;
+        }
+        return false;
+    }
+
+    /* Fuse `??` into the optional chain's value path without inspecting
+     * unrelated operands or cleanup suffixes. */
+    private bool replaceOptionalFallback(
+            IRNode? node, IRNode fallback) {
+        if (node == null) { return false; }
+        if (node.kind == IRK_TERNARY
+                && self.optionalPresenceCondition(node.condition)) {
+            string resultName = self.optionalResultVariable(
+                node.true_expr);
+            if (resultName != ""
+                    && self.replaceOptionalResultDefinition(
+                        node, resultName, fallback)) {
+                return true;
+            }
+            node.false_expr = fallback;
+            return true;
+        }
+        if (node.kind == IRK_STMT_EXPR) {
+            return self.replaceOptionalFallback(
+                node.result, fallback);
+        }
+        if (node.kind == IRK_COMMA_EXPR) {
+            return self.replaceOptionalSequenceFallback(
+                node, fallback);
+        }
+        if (node.kind == IRK_BINOP && node.op == "=") {
+            return self.replaceOptionalFallback(
+                node.right, fallback);
+        }
+        if (node.kind == IRK_CAST) {
+            return self.replaceOptionalFallback(node.expr, fallback);
+        }
+        return false;
+    }
+
     public IRNode lowerBinaryCore(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
         string op = node.op;
         bool leftOwned = false;
@@ -2477,7 +2795,7 @@ class ExpressionLowerer {
         if (op == "??") {
             if (self.operators.isOptionalValueCoalesce(
                     node.left, leftType, rightType)) {
-                if (!self.calls.replaceOptionalFallback(left, right)) {
+                if (!self.replaceOptionalFallback(left, right)) {
                     self.typedOperatorFail(
                         "optional-chain coalescing requires a presence ternary");
                 }
@@ -3087,7 +3405,7 @@ class ExpressionLowerer {
             if (self.gpuPipeline.hasKernel(name)
                     && !callableFlow.hasEnvironment(name)
                     && !varTypes.has(name)) {
-                Vector<IRNode> gpuArgs = self.lowerArgs(
+                GpuArgumentLedger gpuArgs = self.lowerGpuArguments(
                     node, varTypes, callableFlow);
                 return self.gpuPipeline.dispatchExpression(
                     name, node, gpuArgs, self.context.module);
@@ -3121,10 +3439,6 @@ class ExpressionLowerer {
                 : self.gpuPipeline.cpuBuiltin(
                     name, node, args, firstGpuType);
             if (gpuCpuBuiltin != null) { return gpuCpuBuiltin; }
-            if (self.gpuPipeline.hasKernel(name)) {
-                return self.gpuPipeline.dispatchExpression(
-                    name, node, args, self.context.module);
-            }
             IRNode? intrinsic = self.lowerGenericIntrinsic(
                 name, node, args, varTypes);
             if (intrinsic != null) { return intrinsic; }
@@ -3179,10 +3493,34 @@ class ExpressionLowerer {
                 callee, varTypes,
                 self.callableContext(varTypes, callableFlow));
             CallTarget target = self.callTargets.resolve(node, varTypes, self.callableContext(varTypes, callableFlow));
+            if (target.kind != CALL_TARGET_IMMEDIATE_LAMBDA) {
+                print("internal compiler error: immediate lambda call has no direct target");
+                exit(1);
+            }
+            Vector<IRNode> captureValues = [];
+            int captureIndex = 0;
+            while (captureIndex < lambda.captures.len) {
+                captureValues.push(IRNode.variable(
+                    self.context.sourceCName(
+                        lambda.captures.get(captureIndex))));
+                captureIndex = captureIndex + 1;
+            }
+            CallableInvocationEnvironment invocation =
+                self.callableLowering.prepareInvocationEnvironment(
+                    lambda, captureValues);
             Vector<IRNode> lambdaArgs = self.lowerResolvedCallArguments(
                 target, node, varTypes, callableFlow);
-            return self.callableLowering.materializeInvocation(
-                lambda, lambdaArgs);
+            IRNode call = self.callableLowering.materializeInvocation(
+                lambda, lambdaArgs, invocation);
+            if (invocation.declarations.len == 0
+                    && invocation.prefix.len == 0) {
+                return call;
+            }
+            Vector<IRNode> sequence = invocation.prefix;
+            sequence.push(call);
+            return IRNode.statementExpression(
+                invocation.declarations,
+                IRNode.commaExpression(sequence));
         }
         /* Other complex callees retain the generic function-pointer path. */
         CallTarget target = self.callTargets.resolve(node, varTypes, self.callableContext(varTypes, callableFlow));
@@ -3526,14 +3864,109 @@ class ExpressionLowerer {
         return result;
     }
 
-    public Vector<IRNode> lowerArgs(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
-        Vector<IRNode> args = [];
-        int i = 0;
-        while (i < node.args.len) {
-            args.push(self.lowerExpr(node.args.get(i), varTypes, callableFlow));
-            i = i + 1;
+    public GpuArgumentLedger lowerGpuArguments(Node call,
+            Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        CallTarget target = self.callTargets.resolve(
+            call, varTypes,
+            self.callableContext(varTypes, callableFlow));
+        CallArgumentPlan binding = self.calls.planArguments(
+            target, call);
+        GpuArgumentLedger result = GpuArgumentLedger(binding);
+        OwnershipOperandEnvironment environment =
+            self.context.ownershipEnvironment(
+                varTypes, self.gpuPipeline.cpuActive());
+        int index = 0;
+        while (index < call.args.len) {
+            string key = Strings.fromInt(index);
+            Node argument = call.args.get(index);
+            Node? argumentType = self.resolvedExpressionType(
+                argument, varTypes);
+            if (argumentType != null) {
+                result.sourceTypes.put(key, argumentType);
+            }
+            result.sourceOwned.put(key,
+                self.ownershipSemantics.unconsumedOwnedResult(
+                    argument, environment,
+                    callableFlow));
+            RawProjectionStorageRoot? storage =
+                self.ownershipSemantics.projectionStorageRoot(
+                    argument, environment);
+            if (storage != null) {
+                Node? rootType = self.resolvedExpressionType(
+                    storage.expression, varTypes);
+                self.operandPlanner.requireType(
+                    rootType, storage.expression);
+                Node concreteRootType = rootType;
+                bool rootOwned = storage.managed
+                    && self.ownershipSemantics.unconsumedOwnedResult(
+                        storage.expression, environment,
+                        callableFlow);
+                result.sourceProjectionRoots.put(
+                    key, GpuArgumentProjectionRoot(
+                        storage, concreteRootType, rootOwned));
+            }
+            index = index + 1;
         }
-        return args;
+        index = 0;
+        while (index < call.args.len) {
+            string key = Strings.fromInt(index);
+            Node argument = call.args.get(index);
+            if (result.sourceProjectionRoots.has(key)) {
+                GpuArgumentProjectionRoot projection =
+                    result.sourceProjectionRoots.get(key);
+                OwnershipBoundary boundary =
+                    self.callOwnership.boundary();
+                boundary.addLoweredOperand(
+                    projection.storage.expression,
+                    projection.type,
+                    self.lowerExpr(
+                        projection.storage.expression,
+                        varTypes, callableFlow),
+                    projection.owned,
+                    projection.storage.managed
+                        && !projection.owned);
+                result.explicitValues.push(self.lowerExpr(
+                    argument, varTypes, callableFlow));
+                boundary.restore();
+                projection.declarations = boundary.declarations;
+                projection.prefix = boundary.prefix;
+                projection.cleanup = boundary.suffix;
+            } else {
+                result.explicitValues.push(self.lowerExpr(
+                    argument, varTypes, callableFlow));
+            }
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public GpuProjectionReceiver lowerGpuProjectionReceiver(
+            Node expression, Node typeExpr,
+            Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        bool owned = self.ownershipSemantics.unconsumedOwnedResult(
+            expression,
+            self.context.ownershipEnvironment(
+                varTypes, self.gpuPipeline.cpuActive()),
+            callableFlow);
+        return GpuProjectionReceiver(
+            self.lowerExpr(expression, varTypes, callableFlow),
+            typeExpr, owned);
+    }
+
+    public GpuCollectionOutputTarget lowerGpuCollectionOutputTarget(
+            Node expression, Node typeExpr,
+            Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        bool owned = self.ownershipSemantics.unconsumedOwnedResult(
+            expression,
+            self.context.ownershipEnvironment(
+                varTypes, self.gpuPipeline.cpuActive()),
+            callableFlow);
+        return GpuCollectionOutputTarget(
+            self.lowerExpr(expression, varTypes, callableFlow),
+            typeExpr, owned);
     }
 
     /* Lower an f-string to snprintf-based string building (mirrors
@@ -3908,8 +4341,135 @@ class ExpressionLowerer {
         return IRNode.literal("0");
     }
 
+    private IRNode lowerStaticBinaryInitializer(
+            Node node, Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        IRNode left = self.lowerStaticInitializer(
+            node.left, null, varTypes, callableFlow);
+        IRNode right = self.lowerStaticInitializer(
+            node.right, null, varTypes, callableFlow);
+        Node? leftType = self.resolvedExpressionType(
+            node.left, varTypes);
+        Node? rightType = self.resolvedExpressionType(
+            node.right, varTypes);
+        if (leftType != null && rightType != null
+                && NumericSemantics.isType(leftType, self.analyzed)
+                && NumericSemantics.isType(rightType, self.analyzed)
+                && NumericSemantics.operandsNeedCast(
+                    leftType, rightType, self.analyzed)) {
+            Node? resultType = NumericSemantics.resultType(
+                leftType, rightType, self.analyzed);
+            if (resultType != null) {
+                string resultC = self.cTypes.lower(resultType);
+                left = IRNode.cast(resultC, left);
+                right = IRNode.cast(resultC, right);
+            }
+        }
+        return IRNode.binary(left, node.op, right);
+    }
+
+    private IRNode lowerStaticUnaryInitializer(
+            Node node, Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        IRNode operand = self.lowerStaticInitializer(
+            node.operand, null, varTypes, callableFlow);
+        if (node.op == "&") {
+            IRNode address = IRNode.addressOf(operand);
+            address.source_address = true;
+            return address;
+        }
+        if (node.op == "*") { return IRNode.dereference(operand); }
+        return IRNode.unary(node.op, operand, node.prefix);
+    }
+
+    private IRNode lowerStaticCastInitializer(
+            Node node, Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        string targetC = self.cTypes.lower(
+            self.cTypes.resolveBodyType(
+                node.target_type, self.context.activeTypeMap,
+                self.context.genericBody
+                    || self.context.callDefaultTypeDepth > 0));
+        if (self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0) {
+            targetC = self.cTypes.lowerGeneric(
+                node.target_type, self.context.activeTypeMap);
+        }
+        return IRNode.cast(targetC, self.lowerStaticInitializer(
+            node.expr, node.target_type, varTypes, callableFlow));
+    }
+
+    private IRNode lowerStaticTernaryInitializer(
+            Node node, Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        IRNode condition = self.lowerStaticInitializer(
+            node.condition, null, varTypes, callableFlow);
+        IRNode trueValue = self.lowerStaticInitializer(
+            node.true_expr, null, varTypes, callableFlow);
+        IRNode falseValue = self.lowerStaticInitializer(
+            node.false_expr, null, varTypes, callableFlow);
+        Node? trueType = self.resolvedExpressionType(
+            node.true_expr, varTypes);
+        Node? falseType = self.resolvedExpressionType(
+            node.false_expr, varTypes);
+        if (trueType != null && falseType != null
+                && NumericSemantics.operandsNeedCast(
+                    trueType, falseType, self.analyzed)) {
+            Node? resultType = NumericSemantics.resultType(
+                trueType, falseType, self.analyzed);
+            if (resultType != null) {
+                string resultC = self.cTypes.lower(resultType);
+                trueValue = IRNode.cast(resultC, trueValue);
+                falseValue = IRNode.cast(resultC, falseValue);
+            }
+        }
+        return IRNode.ternary(
+            condition, trueValue, falseValue);
+    }
+
+    private IRNode lowerStaticIndexInitializer(
+            Node node, Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        IRNode object = self.lowerStaticInitializer(
+            node.obj, null, varTypes, callableFlow);
+        IRNode index = self.lowerStaticInitializer(
+            node.index, null, varTypes, callableFlow);
+        IRNode result = IRNode.indexAccess(object, index);
+        result.storage_root_known = true;
+        Node? objectType = self.resolvedExpressionType(
+            node.obj, varTypes);
+        if (objectType != null && objectType.is_array) {
+            result.storage_root = IRNode.directStorageRoot(object);
+        }
+        return result;
+    }
+
     public IRNode lowerStaticInitializer(Node node, Node? expected,
             Map<string, Node> varTypes, CallableFlowState callableFlow) {
+        if (node.kind == NK_BINARY_EXPR) {
+            return self.lowerStaticBinaryInitializer(
+                node, varTypes, callableFlow);
+        }
+        if (node.kind == NK_UNARY_EXPR) {
+            return self.lowerStaticUnaryInitializer(
+                node, varTypes, callableFlow);
+        }
+        if (node.kind == NK_CAST_EXPR) {
+            return self.lowerStaticCastInitializer(
+                node, varTypes, callableFlow);
+        }
+        if (node.kind == NK_TERNARY_EXPR) {
+            return self.lowerStaticTernaryInitializer(
+                node, varTypes, callableFlow);
+        }
+        if (node.kind == NK_INDEX_EXPR) {
+            return self.lowerStaticIndexInitializer(
+                node, varTypes, callableFlow);
+        }
+        if (node.kind == NK_FIELD_ACCESS_EXPR) {
+            return self.lowerFieldAccessCore(
+                node, varTypes, callableFlow);
+        }
         if (node.kind != NK_BRACE_INITIALIZER
                 && node.kind != NK_LIST_LITERAL) {
             return self.lowerExpr(node, varTypes, callableFlow);
@@ -4198,10 +4758,276 @@ class ExpressionLowerer {
         return self.materializeAssignmentCore(plan, variableTypes, callableFlow);
     }
 
+    private Node? concreteCompoundType(Node? typeExpr) {
+        if (typeExpr == null) { return null; }
+        Node resolved = self.cTypes.resolveBodyType(
+            typeExpr, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0);
+        return SemanticTypeSystem.resolveTypedefType(
+            resolved, self.analyzed.typedefTable);
+    }
+
+    private Node resolvedCompoundOverloadType(
+            Node? declaredType, Node receiverType) {
+        Node resolved = SemanticTypeSystem.primitive("void");
+        if (declaredType != null) { resolved = declaredType; }
+        if (receiverType.generic_args.len > 0
+                && self.analyzed.isGenericClass(receiverType.base)) {
+            resolved = SemanticTypeSystem.resolveGenericType(
+                declaredType,
+                SemanticTypeSystem.genericTypeMap(
+                    self.analyzed, receiverType),
+                self.analyzed);
+        }
+        Node? canonical = self.concreteCompoundType(resolved);
+        if (canonical == null) {
+            print("internal compiler error: compound overload has no canonical signature type");
+            exit(1);
+        }
+        Node concrete = canonical;
+        return concrete;
+    }
+
+    private bool compoundTypeShapeCompatible(
+            Node targetType, Node sourceType) {
+        return targetType.base == sourceType.base
+            && self.operators.valueDepth(targetType)
+                == self.operators.valueDepth(sourceType)
+            && targetType.is_array == sourceType.is_array
+            && self.operators.genericArgsEqual(
+                targetType.generic_args, sourceType.generic_args);
+    }
+
+    private bool compoundOverloadArgumentCompatible(
+            Node expectedType, Node actualType) {
+        if (self.compoundTypeShapeCompatible(
+                expectedType, actualType)) {
+            return true;
+        }
+        if (self.operators.isNullType(actualType)) {
+            return self.operators.isReferenceType(expectedType);
+        }
+        if (actualType.is_array && !expectedType.is_array
+                && expectedType.base == actualType.base
+                && expectedType.pointer_depth
+                    == actualType.pointer_depth + 1
+                && self.operators.genericArgsEqual(
+                    expectedType.generic_args,
+                    actualType.generic_args)) {
+            return true;
+        }
+        if (NumericSemantics.isType(expectedType, self.analyzed)
+                && NumericSemantics.isType(actualType, self.analyzed)
+                && expectedType.base != "bool"
+                && actualType.base != "bool") {
+            return true;
+        }
+        if ((TypeComposition.isSemanticScalarString(expectedType)
+                    && self.operators.isCStringPointer(actualType))
+                || (self.operators.isCStringPointer(expectedType)
+                    && TypeComposition.isSemanticScalarString(actualType))) {
+            return true;
+        }
+        if ((self.operators.isVoidPointer(expectedType)
+                    && self.operators.isReferenceType(actualType))
+                || (self.operators.isVoidPointer(actualType)
+                    && self.operators.isReferenceType(expectedType))) {
+            return true;
+        }
+        bool targetNominal = self.analyzed.isClass(expectedType.base)
+            || self.analyzed.isGenericClass(expectedType.base);
+        bool sourceNominal = self.analyzed.isClass(actualType.base)
+            || self.analyzed.isGenericClass(actualType.base);
+        if (targetNominal && sourceNominal
+                && self.operators.specializationIsSubtype(
+                    actualType, expectedType)) {
+            return true;
+        }
+        return TypeComposition.isSemanticScalarString(expectedType)
+            && self.strings.sourceHasToString(actualType);
+    }
+
+    private bool compoundOverloadResultCompatible(
+            Node targetType, Node resultType) {
+        if (self.compoundTypeShapeCompatible(
+                targetType, resultType)) {
+            return true;
+        }
+        return targetType.generic_args.len == 0
+            && resultType.generic_args.len == 0
+            && targetType.is_array == resultType.is_array
+            && self.operators.valueDepth(targetType)
+                == self.operators.valueDepth(resultType)
+            && (self.analyzed.isClass(targetType.base)
+                || self.analyzed.isGenericClass(targetType.base))
+            && (self.analyzed.isClass(resultType.base)
+                || self.analyzed.isGenericClass(resultType.base))
+            && self.operators.specializationIsSubtype(
+                resultType, targetType);
+    }
+
     private IRNode materializeAssignmentCore(
             AssignmentPlan plan,
             Map<string, Node> variableTypes, CallableFlowState callableFlow) {
         Node assignment = plan.assignment;
+        Node? receiverType = null;
+        if (assignment.target != null
+                && assignment.target.kind == NK_FIELD_ACCESS_EXPR
+                && assignment.target.obj != null) {
+            receiverType = self.resolvedExpressionType(
+                assignment.target.obj, variableTypes);
+        }
+        ManagedCompoundStorePlan? compoundStore =
+            self.managedTypes.planCompoundStore(
+                assignment, plan.targetType, receiverType,
+                variableTypes);
+        if (compoundStore != null) {
+            ManagedCompoundStorePlan concreteStore = compoundStore;
+            string baseOp = assignment.op.substring(
+                0, assignment.op.length() - 1);
+            Node? overload = self.ownershipSemantics.binaryMethod(
+                concreteStore.valueType, baseOp);
+            Node? overloadResultType = null;
+            if (overload != null) {
+                Node overloadResult = self.resolvedCompoundOverloadType(
+                    overload.return_type, concreteStore.valueType);
+                if (!self.compoundOverloadResultCompatible(
+                        concreteStore.valueType, overloadResult)) {
+                    print("internal compiler error: compound overload result cannot be stored in managed target after specialization");
+                    exit(1);
+                }
+                overloadResultType = overloadResult;
+            }
+            Node? rightTargetType = concreteStore.valueType;
+            if (overload != null && overload.params.len > 0) {
+                Node expectedRightType = self.resolvedCompoundOverloadType(
+                    overload.params.get(0).type,
+                    concreteStore.valueType);
+                rightTargetType = expectedRightType;
+                Node? concreteRightType = self.concreteCompoundType(
+                    plan.valueType);
+                if (concreteRightType == null) {
+                    print("internal compiler error: compound overload has no concrete RHS type after specialization");
+                    exit(1);
+                }
+                Node actualRightType = concreteRightType;
+                if (!self.compoundOverloadArgumentCompatible(
+                        expectedRightType, actualRightType)) {
+                    print("internal compiler error: compound overload argument cannot be converted after specialization");
+                    exit(1);
+                }
+            }
+            IRNode? loweredReceiver = null;
+            if (concreteStore.kind
+                    == MANAGED_COMPOUND_INSTANCE_FIELD) {
+                loweredReceiver = self.lowerExpr(
+                    assignment.target.obj,
+                    variableTypes, callableFlow);
+            }
+            PreparedValue prepared = self.prepareTargetValue(
+                assignment.value_node, rightTargetType,
+                variableTypes, callableFlow);
+            Node? rightType = prepared.effectiveType;
+            if (rightType == null) { rightType = plan.valueType; }
+            if (rightType == null) {
+                print("internal compiler error: managed compound update has no RHS type");
+                exit(1);
+            }
+            Node concreteRightType = rightType;
+            bool rightKeep = self.managedValues.isManaged(
+                    self.cTypes.resolveBodyType(
+                        concreteRightType,
+                        self.context.activeTypeMap,
+                        self.context.genericBody
+                            || self.context.callDefaultTypeDepth > 0))
+                && overload != null && overload.params.len > 0
+                && overload.params.get(0).keep_;
+            ManagedCompoundStore update =
+                self.managedTypes.prepareCompoundStore(
+                    concreteStore, loweredReceiver,
+                    prepared.value, concreteRightType,
+                    prepared.owned, rightKeep);
+            IRNode? computed = self.lowerOverloadedValues(
+                baseOp, update.oldValue, update.rightValue,
+                concreteStore.valueType, concreteRightType);
+            bool computedOwned = computed != null;
+            if (computed == null) {
+                computed = self.lowerTypedBinaryValues(
+                    baseOp, update.oldValue, update.rightValue,
+                    concreteStore.valueType, concreteRightType);
+                if (baseOp == "+"
+                        && self.managedValues.isString(
+                            concreteStore.valueType)) {
+                    computedOwned = true;
+                }
+            }
+            if (computed == null) {
+                computed = IRNode.binary(
+                    update.oldValue, baseOp, update.rightValue);
+            }
+            IRNode concreteComputed = computed;
+            if (overloadResultType != null) {
+                concreteComputed = self.strings.upcastClassPointer(
+                    concreteStore.valueType, overloadResultType,
+                    concreteComputed);
+            }
+            return self.managedTypes.materializeCompoundStore(
+                update, concreteComputed, computedOwned);
+        }
+        if (self.managedTypes.requiresManagedCompoundStore(
+                assignment, plan.targetType)) {
+            print("internal compiler error: managed compound update has no owned physical storage plan");
+            exit(1);
+        }
+        ManagedIdentifierStorePlan? identifierStore =
+            self.managedTypes.planIdentifierStore(
+                assignment, plan.targetType);
+        if (identifierStore != null) {
+            ManagedIdentifierStorePlan concreteStore = identifierStore;
+            PreparedValue prepared = self.prepareTargetValue(
+                assignment.value_node, concreteStore.valueType,
+                variableTypes, callableFlow);
+            IRNode value = self.strings.upcastClassPointer(
+                concreteStore.valueType, prepared.effectiveType,
+                prepared.value);
+            return self.managedTypes.materializeIdentifierStore(
+                concreteStore, value, prepared.owned);
+        }
+        ManagedStaticFieldStorePlan? staticFieldStore =
+            self.managedTypes.planStaticFieldStore(
+                assignment, variableTypes);
+        if (staticFieldStore != null) {
+            ManagedStaticFieldStorePlan concreteStore =
+                staticFieldStore;
+            PreparedValue prepared = self.prepareTargetValue(
+                assignment.value_node, concreteStore.fieldType,
+                variableTypes, callableFlow);
+            IRNode value = self.strings.upcastClassPointer(
+                concreteStore.fieldType, plan.valueType,
+                prepared.value);
+            return self.managedTypes.materializeStaticFieldStore(
+                concreteStore, value, prepared.owned);
+        }
+        ManagedInstanceFieldStorePlan? fieldStore =
+            self.managedTypes.planInstanceFieldStore(
+                assignment, receiverType);
+        if (fieldStore != null) {
+            ManagedInstanceFieldStorePlan concreteStore = fieldStore;
+            IRNode loweredReceiver = self.lowerExpr(
+                assignment.target.obj,
+                variableTypes, callableFlow);
+            PreparedValue prepared = self.prepareTargetValue(
+                assignment.value_node, concreteStore.fieldType,
+                variableTypes, callableFlow);
+            IRNode value = self.strings.upcastClassPointer(
+                concreteStore.fieldType, plan.valueType,
+                prepared.value);
+            return self.managedTypes.materializeInstanceFieldStore(
+                concreteStore,
+                loweredReceiver,
+                value, prepared.owned);
+        }
         IRNode? indirect = self.lowerIndirectAssignment(
             assignment, variableTypes, callableFlow);
         if (indirect != null) { return indirect; }

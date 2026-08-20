@@ -6,7 +6,6 @@ import std.vector;
 import ../../generated/ast/node.btrc;
 import ../../syntax/identity.btrc;
 import ../../syntax/types.btrc;
-import ../generics.btrc;
 import ../gpu.btrc;
 import ../hosted_abi.btrc;
 import ../models.btrc;
@@ -81,16 +80,6 @@ class CallValidator {
             TypeValidator.fail("Cannot access private method '" + method.name
                 + "' of class '" + className + "'", site);
         }
-    }
-
-    private void claimGeneratedSymbol(Map<string, string> symbols,
-            string symbol, string purpose, Node site) {
-        if (symbols.has(symbol)) {
-            TypeValidator.fail("Compiler-generated symbol '" + symbol
-                + "' for " + purpose + " collides with "
-                + symbols.get(symbol), site);
-        }
-        symbols.put(symbol, purpose);
     }
 
     public void validateCall(Node call,
@@ -388,88 +377,28 @@ class CallValidator {
         return true;
     }
 
-    public void validateGeneratedSymbolReference(Node identifier,
-             Map<string, Node> vars,
-            bool directCall) {
-        string symbol = identifier.name;
-        if (vars.has(symbol) || self.state.analyzed.funcTable.has(symbol)
-                || self.state.analyzed.isClass(symbol)
-                || self.state.analyzed.isGenericClass(symbol)) {
-            return;
-        }
-        string action = directCall ? "Direct call to" : "Source reference to";
-        if (self.state.generatedSymbols.has(symbol)) {
-            TypeValidator.fail(
-                action + " compiler-generated C symbol '" + symbol
-                    + "' for " + self.state.generatedSymbols.get(symbol)
-                    + " is not allowed",
-                identifier);
-        }
-        bool supported = self.sourceRuntimeSymbols.helper(symbol)
-            || (directCall
-                && self.sourceRuntimeSymbols.intrinsic(symbol));
-        if (self.sourceRuntimeSymbols.compilerOwnedUnresolved(symbol)
-                && !supported) {
-            TypeValidator.fail(
-                action + " compiler-owned C symbol '" + symbol
-                    + "' is not allowed",
-                identifier);
-        }
-    }
-
-    public void validateGeneratedSymbolCall(
-            Node call,  Map<string, Node> vars) {
-        if (call.callee == null || call.callee.kind != NK_IDENTIFIER) {
-            return;
-        }
-        self.validateGeneratedSymbolReference(
-            call.callee,  vars, true);
-    }
-
-    public void claimGpuSymbols(
-            Map<string, string> symbols, Node declaration) {
-        self.claimGeneratedSymbol( symbols,
-            declaration.name + "__gpuitem",
-            "CPU item worker for @gpu function '" + declaration.name + "'",
-            declaration);
-        self.claimGeneratedSymbol( symbols,
-            declaration.name + "__gpucpu",
-            "CPU fallback wrapper for @gpu function '" + declaration.name + "'",
-            declaration);
-    }
-
-    public void claimGenericMethodSymbols(
-            Map<string, string> symbols) {
-        int index = 0;
-        while (index < self.state.analyzed.methodGenInstances.len) {
-            MethodGenInstance instance =
-                self.state.analyzed.methodGenInstances.get(index);
-            Node? method = null;
-            if (self.state.analyzed.isGenericClass(instance.classBase)) {
-                method = self.state.analyzed.genericClassMethod(
-                    instance.classBase, instance.methodName);
-            } else if (self.state.analyzed.isClass(instance.classBase)) {
-                method = self.state.analyzed.classMethod(
-                    instance.classBase, instance.methodName);
-            }
-            if (method != null) {
-                string symbol = GenericSpecializer.genericMethodInstanceName(
-                    instance.classBase, instance.classArgs,
-                    instance.methodName, instance.methodArgs);
-                self.claimGeneratedSymbol( symbols, symbol,
-                    "generic method instance '" + symbol + "'", method);
-            }
-            index = index + 1;
-        }
-    }
-
     public bool validateGpuBuiltinCall(Node call,
              Map<string, Node> vars) {
-        if (!self.state.gpuCallable
-                || !self.gpu.callResolvesToBuiltin(call, vars)) {
+        string name = call.callee.name;
+        bool gpuBody = self.state.gpuCallable
+            && !self.state.inParameterDefault;
+        if (!gpuBody) {
+            if (name == "gpu_id"
+                    && self.gpu.callResolvesToIntrinsic(call, vars)) {
+                TypeValidator.fail(
+                    "gpu_id() can only be called inside @gpu functions",
+                    call);
+            }
             return false;
         }
-        string name = call.callee.name;
+        if (self.gpu.callResolvesToSourceSymbol(call, vars)) {
+            TypeValidator.fail("call to '" + name
+                + "' has no WGSL definition because it resolves to a source symbol",
+                call);
+        }
+        if (!self.gpu.callResolvesToIntrinsic(call, vars)) {
+            return false;
+        }
         int namedIndex = 0;
         while (namedIndex < call.arg_names.len) {
             if (call.arg_names.get(namedIndex) != "") {
@@ -477,6 +406,12 @@ class CallValidator {
                     "WGSL built-ins do not accept named arguments", call);
             }
             namedIndex = namedIndex + 1;
+        }
+        if (name == "gpu_id") {
+            if (call.args.len != 0) {
+                TypeValidator.fail("gpu_id() takes no arguments", call);
+            }
+            return true;
         }
         int expected = self.gpu.builtinArity(name);
         if (call.args.len != expected) {

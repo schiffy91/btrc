@@ -147,6 +147,7 @@ class AtomicFileStore:
     def _reject_json_constant(value: str):
         raise ValueError(f"invalid JSON constant: {value}")
 
+
 class ToolchainSourceInventory:
     """Own the deterministic source inventory for toolchain fingerprints."""
 

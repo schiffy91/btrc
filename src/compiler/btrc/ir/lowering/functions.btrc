@@ -15,6 +15,7 @@ import ../gpu/pipeline.btrc;
 import ../model.btrc;
 import ./callable_flow.btrc;
 import ./callables.btrc;
+import ./calls.btrc;
 import ./context.btrc;
 import ./statements.btrc;
 import ./ownership/cycle_boundaries.btrc;
@@ -61,6 +62,7 @@ class FunctionLowerer {
     private ManagedValueSemantics managedValues;
     private CycleSemantics cycles;
     private CallableValueLowerer callableLowering;
+    private CallLowerer calls;
     private LoweringContext context;
     private ManagedLifetimeLowerer managedLifetime;
     private ManagedTypeLowerer managedTypes;
@@ -75,7 +77,7 @@ class FunctionLowerer {
             DeclarationRegistry declarations,
             ExpressionTypeResolver expressionTypes,
             ManagedValueSemantics managedValues, CycleSemantics cycles,
-            CallableValueLowerer callableLowering,
+            CallableValueLowerer callableLowering, CallLowerer calls,
             LoweringContext context,
             ManagedLifetimeLowerer managedLifetime,
             ManagedTypeLowerer managedTypes,
@@ -89,6 +91,7 @@ class FunctionLowerer {
         self.expressionTypes = expressionTypes;
         self.managedValues = managedValues; self.cycles = cycles;
         self.callableLowering = callableLowering;
+        self.calls = calls;
         self.context = context;
         self.managedLifetime = managedLifetime;
         self.managedTypes = managedTypes;
@@ -496,6 +499,94 @@ class FunctionLowerer {
             }
             lambdas = self.callableLowering.takePendingLambdas();
             spawns = self.callableLowering.takePendingSpawns();
+        }
+    }
+
+    private void materializeDefaultHelper(DefaultHelperPlan plan) {
+        if (plan.materialized) {
+            print("internal compiler error: default helper materialized twice");
+            exit(1);
+        }
+        Node parameter = plan.parameters.get(plan.parameterIndex);
+        string returnCType = self.cTypes.lower(parameter.type);
+        string savedClass = self.context.currentClass;
+        int savedDeclarationDepth =
+            self.context.defaultDeclarationDepth;
+        string savedFunctionName = self.context.defaultFunctionName;
+        Map<string, Node> savedTypes = self.calls.beginDefaultTypeScope(
+            plan.target.signature.substitutions);
+        ScopeSnapshot scope = self.enterIsolatedScope(
+            returnCType, parameter.type);
+        self.context.currentClass = plan.target.classPrefix;
+        self.context.defaultDeclarationDepth =
+            savedDeclarationDepth + 1;
+        self.context.defaultFunctionName = plan.target.defaultCName;
+
+        Map<string, Node> variableTypes = self.seededVarTypes();
+        if (plan.target.selfType != null) {
+            variableTypes.put("self", plan.target.selfType);
+            self.context.borrowedLocalBindings.put("self", true);
+            self.context.activateSourceName("self", "self");
+        }
+        Vector<Node> priorParameters = [];
+        int prior = 0;
+        while (prior < plan.parameterIndex) {
+            Node priorParameter = plan.parameters.get(prior);
+            priorParameters.push(priorParameter);
+            variableTypes.put(priorParameter.name, priorParameter.type);
+            self.context.borrowedLocalBindings.put(
+                priorParameter.name, true);
+            prior = prior + 1;
+        }
+        self.activateSourceLexicalParameters(priorParameters);
+
+        Node returnStatement = Node();
+        returnStatement.kind = NK_RETURN_STMT;
+        returnStatement.value_node = parameter.default_;
+        if (parameter.default_ != null) {
+            returnStatement.line = parameter.default_.line;
+            returnStatement.col = parameter.default_.col;
+        }
+        Node helperBlock = Node();
+        helperBlock.kind = NK_BLOCK;
+        helperBlock.statements.push(returnStatement);
+        CallableFlowState callableFlow = CallableFlowState();
+        IRNode body = self.statements.lowerBlock(
+            helperBlock, variableTypes, callableFlow);
+
+        self.context.defaultFunctionName = savedFunctionName;
+        self.context.defaultDeclarationDepth = savedDeclarationDepth;
+        self.context.currentClass = savedClass;
+        self.exitIsolatedScope(scope);
+        self.calls.endDefaultTypeScope(savedTypes);
+
+        IRFunction definition = IRFunction();
+        definition.name = plan.symbol;
+        definition.return_type = returnCType;
+        definition.is_static = true;
+        int parameterIndex = 0;
+        while (parameterIndex < plan.helperParameters.len) {
+            definition.params.push(self.cTypes.copyParameter(
+                plan.helperParameters.get(parameterIndex)));
+            parameterIndex = parameterIndex + 1;
+        }
+        definition.body = body;
+        self.context.activeModule().functions.push(definition);
+        plan.materialized = true;
+    }
+
+    public void materializeDeferredClosure() {
+        self.materializePendingCallables();
+        Vector<DefaultHelperPlan> defaults =
+            self.calls.takePendingDefaultHelpers();
+        while (defaults.len > 0) {
+            int index = 0;
+            while (index < defaults.len) {
+                self.materializeDefaultHelper(defaults.get(index));
+                index = index + 1;
+            }
+            self.materializePendingCallables();
+            defaults = self.calls.takePendingDefaultHelpers();
         }
     }
 

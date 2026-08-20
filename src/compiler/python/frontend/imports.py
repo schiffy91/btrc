@@ -304,6 +304,7 @@ class ImportResolver:
                 output.append((line, absolute, line_number))
         return output
 
+
 _NAMED_DECLS = (
     ast.ClassDecl,
     ast.InterfaceDecl,
@@ -643,6 +644,7 @@ class ImportVisibilityChecker:
         """Return visibility failures as ``(message, line, col)`` tuples."""
 
         return [failure.as_diagnostic() for failure in self.failures(active_file=active_file)]
+
 
 __all__ = (
     "FrontendVisibilityError",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import fields, is_dataclass
 from typing import TYPE_CHECKING
 
@@ -39,6 +40,7 @@ from src.compiler.python.syntax.ast.generated import (
     ThrowStmt,
     TryCatchStmt,
     TypedefDecl,
+    TypeExpr,
     VarDeclStmt,
 )
 
@@ -55,7 +57,7 @@ if TYPE_CHECKING:
     from .exceptions import ExceptionLowerer
     from .expressions import ExpressionLowerer
     from .functions import FunctionLowerer
-    from .generics import GenericSpecializer
+    from .generics import GenericSpecializer, SpecializedDeclarationView
     from .gpu import GpuLowerer
     from .ownership import CleanupSlotRegistry
     from .session import LoweringSession
@@ -120,48 +122,65 @@ class TranslationUnitLowerer:
 
     def lower(self):
         """Run the ordered translation-unit phase cascade."""
+        class_views: tuple[SpecializedDeclarationView[ClassDecl], ...] = tuple(self._specializer.class_views())
+        method_views: tuple[SpecializedDeclarationView[MethodDecl], ...] = tuple(self._specializer.method_views())
         self._classes.configure_pack_alignments(self.declaration_pack_alignments(self._analyzed.program))
         self._emit_includes()
         self._emit_forward_decls()
+        self._emit_tuple_structs(class_views, method_views)
         self._emit_fn_ptr_typedefs()
         self._emit_structs()
         self._gpu.emit_gpu_functions()
-        for view in self._specializer.class_views():
+        for view in class_views:
+            with self._session.specialization(view):
+                self._classes.declare_specialization(view)
+        for view in method_views:
+            with self._session.specialization(view):
+                self._functions.declare_specialization(view)
+        for view in class_views:
             with self._session.specialization(view):
                 self._classes.lower_specialization(view)
-        for view in self._specializer.method_views():
+        for view in method_views:
             with self._session.specialization(view):
                 self._functions.lower_specialization(view)
         self._emit_enums()
         self._emit_declarations()
-        self._functions.materialize_default_helpers(
+        self._functions.materialize_deferred_closure(
             self._session.deferred_specializations,
         )
-        self._functions.materialize_deferred_functions()
         self._emit_fn_ptr_typedefs()
         self._cleanup_slots.finalize()
         self._exceptions.apply_setjmp_volatility(self._session.module)
-        self._gpu.finalize_translation_unit()
         self._emit_helpers()
+        self._materialize_runtime_headers()
         return self._session.module
 
-    def require_runtime_include(self, header: str) -> None:
+    def require_runtime_include(self, header: str) -> IRInclude | None:
         """Record a dependency on a hosted-libc header or runtime seam."""
         if self._session.freestanding:
-            return
+            return None
         else:
             include = IRInclude(header=header)
             if include not in self._session.module.preprocessor_decls:
                 self._session.module.preprocessor_decls.insert(self._preprocessor_prefix_end, include)
                 self._preprocessor_prefix_end += 1
+                return include
+        return None
+
+    def _materialize_runtime_headers(self) -> None:
+        """Install domain-declared headers as tracked structured IR."""
+        generated = [
+            include
+            for header in self._session.consume_runtime_headers()
+            if (include := self.require_runtime_include(header)) is not None
+        ]
+        self._session.module.record_generated_runtime_preprocessor(generated)
 
     def _emit_includes(self):
         if not self._session.freestanding:
             self._session.module.preprocessor_decls.extend(IRMacroDef(name=name) for name in _STANDARD_FEATURE_MACROS)
             self._session.module.preprocessor_decls.extend(IRInclude(header=header) for header in _STANDARD_INCLUDES)
         self._preprocessor_prefix_end = len(self._session.module.preprocessor_decls)
-        if any(TranslationUnitLowerer.uses_trycatch(decl) for decl in self._analyzed.program.declarations):
-            self.require_runtime_include("setjmp.h")
 
     def _emit_forward_decls(self):
         """Collect typed type and callable declarations."""
@@ -219,7 +238,6 @@ class TranslationUnitLowerer:
                 if mangled not in seen:
                     seen.add(mangled)
                     self._session.module.struct_forwards.append(IRStructForward(name=mangled))
-        self._emit_tuple_structs()
         self._session.module.function_decls.extend(function_decls)
 
     def _emit_structs(self):
@@ -292,16 +310,38 @@ class TranslationUnitLowerer:
         for definition in self._session.runtime_helpers.definitions():
             declaration = IRHelperDecl.from_runtime(definition)
             for header in declaration.required_headers:
-                self.require_runtime_include(header)
+                self._session.require_runtime_header(header)
             self._session.module.helper_decls.append(declaration)
 
-    def _emit_tuple_structs(self):
-        seen = {}
+    def _emit_tuple_structs(
+        self,
+        class_views: Sequence[SpecializedDeclarationView[ClassDecl]],
+        method_views: Sequence[SpecializedDeclarationView[MethodDecl]],
+    ) -> None:
+        """Declare every concrete tuple shape before specialized bodies lower."""
+        seen: dict[str, list[TypeExpr]] = {}
         for declaration in self._analyzed.program.declarations:
-            for type_expr in TranslationUnitLowerer._declaration_types(declaration):
-                self._collect_tuple_types(type_expr, seen)
-        for type_expr in self._analyzed.node_types.values():
-            self._collect_tuple_types(type_expr, seen)
+            if isinstance(declaration, ClassDecl) and declaration.generic_params:
+                continue
+            self._collect_declaration_tuple_types(
+                declaration,
+                seen,
+                skip_generic_methods=isinstance(declaration, ClassDecl),
+            )
+        for view in class_views:
+            with self._session.specialization(view):
+                self._collect_declaration_tuple_types(
+                    view.declaration,
+                    seen,
+                    skip_generic_methods=True,
+                )
+        for view in method_views:
+            with self._session.specialization(view):
+                self._collect_declaration_tuple_types(
+                    view.declaration,
+                    seen,
+                    skip_generic_methods=False,
+                )
         for mangled, arguments in seen.items():
             self._session.module.struct_defs.append(
                 IRStructDef(
@@ -322,6 +362,74 @@ class TranslationUnitLowerer:
             forward = IRStructForward(name=mangled)
             if forward not in self._session.module.struct_forwards:
                 self._session.module.struct_forwards.append(forward)
+
+    def _collect_declaration_tuple_types(
+        self,
+        declaration,
+        seen: dict[str, list[TypeExpr]],
+        *,
+        skip_generic_methods: bool,
+    ) -> None:
+        """Collect explicit and inferred types owned by one declaration view."""
+        for type_expr in TranslationUnitLowerer._declaration_types(declaration):
+            self._collect_tuple_types(type_expr, seen)
+        self._collect_ast_tuple_types(
+            declaration,
+            seen,
+            set(),
+            skip_generic_methods=skip_generic_methods,
+        )
+
+    def _collect_ast_tuple_types(
+        self,
+        value,
+        seen: dict[str, list[TypeExpr]],
+        visited: set[int],
+        *,
+        skip_generic_methods: bool,
+    ) -> None:
+        """Walk one AST-owned value without crossing into another generic view."""
+        if value is None or isinstance(value, (str, bytes, int, float, bool)):
+            return
+        if skip_generic_methods and isinstance(value, MethodDecl) and value.generic_params:
+            return
+        identity = id(value)
+        if identity in visited:
+            return
+        visited.add(identity)
+        if isinstance(value, TypeExpr):
+            self._collect_tuple_types(value, seen)
+            if value.array_size is not None:
+                self._collect_ast_tuple_types(
+                    value.array_size,
+                    seen,
+                    visited,
+                    skip_generic_methods=skip_generic_methods,
+                )
+            return
+        if is_dataclass(value):
+            self._collect_tuple_types(self._session.type_of(value), seen)
+            for field in fields(value):
+                self._collect_ast_tuple_types(
+                    getattr(value, field.name),
+                    seen,
+                    visited,
+                    skip_generic_methods=skip_generic_methods,
+                )
+            return
+        if isinstance(value, dict):
+            children = (*value.keys(), *value.values())
+        elif isinstance(value, (list, tuple, set, frozenset)):
+            children = value
+        else:
+            return
+        for child in children:
+            self._collect_ast_tuple_types(
+                child,
+                seen,
+                visited,
+                skip_generic_methods=skip_generic_methods,
+            )
 
     @staticmethod
     def uses_trycatch(decl) -> bool:
@@ -594,7 +702,10 @@ class TranslationUnitLowerer:
         elif isinstance(declaration, VarDeclStmt) and declaration.type is not None:
             yield declaration.type
 
-    def _collect_tuple_types(self, type_expr, seen) -> None:
+    def _collect_tuple_types(self, type_expr, seen: dict[str, list[TypeExpr]]) -> None:
+        if type_expr is None:
+            return
+        type_expr = self._types.resolve_active_type(type_expr)
         if type_expr is None:
             return
         for argument in type_expr.generic_args:

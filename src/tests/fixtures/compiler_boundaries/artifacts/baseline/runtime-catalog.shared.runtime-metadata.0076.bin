@@ -1,0 +1,1 @@
+{"asset":"trycatch.c","btrc_order":90,"category":"trycatch","dependencies":[],"headers":["string.h"],"name":"__btrc_copy_error_message","provided_objects":[],"provided_types":[],"python_order":91,"source_sha256":"01ebe84919029d123b0d238fa7e7d9bd40d18fb068fd2f8e703ad6c610b0fd51","source_size":399,"source_visible":false}

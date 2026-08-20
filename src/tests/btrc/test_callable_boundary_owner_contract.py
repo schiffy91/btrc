@@ -92,12 +92,8 @@ def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() 
     flow = _source("ir/lowering/callable_flow.btrc")
     stage = _source("ir/stage.btrc")
     lowerer = _source("ir/lowering/lowerer.btrc")
-    context = callables.split("class CallableBoundaryContext {", 1)[1].split(
-        "class CallableValueSemantics {", 1
-    )[0]
-    owner = callables.split("class CallableBoundaryPolicy {", 1)[1].split(
-        "class CallableLambdaPlan {", 1
-    )[0]
+    context = callables.split("class CallableBoundaryContext {", 1)[1].split("class CallableValueSemantics {", 1)[0]
+    owner = callables.split("class CallableBoundaryPolicy {", 1)[1].split("class CallableLambdaPlan {", 1)[0]
     composition_state = lowerer.split("public IRLowerer(", 1)[0]
 
     assert lowerer.count("CallableValueSemantics callableValues =") == 1
@@ -112,12 +108,8 @@ def test_callable_boundary_policy_is_per_lowerer_and_context_is_per_operation() 
     assert "self.declarations," in flow
     assert "self.environmentFunctions," in flow
     assert "self.environmentStorage);" in flow
-    assert stage.index("import ./lowering/callables.btrc;") < stage.index(
-        "import ./lowering/callable_flow.btrc;"
-    )
-    assert stage.index("import ./lowering/callable_flow.btrc;") < stage.index(
-        "import ./lowering/lowerer.btrc;"
-    )
+    assert stage.index("import ./lowering/callables.btrc;") < stage.index("import ./lowering/callable_flow.btrc;")
+    assert stage.index("import ./lowering/callable_flow.btrc;") < stage.index("import ./lowering/lowerer.btrc;")
 
     for operation_evidence in (
         "private Map<string, Node> variableTypes;",
@@ -189,6 +181,36 @@ def test_callable_flow_state_exclusively_owns_mutable_provenance() -> None:
         assert composition_root_state not in lowerer
 
 
+def test_callable_persistent_storage_consumes_flow_owned_risk_facts() -> None:
+    callables = _source("ir/lowering/callables.btrc")
+    flow = _source("ir/lowering/callable_flow.btrc")
+    assignments = _source("ir/lowering/assignments.btrc")
+    declarations = _source("ir/lowering/declarations.btrc")
+    lowerer = _source("ir/lowering/lowerer.btrc")
+    statements = _source("ir/lowering/statements.btrc")
+
+    assert "private CallableBoundaryContext refreshedBoundaryContext(" in flow
+    assert "public bool persistentStorageUnsafe(" in flow
+    assert "public bool assignmentStorageUnsafe(" in flow
+    assert flow.count("self.refreshedBoundaryContext(") >= 5
+    assert flow.index("assignment.target, values, context") < flow.index(
+        "targetType, assignment.value_node, values, context"
+    )
+    assert "CallableEvaluationPlan" not in flow
+
+    policy = callables.split("class CallableBoundaryPolicy {", 1)[1].split("class CallableLambdaPlan {", 1)[0]
+    assert "CallableBoundaryContext context, bool unsafe," in policy
+    assert "if (!unsafe) { return; }" in policy
+    assert "self.unsafeValue(expectedType, value, context)" not in policy
+    assert "public CallableValueSemantics valueSemantics()" not in policy
+    assert "callableFlow.assignmentStorageUnsafe(" in assignments
+    assert "private CallableValueSemantics callableValues;" in declarations
+    assert "CallableValueSemantics callableValues," in declarations
+    assert declarations.count("self.callableValues,") == 3
+    assert "self.cleanupSlots,\n            callableValues, callableBoundaries," in lowerer
+    assert statements.count("callableFlow.persistentStorageUnsafe(") == 3
+
+
 def test_callable_flow_is_per_function_and_reentrant() -> None:
     flow = _source("ir/lowering/callable_flow.btrc")
     functions = _source("ir/lowering/functions.btrc")
@@ -199,9 +221,22 @@ def test_callable_flow_is_per_function_and_reentrant() -> None:
     assert "isolateInto(" not in flow
     assert "restoreIsolated(" not in flow
     assert "CallableFlowState" not in functions.split("class FunctionLowerer {", 1)[0]
-    assert functions.count(
-        "CallableFlowState callableFlow = CallableFlowState();"
-    ) == 2
+    lifted_body = functions[
+        functions.index("private IRNode lowerLiftedCallableBody(") : functions.index(
+            "private void materializePendingCallables("
+        )
+    ]
+    default_helper_body = functions[
+        functions.index("private void materializeDefaultHelper(") : functions.index(
+            "public void materializeDeferredClosure("
+        )
+    ]
+    ordinary_body = functions[
+        functions.index("public IRNode lowerBody(") : functions.index("public void emitGpuCpuFallback(")
+    ]
+    for body_owner in (lifted_body, default_helper_body, ordinary_body):
+        assert body_owner.count("CallableFlowState callableFlow = CallableFlowState();") == 1
+    assert functions.count("CallableFlowState callableFlow = CallableFlowState();") == 3
     assert "self.callableFlow" not in functions
 
     owner = flow.split("class CallableFlowState {", 1)[1]

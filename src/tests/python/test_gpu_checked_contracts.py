@@ -9,7 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.analyzer.gpu import GPU_STATUS_MESSAGES, GPU_TRANSFER_FAILURE_MESSAGE, GPU_UNKNOWN_STATUS_MESSAGE
+from src.compiler.python.analyzer.gpu import (
+    GPU_STATUS_MESSAGES,
+    GPU_TRANSFER_FAILURE_MESSAGE,
+    GPU_UNKNOWN_STATUS_MESSAGE,
+)
 from src.compiler.python.backend.wgsl_emitter import WgslEmitter
 from src.compiler.python.ir.nodes import IRNode
 from src.tests.python.test_codegen import emit_c
@@ -36,10 +40,7 @@ def test_shader_declares_lengths_and_final_atomic_status_binding() -> None:
     assert "@group(0) @binding(4) var<storage, read_write> btrc_status" in shader
     for code in GPU_STATUS_MESSAGES:
         assert f"atomicMax(&btrc_status.code, {code}u)" in shader
-    assert not any(
-        type(node).__name__.startswith("IRRaw")
-        for node in IRNode.walk_value(module)
-    )
+    assert not any(type(node).__name__.startswith("IRRaw") for node in IRNode.walk_value(module))
 
 
 def test_dispatch_reads_status_before_guarded_user_data_and_cleans_before_failure() -> None:

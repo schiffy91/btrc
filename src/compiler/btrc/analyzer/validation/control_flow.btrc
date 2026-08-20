@@ -49,6 +49,96 @@ class ControlFlowValidator {
         self.expressions = expressions;
     }
 
+    private void prepareLambdaBody(Node expression,
+            Map<string, Node> variables) {
+        Node body = expression.body_node;
+        if (body == null) { return; }
+        LambdaValidationPlan plan = self.expressions.planLambda(
+            expression, variables);
+        Node? previousReturn = self.state.returnType;
+        int previousLoop = self.state.loopDepth;
+        int previousBreak = self.state.breakDepth;
+        Map<string, bool> previousParameterNames =
+            self.types.cloneFlags(self.state.parameterNames);
+        Map<string, bool> previousBorrowedBindings =
+            self.types.cloneFlags(self.state.borrowedBindings);
+        Map<string, bool> previousLocalBindings =
+            self.types.cloneFlags(self.state.localBindings);
+        self.state.returnType = plan.resultType;
+        self.state.loopDepth = 0;
+        self.state.breakDepth = 0;
+        self.state.parameterNames = {};
+        self.state.borrowedBindings =
+            self.types.cloneFlags(plan.borrowedBindings);
+        self.state.localBindings =
+            self.types.cloneFlags(plan.localBindings);
+        if (body.kind == NK_LAMBDA_BLOCK) {
+            self.validateBlock(body.body_node, plan.variables);
+            bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
+            if (nonVoid
+                    && !ExpressionTypeResolver.blockTerminates(
+                        body.body_node)) {
+                TypeValidator.fail(
+                    "Non-void lambda does not return on every path",
+                    expression);
+            }
+        } else if (body.kind == NK_LAMBDA_EXPR_BODY) {
+            self.prepareExpression(body.expression, plan.variables);
+        }
+        self.state.returnType = previousReturn;
+        self.state.loopDepth = previousLoop;
+        self.state.breakDepth = previousBreak;
+        self.state.parameterNames = previousParameterNames;
+        self.state.borrowedBindings = previousBorrowedBindings;
+        self.state.localBindings = previousLocalBindings;
+    }
+
+    private void prepareExpressionList(Vector<Node> expressions,
+            Map<string, Node> variables) {
+        int index = 0;
+        while (index < expressions.len) {
+            self.prepareExpression(expressions.get(index), variables);
+            index = index + 1;
+        }
+    }
+
+    /* Statement analysis owns nested executable bodies. Prepare every lambda
+     * block before ordinary expression recursion, then let validation of that
+     * block recursively prepare any nested lambdas in lexical scope. */
+    public void prepareExpression(Node? expression,
+            Map<string, Node> variables) {
+        if (expression == null) { return; }
+        if (expression.kind == NK_LAMBDA_EXPR) {
+            self.prepareLambdaBody(expression, variables);
+            return;
+        }
+        self.prepareExpression(expression.expr, variables);
+        self.prepareExpression(expression.expression, variables);
+        self.prepareExpression(expression.left, variables);
+        self.prepareExpression(expression.right, variables);
+        self.prepareExpression(expression.operand, variables);
+        self.prepareExpression(expression.callee, variables);
+        self.prepareExpression(expression.obj, variables);
+        self.prepareExpression(expression.index, variables);
+        self.prepareExpression(expression.condition, variables);
+        self.prepareExpression(expression.true_expr, variables);
+        self.prepareExpression(expression.false_expr, variables);
+        self.prepareExpression(expression.target, variables);
+        self.prepareExpression(expression.value_node, variables);
+        self.prepareExpression(expression.fn, variables);
+        self.prepareExpression(expression.key, variables);
+        self.prepareExpressionList(expression.args, variables);
+        self.prepareExpressionList(expression.elements, variables);
+        self.prepareExpressionList(expression.entries, variables);
+        self.prepareExpressionList(expression.parts, variables);
+    }
+
+    private void validateExpression(Node? expression,
+            Map<string, Node> variables) {
+        self.prepareExpression(expression, variables);
+        self.expressions.validateExpr(expression, variables);
+    }
+
     public bool scalarConditionType(
             Node? typeExpr) {
         if (typeExpr == null) { return false; }
@@ -367,7 +457,7 @@ class ControlFlowValidator {
         index = 0;
         while (index < call.args.len) {
             Node argument = call.args.get(index);
-            self.expressions.validateExpr(argument,  vars);
+            self.validateExpression(argument,  vars);
             self.rejectThreadValueEscape(
                 argument, "passed as range arguments",  vars);
             Node? argumentType = self.types.inferType(argument,  vars);
@@ -484,7 +574,7 @@ class ControlFlowValidator {
                     "range iteration has exactly one loop variable", statement);
             }
         } else {
-            self.expressions.validateExpr(statement.iterable,  vars);
+            self.validateExpression(statement.iterable,  vars);
             iterableType = self.types.inferType(statement.iterable,  vars);
             if (iterableType == null) {
                 TypeValidator.fail(
@@ -576,7 +666,7 @@ class ControlFlowValidator {
             Map<string, Node> vars) {
         bool isDoWhile = statement.kind == NK_DO_WHILE_STMT;
         if (!isDoWhile) {
-            self.expressions.validateExpr(statement.condition,  vars);
+            self.validateExpression(statement.condition,  vars);
             self.validateCondition(
                 statement.condition, "Loop",  vars);
         }
@@ -588,7 +678,7 @@ class ControlFlowValidator {
         self.state.loopDepth = previousLoop;
         self.state.breakDepth = previousBreak;
         if (isDoWhile) {
-            self.expressions.validateExpr(statement.condition,  vars);
+            self.validateExpression(statement.condition,  vars);
             self.validateCondition(
                 statement.condition, "Loop",  vars);
         }
@@ -596,14 +686,14 @@ class ControlFlowValidator {
 
     public void validateSwitch(Node statement,
             Map<string, Node> vars) {
-        self.expressions.validateExpr(statement.value_node,  vars);
+        self.validateExpression(statement.value_node,  vars);
         self.validateSwitchContracts(statement,  vars);
         int previousBreak = self.state.breakDepth;
         self.state.breakDepth = previousBreak + 1;
         int caseIndex = 0;
         while (caseIndex < statement.cases.len) {
             Node caseClause = statement.cases.get(caseIndex);
-            self.expressions.validateExpr(caseClause.value_node,  vars);
+            self.validateExpression(caseClause.value_node,  vars);
             Map<string, Node> caseVars = TypeValidator.cloneTypes(vars);
             Map<string, bool> previousCaseLocals =
                 self.types.cloneFlags(self.state.localBindings);
@@ -697,6 +787,7 @@ class ControlFlowValidator {
         self.types.rejectRuntimeInterfaceType(declaration.type, declaration);
         self.expressions.contextualizeGenericConstructor(
             declaration.type, declaration.initializer,  vars);
+        self.prepareExpression(declaration.initializer, vars);
         self.expressions.validateGpuArrayInitializer(
             declaration.initializer, declaration.type,  vars);
         bool previousOwnedOpaqueVariable = self.state.allowOwnedOpaqueVariable;
@@ -768,7 +859,7 @@ class ControlFlowValidator {
             Map<string, Node> vars) {
         self.expressions.contextualizeGenericConstructor(
             self.state.returnType, statement.value_node,  vars);
-        self.expressions.validateExpr(statement.value_node,  vars);
+        self.validateExpression(statement.value_node,  vars);
         self.validateThreadTransferSource(statement.value_node,  vars);
         if (self.state.returnType == null) { return; }
         Node expectedReturn = self.state.returnType;
@@ -835,12 +926,12 @@ class ControlFlowValidator {
                         + "declare an array", declaration);
                 }
             } else if (statement.init.kind == NK_FOR_INIT_EXPR) {
-                self.expressions.validateExpr(statement.init.expression,  loopVars);
+                self.validateExpression(statement.init.expression,  loopVars);
                 self.rejectThreadObservation(
                     statement.init.expression,  loopVars);
             }
         }
-        self.expressions.validateExpr(statement.condition,  loopVars);
+        self.validateExpression(statement.condition,  loopVars);
         self.validateCondition(
             statement.condition, "C-style for loop",  loopVars);
         int previousLoop = self.state.loopDepth;
@@ -848,7 +939,7 @@ class ControlFlowValidator {
         self.state.loopDepth = previousLoop + 1;
         self.state.breakDepth = previousBreak + 1;
         self.validateBlock(statement.body_node,  loopVars);
-        self.expressions.validateExpr(statement.update,  loopVars);
+        self.validateExpression(statement.update,  loopVars);
         self.rejectThreadObservation(statement.update,  loopVars);
         self.state.loopDepth = previousLoop;
         self.state.breakDepth = previousBreak;
@@ -893,13 +984,14 @@ class ControlFlowValidator {
         } else if (statement.kind == NK_EXPR_STMT) {
             Node? previousStandalone = self.state.standaloneExpression;
             self.state.standaloneExpression = statement.expr;
+            self.prepareExpression(statement.expr, vars);
             self.expressions.validateGpuResultStatement(
                 statement.expr,  vars);
             self.state.standaloneExpression = previousStandalone;
             self.validateThreadExpressionDiscard(
                 statement.expr,  vars);
         } else if (statement.kind == NK_IF_STMT) {
-            self.expressions.validateExpr(statement.condition,  vars);
+            self.validateExpression(statement.condition,  vars);
             self.validateCondition(
                 statement.condition, "If statement",  vars);
             self.validateBlock(statement.then_block,  vars);
@@ -927,7 +1019,7 @@ class ControlFlowValidator {
                 || statement.kind == NK_RELEASE_STMT) {
             self.ownership.validateOwnership(statement,  vars);
         } else if (statement.kind == NK_THROW_STMT) {
-            self.expressions.validateExpr(statement.expr,  vars);
+            self.validateExpression(statement.expr,  vars);
             self.rejectThreadObservation(statement.expr,  vars);
         } else if (statement.kind == NK_BREAK_STMT) {
             if (self.state.breakDepth == 0) {

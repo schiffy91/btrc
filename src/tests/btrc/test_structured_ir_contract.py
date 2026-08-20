@@ -70,15 +70,16 @@ def test_top_level_declarations_are_typed_end_to_end() -> None:
     assert "m.preprocessor_decls" in emitter
     assert 'substring(0, 15) == "typedef struct "' not in emitter
     assert 'substring(0, 8) == "typedef "' not in emitter
+    assert "private Map<string, Node> functionPointerTypes;" in types
+    assert "private Vector<string> functionPointerOrder;" in types
     registration = types[
-        types.index("private string functionPointerName(") : types.index(
-            "private bool aliasBaseIsReference("
-        )
+        types.index("private string functionPointerName(") : types.index("private bool aliasBaseIsReference(")
     ]
     canonicalize = registration.index("SemanticTypeSystem.resolveTypedefType(")
     register_nested = registration.index("self.lower(canonical)")
-    register_outer = registration.index("self.analyzed.fnPtrOrder.push(mangled)")
+    register_outer = registration.index("self.functionPointerOrder.push(mangled)")
     assert canonicalize < register_nested < register_outer
+    assert "self.analyzed.fnPtr" not in registration
 
 
 def test_preprocessor_ir_is_validated_and_emitted_structurally() -> None:
@@ -128,9 +129,14 @@ def test_selfhost_models_structured_c_expression_forms() -> None:
         "class IRNode caseClause(",
     ):
         assert contract in nodes
-    assert "cases.push(IRNode.caseClause(" in control_flow
-    assert "IRNode loweredSwitch = IRNode.switchStatement(" in control_flow
-    assert "return loweredSwitch;" in control_flow
+    switch_plan = control_flow[
+        control_flow.index("class SwitchPlan {") : control_flow.index("class ControlFlowLowerer {")
+    ]
+    assert "public Vector<IRNode> cases;" in switch_plan
+    assert "self.cases = cases;" in switch_plan
+    assert "IRNode statement = IRNode.switchStatement(" in control_flow
+    assert "plan.value, plan.cases);" in control_flow
+    assert "return statement;" in control_flow
     assert "if (s.kind == IRK_SWITCH)" in emitter
     assert "irExprText" not in control_flow
 
@@ -149,15 +155,25 @@ def test_selfhost_emits_struct_array_bounds_and_indirect_calls_only_from_ir() ->
     nodes = _source("ir/model.btrc")
     declarations = _source("ir/lowering/declarations.btrc")
     expressions = _source("ir/lowering/expressions.btrc")
+    callables = _source("ir/lowering/callables.btrc")
     emitter = _source("ir/emitter.btrc")
     helper_reachability = _source("ir/runtime/references.btrc")
     optimizer = _source("ir/optimization/optimizer.btrc")
     field_schema = nodes[nodes.index("class IRStructField {") : nodes.index("class IRStructDef {")]
+    emit_struct = declarations[
+        declarations.index("public void emitStructDecl(") : declarations.index("public void emitGlobalVar(")
+    ]
 
     assert "public IRNode array_size;" in field_schema
     assert "self.array_size = null;" in field_schema
-    assert "field.array_size = self.expressions.lowerExpr(f.type.array_size, empty);" in declarations
-    assert "return IRNode.indirectCall(lambdaExpr, lambdaArgs);" in expressions
+    assert "CallableFlowState callableFlow = CallableFlowState();" in emit_struct
+    assert "f.type.array_size, empty, callableFlow);" in emit_struct
+    assert (
+        "public IRNode lowerExpr(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow)"
+    ) in expressions
+    assert "self.callableLowering.materializeInvocation(" in expressions
+    assert "public IRNode materializeInvocation(" in callables
+    assert "return IRNode.call(lambda.functionName, arguments);" in callables
     assert 'suffix = "[" + self.expr(field.array_size) + "]";' in emitter
     assert emitter.count("self.structFieldDeclaration(") == 2
     assert "self.collectStructRefsNode(field.array_size, knownNames, fr);" in optimizer
@@ -172,14 +188,10 @@ def test_selfhost_enum_symbols_are_structured_variable_references() -> None:
     expressions = _source("ir/lowering/expressions.btrc")
 
     rich_enum = declarations[
-        declarations.index("public void emitRichEnumDecl(") : declarations.index(
-            "public IRFunction enumToStringFn("
-        )
+        declarations.index("public void emitRichEnumDecl(") : declarations.index("public IRFunction enumToStringFn(")
     ]
     enum_to_string = declarations[
-        declarations.index("public IRFunction enumToStringFn(") : declarations.index(
-            "public void emitStructDecl("
-        )
+        declarations.index("public IRFunction enumToStringFn(") : declarations.index("public void emitStructDecl(")
     ]
 
     assert 'IRNode.variable(name + "_" + v.name + "_TAG")' in rich_enum
@@ -279,9 +291,7 @@ def test_numeric_and_operator_behavior_has_domain_owners() -> None:
     assert "self.operators = OperatorSemantics(self.analysis);" in analyzer
     assert analyzer.count("self.operators") == 5
     state = validation_types[
-        validation_types.index("class SemanticValidationState {") : validation_types.index(
-            "class TypeValidator {"
-        )
+        validation_types.index("class SemanticValidationState {") : validation_types.index("class TypeValidator {")
     ]
     assert "OperatorSemantics" not in state
     assert "self.state = SemanticValidationState(analyzed);" in validator

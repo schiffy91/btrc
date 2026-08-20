@@ -19,12 +19,17 @@ class Managed {
     public string name;
     public string cName;
     public string cls;
+    public Node? valueType;
+    public string storageCType;
     public string cleanupKind;
 
-    public Managed(string name, string cName, string cls) {
+    public Managed(string name, string cName, string cls,
+            Node? valueType, string storageCType) {
         self.name = name;
         self.cName = cName;
         self.cls = cls;
+        self.valueType = valueType;
+        self.storageCType = storageCType;
         self.cleanupKind = "arc";
     }
 }
@@ -438,14 +443,16 @@ class ManagedLifetimeLowerer {
         return IRNode.call("__btrc_arc_release_edge", arguments);
     }
 
-    public IRNode replaceEdge(IRNode slot, IRNode replacement,
-            Node resolvedType, IRNode owner, bool adopt) {
+    private IRNode replaceEdgeWithSlotType(
+            IRNode slot, IRNode replacement,
+            Node resolvedType, string slotCType,
+            IRNode owner, bool adopt) {
         if (!self.managedValues.isArc(resolvedType)) {
             print("internal compiler error: transactional edge is not ARC-managed");
             exit(1);
         }
         string access = self.cleanupSlots.ensureArcSlotAdapter(
-            self.cTypes.lower(resolvedType));
+            slotCType);
         self.context.referenceHelper("__btrc_arc_replace_edge");
         Vector<IRNode> arguments = [];
         arguments.push(IRNode.cast(
@@ -457,6 +464,25 @@ class ManagedLifetimeLowerer {
             self.managedValues.runtimeType(resolvedType)));
         arguments.push(IRNode.literal(adopt ? "1" : "0"));
         return IRNode.call("__btrc_arc_replace_edge", arguments);
+    }
+
+    public IRNode replaceEdge(IRNode slot, IRNode replacement,
+            Node resolvedType, IRNode owner, bool adopt) {
+        return self.replaceEdgeWithSlotType(
+            slot, replacement, resolvedType,
+            self.cTypes.lower(resolvedType), owner, adopt);
+    }
+
+    /* Storage plans preserve source declarator spelling independently from
+     * the canonical managed semantic type.  ARC slot adapters must use the
+     * former while descriptors and retain/release policy use the latter. */
+    public IRNode replaceTypedEdge(
+            IRNode slot, IRNode replacement,
+            Node resolvedType, string slotCType,
+            IRNode owner, bool adopt) {
+        return self.replaceEdgeWithSlotType(
+            slot, replacement, resolvedType,
+            slotCType, owner, adopt);
     }
 
     public IRNode destroySlot(IRNode slot, Node resolvedType,
@@ -491,8 +517,8 @@ class ManagedLifetimeLowerer {
 
     public IRNode optionalRelease(IRNode target, string runtimeType) {
         Vector<IRNode> releaseBody = [];
-        releaseBody.push(IRNode.expressionStatement(
-            self.releaseRuntime(target, runtimeType)));
+        releaseBody.push(IRNode.cast(
+            "void", self.releaseRuntime(target, runtimeType)));
         Vector<IRNode> declarations = [];
         return IRNode.statementExpression(declarations, IRNode.ternary(
             IRNode.binary(target, "!=", IRNode.literal("NULL")),
@@ -520,13 +546,21 @@ class ManagedLifetimeLowerer {
             IRNode.functionReference(cleanup), visitor, false);
     }
 
+    public IRNode? cleanupRegistration(IRNode declaration,
+            string runtimeType) {
+        if (!self.context.exceptionsAreEnabled()) { return null; }
+        return self.registerCleanupSlot(declaration, runtimeType);
+    }
+
     public void maybeRegisterCleanup(string variableName,
             string runtimeType, Vector<IRNode> statements) {
-        if (!self.context.exceptionsAreEnabled()) { return; }
         IRNode declaration = self.cleanupSlots.requireDeclaration(
             statements, variableName);
-        statements.push(IRNode.expressionStatement(
-            self.registerCleanupSlot(declaration, runtimeType)));
+        IRNode? registration = self.cleanupRegistration(
+            declaration, runtimeType);
+        if (registration != null) {
+            statements.push(IRNode.expressionStatement(registration));
+        }
     }
 
     public void maybeRegisterDirectCleanup(string variableName,
@@ -565,13 +599,15 @@ class ManagedLifetimeLowerer {
     }
 
     public void registerManaged(
-            string sourceName, string cName, string runtimeType) {
+            string sourceName, string cName, string runtimeType,
+            Node valueType, string storageCType) {
         self.managedStack.push(
-            Managed(sourceName, cName, runtimeType));
+            Managed(sourceName, cName, runtimeType,
+                valueType, storageCType));
     }
 
     public void registerThread(string sourceName, string cName) {
-        Managed owner = Managed(sourceName, cName, "");
+        Managed owner = Managed(sourceName, cName, "", null, "");
         owner.cleanupKind = "thread";
         self.managedStack.push(owner);
     }
@@ -591,6 +627,30 @@ class ManagedLifetimeLowerer {
         while (index >= 0) {
             Managed owner = self.managedStack.get(index);
             if (owner.cName == cName) { return owner.cls; }
+            index = index - 1;
+        }
+        return "";
+    }
+
+    /* The runtime cleanup symbol is not a semantic storage type. Preserve the
+     * exact analyzed managed domain alongside it so raw C-compatible bindings
+     * (notably char* values carrying tracked strings) still route later stores
+     * through the typed strong-slot transaction. */
+    public Node? managedLocalValueType(string cName) {
+        int index = self.managedStack.len - 1;
+        while (index >= 0) {
+            Managed owner = self.managedStack.get(index);
+            if (owner.cName == cName) { return owner.valueType; }
+            index = index - 1;
+        }
+        return null;
+    }
+
+    public string managedLocalStorageCType(string cName) {
+        int index = self.managedStack.len - 1;
+        while (index >= 0) {
+            Managed owner = self.managedStack.get(index);
+            if (owner.cName == cName) { return owner.storageCType; }
             index = index - 1;
         }
         return "";
@@ -845,7 +905,9 @@ class ManagedLifetimeLowerer {
         int index = 0;
         while (index < source.len) {
             Managed value = source.get(index);
-            Managed copy = Managed(value.name, value.cName, value.cls);
+            Managed copy = Managed(
+                value.name, value.cName, value.cls,
+                value.valueType, value.storageCType);
             copy.cleanupKind = value.cleanupKind;
             destination.push(copy);
             index = index + 1;

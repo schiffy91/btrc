@@ -8,7 +8,9 @@ compiler-specific python/ and btrc/ subtrees), and for each selected compiler
    self-hosted btrc compiler (btrcc) binary on the same file.
 2. Compile the C with the configured C compiler (C11).
 3. Run it; assert exit code 0 and "PASS" in stdout.
-4. Compare against the golden expected/<name>.stdout if one exists.
+4. Compare stdout against the required golden expected/<name>.stdout.
+5. Require empty stderr, or compare it against expected/<name>.stderr when
+   that explicit golden exists.
 
 The same corpus and the same goldens hold both compilers to identical behavior,
 so the self-hosted compiler is verified against the reference for free. Select a
@@ -27,9 +29,7 @@ import tempfile
 import pytest
 
 from src.compiler.python import Compiler, CompilerOptions
-from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.tests.corpus_files import language_test_files
 from src.tests.runner_capabilities import (
     darwin_gpu_flags,
@@ -96,10 +96,11 @@ def _transpile_python(btrc_path, btrc_file):
     """Transpile a .btrc file to C via the reference Python compiler API."""
     with open(btrc_path) as f:
         source = f.read()
+    options = CompilerOptions(map_stdlib_positions=True)
     frontend = _PYTHON_COMPILER.compile_frontend(
         source,
         btrc_path,
-        CompilerOptions(map_stdlib_positions=True),
+        options,
         filename=os.path.basename(btrc_file),
     )
     analyzed = frontend.analyzed
@@ -112,8 +113,8 @@ def _transpile_python(btrc_path, btrc_file):
         source_file=os.path.basename(btrc_file),
         source_map=source_map,
     ).lower()
-    ir_module = IROptimizer(ir_module).optimize()
-    return CEmitter().emit(ir_module)
+    ir_module = _PYTHON_COMPILER.pipeline.optimize(ir_module, options)
+    return _PYTHON_COMPILER.pipeline.emit(ir_module)
 
 
 def _transpile_btrc(btrcc, btrc_path):
@@ -223,13 +224,25 @@ def _compile_run_check(c_source, btrc_path, btrc_file):
         assert "PASS" in run_result.stdout, f"No PASS in output:\n{run_result.stdout}"
         test_dir = os.path.dirname(btrc_path)
         test_name = os.path.basename(btrc_file).replace(".btrc", ".stdout")
-        expected_path = os.path.join(test_dir, "expected", test_name)
-        if os.path.exists(expected_path):
-            with open(expected_path) as ef:
-                expected = ef.read()
-            assert run_result.stdout == expected, (
-                f"Output mismatch vs golden file:\nExpected:\n{expected}\nGot:\n{run_result.stdout}"
-            )
+        expected_dir = os.path.join(test_dir, "expected")
+        expected_stdout_path = os.path.join(expected_dir, test_name)
+        assert os.path.isfile(expected_stdout_path), (
+            f"Runnable corpus case is missing its stdout golden: {expected_stdout_path}"
+        )
+        with open(expected_stdout_path) as expected_file:
+            expected_stdout = expected_file.read()
+        assert run_result.stdout == expected_stdout, (
+            f"Stdout mismatch vs golden file:\nExpected:\n{expected_stdout}\nGot:\n{run_result.stdout}"
+        )
+
+        expected_stderr_path = expected_stdout_path.removesuffix(".stdout") + ".stderr"
+        expected_stderr = ""
+        if os.path.isfile(expected_stderr_path):
+            with open(expected_stderr_path) as expected_file:
+                expected_stderr = expected_file.read()
+        assert run_result.stderr == expected_stderr, (
+            f"Stderr mismatch vs golden file:\nExpected:\n{expected_stderr}\nGot:\n{run_result.stderr}"
+        )
     finally:
         for p in [c_path, bin_path]:
             if os.path.exists(p):

@@ -166,7 +166,8 @@ class StatementLowerer {
                             self.cTypes.resolveBodyType(bindingType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
                     self.managedLifetime.registerManaged(
                         sourceName, self.context.sourceCName(sourceName),
-                        runtimeType);
+                        runtimeType, bindingType,
+                        declaration.c_type);
                     self.managedLifetime.maybeRegisterCleanup(
                         declaration.name, runtimeType, stmts);
                 } else if (self.managedValues.isManaged(
@@ -423,8 +424,41 @@ class StatementLowerer {
                 gpuOperands.cpuReturnValue = self.expressions.lowerExpr(
                     gpuPlan.value, varTypes, callableFlow);
             } else if (gpuPlan.call != null) {
+                if (gpuPlan.outputCollection
+                        && gpuPlan.outputTarget != null
+                        && gpuPlan.outputType != null) {
+                    Node collectionTarget = gpuPlan.outputTarget;
+                    Node collectionType = gpuPlan.outputType;
+                    gpuOperands.collectionOutput =
+                        self.expressions.lowerGpuCollectionOutputTarget(
+                            collectionTarget, collectionType,
+                            varTypes, callableFlow);
+                } else if (gpuPlan.outputAssignment
+                        && gpuPlan.outputTarget != null
+                        && !gpuPlan.outputManagedProjection) {
+                    gpuOperands.outputTarget = self.expressions.lowerExpr(
+                        gpuPlan.outputTarget, varTypes, callableFlow);
+                }
+                if (gpuPlan.outputManagedProjection
+                        && gpuPlan.outputReceiver != null
+                        && gpuPlan.outputReceiverType != null) {
+                    Node outputReceiver = gpuPlan.outputReceiver;
+                    Node outputReceiverType =
+                        gpuPlan.outputReceiverType;
+                    gpuOperands.outputReceiver =
+                        self.expressions.lowerGpuProjectionReceiver(
+                            outputReceiver, outputReceiverType,
+                            varTypes, callableFlow);
+                }
+                if ((gpuPlan.outputDeclaration
+                        || gpuPlan.outputProjection)
+                        && gpuPlan.outputSize != null) {
+                    gpuOperands.outputSize = self.expressions.lowerExpr(
+                        gpuPlan.outputSize, varTypes, callableFlow);
+                }
                 Node gpuCall = gpuPlan.call;
-                Vector<IRNode> arguments = self.expressions.lowerArgs(
+                GpuArgumentLedger arguments =
+                    self.expressions.lowerGpuArguments(
                     gpuCall, varTypes, callableFlow);
                 gpuOperands.callInputs =
                     self.gpuPipeline.loweredCallInputs(
@@ -432,7 +466,8 @@ class StatementLowerer {
             }
             GpuStatementResult gpuResult =
                 self.gpuPipeline.materializeStatement(
-                    gpuPlan, gpuOperands, self.context.module);
+                    gpuPlan, gpuOperands, self.context.module,
+                    varTypes);
             int gpuStatementIndex = 0;
             while (gpuStatementIndex < gpuResult.statements.len) {
                 out.push(gpuResult.statements.get(gpuStatementIndex));
@@ -448,12 +483,18 @@ class StatementLowerer {
              * suffix, and a list literal becomes a structured IR initializer
              * list (mirrors variables._lower_var_decl's is_array branch). */
             if (node.type != null && node.type.is_array) {
-                self.callableBoundaries.rejectAggregateInitializer(
-                    node.type, node.initializer,
+                CallableBoundaryContext arrayCallableContext =
                     callableFlow.boundaryContext(
                         varTypes, self.context.activeTypeMap,
                         self.context.genericBody
-                            || self.context.callDefaultTypeDepth > 0));
+                            || self.context.callDefaultTypeDepth > 0);
+                bool arrayCallableUnsafe =
+                    callableFlow.persistentStorageUnsafe(
+                        node.type, node.initializer,
+                        self.callableValues, arrayCallableContext);
+                self.callableBoundaries.rejectAggregateInitializer(
+                    node.type, node.initializer,
+                    arrayCallableContext, arrayCallableUnsafe);
                 /* Direct GPU result declarations return through the pipeline
                  * plan above. Every declaration reaching this
                  * branch is therefore an ordinary C array. */
@@ -468,7 +509,16 @@ class StatementLowerer {
                 }
                 IRNode? localArraySize = null;
                 if (node.type.array_size != null) {
-                    localArraySize = self.expressions.lowerExpr(node.type.array_size, varTypes, callableFlow);
+                    if (node.type.is_static) {
+                        localArraySize =
+                            self.expressions.lowerStaticInitializer(
+                                node.type.array_size, null,
+                                varTypes, callableFlow);
+                    } else {
+                        localArraySize = self.expressions.lowerExpr(
+                            node.type.array_size, varTypes,
+                            callableFlow);
+                    }
                 }
                 IRNode? ainit = null;
                 AggregateDeclarationPlan? aggregatePlan = null;
@@ -476,13 +526,27 @@ class StatementLowerer {
                     if (node.initializer.kind == NK_LIST_LITERAL
                             || node.initializer.kind
                                 == NK_BRACE_INITIALIZER) {
-                        aggregatePlan = self.expressions.lowerFixedArrayInitializer(
-                            node.initializer, node.type, varTypes, callableFlow);
-                        AggregateDeclarationPlan concretePlan =
-                            aggregatePlan;
-                        ainit = concretePlan.initializer;
+                        if (node.type.is_static) {
+                            ainit = self.expressions.lowerStaticInitializer(
+                                node.initializer, node.type,
+                                varTypes, callableFlow);
+                        } else {
+                            aggregatePlan =
+                                self.expressions.lowerFixedArrayInitializer(
+                                    node.initializer, node.type,
+                                    varTypes, callableFlow);
+                            AggregateDeclarationPlan concretePlan =
+                                aggregatePlan;
+                            ainit = concretePlan.initializer;
+                        }
+                    } else if (node.type.is_static) {
+                        ainit = self.expressions.lowerStaticInitializer(
+                            node.initializer, node.type,
+                            varTypes, callableFlow);
                     } else {
-                        ainit = self.expressions.lowerExpr(node.initializer, varTypes, callableFlow);
+                        ainit = self.expressions.lowerExpr(
+                            node.initializer, varTypes,
+                            callableFlow);
                     }
                 }
                 if (node.type != null) { varTypes.put(node.name, node.type); }
@@ -535,12 +599,19 @@ class StatementLowerer {
                 declType = self.expressions.resolvedExpressionType(
                     node.initializer, varTypes);
             }
-            self.callableBoundaries.rejectAggregateInitializer(
-                declType, node.initializer,
+            CallableBoundaryContext initializerCallableContext =
                 callableFlow.boundaryContext(
                     varTypes, self.context.activeTypeMap,
                     self.context.genericBody
-                        || self.context.callDefaultTypeDepth > 0));
+                        || self.context.callDefaultTypeDepth > 0);
+            bool initializerCallableUnsafe =
+                callableFlow.persistentStorageUnsafe(
+                    declType, node.initializer,
+                    self.callableValues, initializerCallableContext);
+            self.callableBoundaries.rejectAggregateInitializer(
+                declType, node.initializer,
+                initializerCallableContext,
+                initializerCallableUnsafe);
             bool directInferredClosure = node.type == null
                 && node.initializer != null
                 && node.initializer.kind == NK_LAMBDA_EXPR;
@@ -578,12 +649,6 @@ class StatementLowerer {
             Node? initializerEffectiveType = null;
             if (node.initializer != null) {
                 Node init0 = node.initializer;
-                bool genericConstructor = declType != null
-                    && declType.generic_args.len > 0
-                    && init0.kind == NK_CALL_EXPR
-                    && init0.callee != null
-                    && init0.callee.kind == NK_IDENTIFIER
-                    && self.analyzed.isGenericClass(init0.callee.name);
                 if (init0.kind == NK_LAMBDA_EXPR) {
                     CallableLambdaPlan preparedLambda =
                         self.callableLowering.prepareLambda(
@@ -594,9 +659,14 @@ class StatementLowerer {
                                     || self.context.callDefaultTypeDepth > 0));
                     lambdaPlan = preparedLambda;
                     init = preparedLambda.value;
-                } else if (genericConstructor) {
-                    init = self.expressions.lowerAssignedValueRaw(
-                        node.initializer, declType, varTypes, callableFlow);
+                } else if (node.type != null
+                        && node.type.is_static) {
+                    init = self.expressions.lowerStaticInitializer(
+                        node.initializer, declType,
+                        varTypes, callableFlow);
+                    initializerEffectiveType =
+                        self.expressions.resolvedExpressionType(
+                            node.initializer, varTypes);
                 } else {
                     PreparedValue prepared =
                         self.expressions.prepareTargetValue(
@@ -604,20 +674,6 @@ class StatementLowerer {
                     init = prepared.value;
                     initializerOwned = prepared.owned;
                     initializerEffectiveType = prepared.effectiveType;
-                }
-                /* Generic constructor call: Box(42) lowers as a plain call
-                 * `Box(42)` (Box isn't a non-generic class); rewrite it to the
-                 * mangled `btrc_Box_int_new(42)` using the declared generic args
-                 * (mirrors variables._lower_var_decl's generic-ctor fixup). */
-                if (declType != null && declType.generic_args.len > 0
-                        && init != null && init.kind == IRK_CALL) {
-                    if (init0.kind == NK_CALL_EXPR && init0.callee != null
-                            && init0.callee.kind == NK_IDENTIFIER
-                            && self.analyzed.isGenericClass(init0.callee.name)) {
-                        string mangled = TypeIdentity.mangleGenericType(declType.base, declType.generic_args);
-                        Vector<IRNode> newArgs = init.args;
-                        init = IRNode.call(mangled + "_new", newArgs);
-                    }
                 }
             }
             if (init == null && declType != null
@@ -722,7 +778,8 @@ class StatementLowerer {
                         self.managedLifetime.retainValue(IRNode.variable(bindingCName), managedSlotType)));
                 }
                 self.managedLifetime.registerManaged(
-                    node.name, bindingCName, runtimeType);
+                    node.name, bindingCName, runtimeType,
+                    managedSlotType, vdecl.c_type);
                 self.managedLifetime.maybeRegisterCleanup(
                     bindingCName, runtimeType, out);
             }
@@ -1071,13 +1128,18 @@ class StatementLowerer {
 
     public void lowerReturn(Node node, Map<string, Node> varTypes, Vector<IRNode> out, CallableFlowState callableFlow) {
         if (node.value_node != null) {
-            self.callableBoundaries.rejectPersistentStorage(
-                self.context.currentReturnType,
-                node.value_node,
+            CallableBoundaryContext callableContext =
                 callableFlow.boundaryContext(
                     varTypes, self.context.activeTypeMap,
                     self.context.genericBody
-                        || self.context.callDefaultTypeDepth > 0),
+                        || self.context.callDefaultTypeDepth > 0);
+            bool unsafe = callableFlow.persistentStorageUnsafe(
+                self.context.currentReturnType,
+                node.value_node, self.callableValues,
+                callableContext);
+            self.callableBoundaries.rejectPersistentStorage(
+                self.context.currentReturnType,
+                node.value_node, callableContext, unsafe,
                 "a function return");
         }
         self.lowerOwnedReturn(node, varTypes, out, callableFlow);
@@ -2085,7 +2147,7 @@ class StatementLowerer {
         output.push(IRNode.variableDeclaration(
             self.cTypes.lower(arrayType),
             iterable, projected));
-        IRNode iterationLength = fixedArrayIterationCapacity(projected);
+        IRNode iterationLength = self.fixedArrayIterationCapacity(projected);
         if (statement.iterable.kind == NK_IDENTIFIER
                 && self.gpuPipeline.hasHostCapacity(
                     statement.iterable.name)) {
@@ -2134,7 +2196,9 @@ class StatementLowerer {
     public bool programUsesTrycatch(Node prog) {
         int i = 0;
         while (i < prog.declarations.len) {
-            if (nodeUsesTrycatch(prog.declarations.get(i))) { return true; }
+            if (self.nodeUsesTrycatch(prog.declarations.get(i))) {
+                return true;
+            }
             i = i + 1;
         }
         return false;
@@ -2143,7 +2207,7 @@ class StatementLowerer {
     private bool nodeVectorUsesTrycatch(Vector<Node> nodes) {
         int i = 0;
         while (i < nodes.len) {
-            if (nodeUsesTrycatch(nodes.get(i))) { return true; }
+            if (self.nodeUsesTrycatch(nodes.get(i))) { return true; }
             i = i + 1;
         }
         return false;
@@ -2156,59 +2220,59 @@ class StatementLowerer {
     private bool nodeUsesTrycatch(Node? n) {
         if (n == null) { return false; }
         if (n.kind == NK_THROW_STMT || n.kind == NK_TRY_CATCH_STMT) { return true; }
-        if (nodeVectorUsesTrycatch(n.declarations)) { return true; }
-        if (nodeVectorUsesTrycatch(n.members)) { return true; }
-        if (nodeVectorUsesTrycatch(n.methods)) { return true; }
-        if (nodeVectorUsesTrycatch(n.fields)) { return true; }
-        if (nodeVectorUsesTrycatch(n.values)) { return true; }
-        if (nodeVectorUsesTrycatch(n.variants)) { return true; }
-        if (nodeVectorUsesTrycatch(n.generic_args)) { return true; }
-        if (nodeVectorUsesTrycatch(n.params)) { return true; }
-        if (nodeVectorUsesTrycatch(n.statements)) { return true; }
-        if (nodeVectorUsesTrycatch(n.cases)) { return true; }
-        if (nodeVectorUsesTrycatch(n.body_nlist)) { return true; }
-        if (nodeVectorUsesTrycatch(n.args)) { return true; }
-        if (nodeVectorUsesTrycatch(n.elements)) { return true; }
-        if (nodeVectorUsesTrycatch(n.entries)) { return true; }
-        if (nodeVectorUsesTrycatch(n.parts)) { return true; }
-        if (nodeVectorUsesTrycatch(n.captures)) { return true; }
-        if (nodeUsesTrycatch(n.spec)) { return true; }
-        if (nodeUsesTrycatch(n.return_type)) { return true; }
-        if (nodeUsesTrycatch(n.body_node)) { return true; }
-        if (nodeUsesTrycatch(n.original)) { return true; }
-        if (nodeUsesTrycatch(n.array_size)) { return true; }
-        if (nodeUsesTrycatch(n.type)) { return true; }
-        if (nodeUsesTrycatch(n.default_)) { return true; }
-        if (nodeUsesTrycatch(n.initializer)) { return true; }
-        if (nodeUsesTrycatch(n.getter_body)) { return true; }
-        if (nodeUsesTrycatch(n.setter_body)) { return true; }
-        if (nodeUsesTrycatch(n.value_node)) { return true; }
-        if (nodeUsesTrycatch(n.condition)) { return true; }
-        if (nodeUsesTrycatch(n.then_block)) { return true; }
-        if (nodeUsesTrycatch(n.else_block)) { return true; }
-        if (nodeUsesTrycatch(n.iterable)) { return true; }
-        if (nodeUsesTrycatch(n.init)) { return true; }
-        if (nodeUsesTrycatch(n.update)) { return true; }
-        if (nodeUsesTrycatch(n.expr)) { return true; }
-        if (nodeUsesTrycatch(n.try_block)) { return true; }
-        if (nodeUsesTrycatch(n.catch_type)) { return true; }
-        if (nodeUsesTrycatch(n.catch_block)) { return true; }
-        if (nodeUsesTrycatch(n.finally_block)) { return true; }
-        if (nodeUsesTrycatch(n.if_stmt)) { return true; }
-        if (nodeUsesTrycatch(n.var_decl)) { return true; }
-        if (nodeUsesTrycatch(n.expression)) { return true; }
-        if (nodeUsesTrycatch(n.left)) { return true; }
-        if (nodeUsesTrycatch(n.right)) { return true; }
-        if (nodeUsesTrycatch(n.operand)) { return true; }
-        if (nodeUsesTrycatch(n.callee)) { return true; }
-        if (nodeUsesTrycatch(n.obj)) { return true; }
-        if (nodeUsesTrycatch(n.index)) { return true; }
-        if (nodeUsesTrycatch(n.target_type)) { return true; }
-        if (nodeUsesTrycatch(n.true_expr)) { return true; }
-        if (nodeUsesTrycatch(n.false_expr)) { return true; }
-        if (nodeUsesTrycatch(n.target)) { return true; }
-        if (nodeUsesTrycatch(n.fn)) { return true; }
-        if (nodeUsesTrycatch(n.key)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.declarations)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.members)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.methods)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.fields)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.values)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.variants)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.generic_args)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.params)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.statements)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.cases)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.body_nlist)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.args)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.elements)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.entries)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.parts)) { return true; }
+        if (self.nodeVectorUsesTrycatch(n.captures)) { return true; }
+        if (self.nodeUsesTrycatch(n.spec)) { return true; }
+        if (self.nodeUsesTrycatch(n.return_type)) { return true; }
+        if (self.nodeUsesTrycatch(n.body_node)) { return true; }
+        if (self.nodeUsesTrycatch(n.original)) { return true; }
+        if (self.nodeUsesTrycatch(n.array_size)) { return true; }
+        if (self.nodeUsesTrycatch(n.type)) { return true; }
+        if (self.nodeUsesTrycatch(n.default_)) { return true; }
+        if (self.nodeUsesTrycatch(n.initializer)) { return true; }
+        if (self.nodeUsesTrycatch(n.getter_body)) { return true; }
+        if (self.nodeUsesTrycatch(n.setter_body)) { return true; }
+        if (self.nodeUsesTrycatch(n.value_node)) { return true; }
+        if (self.nodeUsesTrycatch(n.condition)) { return true; }
+        if (self.nodeUsesTrycatch(n.then_block)) { return true; }
+        if (self.nodeUsesTrycatch(n.else_block)) { return true; }
+        if (self.nodeUsesTrycatch(n.iterable)) { return true; }
+        if (self.nodeUsesTrycatch(n.init)) { return true; }
+        if (self.nodeUsesTrycatch(n.update)) { return true; }
+        if (self.nodeUsesTrycatch(n.expr)) { return true; }
+        if (self.nodeUsesTrycatch(n.try_block)) { return true; }
+        if (self.nodeUsesTrycatch(n.catch_type)) { return true; }
+        if (self.nodeUsesTrycatch(n.catch_block)) { return true; }
+        if (self.nodeUsesTrycatch(n.finally_block)) { return true; }
+        if (self.nodeUsesTrycatch(n.if_stmt)) { return true; }
+        if (self.nodeUsesTrycatch(n.var_decl)) { return true; }
+        if (self.nodeUsesTrycatch(n.expression)) { return true; }
+        if (self.nodeUsesTrycatch(n.left)) { return true; }
+        if (self.nodeUsesTrycatch(n.right)) { return true; }
+        if (self.nodeUsesTrycatch(n.operand)) { return true; }
+        if (self.nodeUsesTrycatch(n.callee)) { return true; }
+        if (self.nodeUsesTrycatch(n.obj)) { return true; }
+        if (self.nodeUsesTrycatch(n.index)) { return true; }
+        if (self.nodeUsesTrycatch(n.target_type)) { return true; }
+        if (self.nodeUsesTrycatch(n.true_expr)) { return true; }
+        if (self.nodeUsesTrycatch(n.false_expr)) { return true; }
+        if (self.nodeUsesTrycatch(n.target)) { return true; }
+        if (self.nodeUsesTrycatch(n.fn)) { return true; }
+        if (self.nodeUsesTrycatch(n.key)) { return true; }
         return false;
     }
 }

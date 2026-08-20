@@ -168,7 +168,7 @@ class Analyzed {
         return declaration.parent;
     }
 
-    private string memberKey(string owner, string member) {
+    class string memberKey(string owner, string member) {
         return owner + "." + member;
     }
 
@@ -333,7 +333,7 @@ class Analyzed {
      * members; classConstructor() is their sole lookup path. */
     public Node? classMember(string cls, string member) {
         self.requireMemberIndex();
-        string key = self.memberKey(cls, member);
+        string key = Analyzed.memberKey(cls, member);
         if (self.classMemberIndex.has(key)) {
             return self.classMemberIndex.get(key);
         }
@@ -345,7 +345,7 @@ class Analyzed {
      * same-named value member mask the callable declaration. */
     public Node? classMethod(string cls, string method) {
         self.requireMemberIndex();
-        string key = self.memberKey(cls, method);
+        string key = Analyzed.memberKey(cls, method);
         if (self.classMethodIndex.has(key)) {
             return self.classMethodIndex.get(key);
         }
@@ -366,7 +366,7 @@ class Analyzed {
      * order named args / fill defaults on generic-instance method calls. */
     public Node? genericClassMethod(string cls, string member) {
         self.requireMemberIndex();
-        string key = self.memberKey(cls, member);
+        string key = Analyzed.memberKey(cls, member);
         if (self.genericMethodIndex.has(key)) {
             return self.genericMethodIndex.get(key);
         }

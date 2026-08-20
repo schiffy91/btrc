@@ -2,8 +2,7 @@
 
 import pytest
 
-from src.tests.lsp.lsphelp import get_rename_edits
-from src.tests.lsp.lsphelp import SAMPLE, analyze, pos_of
+from src.tests.lsp.lsphelp import SAMPLE, analyze, get_rename_edits, pos_of
 
 
 @pytest.mark.parametrize(

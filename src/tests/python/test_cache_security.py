@@ -62,6 +62,12 @@ def test_stdlib_cache_owns_its_codec() -> None:
     assert cache.codec is codec
 
 
+def test_stdlib_cache_miss_is_not_an_io_failure(tmp_path) -> None:
+    cache = StdlibAstCache()
+
+    assert cache.load(str(tmp_path / "missing.ast.json"), cache.source_hash("missing")) is None
+
+
 def test_stdlib_cache_rejects_nodes_missing_current_marker_fields(tmp_path):
     cache = StdlibAstCache()
     source = "schema markers"

@@ -6,6 +6,7 @@ import os
 import pickle
 import shutil
 import subprocess
+import sys
 
 import pytest
 
@@ -16,6 +17,7 @@ from src.compiler.python.cli.compiler import CompilerCommand, CompilerDiagnostic
 from src.compiler.python.frontend.packages import IncludeResolutionError
 from src.compiler.python.frontend.sources import StdlibAstCache, StdlibRepository
 from src.compiler.python.frontend.stage import FrontendStage
+from src.compiler.python.main import main as compiler_main
 
 RESOLVER = FrontendStage().resolver
 STDLIB = StdlibRepository()
@@ -32,7 +34,8 @@ def write(path, content):
 
 
 def run_main(monkeypatch, argv):
-    CompilerCommand(Compiler()).run(argv)
+    monkeypatch.setattr(sys, "argv", ["btrcpy", *argv])
+    compiler_main()
 
 
 HELLO = 'int main() { print("PASS"); return 0; }\n'
@@ -105,17 +108,17 @@ def test_emit_ir(tmp_path, monkeypatch, capsys):
     )
     run_main(monkeypatch, [src, "--emit-ir"])
     out = capsys.readouterr().out
-    assert "IRModule:" in out
-    assert "enum Color" in out
-    assert "struct Point" in out
-    assert "fn " in out
+    assert '"$format": "btrc-ir-v1"' in out
+    assert '"$type": "IREnumDef"' in out
+    assert '"$type": "IRStructDef"' in out
+    assert '"$type": "IRFunctionDef"' in out
 
 
 def test_emit_optimized_ir(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     src = write(tmp_path / "t.btrc", BARE)
     run_main(monkeypatch, [src, "--emit-optimized-ir"])
-    assert "IRModule:" in capsys.readouterr().out
+    assert '"$format": "btrc-ir-v1"' in capsys.readouterr().out
 
 
 def test_no_stdlib(tmp_path, monkeypatch, capsys):

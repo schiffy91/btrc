@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
-from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity
+from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeShapeError
 from src.compiler.python.frontend.sources import SourceMap
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
@@ -39,7 +39,7 @@ from .session import LoweringSession
 from .statements import StatementLowerer
 from .storage import StorageLowerer
 from .translation_unit import TranslationUnitLowerer
-from .types import CTypeLowerer
+from .types import CodegenError, CTypeLowerer
 
 
 class IRLowerer:
@@ -70,10 +70,15 @@ class IRLowerer:
         )
         program_has_exceptions = TranslationUnitLowerer.program_uses_trycatch(analyzed.program)
 
-        types = CTypeLowerer(session, analyzed, type_identity=identity)
+        default_context = DefaultArgumentLoweringContext(identity)
+        types = CTypeLowerer(
+            session,
+            analyzed,
+            type_identity=identity,
+            default_type_state=default_context.type_state,
+        )
         signatures = CallableSignatureLowerer(analyzed, types)
         index_protocols = IndexedProtocolResolver(identity, analyzed.class_table)
-        default_context = DefaultArgumentLoweringContext(identity)
         values = ManagedValueSemantics(analyzed, identity, types)
         cycles = CycleMetadata(analyzed, values, identity)
         cleanup_slots = CleanupSlotRegistry(session)
@@ -135,16 +140,6 @@ class IRLowerer:
             values,
             lifetime,
         )
-        calls = CallLowerer(
-            session,
-            analyzed,
-            types,
-            default_context,
-            identity,
-            ownership,
-            values,
-            operand_order,
-        )
         concurrency = ConcurrencyLowerer(
             session,
             analyzed,
@@ -155,6 +150,17 @@ class IRLowerer:
             lifetime,
             cleanup_slots,
             storage,
+        )
+        calls = CallLowerer(
+            session,
+            analyzed,
+            types,
+            default_context,
+            identity,
+            ownership,
+            values,
+            operand_order,
+            concurrency,
         )
         gpu = GpuLowerer(
             session,
@@ -225,6 +231,7 @@ class IRLowerer:
             expressions,
             storage,
             ownership,
+            callable_boundaries,
             values,
             lifetime,
             cleanup_scope,
@@ -284,4 +291,7 @@ class IRLowerer:
         )
 
     def lower(self) -> IRModule:
-        return self._translation_unit.lower()
+        try:
+            return self._translation_unit.lower()
+        except TypeShapeError as error:
+            raise CodegenError(str(error)) from error

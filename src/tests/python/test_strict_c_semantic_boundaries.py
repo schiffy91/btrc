@@ -7,9 +7,9 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -33,7 +33,9 @@ def _emit(source: str):
     analyzed = _analyze(source)
     assert analyzed.errors == []
     module = IRLowerer(analyzed).lower()
-    return module, CEmitter().emit(IROptimizer(module).optimize())
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(module, CompilerOptions())
+    return module, pipeline.emit(module)
 
 
 def _compile_and_run(c_source: str, tmp_path: Path, compiler: str):
@@ -165,7 +167,8 @@ def test_empty_fixed_array_initializer_is_normalized_to_strict_c11(
             return values[0] == 0 && values[1] == 0 ? 0 : 1;
         }
     """)
-    assert "int values[2] = {0};" in generated
+    declaration = next(line.strip() for line in generated.splitlines() if "int values[" in line)
+    assert declaration.endswith("] = {0};")
     _compile_and_run(generated, tmp_path, c_compiler)
 
 

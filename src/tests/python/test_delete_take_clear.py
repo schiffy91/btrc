@@ -13,7 +13,7 @@ from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
 
-CC = shutil.which("cc")
+COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 EFFECTFUL_EDGE_OWNER_SOURCE = r"""
 #include <assert.h>
@@ -54,6 +54,12 @@ class Exercise<T> {
 }
 
 int main() {
+    Item original = new Item();
+    Item alias = original;
+    release original;
+    assert(original == null && alias != null);
+    delete alias;
+
     Holder left = new Holder();
     Holder right = new Holder();
     exerciseOrdinary(left, right);
@@ -78,6 +84,39 @@ def _lower(source: str):
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
     return IRLowerer(analyzed).lower()
+
+
+def _strict_build_and_run(tmp_path: Path, c_compiler: str, stem: str, generated: str) -> None:
+    c_path = tmp_path / f"{stem}.c"
+    binary = tmp_path / stem
+    c_path.write_text(generated)
+    build = subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            str(c_path),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert build.returncode == 0, build.stderr
+    run = subprocess.run(
+        [str(binary)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert run.returncode == 0, run.stderr
 
 
 def test_delete_clears_saved_class_slot_before_destroy() -> None:
@@ -144,48 +183,28 @@ def test_effectful_edge_owner_is_one_shared_ir_value_in_ordinary_and_generic_bod
         assert len(owner_calls) == 2
         assert len(addressed_owners) == 2
         assert addressed_owners == edge_owners
-        assert all(name.startswith("__btrc_call_operand_") for name in edge_owners)
+        assert all(name.startswith("__btrc_storage_receiver_") for name in edge_owners)
 
 
-@pytest.mark.skipif(CC is None, reason="requires a hosted C11 compiler")
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_effectful_edge_owner_release_and_delete_run_once_in_ordinary_and_generic_bodies(
     tmp_path: Path,
+    c_compiler: str,
 ) -> None:
-    c_path = tmp_path / "effectful-edge-owner.c"
-    binary = tmp_path / "effectful-edge-owner"
-    c_path.write_text(emit_c(EFFECTFUL_EDGE_OWNER_SOURCE))
-    build = subprocess.run(
-        [
-            CC,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O2",
-            str(c_path),
-            "-lm",
-            "-lpthread",
-            "-o",
-            str(binary),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
+    _strict_build_and_run(
+        tmp_path,
+        c_compiler,
+        "effectful-edge-owner",
+        emit_c(EFFECTFUL_EDGE_OWNER_SOURCE),
     )
-    assert build.returncode == 0, build.stderr
-    run = subprocess.run(
-        [str(binary)],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert run.returncode == 0, run.stderr
 
 
-@pytest.mark.skipif(CC is None, reason="requires a hosted C11 compiler")
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_indexed_delete_and_release_preserve_physical_slots(
     tmp_path: Path,
+    c_compiler: str,
 ) -> None:
     generated = emit_c(
         """
@@ -234,33 +253,19 @@ def test_indexed_delete_and_release_preserve_physical_slots(
         }
         """
     )
-    c_path = tmp_path / "physical-slots.c"
-    binary = tmp_path / "physical-slots"
-    c_path.write_text(generated)
-    build = subprocess.run(
-        [
-            CC,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-O2",
-            str(c_path),
-            "-lm",
-            "-lpthread",
-            "-o",
-            str(binary),
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
+    _strict_build_and_run(tmp_path, c_compiler, "physical-slots", generated)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_shared_delete_rejection_preserves_root_and_edge_slots(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    fixture = Path(__file__).parents[1] / "btrc/fixtures/lifecycle_shared_delete_runtime.btrc"
+    _strict_build_and_run(
+        tmp_path,
+        c_compiler,
+        "shared-delete",
+        emit_c(fixture.read_text()),
     )
-    assert build.returncode == 0, build.stderr
-    run = subprocess.run(
-        [str(binary)],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    assert run.returncode == 0, run.stderr

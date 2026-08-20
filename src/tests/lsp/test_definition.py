@@ -1,8 +1,7 @@
 """Go-to-definition (cmd-click): resolve a use to its declaration for every
 symbol kind — class, function, method, field, local, parameter, enum value."""
 
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import analyze, get_definition, pos_of
 
 SRC = """\
 enum Color { RED, GREEN, BLUE };

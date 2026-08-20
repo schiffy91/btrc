@@ -33,6 +33,8 @@ def test_help_lists_targets_whose_names_contain_digits():
     )
 
     assert "test-c11" in result.stdout
+    assert "test-boundaries" in result.stdout
+    assert "test-boundaries-observed" in result.stdout
     assert "btrcc-linux-x64" in result.stdout
 
 
@@ -67,6 +69,26 @@ def test_memory_intensive_bootstrap_runs_after_the_parallel_suite():
     bootstrap_command = next(line for line in bootstrap.splitlines() if "python3 -m pytest" in line)
     assert "src/tests/btrc/test_bootstrap.py" in bootstrap_command
     assert " -n " not in bootstrap_command
+
+
+def test_main_gate_runs_portable_boundaries_and_keeps_observed_proof_explicit():
+    makefile = MAKEFILE.read_text()
+    test_rule = next(line for line in makefile.splitlines() if line.startswith("test:"))
+    assert "test-boundaries" in test_rule
+    assert "test-boundaries-observed" not in test_rule
+
+    portable = _make_dry_run("test-boundaries", "NIX=")
+    assert "python3 -m tools.compiler_codegen.main boundary-check" in portable
+    assert "--require-observed" not in portable
+
+    observed = _make_dry_run("test-boundaries-observed", "NIX=")
+    assert "python3 -m tools.compiler_codegen.main boundary-check --require-observed" in observed
+
+    full = _make_dry_run("test", "NIX=")
+    assert "--require-observed" not in full
+    assert full.index("python3 -m tools.compiler_codegen.main boundary-check") < full.index(
+        "python3 -m pytest src/tests/"
+    )
 
 
 def test_container_builds_never_prune_global_podman_state():

@@ -5,10 +5,15 @@ server's signature last-good fallback."""
 from lsprotocol import types as lsp
 
 from src.devex.lsp.protocol.server import BtrcLanguageServer
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_semantic_tokens
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import SAMPLE, analyze, decoded_semantic_tokens, pos_of
+from src.tests.lsp.lsphelp import (
+    SAMPLE,
+    analyze,
+    decoded_semantic_tokens,
+    get_completions,
+    get_semantic_tokens,
+    get_signature_help,
+    pos_of,
+)
 
 srv = BtrcLanguageServer(debounce_seconds=0)
 URI = "file:///t.btrc"

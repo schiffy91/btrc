@@ -4,10 +4,17 @@ reference sites, stdlib rename protection, and caret-at-word-end lookup."""
 
 from src.devex.lsp.analysis.resolution import LexicalScopeIndex
 from src.devex.lsp.features.navigation import DefinitionMap
-from src.tests.lsp.lsphelp import RESOLVER, get_definition
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_references, get_rename_edits, prepare_rename
-from src.tests.lsp.lsphelp import analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import (
+    RESOLVER,
+    analyze,
+    get_definition,
+    get_hover_info,
+    get_references,
+    get_rename_edits,
+    hover_text,
+    pos_of,
+    prepare_rename,
+)
 
 
 def _edits(source, position, new_name="renamed"):

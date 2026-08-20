@@ -29,6 +29,7 @@ enum CallTargetKind {
     CALL_TARGET_METHOD,
     CALL_TARGET_CONSTRUCTOR,
     CALL_TARGET_CALLABLE_VALUE,
+    CALL_TARGET_IMMEDIATE_LAMBDA,
     CALL_TARGET_HOSTED,
     CALL_TARGET_BUILTIN,
 };
@@ -121,6 +122,26 @@ class CallArgumentPlan {
         self.target = target;
         self.evaluations = [];
         self.resultCount = 0;
+    }
+}
+
+class DefaultHelperPlan {
+    public CallTarget target;
+    public string symbol;
+    public Vector<Node> parameters;
+    public int parameterIndex;
+    public Vector<IRParam> helperParameters;
+    public bool materialized;
+
+    public DefaultHelperPlan(CallTarget target, string symbol,
+            Vector<Node> parameters, int parameterIndex,
+            Vector<IRParam> helperParameters) {
+        self.target = target;
+        self.symbol = symbol;
+        self.parameters = parameters;
+        self.parameterIndex = parameterIndex;
+        self.helperParameters = helperParameters;
+        self.materialized = false;
     }
 }
 
@@ -350,16 +371,23 @@ class CallTargetResolver {
         target.defaultCName = prefix + "_" + method.name;
         if (method.access != "class") {
             Node selfType = SemanticTypeSystem.namedClass(owner);
-            selfType.pointer_depth = 1;
+            int argumentIndex = 0;
+            while (argumentIndex < receiverType.generic_args.len) {
+                selfType.generic_args.push(
+                    receiverType.generic_args.get(argumentIndex));
+                argumentIndex = argumentIndex + 1;
+            }
             target.selfType = selfType;
         }
     }
 
     private CallTarget callableTarget(Node call, Node callee,
             Node callableType, Map<string, Node> variableTypes,
-            CallableBoundaryContext boundary) {
+        CallableBoundaryContext boundary) {
         CallTarget target = CallTarget(call);
-        target.kind = CALL_TARGET_CALLABLE_VALUE;
+        target.kind = callee.kind == NK_LAMBDA_EXPR
+            ? CALL_TARGET_IMMEDIATE_LAMBDA
+            : CALL_TARGET_CALLABLE_VALUE;
         target.callableType = callableType;
         target.signature = self.callableSignature(callableType);
         if (callee.kind == NK_LAMBDA_EXPR) {
@@ -368,7 +396,9 @@ class CallTargetResolver {
         }
         target.signature.returnType = self.expressionType(
             call, variableTypes);
-        target.receiver = callee;
+        if (callee.kind != NK_LAMBDA_EXPR) {
+            target.receiver = callee;
+        }
         int abi = self.callableValues.expressionAbi(callee, boundary);
         if (abi == 2) {
             self.fail("managed-return callable target has ambiguous ownership ABI");
@@ -629,15 +659,17 @@ class CallTargetResolver {
         }
         if (self.analyzed.funcTable.has(name)) {
             CallTarget functionTarget = CallTarget(call);
+            Node declaration = self.analyzed.funcTable.get(name);
             functionTarget.kind = CALL_TARGET_FUNCTION;
-            functionTarget.declaration = self.analyzed.funcTable.get(name);
+            functionTarget.declaration = declaration;
             functionTarget.signature = self.declarationSignature(
-                functionTarget.declaration, {});
+                declaration, {});
             functionTarget.symbol = self.declarations.sourceCallSymbol(
                 name, call);
             functionTarget.defaultCName =
                 self.declarations.sourceFunctionSymbol(name);
-            functionTarget.languageCall = true;
+            functionTarget.languageCall =
+                declaration.body_node != null;
             return functionTarget;
         }
         return self.builtinTarget(
@@ -782,12 +814,14 @@ class CallLowerer {
     private CallTargetResolver targets;
     private CTypeLowerer cTypes;
     private LoweringContext context;
+    private Vector<DefaultHelperPlan> pendingDefaultHelpers;
 
     public CallLowerer(CallTargetResolver targets,
             CTypeLowerer cTypes, LoweringContext context) {
         self.targets = targets;
         self.cTypes = cTypes;
         self.context = context;
+        self.pendingDefaultHelpers = [];
     }
 
     private void fail(string message) {
@@ -908,6 +942,38 @@ class CallLowerer {
         return result;
     }
 
+    public IRNode materializeDefaultArgument(
+            CallArgumentPlan plan, CallArgumentSlot slot,
+            IRNode? receiver,
+            Map<string, IRNode> parameterValues) {
+        if (!slot.usesDefault) {
+            self.fail("internal call-plan default materialization requires a default slot");
+        }
+        Vector<IRNode> arguments = [];
+        if (plan.target.selfType != null) {
+            if (receiver == null) {
+                self.fail("default argument method receiver was not evaluated");
+            }
+            IRNode concreteReceiver = receiver;
+            arguments.push(IRNode.cast(
+                self.cTypes.lower(plan.target.selfType),
+                concreteReceiver));
+        }
+        int prior = 0;
+        while (prior < slot.parameterIndex) {
+            string key = Strings.fromInt(prior);
+            if (!parameterValues.has(key)) {
+                self.fail("default argument parameter '"
+                    + plan.target.signature.parameters.get(prior).name
+                    + "' was not evaluated before use");
+            }
+            arguments.push(parameterValues.get(key));
+            prior = prior + 1;
+        }
+        return IRNode.call(self.ensureDefaultHelper(
+            plan.target, slot.parameterIndex), arguments);
+    }
+
     public Map<string, Node> beginDefaultTypeScope(
             Map<string, Node> substitutions) {
         Map<string, Node> saved = self.context.activeTypeMap;
@@ -942,6 +1008,74 @@ class CallLowerer {
             CallTarget target, int parameterIndex) {
         return "__btrc_default_" + target.defaultCName + "_"
             + Strings.fromInt(parameterIndex + 1);
+    }
+
+    private Vector<IRParam> defaultHelperParameters(
+            CallTarget target, int parameterIndex) {
+        Vector<IRParam> parameters = [];
+        if (target.selfType != null) {
+            parameters.push(self.cTypes.lowerNamedParameter(
+                target.selfType, self.cTypes.lower(target.selfType),
+                "self"));
+        }
+        int index = 0;
+        while (index < parameterIndex) {
+            Node parameter = target.signature.parameters.get(index);
+            parameters.push(self.cTypes.lowerParameter(parameter));
+            index = index + 1;
+        }
+        return parameters;
+    }
+
+    public string ensureDefaultHelper(
+            CallTarget target, int parameterIndex) {
+        if (parameterIndex < 0
+                || parameterIndex >= target.signature.parameters.len) {
+            self.fail("internal default-helper parameter index is out of range");
+        }
+        string symbol = self.defaultHelperSymbol(
+            target, parameterIndex);
+        if (self.context.defaultArgumentHelpers.has(symbol)) {
+            return symbol;
+        }
+        self.context.defaultArgumentHelpers.put(symbol, true);
+
+        Node parameter = target.signature.parameters.get(parameterIndex);
+        Vector<IRParam> helperParameters =
+            self.defaultHelperParameters(target, parameterIndex);
+        IRFunctionDecl declaration = IRFunctionDecl(
+            symbol, self.cTypes.lower(parameter.type), true);
+        int helperIndex = 0;
+        while (helperIndex < helperParameters.len) {
+            declaration.params.push(self.cTypes.copyParameter(
+                helperParameters.get(helperIndex)));
+            helperIndex = helperIndex + 1;
+        }
+        self.context.activeModule().function_decls.push(declaration);
+
+        Vector<Node> parameters = [];
+        int parameterCopy = 0;
+        while (parameterCopy < target.signature.parameters.len) {
+            parameters.push(target.signature.parameters.get(parameterCopy));
+            parameterCopy = parameterCopy + 1;
+        }
+        self.pendingDefaultHelpers.push(DefaultHelperPlan(
+            target, symbol, parameters, parameterIndex,
+            helperParameters));
+        return symbol;
+    }
+
+    public Vector<DefaultHelperPlan> takePendingDefaultHelpers() {
+        Vector<DefaultHelperPlan> pending = [];
+        int index = 0;
+        while (index < self.pendingDefaultHelpers.len) {
+            pending.push(self.pendingDefaultHelpers.get(index));
+            index = index + 1;
+        }
+        while (self.pendingDefaultHelpers.len > 0) {
+            self.pendingDefaultHelpers.pop();
+        }
+        return pending;
     }
 
     private IRNode materializeCallable(
@@ -1021,57 +1155,4 @@ class CallLowerer {
         return null;
     }
 
-    private bool optionalPresenceCondition(IRNode? condition) {
-        if (condition == null || condition.kind != IRK_BINARY
-                || condition.op != "!="
-                || condition.left == null
-                || condition.right == null) {
-            return false;
-        }
-        return condition.left.kind == IRK_VAR
-            && condition.right.kind == IRK_LITERAL
-            && (condition.right.text == "NULL"
-                || condition.right.text == "0");
-    }
-
-    public bool replaceOptionalFallback(
-            IRNode? node, IRNode fallback) {
-        if (node == null) { return false; }
-        if (node.kind == IRK_TERNARY
-                && self.optionalPresenceCondition(node.condition)) {
-            if (node.false_expr != null
-                    && node.false_expr.kind == IRK_BINARY
-                    && node.false_expr.op == "=") {
-                node.false_expr.right = fallback;
-            } else {
-                node.false_expr = fallback;
-            }
-            return true;
-        }
-        if (node.kind == IRK_STMT_EXPR) {
-            return self.replaceOptionalFallback(
-                node.result, fallback);
-        }
-        if (node.kind == IRK_COMMA_EXPR) {
-            int index = node.args.len - 1;
-            while (index >= 0) {
-                if (self.replaceOptionalFallback(
-                        node.args.get(index), fallback)) {
-                    return true;
-                }
-                index = index - 1;
-            }
-            return false;
-        }
-        if (node.kind == IRK_BINARY) {
-            if (self.replaceOptionalFallback(node.right, fallback)) {
-                return true;
-            }
-            return self.replaceOptionalFallback(node.left, fallback);
-        }
-        if (node.kind == IRK_CAST) {
-            return self.replaceOptionalFallback(node.expr, fallback);
-        }
-        return false;
-    }
 }

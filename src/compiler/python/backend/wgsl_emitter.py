@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
+from src.compiler.python.analyzer.gpu import (
+    GPU_STATUS_BOUNDS,
+    GPU_STATUS_DIV_OVERFLOW,
+    GPU_STATUS_DIV_ZERO,
+    GPU_STATUS_MOD_ZERO,
+    WGSL_CALL_BUILTINS,
+)
+from src.compiler.python.analyzer.types import TypeSystem
+from src.compiler.python.ir.nodes import IRGpuKernel
 from src.compiler.python.syntax.ast.generated import (
     AssignExpr,
     BinaryExpr,
     BoolLiteral,
     BreakStmt,
     CallExpr,
-    CForStmt,
     CastExpr,
+    CForStmt,
     ContinueStmt,
     ExprStmt,
     FloatLiteral,
@@ -27,10 +38,6 @@ from src.compiler.python.syntax.ast.generated import (
     VarDeclStmt,
     WhileStmt,
 )
-from src.compiler.python.analyzer.gpu import WGSL_CALL_BUILTINS
-from src.compiler.python.analyzer.gpu import GPU_STATUS_BOUNDS, GPU_STATUS_DIV_OVERFLOW, GPU_STATUS_DIV_ZERO, GPU_STATUS_MOD_ZERO
-from src.compiler.python.analyzer.types import TypeSystem
-from src.compiler.python.ir.nodes import IRGpuKernel
 
 _DIRECT_BINARY_OPERATORS = frozenset(
     {
@@ -61,7 +68,7 @@ class WgslEmissionError(RuntimeError):
 class WgslEmitter:
     """Emit the analyzed GPU-compatible AST subset as WGSL statements."""
 
-    _TYPE_MAP = {
+    _TYPE_MAP: ClassVar[dict[str, str]] = {
         "int": "i32",
         "float": "f32",
         "bool": "bool",
@@ -69,9 +76,7 @@ class WgslEmitter:
 
     @staticmethod
     def _unsupported_node(phase: str, node: object) -> WgslEmissionError:
-        return WgslEmissionError(
-            f"unsupported {phase} node: {type(node).__name__}"
-        )
+        return WgslEmissionError(f"unsupported {phase} node: {type(node).__name__}")
 
     def __init__(
         self,
@@ -102,9 +107,7 @@ class WgslEmitter:
 
         shader = kernel.shader_module
         if shader is None:
-            raise WgslEmissionError(
-                f"GPU kernel '{kernel.name}' is missing its shader module"
-            )
+            raise WgslEmissionError(f"GPU kernel '{kernel.name}' is missing its shader module")
         boolean_uniforms = set(shader.bool_uniform_params)
         uniform_params = [
             (
@@ -141,17 +144,9 @@ class WgslEmitter:
         """Emit one complete WGSL compute module from typed kernel metadata."""
 
         lines: list[str] = []
-        source_names = [buffer.name for buffer in param_buffers] + [
-            name for name, _ in uniform_params
-        ]
-        shader_names = {
-            source_name: f"btrc_p_{index}"
-            for index, source_name in enumerate(source_names)
-        }
-        array_lengths = {
-            buffer.name: f"btrc_len_{index}"
-            for index, buffer in enumerate(param_buffers)
-        }
+        source_names = [buffer.name for buffer in param_buffers] + [name for name, _ in uniform_params]
+        shader_names = {source_name: f"btrc_p_{index}" for index, source_name in enumerate(source_names)}
+        array_lengths = {buffer.name: f"btrc_len_{index}" for index, buffer in enumerate(param_buffers)}
         for buffer in param_buffers:
             access = "read_write" if buffer.access == "read_write" else "read"
             lines.append(
@@ -173,15 +168,9 @@ class WgslEmitter:
             lines.append(f"    {array_lengths[buffer.name]}: i32,")
         lines.extend(("    btrc_off: i32,", "    btrc_n: i32,", "}"))
         uniform_binding = cls._uniform_binding(param_buffers, output_buffer)
-        lines.append(
-            f"@group(0) @binding({uniform_binding}) "
-            "var<uniform> uniforms: Uniforms;"
-        )
+        lines.append(f"@group(0) @binding({uniform_binding}) var<uniform> uniforms: Uniforms;")
         lines.extend(("", "struct BtrcStatus { code: atomic<u32>, }"))
-        lines.append(
-            f"@group(0) @binding({uniform_binding + 1}) "
-            "var<storage, read_write> btrc_status: BtrcStatus;"
-        )
+        lines.append(f"@group(0) @binding({uniform_binding + 1}) var<storage, read_write> btrc_status: BtrcStatus;")
         lines.extend(
             (
                 "",
@@ -192,14 +181,9 @@ class WgslEmitter:
             )
         )
         emitter = cls(
-            {
-                buffer.name: shader_names[buffer.name]
-                for buffer in param_buffers
-            },
+            {buffer.name: shader_names[buffer.name] for buffer in param_buffers},
             has_output=has_output,
-            uniform_params={
-                name: shader_names[name] for name, _ in uniform_params
-            },
+            uniform_params={name: shader_names[name] for name, _ in uniform_params},
             bool_uniform_params=bool_uniform_params,
             array_lengths=array_lengths,
             node_types=node_types,
@@ -247,9 +231,7 @@ class WgslEmitter:
     def _scalar_type(cls, type_expr) -> str:
         if type_expr is None or type_expr.base not in cls._TYPE_MAP:
             name = "void" if type_expr is None else type_expr.base
-            raise WgslEmissionError(
-                f"type '{name}' has no WGSL scalar representation"
-            )
+            raise WgslEmissionError(f"type '{name}' has no WGSL scalar representation")
         return cls._TYPE_MAP[type_expr.base]
 
     @staticmethod
@@ -421,14 +403,9 @@ class WgslEmitter:
     def _pop_name_scope(self) -> None:
         self._name_scopes.pop()
 
-
     @staticmethod
     def _name_map(names: list[str] | dict[str, str]) -> dict[str, str]:
-        return (
-            dict(names)
-            if isinstance(names, dict)
-            else {name: name for name in names}
-        )
+        return dict(names) if isinstance(names, dict) else {name: name for name in names}
 
     @staticmethod
     def _array_element_type(type_expr):
@@ -436,9 +413,7 @@ class WgslEmitter:
 
     def _checked_index_expr(self, expression: IndexExpr) -> str:
         if not isinstance(expression.obj, Identifier):
-            raise WgslEmissionError(
-                "WGSL checked indexing requires an array parameter"
-            )
+            raise WgslEmissionError("WGSL checked indexing requires an array parameter")
         return self._checked_array_access(
             expression.obj.name,
             self._expr(expression.index),
@@ -447,27 +422,19 @@ class WgslEmitter:
     def _checked_array_access(self, source_name: str, index: str) -> str:
         length_field = self._array_lengths.get(source_name)
         if length_field is None:
-            raise WgslEmissionError(
-                f"WGSL array '{source_name}' has no length metadata"
-            )
+            raise WgslEmissionError(f"WGSL array '{source_name}' has no length metadata")
         array = self._identifier(source_name)
         index_name = self._fresh_value_name()
         valid_name = self._fresh_value_name()
         safe_name = self._fresh_value_name()
         self._line(f"let {index_name}: i32 = {index};")
-        self._line(
-            f"let {valid_name}: bool = "
-            f"({index_name} >= 0 && "
-            f"{index_name} < uniforms.{length_field});"
-        )
+        self._line(f"let {valid_name}: bool = ({index_name} >= 0 && {index_name} < uniforms.{length_field});")
         self._line(f"if (!{valid_name}) {{")
         self._indent += 1
         self._signal_status(GPU_STATUS_BOUNDS)
         self._indent -= 1
         self._line("}")
-        self._line(
-            f"let {safe_name}: i32 = select(0, {index_name}, {valid_name});"
-        )
+        self._line(f"let {safe_name}: i32 = select(0, {index_name}, {valid_name});")
         return f"{array}[{safe_name}]"
 
     def _checked_divmod_expr(
@@ -487,15 +454,10 @@ class WgslEmitter:
         self._line(f"var {result_name}: {wgsl_type} = {zero};")
         self._line(f"if ({right_name} == {zero}) {{")
         self._indent += 1
-        self._signal_status(
-            GPU_STATUS_DIV_ZERO if operator == "/" else GPU_STATUS_MOD_ZERO
-        )
+        self._signal_status(GPU_STATUS_DIV_ZERO if operator == "/" else GPU_STATUS_MOD_ZERO)
         self._indent -= 1
         if result_base == "int":
-            self._line(
-                f"}} else if ({left_name} == -2147483648 "
-                f"&& {right_name} == -1) {{"
-            )
+            self._line(f"}} else if ({left_name} == -2147483648 && {right_name} == -1) {{")
             self._indent += 1
             if operator == "/":
                 self._signal_status(GPU_STATUS_DIV_OVERFLOW)
@@ -548,10 +510,7 @@ class WgslEmitter:
                     getattr(target_type, "base", "int"),
                 )
                 return f"{target} = {checked}"
-            if (
-                expression.op == "^="
-                and getattr(target_type, "base", None) == "bool"
-            ):
+            if expression.op == "^=" and getattr(target_type, "base", None) == "bool":
                 return f"{target} = ({target} != {value})"
             if expression.op in ("<<=", ">>="):
                 return f"{target} {expression.op} u32({value})"
@@ -580,11 +539,7 @@ class WgslEmitter:
         right_type = self._type_of(expression.right)
         left = self._expr(expression.left)
         right = self._expr(expression.right)
-        if (
-            expression.op == "^"
-            and left_type is not None
-            and left_type.base == "bool"
-        ):
+        if expression.op == "^" and left_type is not None and left_type.base == "bool":
             return f"({left} != {right})"
         if self._is_mixed_numeric(left_type, right_type):
             left = self._coerce_text(left, left_type, "float")
@@ -649,19 +604,14 @@ class WgslEmitter:
             raise self._unsupported_node("WGSL call expression", expression)
         if name == "round":
             return self._round_away_from_zero(expression.args[0])
-        arguments = ", ".join(
-            self._expr(argument) for argument in expression.args
-        )
+        arguments = ", ".join(self._expr(argument) for argument in expression.args)
         return f"{name}({arguments})"
 
     def _round_away_from_zero(self, argument) -> str:
         value = self._expr(argument)
         temporary = self._fresh_value_name()
         self._line(f"let {temporary}: f32 = {value};")
-        away = (
-            f"select(ceil({temporary} - 0.5), "
-            f"floor({temporary} + 0.5), {temporary} >= 0.0)"
-        )
+        away = f"select(ceil({temporary} - 0.5), floor({temporary} + 0.5), {temporary} >= 0.0)"
         return f"select({away}, {temporary}, {temporary} == 0.0)"
 
     def _ternary_expr(self, expression: TernaryExpr) -> str:

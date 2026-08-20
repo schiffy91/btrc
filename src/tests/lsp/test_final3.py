@@ -4,14 +4,17 @@ member resolution, and degraded-mode defensive returns."""
 
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_definition
 from src.devex.lsp.analysis.document import DocumentAnalysis as AnalysisResult
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_references
-from src.tests.lsp.lsphelp import get_semantic_tokens
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import (
+    analyze,
+    get_completions,
+    get_definition,
+    get_hover_info,
+    get_references,
+    get_semantic_tokens,
+    get_signature_help,
+    pos_of,
+)
 
 INH = """\
 class Animal {

@@ -156,7 +156,10 @@ class SourceMap:
 
     @property
     def user_position_offset(self) -> int:
-        return len(self.positions) - self.user_line_count
+        # Synthetic compilation inputs (notably stdlib archive construction)
+        # intentionally have no native-position table.  In that case mapping
+        # is unavailable rather than a negative slice into an empty tuple.
+        return max(0, len(self.positions) - self.user_line_count)
 
     def map_line(self, line: int, space: str = "combined") -> tuple[str, int] | None:
         """Translate a 1-based parse-space line to a native source location."""
@@ -536,7 +539,10 @@ class StdlibAstCache:
     def _read_json(self, path: str):
         flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_CLOEXEC", 0)
         flags |= getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_NONBLOCK", 0)
-        descriptor = os.open(path, flags)
+        try:
+            descriptor = os.open(path, flags)
+        except OSError:
+            return None
         try:
             metadata = os.fstat(descriptor)
             if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > self.MAX_ENTRY_BYTES:

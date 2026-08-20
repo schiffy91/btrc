@@ -9,6 +9,7 @@ from typing import ClassVar
 
 from src.compiler.python.syntax.grammar import GrammarRepository
 
+from . import GeneratedArtifact, GeneratedSourceError
 from .asdl import (
     AsdlConstructor,
     AsdlField,
@@ -16,7 +17,6 @@ from .asdl import (
     AsdlSchemaParser,
     AsdlType,
 )
-from .verification import GeneratedArtifact, GeneratedSourceError
 
 
 class PythonAstRenderer:

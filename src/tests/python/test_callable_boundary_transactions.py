@@ -1,20 +1,34 @@
 """Source-ordered callable validation at persistent storage boundaries."""
 
+import re
 from types import SimpleNamespace
 
 import pytest
 
+from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.analyzer.program import AnalyzedProgram
 from src.compiler.python.ir.lowering.calls import (
     CallableProvenance,
     CallableReturnABI,
     CallableSignatureLowerer,
 )
+from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.session import LoweringSession
 from src.compiler.python.ir.lowering.types import CodegenError, CTypeLowerer
 from src.compiler.python.ir.nodes import IRModule
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import AssignExpr, Identifier, Program, TypeExpr
 from src.tests.python.test_codegen import emit_c
+
+
+def _assert_value_initializer_promotes_call_result(function: str) -> None:
+    declarations = [line for line in function.splitlines() if re.search(r"\bvalue\s*=", line)]
+    for declaration in declarations:
+        result = re.search(r"(?P<name>__btrc_call_result_\d+)\s*=", declaration)
+        if result is not None and f"__btrc_string_retain({result.group('name')})" in declaration:
+            return
+    raise AssertionError("value initializer did not promote its borrowed call-result temporary")
 
 
 def _callable_owner(
@@ -75,6 +89,31 @@ def _program(body: str, *, generic: bool) -> str:
             return wrap.run();
         }}
     """
+
+
+def _lower_ir(source: str) -> IRModule:
+    program = Parser(Lexer(source, "<callable-boundary>").tokenize()).parse()
+    analyzed = SemanticAnalyzer().analyze(program)
+    assert not analyzed.errors
+    return IRLowerer(analyzed).lower()
+
+
+def test_ordinary_method_classification_does_not_lower_callable_argument_twice():
+    module = _lower_ir("""
+        class Runner {
+            public Runner() {}
+            public int invoke(__fn_ptr<int, int> callback) {
+                return callback(7);
+            }
+        }
+        int main() {
+            Runner runner = new Runner();
+            return runner.invoke((int value) => value);
+        }
+    """)
+
+    lambdas = [function.name for function in module.function_defs if function.name.startswith("__btrc_lambda_")]
+    assert lambdas == ["__btrc_lambda_1"]
 
 
 @pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
@@ -253,7 +292,7 @@ def test_called_generic_specialization_cannot_erase_borrowed_callback():
 
     with pytest.raises(
         CodegenError,
-        match="erased or opaque value cannot preserve its return ownership ABI",
+        match="an erased or opaque value cannot preserve its return ownership ABI",
     ):
         emit_c(source)
 
@@ -299,7 +338,7 @@ def test_default_helper_assignment_does_not_rebind_same_named_caller_local(gener
     emitted = emit_c(source)
     marker = "static int btrc_Wrap_int_run(btrc_Wrap_int* self) {" if generic else "int run(void) {"
     function = emitted[emitted.index(marker) :]
-    assert "__btrc_string_retain(value)" in function
+    _assert_value_initializer_promotes_call_result(function)
 
 
 @pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
@@ -344,7 +383,58 @@ def test_nested_constructor_arguments_update_later_outer_call_operands(generic):
     emitted = emit_c(source)
     marker = "static int btrc_Wrap_int_run(btrc_Wrap_int* self) {" if generic else "int run(void) {"
     function = emitted[emitted.index(marker) :]
-    assert "__btrc_string_retain(value)" in function
+    _assert_value_initializer_promotes_call_result(function)
+
+
+@pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
+def test_callable_boundary_observes_rebinding_inside_earlier_deferred_projection(generic):
+    declarations = """
+        extern string foreignString();
+        string make() { return f"owned={1}"; }
+        class ProjectionHolder {
+            public int values[1];
+            public ProjectionHolder(bool initialized) {
+                self.values[0] = initialized ? 1 : 0;
+            }
+        }
+        ProjectionHolder makeProjectionHolder(bool initialized) {
+            return new ProjectionHolder(initialized);
+        }
+        void consumeProjectionCallback(int[] values, __fn_ptr<string> callback) {}
+    """
+    body = """
+        __fn_ptr<string> callback = foreignString;
+        consumeProjectionCallback(
+            makeProjectionHolder((bool)(callback = make)).values,
+            callback
+        );
+        return 0;
+    """
+    source = (
+        f"""
+            {declarations}
+            int run() {{ {body} }}
+            int main() {{ return run(); }}
+        """
+        if not generic
+        else f"""
+            {declarations}
+            class Wrap<T> {{
+                public Wrap() {{}}
+                public int run() {{ {body} }}
+            }}
+            int main() {{
+                Wrap<int> wrap = new Wrap<int>();
+                return wrap.run();
+            }}
+        """
+    )
+
+    with pytest.raises(
+        CodegenError,
+        match="bare __fn_ptr parameters accept only borrowed C callbacks",
+    ):
+        emit_c(source)
 
 
 @pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
@@ -437,6 +527,52 @@ def test_default_callback_parameter_uses_declaration_scope_not_caller_names(gene
     )
 
     emit_c(source)
+
+
+@pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
+def test_default_prior_callable_parameter_uses_its_argument_source_entry(generic):
+    declarations = """
+        extern string foreignString();
+        string make() { return f"owned={1}"; }
+        int invokeDefault(
+            __fn_ptr<string> input,
+            bool ignored,
+            __fn_ptr<string> output = input
+        ) {
+            return len(output());
+        }
+    """
+    body = """
+        __fn_ptr<string> callback = foreignString;
+        return invokeDefault(callback, (bool)(callback = make));
+    """
+    source = (
+        f"""
+            {declarations}
+            int run() {{ {body} }}
+            int main() {{ return run(); }}
+        """
+        if not generic
+        else f"""
+            {declarations}
+            class Wrap<T> {{
+                public Wrap() {{}}
+                public int run() {{ {body} }}
+            }}
+            int main() {{
+                Wrap<int> wrap = new Wrap<int>();
+                return wrap.run();
+            }}
+        """
+    )
+
+    emitted = emit_c(source)
+    marker = "static int btrc_Wrap_int_run(" if generic else "int run(void) {"
+    function = emitted[emitted.index(marker) :]
+    captured = function.index("= callback")
+    rebound = function.index("callback = make", captured)
+    defaulted = function.index("__btrc_default_invokeDefault_3", rebound)
+    assert captured < rebound < defaulted
 
 
 @pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))

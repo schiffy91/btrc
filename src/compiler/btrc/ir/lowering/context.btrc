@@ -121,6 +121,16 @@ class LoweringContext {
         module.temporary_names = self.temporaryNameState;
     }
 
+    public IRModule activeModule() {
+        if (self.module == null) {
+            fprintf(stderr,
+                "error: lowering context has no active IR module\n");
+            exit(1);
+        }
+        IRModule active = self.module;
+        return active;
+    }
+
     public string sourceFileForLine(int combinedLine) {
         if (self.sourceFiles.has(combinedLine)) {
             return self.sourceFiles.get(combinedLine);

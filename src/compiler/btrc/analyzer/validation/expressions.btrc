@@ -21,6 +21,20 @@ import ./ownership.btrc;
 import ./storage.btrc;
 import ./types.btrc;
 
+class LambdaValidationPlan {
+    public Map<string, Node> variables;
+    public Map<string, bool> borrowedBindings;
+    public Map<string, bool> localBindings;
+    public Node resultType;
+
+    public LambdaValidationPlan() {
+        self.variables = {};
+        self.borrowedBindings = {};
+        self.localBindings = {};
+        self.resultType = SemanticTypeSystem.primitive("void");
+    }
+}
+
 class ExpressionValidator {
     private SemanticValidationState state;
     private OperatorSemantics operators;
@@ -745,15 +759,53 @@ class ExpressionValidator {
         }
     }
 
+    private void validateBinaryTree(Node root,
+            Map<string, Node> vars) {
+        bool ownsMemo = self.expressionTypes.beginScopedMemo();
+        Vector<Node> expressions = [root];
+        Vector<int> stages = [0];
+        while (expressions.len > 0) {
+            Node expression = expressions.pop();
+            int stage = stages.pop();
+            if (stage == 0) {
+                self.validateGpuArrayResultContext(expression, vars);
+                expressions.push(expression);
+                stages.push(1);
+                if (expression.left != null
+                        && expression.left.kind == NK_BINARY_EXPR) {
+                    expressions.push(expression.left);
+                    stages.push(0);
+                } else {
+                    self.validateExpr(expression.left, vars);
+                }
+                continue;
+            }
+            if (stage == 1) {
+                expressions.push(expression);
+                stages.push(2);
+                if (expression.right != null
+                        && expression.right.kind == NK_BINARY_EXPR) {
+                    expressions.push(expression.right);
+                    stages.push(0);
+                } else {
+                    self.validateExpr(expression.right, vars);
+                }
+                continue;
+            }
+            self.validateBinary(expression, vars);
+        }
+        self.expressionTypes.endScopedMemo(ownsMemo);
+    }
+
     public void validateExpr(Node? expression,
             Map<string, Node> vars) {
         if (expression == null) { return; }
-        self.validateGpuArrayResultContext(expression,  vars);
         if (expression.kind == NK_BINARY_EXPR) {
-            self.validateExpr(expression.left,  vars);
-            self.validateExpr(expression.right,  vars);
-            self.validateBinary(expression,  vars);
-        } else if (expression.kind == NK_UNARY_EXPR) {
+            self.validateBinaryTree(expression, vars);
+            return;
+        }
+        self.validateGpuArrayResultContext(expression,  vars);
+        if (expression.kind == NK_UNARY_EXPR) {
             self.validateExpr(expression.operand,  vars);
             self.validateUnary(expression,  vars);
         } else if (expression.kind == NK_ASSIGN_EXPR) {
@@ -799,7 +851,7 @@ class ExpressionValidator {
                 self.validateExpr(expression.args.get(index),  vars);
                 index = index + 1;
             }
-            self.calls.validateGeneratedSymbolCall(expression,  vars);
+            self.names.deferGeneratedSymbolCall(expression, vars);
             self.calls.validateCall(expression,  vars);
         } else if (expression.kind == NK_INDEX_EXPR) {
             self.validateExpr(expression.obj,  vars);
@@ -832,10 +884,11 @@ class ExpressionValidator {
         }
     }
 
-    public void validateLambda(Node expression,
+    public LambdaValidationPlan planLambda(Node expression,
             Map<string, Node> vars) {
+        LambdaValidationPlan plan = LambdaValidationPlan();
         self.names.validateLambdaNames(expression);
-        Map<string, Node> bodyVars = TypeValidator.cloneTypes(vars);
+        plan.variables = TypeValidator.cloneTypes(vars);
         Map<string, bool> parameterNames = {};
         int index = 0;
         while (index < expression.params.len) {
@@ -850,7 +903,7 @@ class ExpressionValidator {
                 parameter.type, parameter);
             self.storage.validateArrayBound(parameter.type,
                 "Lambda parameter '" + parameter.name + "'",
-                "parameter", parameter,  bodyVars);
+                "parameter", parameter,  plan.variables);
             if (parameter.default_ != null) {
                 TypeValidator.fail(
                     "Lambda parameters cannot have default arguments",
@@ -860,7 +913,7 @@ class ExpressionValidator {
                 Node? parameterValueType = self.storage.arrayParameterValueType(
                     parameter.type);
                 if (parameterValueType != null) {
-                    bodyVars.put(parameter.name, parameterValueType);
+                    plan.variables.put(parameter.name, parameterValueType);
                 }
             }
             index = index + 1;
@@ -876,29 +929,18 @@ class ExpressionValidator {
         Map<string, bool> usedNames = {};
         ExpressionTypeResolver.collectIdentifiers(expression.body_node, usedNames);
         Vector<string> names = usedNames.keys();
-        Map<string, bool> previousBorrowedBindings =
-            self.types.cloneFlags(self.state.borrowedBindings);
-        Map<string, bool> previousParameterNames =
-            self.types.cloneFlags(self.state.parameterNames);
-        Map<string, bool> previousLocalBindings =
-            self.types.cloneFlags(self.state.localBindings);
-        self.state.borrowedBindings = self.types.cloneFlags(parameterNames);
-        self.state.localBindings = self.types.cloneFlags(parameterNames);
-        /* Lambda parameters are not parameters of state.callable, which remains
-         * the enclosing declaration for the rest of semantic analysis.  Keep the
-         * transfer-contract name set isolated so identical spellings cannot borrow
-         * the enclosing callable's consumption permission. */
-        self.state.parameterNames = {};
+        plan.borrowedBindings = self.types.cloneFlags(parameterNames);
+        plan.localBindings = self.types.cloneFlags(parameterNames);
         int captureIndex = 0;
         while (captureIndex < names.len) {
             string name = names.get(captureIndex);
             if (!parameterNames.has(name) && vars.has(name)
-                    && previousLocalBindings.has(name)) {
+                    && self.state.localBindings.has(name)) {
                 /* Lifted environment fields are non-owning copies.  Model them as
                  * borrowed lexical proxies even when the enclosing local owns its
                  * slot, so rebind/release validation matches generated code. */
-                self.state.borrowedBindings.put(name, true);
-                self.state.localBindings.put(name, true);
+                plan.borrowedBindings.put(name, true);
+                plan.localBindings.put(name, true);
                 if (self.ownership.containsThreadStorage(vars.get(name))) {
                     TypeValidator.fail(
                         "A lambda cannot capture Thread handle '" + name
@@ -910,35 +952,59 @@ class ExpressionValidator {
             captureIndex = captureIndex + 1;
         }
 
+        plan.resultType = self.expressionTypes.lambdaReturnType(
+            expression, vars);
+        Node? representedResult = self.types.arrayValueType(plan.resultType);
+        if (representedResult != null) {
+            plan.resultType = representedResult;
+        }
+        return plan;
+    }
+
+    public void validateLambda(Node expression,
+            Map<string, Node> vars) {
+        LambdaValidationPlan plan = self.planLambda(expression, vars);
+        Map<string, bool> previousBorrowedBindings =
+            self.types.cloneFlags(self.state.borrowedBindings);
+        Map<string, bool> previousParameterNames =
+            self.types.cloneFlags(self.state.parameterNames);
+        Map<string, bool> previousLocalBindings =
+            self.types.cloneFlags(self.state.localBindings);
+        self.state.borrowedBindings =
+            self.types.cloneFlags(plan.borrowedBindings);
+        self.state.localBindings =
+            self.types.cloneFlags(plan.localBindings);
+        /* Lambda parameters are not parameters of state.callable, which remains
+         * the enclosing declaration for the rest of semantic analysis.  Keep the
+         * transfer-contract name set isolated so identical spellings cannot borrow
+         * the enclosing callable's consumption permission. */
+        self.state.parameterNames = {};
         Node? previousReturn = self.state.returnType;
         int previousLoop = self.state.loopDepth;
         int previousBreak = self.state.breakDepth;
-        Node resultType = self.expressionTypes.lambdaReturnType(
-            expression, vars);
-        Node? representedResult = self.types.arrayValueType(resultType);
-        if (representedResult != null) { resultType = representedResult; }
-        self.state.returnType = resultType;
+        self.state.returnType = plan.resultType;
         self.state.loopDepth = 0;
         self.state.breakDepth = 0;
 
         Node body = expression.body_node;
         if (body != null && body.kind == NK_LAMBDA_EXPR_BODY) {
-            self.validateExpr(body.expression,  bodyVars);
+            self.validateExpr(body.expression,  plan.variables);
             self.storage.validateVolatileReferenceConversion(
-                resultType, body.expression,
-                "Lambda return value",  bodyVars);
-            Node? actual = self.types.inferType(body.expression,  bodyVars);
+                plan.resultType, body.expression,
+                "Lambda return value",  plan.variables);
+            Node? actual = self.types.inferType(
+                body.expression,  plan.variables);
             if (actual == null) {
                 TypeValidator.fail(
                     "Cannot infer lambda expression return type", body.expression);
             }
-            if (!self.types.assignmentCompatible(resultType, actual)) {
+            if (!self.types.assignmentCompatible(plan.resultType, actual)) {
                 TypeValidator.fail("Lambda return type mismatch: expected '"
-                    + self.types.formatType(resultType) + "' but got '"
+                    + self.types.formatType(plan.resultType) + "' but got '"
                     + self.types.formatType(actual) + "'", body.expression);
             }
         } else if (body != null && body.kind == NK_LAMBDA_BLOCK) {
-            bool nonVoid = !TypeValidator.scalarVoid(resultType);
+            bool nonVoid = !TypeValidator.scalarVoid(plan.resultType);
             if (nonVoid && !ExpressionTypeResolver.blockTerminates(body.body_node)) {
                 TypeValidator.fail(
                     "Non-void lambda does not return on every path", expression);
@@ -1138,8 +1204,6 @@ class ExpressionValidator {
                     + "__fn_ptr does not preserve its exact C ABI and effects; "
                     + "call it directly", expression);
             }
-            self.calls.validateGeneratedSymbolReference(
-                expression,  vars, false);
             if (!vars.has(name)
                     && self.state.analyzed.isAmbiguousEnumValue(name)) {
                 TypeValidator.fail("Ambiguous enum value '" + name
@@ -1157,10 +1221,8 @@ class ExpressionValidator {
                 || name == "__func__"
                 || name == "stdin"
                 || name == "stdout" || name == "stderr";
-            if (!known) {
-                TypeValidator.fail(
-                    "Unknown identifier '" + name + "'", expression);
-            }
+            self.names.deferGeneratedSymbolReference(
+                expression, vars, known);
         } else if (expression.kind == NK_SELF_EXPR) {
             if (self.state.inParameterDefault && self.state.callable != null
                     && self.state.callable.is_constructor) {

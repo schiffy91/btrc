@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -232,7 +233,102 @@ def test_optional_receiver_runs_once_and_fallback_stays_lazy(semantic_btrcc: Pat
     """
     result, generated = _compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
+    main_c = generated.read_text().split("int main(void)", 1)[1]
+    assert main_c.count(": fallback()") == 4
+    assert main_c.count(": ((void)0)), __btrc_boundary_result_") == 4
     _strict_build_and_run(generated, tmp_path / "optional-once")
+
+
+def test_optional_generic_method_coalesce_keeps_result_and_cleanup_paths_separate(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        int receiverCalls = 0;
+        int argumentCalls = 0;
+        int methodCalls = 0;
+        int scalarFallbackCalls = 0;
+        int managedArgumentCalls = 0;
+        int managedFallbackCalls = 0;
+
+        class Item {
+            public int value;
+            public Item(int value) { self.value = value; }
+        }
+
+        class Box<T> {
+            public T stored;
+            public Box(T stored) { self.stored = stored; }
+            public int read(int delta) {
+                methodCalls += 1;
+                return 40 + delta;
+            }
+            public Item makeItem(int value) {
+                return new Item(value);
+            }
+        }
+
+        Box<int>? select(bool present) {
+            receiverCalls += 1;
+            if (present) { return new Box<int>(7); }
+            return null;
+        }
+
+        int argument() { argumentCalls += 1; return 2; }
+        int scalarFallback() { scalarFallbackCalls += 1; return 17; }
+        int managedArgument() { managedArgumentCalls += 1; return 31; }
+        Item managedFallback() {
+            managedFallbackCalls += 1;
+            return new Item(99);
+        }
+
+        int main() {
+            int present = select(true)?.read(argument()) ?? scalarFallback();
+            int absent = select(false)?.read(argument()) ?? scalarFallback();
+            try {
+                Item presentItem = select(true)?.makeItem(managedArgument())
+                    ?? managedFallback();
+                Item absentItem = select(false)?.makeItem(managedArgument())
+                    ?? managedFallback();
+                if (presentItem.value != 31 || absentItem.value != 99) {
+                    return 2;
+                }
+            } catch (string error) {
+                return 3;
+            }
+            return receiverCalls == 4 && argumentCalls == 1
+                && methodCalls == 1 && scalarFallbackCalls == 1
+                && managedArgumentCalls == 1 && managedFallbackCalls == 1
+                && present == 42 && absent == 17 ? 0 : 1;
+        }
+    """
+    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    assert result.returncode == 0, result.stderr
+    main_c = generated.read_text().split("int main(void)", 1)[1]
+    scalar_fallback_results = re.findall(
+        r": \((__btrc_optional_result_\d+) = scalarFallback\(\)\)",
+        main_c,
+    )
+    assert main_c.count("scalarFallback()") == 2
+    assert len(scalar_fallback_results) == 2
+    assert len(set(scalar_fallback_results)) == 2
+
+    managed_handoffs = re.findall(
+        r"\((__btrc_optional_result_handoff_\d+) = (__btrc_optional_result_\d+)\), "
+        r"\(\2 = NULL\), \1",
+        main_c,
+    )
+    managed_coalesces = re.findall(
+        r"\(\((__nc_\d+) != NULL\) \? \1 : managedFallback\(\)\)",
+        main_c,
+    )
+    assert len(managed_handoffs) == 2
+    assert len(set(managed_handoffs)) == 2
+    assert {result for _, result in managed_handoffs}.isdisjoint(scalar_fallback_results)
+    assert main_c.count("managedFallback()") == 2
+    assert len(managed_coalesces) == 2
+    assert len(set(managed_coalesces)) == 2
+    _strict_build_and_run(generated, tmp_path / "optional-generic-method")
 
 
 def test_typedefs_use_underlying_operator_domain(semantic_btrcc: Path, tmp_path: Path) -> None:

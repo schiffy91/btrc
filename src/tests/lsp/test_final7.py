@@ -12,13 +12,23 @@ from src.compiler.python.parser.parser import Parser
 from src.devex.lsp.analysis.document import DocumentAnalysis as AnalysisResult
 from src.devex.lsp.features.navigation import DefinitionMap
 from src.devex.lsp.protocol.server import BtrcLanguageServer
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import CATALOG, RESOLVER as lsputils, SIGNATURE_HELP as sighelp, get_definition
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_references, get_rename_edits, prepare_rename
-from src.tests.lsp.lsphelp import get_semantic_tokens
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import SAMPLE, analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import (
+    CATALOG,
+    SAMPLE,
+    analyze,
+    get_completions,
+    get_definition,
+    get_hover_info,
+    get_references,
+    get_rename_edits,
+    get_semantic_tokens,
+    get_signature_help,
+    hover_text,
+    pos_of,
+    prepare_rename,
+)
+from src.tests.lsp.lsphelp import RESOLVER as lsputils
+from src.tests.lsp.lsphelp import SIGNATURE_HELP as sighelp
 
 srv = BtrcLanguageServer(debounce_seconds=0)
 URI = "file:///t.btrc"

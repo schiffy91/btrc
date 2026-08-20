@@ -91,9 +91,7 @@ def test_archive_exports_structured_callbacks_with_their_signatures():
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_stdlib_archive_is_warning_clean_under_strict_c11(tmp_path: Path, c_compiler: str):
     output = tmp_path / "stdlib"
-    compiler = Compiler(
-        CompilationPipeline(archive_repository=archive.StdlibArtifactRepository())
-    )
+    compiler = Compiler(CompilationPipeline(archive_repository=archive.StdlibArtifactRepository()))
     assert compiler.build_stdlib_archive(str(output)).successful
 
     subprocess.run(

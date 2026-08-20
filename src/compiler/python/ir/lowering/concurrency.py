@@ -21,6 +21,7 @@ from src.compiler.python.ir.nodes import (
     IRExprStmt,
     IRFieldAccess,
     IRFor,
+    IRFunctionDecl,
     IRFunctionDef,
     IRFunctionRef,
     IRIf,
@@ -83,6 +84,14 @@ class ThreadWrapperBodyPlan:
     callable_abis: tuple[tuple[Capture, CallableReturnABI], ...]
 
 
+@dataclass(frozen=True, slots=True)
+class SyncMethodPlan:
+    """A canonical built-in concurrency method selected without lowering operands."""
+
+    receiver_type: TypeExpr
+    method_name: str
+
+
 class ConcurrencyLowerer:
     """Own concurrency lowering for one run."""
 
@@ -142,13 +151,29 @@ class ConcurrencyLowerer:
         payload = IRCall(callee="__btrc_mutex_val_get", args=[mutex], helper_ref="__btrc_mutex_val_get")
         return self._types.unbox_exact_value(payload, value_type, prefix="__btrc_mutex")
 
-    def set_mutex_value(self, mutex, value, value_type: TypeExpr):
-        """Transfer a newly boxed value to the runtime's locked swap."""
+    def set_mutex_value(self, mutex: IRExpr, value: IRExpr, mutex_type: TypeExpr) -> IRExpr:
+        """Evaluate the receiver before boxing the value for a locked swap."""
+        value_type = mutex_type.generic_args[0]
+        receiver_declaration = IRVarDecl(
+            c_type=CType(text=self._types.render(mutex_type)),
+            name=self._session.fresh_temp("__btrc_mutex_receiver"),
+        )
+        self._session.record_declaration(receiver_declaration)
+        receiver = IRVar(name=receiver_declaration.name)
         self._session.require_helper("__btrc_mutex_val_set")
-        return IRCall(
+        call = IRCall(
             callee="__btrc_mutex_val_set",
-            args=[mutex, self._types.box_exact_value(value, value_type, prefix="__btrc_mutex")],
+            args=[receiver, self._types.box_exact_value(value, value_type, prefix="__btrc_mutex")],
             helper_ref="__btrc_mutex_val_set",
+        )
+        return IRStmtExpr(
+            stmts=[receiver_declaration],
+            result=IRCommaExpr(
+                expressions=[
+                    IRBinOp(left=receiver, op="=", right=mutex),
+                    call,
+                ]
+            ),
         )
 
     def _ownership_callbacks(self, value_type: TypeExpr):
@@ -211,7 +236,7 @@ class ConcurrencyLowerer:
             return_type,
         )
 
-    def lower_mutex_method(self, obj, method_name, obj_type, args, *, obj_node=None):
+    def lower_mutex_method(self, obj, method_name, obj_type, args):
         value_type = obj_type.generic_args[0] if obj_type.generic_args else None
         if method_name == "get":
             return self.get_mutex_value(
@@ -223,24 +248,43 @@ class ConcurrencyLowerer:
                 return self.set_mutex_value(
                     obj,
                     args[0],
-                    value_type,
+                    obj_type,
                 )
             raise CodegenError("Mutex.set() requires one value")
         if method_name == "destroy":
             raise CodegenError("Mutex.destroy() must be lowered as a standalone expression statement")
         return IRCall(callee=f"__btrc_mutex_val_{method_name}", args=[obj] + args)
 
-    def lower_sync_method(self, obj_node, obj, method_name, obj_type, args):
-        """Lower an ordinary Thread/Mutex method, or return ``None``."""
-        if obj_type and obj_type.base == "Thread" and obj_type.generic_args:
+    def plan_sync_method(
+        self,
+        obj_type: TypeExpr | None,
+        method_name: str,
+    ) -> SyncMethodPlan | None:
+        """Classify a Thread/Mutex method without traversing source operands."""
+        receiver_type = self._types.canonical_type(obj_type)
+        if receiver_type is None or receiver_type.base not in {"Thread", "Mutex"} or not receiver_type.generic_args:
+            return None
+        return SyncMethodPlan(receiver_type=receiver_type, method_name=method_name)
+
+    def materialize_sync_method(
+        self,
+        plan: SyncMethodPlan,
+        obj: IRExpr,
+        args: list[IRExpr],
+    ) -> IRExpr:
+        """Materialize a classified method from source-ordered operands."""
+        if plan.receiver_type.base == "Thread":
             return self.lower_thread_method(
                 obj,
-                method_name,
-                obj_type,
+                plan.method_name,
+                plan.receiver_type,
             )
-        if obj_type and obj_type.base == "Mutex" and obj_type.generic_args:
-            return self.lower_mutex_method(obj, method_name, obj_type, args, obj_node=obj_node)
-        return None
+        return self.lower_mutex_method(
+            obj,
+            plan.method_name,
+            plan.receiver_type,
+            args,
+        )
 
     def managed_capture_type(self, capture):
         """Return a direct managed capture type, excluding arrays/raw pointers."""
@@ -519,7 +563,7 @@ class ConcurrencyLowerer:
         if not isinstance(fn, LambdaExpr):
             if lowered_function is None:
                 raise CodegenError("spawn function operand was not materialized")
-            spawn_type = self._analyzed.node_types.get(id(node))
+            spawn_type = self._session.type_of(node)
             result_type = spawn_type.generic_args[0] if spawn_type and spawn_type.generic_args else None
             return self._spawn_call(lowered_function, result_type)
         return_type = self.resolved_lambda_return_type(fn)
@@ -696,6 +740,14 @@ class ConcurrencyLowerer:
             )
         if not body or not isinstance(body[-1], IRReturn):
             body.append(IRReturn(value=IRLiteral(text="NULL")))
+        declaration = IRFunctionDecl(
+            name=plan.wrapper_name,
+            return_type=CType(text="void*"),
+            params=[IRParam(c_type=CType(text="void*"), name="__arg")],
+            is_static=True,
+        )
+        if declaration not in self._session.module.function_decls:
+            self._session.module.function_decls.append(declaration)
         self._session.module.function_defs.append(
             IRFunctionDef(
                 name=plan.wrapper_name,
@@ -710,9 +762,9 @@ class ConcurrencyLowerer:
         """Return the analyzer-resolved result type for a spawn lambda."""
         if node.return_type:
             return node.return_type
-        function_type = self._analyzed.node_types.get(id(node))
+        function_type = self._session.type_of(node)
         if function_type and function_type.base == "__fn_ptr" and function_type.generic_args:
             return function_type.generic_args[0]
         if isinstance(node.body, LambdaExprBody) and node.body.expression:
-            return self._analyzed.node_types.get(id(node.body.expression))
+            return self._session.type_of(node.body.expression)
         return None

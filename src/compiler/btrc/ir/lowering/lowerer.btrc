@@ -121,12 +121,11 @@ class IRLowerer {
                 self.context.temporaryNames());
         AggregateValueLowerer aggregateValues = AggregateValueLowerer(
             analyzed, managedValues, operandPlanner);
-        self.gpuPipeline = GpuPipeline(
-            analyzed, hostedAbi, gpuSemantics, managedValues,
-            operandPlanner, self.cTypes);
-
         CallLowerer calls = CallLowerer(
             callTargets, self.cTypes, self.context);
+        self.gpuPipeline = GpuPipeline(
+            analyzed, hostedAbi, gpuSemantics, managedValues,
+            operandPlanner, managedLifetime, calls, self.cTypes);
         StringLowerer strings = StringLowerer(
             analyzed, hostedAbi, operators, managedValues,
             operandPlanner, callOwnership,
@@ -147,6 +146,7 @@ class IRLowerer {
             callableValues, callableBoundaries, callableLowering,
             assignments, self.context, operandPlanner,
             ownershipSemantics, callOwnership, managedLifetime,
+            managedTypes,
             aggregateValues, self.gpuPipeline,
             self.cTypes, callTargets, calls, strings, concurrency);
         self.controlFlow = ControlFlowLowerer();
@@ -160,7 +160,7 @@ class IRLowerer {
         self.functions = FunctionLowerer(
             analyzed, hostedAbi, semanticDeclarations,
             expressionTypes, managedValues, cycles,
-            callableLowering,
+            callableLowering, calls,
             self.context, managedLifetime, managedTypes,
             cycleBoundaries, cycleReturns, self.gpuPipeline,
             self.cTypes, self.statements);
@@ -169,7 +169,7 @@ class IRLowerer {
         self.declarations = DeclarationLowerer(
             analyzed, hostedAbi, semanticDeclarations,
             managedValues, cycles, self.cleanupSlots,
-            callableBoundaries,
+            callableValues, callableBoundaries,
             self.context, managedLifetime,
             managedTypes, cycleBoundaries, cycleReturns,
             self.cTypes, self.functions, self.expressions);
@@ -213,6 +213,7 @@ class IRLowerer {
         }
 
         self.declarations.emitDeclarations(program, module);
+        self.functions.materializeDeferredClosure();
         self.cTypes.appendFunctionPointerTypedefs(module);
         self.cleanupSlots.finalize(module);
         self.expressionTypes.disableMemo();

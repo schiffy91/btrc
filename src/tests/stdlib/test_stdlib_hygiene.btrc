@@ -18,8 +18,11 @@ int main() {
     string good = PathTools.join(dir, "ok.txt");
     assert(Path.writeAll(good, "hello"));
     assert(Path.readAll(good).equals("hello"));
-    /* Writing under a path whose parent dir does not exist must fail (false). */
-    string unwritable = PathTools.join(dir, "no-such-subdir/child.txt");
+    /* Writing under a path whose parent dir does not exist must fail (false).
+     * Keep the spelling stable because the failure diagnostic is a golden. */
+    string missingParent = "__btrc_corpus_missing_hygiene_parent__";
+    assert(!Path.exists(missingParent));
+    string unwritable = PathTools.join(missingParent, "child.txt");
     assert(!Path.writeAll(unwritable, "data"));
     /* FileSystem.writeText propagates the same bool. */
     assert(FileSystem.writeText(good, "again"));

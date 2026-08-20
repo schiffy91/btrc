@@ -98,7 +98,7 @@ class SemanticValidator {
         self.declarations.validateStructLayouts(self.program);
         self.names.validateDeclarationNames(self.program);
         self.names.validateDeclarationDuplicates(self.program);
-        self.names.validateEmittedSymbols(self.program);
+        self.names.publishKnownGeneratedSymbols(self.program);
         self.declarations.validateCallableShapes(self.program);
 
         index = 0;
@@ -133,5 +133,9 @@ class SemanticValidator {
             }
             index = index + 1;
         }
+    }
+
+    public void validateCompletedGeneratedSymbols() {
+        self.names.validateCompletedGeneratedSymbols(self.program);
     }
 }

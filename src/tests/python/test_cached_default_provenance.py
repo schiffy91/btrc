@@ -47,6 +47,16 @@ def test_declaration_line_map_disambiguates_split_user_and_stdlib_coordinates(tm
     assert source.map_declaration_line(3, str(user), split_spaces=False) == (str(user), 20)
 
 
+def test_source_map_without_native_positions_reports_mapping_unavailable() -> None:
+    source = ResolvedSource(
+        user_source="first\nsecond",
+        source="first\nsecond",
+    )
+
+    assert source.map_line(1) is None
+    assert source.map_declaration_line(2, None, split_spaces=False) is None
+
+
 def test_cache_identity_covers_root_import_path_and_native_line(tmp_path: Path) -> None:
     root = tmp_path / "program.btrc"
     first_import = tmp_path / "first" / "defaults.btrc"

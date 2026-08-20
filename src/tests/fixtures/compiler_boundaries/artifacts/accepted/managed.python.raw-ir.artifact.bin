@@ -1,0 +1,795 @@
+{
+  "$format": "btrc-ir-v1",
+  "module": {
+    "$type": "IRModule",
+    "preprocessor_decls": [
+      {
+        "$type": "IRMacroDef",
+        "name": "_DEFAULT_SOURCE",
+        "params": null,
+        "replacement": ""
+      },
+      {
+        "$type": "IRMacroDef",
+        "name": "_DARWIN_C_SOURCE",
+        "params": null,
+        "replacement": ""
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdio.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdlib.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "string.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdbool.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdint.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "ctype.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "math.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "assert.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "limits.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "stdatomic.h",
+        "is_system": true
+      },
+      {
+        "$type": "IRInclude",
+        "header": "assert.h",
+        "is_system": true
+      }
+    ],
+    "freestanding": false,
+    "runtime_roots": {
+      "$set": []
+    },
+    "needs_runtime": false,
+    "debug": false,
+    "debug_cfile": "",
+    "struct_forwards": [],
+    "function_pointer_typedefs": [],
+    "function_decls": [],
+    "helper_decls": [
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_registry",
+        "c_source": "typedef struct __btrc_string_entry {\n    char* value;\n    size_t references;\n    struct __btrc_string_entry* next;\n} __btrc_string_entry;\n\nstatic __btrc_string_entry* __btrc_string_inline_buckets[64] = {0};\nstatic __btrc_string_entry** __btrc_string_buckets =\n    __btrc_string_inline_buckets;\nstatic size_t __btrc_string_bucket_count = 64;",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_registry_hash",
+        "c_source": "static inline size_t __btrc_string_hash(const char* value, size_t buckets) {\n    uintptr_t bits = (uintptr_t)(const void*)value;\n    bits ^= bits >> 17;\n    bits *= (uintptr_t)0xed5ad4bbU;\n    bits ^= bits >> 11;\n    return (size_t)(bits % (uintptr_t)buckets);\n}",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_registry_slot",
+        "c_source": "static inline __btrc_string_entry** __btrc_string_slot(const char* value) {\n    size_t index = __btrc_string_hash(value, __btrc_string_bucket_count);\n    __btrc_string_entry** slot = &__btrc_string_buckets[index];\n    while (*slot && (*slot)->value != value) slot = &(*slot)->next;\n    return slot;\n}",
+        "depends_on": [
+          "__btrc_string_registry",
+          "__btrc_string_registry_hash"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_registry_lock_state",
+        "c_source": "static atomic_flag __btrc_string_lock = ATOMIC_FLAG_INIT;",
+        "depends_on": [],
+        "required_headers": [
+          "stdatomic.h"
+        ]
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_registry_lock",
+        "c_source": "static inline void __btrc_string_registry_lock(void) {\n    unsigned int delay = 1;\n    while (atomic_flag_test_and_set_explicit(\n            &__btrc_string_lock, memory_order_acquire)) {\n        for (unsigned int spin = 0; spin < delay; spin++) {\n            atomic_signal_fence(memory_order_seq_cst);\n        }\n        if (delay < 1024) delay *= 2;\n    }\n}\n\nstatic inline void __btrc_string_registry_unlock(void) {\n    atomic_flag_clear_explicit(&__btrc_string_lock, memory_order_release);\n}",
+        "depends_on": [
+          "__btrc_string_registry_lock_state"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_retain",
+        "c_source": "static inline char* __btrc_string_retain(const char* value) {\n    if (!value) return NULL;\n    __btrc_string_registry_lock();\n    if (__btrc_string_bucket_count != 0) {\n        __btrc_string_entry* entry = *__btrc_string_slot(value);\n        if (entry) {\n            if (entry->references == SIZE_MAX) {\n                __btrc_string_registry_unlock();\n                fprintf(stderr, \"btrc: string reference overflow\\n\");\n                exit(1);\n            }\n            entry->references++;\n        }\n    }\n    __btrc_string_registry_unlock();\n    return (char*)value;\n}",
+        "depends_on": [
+          "__btrc_string_registry_slot",
+          "__btrc_string_registry_lock"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_registry_count",
+        "c_source": "static size_t __btrc_string_entry_count = 0;",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_release",
+        "c_source": "static inline void __btrc_string_release(const char* value) {\n    if (!value) return;\n    __btrc_string_entry* removed = NULL;\n    __btrc_string_entry** retired_buckets = NULL;\n    __btrc_string_registry_lock();\n    __btrc_string_entry** slot = __btrc_string_slot(value);\n    __btrc_string_entry* entry = *slot;\n    if (entry && entry->references > 1) {\n        entry->references--;\n    } else if (entry) {\n        *slot = entry->next;\n        removed = entry;\n        __btrc_string_entry_count--;\n        if (__btrc_string_entry_count == 0\n                && __btrc_string_buckets != __btrc_string_inline_buckets) {\n            retired_buckets = __btrc_string_buckets;\n            __btrc_string_buckets = __btrc_string_inline_buckets;\n            __btrc_string_bucket_count = 64;\n            memset(__btrc_string_inline_buckets, 0,\n                sizeof(__btrc_string_inline_buckets));\n        }\n    }\n    __btrc_string_registry_unlock();\n    if (removed) {\n        free(removed->value);\n        free(removed);\n    }\n    free(retired_buckets);\n}",
+        "depends_on": [
+          "__btrc_string_registry_slot",
+          "__btrc_string_registry_lock",
+          "__btrc_string_registry_count"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "alloc",
+        "name": "__btrc_safe_calloc",
+        "c_source": "static inline void* __btrc_safe_calloc(size_t count, size_t size) {\n    if (size != 0 && count > SIZE_MAX / size) { fprintf(stderr, \"btrc: calloc size overflow\\n\"); exit(1); }\n    void* result = calloc(count, size);\n    if (!result && count != 0 && size != 0) { fprintf(stderr, \"btrc: out of memory (calloc %zu bytes)\\n\", count * size); exit(1); }\n    return result;\n}",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_registry_resize",
+        "c_source": "static inline void __btrc_string_registry_resize(size_t capacity) {\n    __btrc_string_entry** old_buckets = __btrc_string_buckets;\n    size_t old_capacity = __btrc_string_bucket_count;\n    __btrc_string_entry** buckets = (__btrc_string_entry**)\n        __btrc_safe_calloc(capacity, sizeof(__btrc_string_entry*));\n    for (size_t index = 0; index < old_capacity; index++) {\n        __btrc_string_entry* entry = old_buckets[index];\n        while (entry) {\n            __btrc_string_entry* next = entry->next;\n            size_t target = __btrc_string_hash(entry->value, capacity);\n            entry->next = buckets[target];\n            buckets[target] = entry;\n            entry = next;\n        }\n    }\n    if (old_buckets == __btrc_string_inline_buckets) {\n        memset(__btrc_string_inline_buckets, 0,\n            sizeof(__btrc_string_inline_buckets));\n    } else {\n        free(old_buckets);\n    }\n    __btrc_string_buckets = buckets;\n    __btrc_string_bucket_count = capacity;\n}",
+        "depends_on": [
+          "__btrc_string_registry",
+          "__btrc_string_registry_hash",
+          "__btrc_safe_calloc"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "alloc",
+        "name": "__btrc_safe_realloc",
+        "c_source": "static inline void* __btrc_safe_realloc(void* ptr, size_t size) {\n    if (size == 0) { free(ptr); return NULL; }\n    void* result = realloc(ptr, size);\n    if (!result) { fprintf(stderr, \"btrc: out of memory (realloc %zu bytes)\\n\", size); exit(1); }\n    return result;\n}",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_ownership",
+        "name": "__btrc_string_adopt",
+        "c_source": "static inline char* __btrc_string_adopt(char* value) {\n    if (!value) return NULL;\n    __btrc_string_entry* candidate = (__btrc_string_entry*)\n        __btrc_safe_realloc(NULL, sizeof(__btrc_string_entry));\n    candidate->value = value;\n    candidate->references = 1;\n    candidate->next = NULL;\n\n    __btrc_string_registry_lock();\n    __btrc_string_entry** slot = __btrc_string_slot(value);\n    if (*slot) {\n        __btrc_string_registry_unlock();\n        free(candidate);\n        return value;\n    }\n    if (__btrc_string_entry_count >= __btrc_string_bucket_count\n            - __btrc_string_bucket_count / 4) {\n        if (__btrc_string_bucket_count > SIZE_MAX / 2) {\n            __btrc_string_registry_unlock();\n            fprintf(stderr, \"btrc: string registry overflow\\n\");\n            exit(1);\n        }\n        __btrc_string_registry_resize(__btrc_string_bucket_count * 2);\n        slot = __btrc_string_slot(value);\n    }\n    candidate->next = *slot;\n    *slot = candidate;\n    __btrc_string_entry_count++;\n    __btrc_string_registry_unlock();\n    return value;\n}",
+        "depends_on": [
+          "__btrc_string_registry_resize",
+          "__btrc_string_registry_slot",
+          "__btrc_string_registry_lock",
+          "__btrc_string_registry_count",
+          "__btrc_safe_realloc"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string_pool",
+        "name": "__btrc_str_track",
+        "c_source": "static inline char* __btrc_str_track(char* s) {\n    return __btrc_string_adopt(s);\n}",
+        "depends_on": [
+          "__btrc_string_adopt"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string",
+        "name": "__btrc_string_or_empty",
+        "c_source": "static inline const char* __btrc_string_or_empty(const char* s) {\n    return s ? s : \"\";\n}",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string",
+        "name": "__btrc_string_length",
+        "c_source": "static inline int __btrc_string_length(const char* s) {\n    if (!s) return 0;\n    size_t length = strlen(s);\n    if (length > (size_t)INT_MAX) {\n        fprintf(stderr, \"btrc: string length overflow\\n\"); exit(1);\n    }\n    return (int)length;\n}",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string",
+        "name": "__btrc_string_alloc",
+        "c_source": "static inline char* __btrc_string_alloc(int length) {\n    if (length < 0) {\n        fprintf(stderr, \"btrc: negative string allocation\\n\"); exit(1);\n    }\n    char* result = (char*)__btrc_safe_realloc(\n        NULL, (size_t)length + 1);\n    result[length] = '\\0';\n    return __btrc_string_adopt(result);\n}",
+        "depends_on": [
+          "__btrc_safe_realloc",
+          "__btrc_string_adopt"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string",
+        "name": "__btrc_substring",
+        "c_source": "static inline char* __btrc_substring(const char* s, int start, int len) {\n    if (!s) return __btrc_string_alloc(0);\n    int slen = __btrc_string_length(s);\n    if (start < 0) start = 0;\n    if (start > slen) start = slen;\n    if (len < 0) len = 0;\n    if (len > slen - start) len = slen - start;\n    char* result = __btrc_string_alloc(len);\n    memcpy(result, s + start, (size_t)len);\n    return result;\n}",
+        "depends_on": [
+          "__btrc_string_length",
+          "__btrc_string_alloc"
+        ],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string",
+        "name": "__btrc_ascii_upper",
+        "c_source": "static inline char __btrc_ascii_upper(char value) {\n    unsigned char byte = (unsigned char)value;\n    return (byte >= 'a' && byte <= 'z') ? (char)(byte - 'a' + 'A') : value;\n}",
+        "depends_on": [],
+        "required_headers": []
+      },
+      {
+        "$type": "IRHelperDecl",
+        "category": "string",
+        "name": "__btrc_toUpper",
+        "c_source": "static inline char* __btrc_toUpper(const char* s) {\n    if (!s) return __btrc_string_alloc(0);\n    int len = __btrc_string_length(s);\n    char* result = __btrc_string_alloc(len);\n    for (int i = 0; i < len; i++) result[i] = __btrc_ascii_upper(s[i]);\n    return result;\n}",
+        "depends_on": [
+          "__btrc_string_length",
+          "__btrc_string_alloc",
+          "__btrc_ascii_upper"
+        ],
+        "required_headers": []
+      }
+    ],
+    "enum_defs": [],
+    "typedef_defs": [],
+    "tagged_union_defs": [],
+    "struct_defs": [],
+    "ordered_type_declarations": [],
+    "_type_declaration_snapshot": null,
+    "_ordered_type_declaration_keys": {
+      "$tuple": []
+    },
+    "global_decls": [],
+    "function_defs": [
+      {
+        "$type": "IRFunctionDef",
+        "name": "main",
+        "return_type": {
+          "$type": "CType",
+          "text": "int"
+        },
+        "params": [],
+        "body": {
+          "$type": "IRBlock",
+          "stmts": [
+            {
+              "$type": "IRVarDecl",
+              "c_type": {
+                "$type": "CType",
+                "text": "char*"
+              },
+              "name": "text",
+              "init": {
+                "$type": "IRLiteral",
+                "text": "\"hello\""
+              },
+              "array_size": null,
+              "is_unsized_array": false,
+              "is_volatile": false,
+              "is_static": false,
+              "is_extern": false,
+              "cleanup_slot": null,
+              "is_cycle_return_temp": false,
+              "effective_is_volatile": false
+            },
+            {
+              "$type": "IRExprStmt",
+              "expr": {
+                "$type": "IRCall",
+                "callee": "__btrc_string_retain",
+                "args": [
+                  {
+                    "$type": "IRVar",
+                    "name": "text",
+                    "array_storage_root": "",
+                    "array_storage_known": false
+                  }
+                ],
+                "helper_ref": "__btrc_string_retain",
+                "cleanup_slot": null,
+                "never_returns": false
+              }
+            },
+            {
+              "$type": "IRVarDecl",
+              "c_type": {
+                "$type": "CType",
+                "text": "char*"
+              },
+              "name": "result",
+              "init": {
+                "$type": "IRStmtExpr",
+                "stmts": [
+                  {
+                    "$type": "IRVarDecl",
+                    "c_type": {
+                      "$type": "CType",
+                      "text": "char*"
+                    },
+                    "name": "__btrc_call_operand_1",
+                    "init": null,
+                    "array_size": null,
+                    "is_unsized_array": false,
+                    "is_volatile": false,
+                    "is_static": false,
+                    "is_extern": false,
+                    "cleanup_slot": null,
+                    "is_cycle_return_temp": false,
+                    "effective_is_volatile": false
+                  },
+                  {
+                    "$type": "IRVarDecl",
+                    "c_type": {
+                      "$type": "CType",
+                      "text": "char*"
+                    },
+                    "name": "__btrc_released_operand_2",
+                    "init": null,
+                    "array_size": null,
+                    "is_unsized_array": false,
+                    "is_volatile": false,
+                    "is_static": false,
+                    "is_extern": false,
+                    "cleanup_slot": null,
+                    "is_cycle_return_temp": false,
+                    "effective_is_volatile": false
+                  },
+                  {
+                    "$type": "IRVarDecl",
+                    "c_type": {
+                      "$type": "CType",
+                      "text": "char*"
+                    },
+                    "name": "__btrc_call_result_3",
+                    "init": null,
+                    "array_size": null,
+                    "is_unsized_array": false,
+                    "is_volatile": true,
+                    "is_static": false,
+                    "is_extern": false,
+                    "cleanup_slot": null,
+                    "is_cycle_return_temp": false,
+                    "effective_is_volatile": false
+                  }
+                ],
+                "result": {
+                  "$type": "IRCommaExpr",
+                  "expressions": [
+                    {
+                      "$type": "IRBinOp",
+                      "left": {
+                        "$type": "IRVar",
+                        "name": "__btrc_call_operand_1",
+                        "array_storage_root": "",
+                        "array_storage_known": false
+                      },
+                      "op": "=",
+                      "right": {
+                        "$type": "IRCall",
+                        "callee": "__btrc_str_track",
+                        "args": [
+                          {
+                            "$type": "IRCall",
+                            "callee": "__btrc_substring",
+                            "args": [
+                              {
+                                "$type": "IRVar",
+                                "name": "text",
+                                "array_storage_root": "",
+                                "array_storage_known": false
+                              },
+                              {
+                                "$type": "IRLiteral",
+                                "text": "1"
+                              },
+                              {
+                                "$type": "IRLiteral",
+                                "text": "2"
+                              }
+                            ],
+                            "helper_ref": "__btrc_substring",
+                            "cleanup_slot": null,
+                            "never_returns": false
+                          }
+                        ],
+                        "helper_ref": "__btrc_str_track",
+                        "cleanup_slot": null,
+                        "never_returns": false
+                      }
+                    },
+                    {
+                      "$type": "IRBinOp",
+                      "left": {
+                        "$type": "IRVar",
+                        "name": "__btrc_call_result_3",
+                        "array_storage_root": "",
+                        "array_storage_known": false
+                      },
+                      "op": "=",
+                      "right": {
+                        "$type": "IRCall",
+                        "callee": "__btrc_str_track",
+                        "args": [
+                          {
+                            "$type": "IRCall",
+                            "callee": "__btrc_toUpper",
+                            "args": [
+                              {
+                                "$type": "IRVar",
+                                "name": "__btrc_call_operand_1",
+                                "array_storage_root": "",
+                                "array_storage_known": false
+                              }
+                            ],
+                            "helper_ref": "__btrc_toUpper",
+                            "cleanup_slot": null,
+                            "never_returns": false
+                          }
+                        ],
+                        "helper_ref": "__btrc_str_track",
+                        "cleanup_slot": null,
+                        "never_returns": false
+                      }
+                    },
+                    {
+                      "$type": "IRBinOp",
+                      "left": {
+                        "$type": "IRVar",
+                        "name": "__btrc_released_operand_2",
+                        "array_storage_root": "",
+                        "array_storage_known": false
+                      },
+                      "op": "=",
+                      "right": {
+                        "$type": "IRVar",
+                        "name": "__btrc_call_operand_1",
+                        "array_storage_root": "",
+                        "array_storage_known": false
+                      }
+                    },
+                    {
+                      "$type": "IRBinOp",
+                      "left": {
+                        "$type": "IRVar",
+                        "name": "__btrc_call_operand_1",
+                        "array_storage_root": "",
+                        "array_storage_known": false
+                      },
+                      "op": "=",
+                      "right": {
+                        "$type": "IRLiteral",
+                        "text": "NULL"
+                      }
+                    },
+                    {
+                      "$type": "IRCall",
+                      "callee": "__btrc_string_release",
+                      "args": [
+                        {
+                          "$type": "IRVar",
+                          "name": "__btrc_released_operand_2",
+                          "array_storage_root": "",
+                          "array_storage_known": false
+                        }
+                      ],
+                      "helper_ref": "__btrc_string_release",
+                      "cleanup_slot": null,
+                      "never_returns": false
+                    },
+                    {
+                      "$type": "IRVar",
+                      "name": "__btrc_call_result_3",
+                      "array_storage_root": "",
+                      "array_storage_known": false
+                    }
+                  ]
+                }
+              },
+              "array_size": null,
+              "is_unsized_array": false,
+              "is_volatile": false,
+              "is_static": false,
+              "is_extern": false,
+              "cleanup_slot": null,
+              "is_cycle_return_temp": false,
+              "effective_is_volatile": false
+            },
+            {
+              "$type": "IRVarDecl",
+              "c_type": {
+                "$type": "CType",
+                "text": "bool"
+              },
+              "name": "__btrc_assert_condition_4",
+              "init": {
+                "$type": "IRBinOp",
+                "left": {
+                  "$type": "IRCall",
+                  "callee": "strcmp",
+                  "args": [
+                    {
+                      "$type": "IRVar",
+                      "name": "result",
+                      "array_storage_root": "",
+                      "array_storage_known": false
+                    },
+                    {
+                      "$type": "IRLiteral",
+                      "text": "\"EL\""
+                    }
+                  ],
+                  "helper_ref": "",
+                  "cleanup_slot": null,
+                  "never_returns": false
+                },
+                "op": "==",
+                "right": {
+                  "$type": "IRLiteral",
+                  "text": "0"
+                }
+              },
+              "array_size": null,
+              "is_unsized_array": false,
+              "is_volatile": false,
+              "is_static": false,
+              "is_extern": false,
+              "cleanup_slot": null,
+              "is_cycle_return_temp": false,
+              "effective_is_volatile": false
+            },
+            {
+              "$type": "IRExprStmt",
+              "expr": {
+                "$type": "IRCast",
+                "target_type": {
+                  "$type": "CType",
+                  "text": "void"
+                },
+                "expr": {
+                  "$type": "IRVar",
+                  "name": "__btrc_assert_condition_4",
+                  "array_storage_root": "",
+                  "array_storage_known": false
+                }
+              }
+            },
+            {
+              "$type": "IRExprStmt",
+              "expr": {
+                "$type": "IRCall",
+                "callee": "assert",
+                "args": [
+                  {
+                    "$type": "IRVar",
+                    "name": "__btrc_assert_condition_4",
+                    "array_storage_root": "",
+                    "array_storage_known": false
+                  }
+                ],
+                "helper_ref": "",
+                "cleanup_slot": null,
+                "never_returns": false
+              }
+            },
+            {
+              "$type": "IRExprStmt",
+              "expr": {
+                "$type": "IRCall",
+                "callee": "printf",
+                "args": [
+                  {
+                    "$type": "IRLiteral",
+                    "text": "\"%s\\n\""
+                  },
+                  {
+                    "$type": "IRCall",
+                    "callee": "__btrc_string_or_empty",
+                    "args": [
+                      {
+                        "$type": "IRLiteral",
+                        "text": "\"PASS\""
+                      }
+                    ],
+                    "helper_ref": "__btrc_string_or_empty",
+                    "cleanup_slot": null,
+                    "never_returns": false
+                  }
+                ],
+                "helper_ref": "",
+                "cleanup_slot": null,
+                "never_returns": false
+              }
+            },
+            {
+              "$type": "IRVarDecl",
+              "c_type": {
+                "$type": "CType",
+                "text": "int"
+              },
+              "name": "__btrc_ret_7",
+              "init": {
+                "$type": "IRLiteral",
+                "text": "0"
+              },
+              "array_size": null,
+              "is_unsized_array": false,
+              "is_volatile": false,
+              "is_static": false,
+              "is_extern": false,
+              "cleanup_slot": null,
+              "is_cycle_return_temp": false,
+              "effective_is_volatile": false
+            },
+            {
+              "$type": "IRVarDecl",
+              "c_type": {
+                "$type": "CType",
+                "text": "const char*"
+              },
+              "name": "__btrc_scope_released_5",
+              "init": {
+                "$type": "IRVar",
+                "name": "result",
+                "array_storage_root": "",
+                "array_storage_known": false
+              },
+              "array_size": null,
+              "is_unsized_array": false,
+              "is_volatile": false,
+              "is_static": false,
+              "is_extern": false,
+              "cleanup_slot": null,
+              "is_cycle_return_temp": false,
+              "effective_is_volatile": false
+            },
+            {
+              "$type": "IRAssign",
+              "target": {
+                "$type": "IRVar",
+                "name": "result",
+                "array_storage_root": "",
+                "array_storage_known": false
+              },
+              "value": {
+                "$type": "IRLiteral",
+                "text": "NULL"
+              }
+            },
+            {
+              "$type": "IRExprStmt",
+              "expr": {
+                "$type": "IRCall",
+                "callee": "__btrc_string_release",
+                "args": [
+                  {
+                    "$type": "IRVar",
+                    "name": "__btrc_scope_released_5",
+                    "array_storage_root": "",
+                    "array_storage_known": false
+                  }
+                ],
+                "helper_ref": "__btrc_string_release",
+                "cleanup_slot": null,
+                "never_returns": false
+              }
+            },
+            {
+              "$type": "IRVarDecl",
+              "c_type": {
+                "$type": "CType",
+                "text": "const char*"
+              },
+              "name": "__btrc_scope_released_6",
+              "init": {
+                "$type": "IRVar",
+                "name": "text",
+                "array_storage_root": "",
+                "array_storage_known": false
+              },
+              "array_size": null,
+              "is_unsized_array": false,
+              "is_volatile": false,
+              "is_static": false,
+              "is_extern": false,
+              "cleanup_slot": null,
+              "is_cycle_return_temp": false,
+              "effective_is_volatile": false
+            },
+            {
+              "$type": "IRAssign",
+              "target": {
+                "$type": "IRVar",
+                "name": "text",
+                "array_storage_root": "",
+                "array_storage_known": false
+              },
+              "value": {
+                "$type": "IRLiteral",
+                "text": "NULL"
+              }
+            },
+            {
+              "$type": "IRExprStmt",
+              "expr": {
+                "$type": "IRCall",
+                "callee": "__btrc_string_release",
+                "args": [
+                  {
+                    "$type": "IRVar",
+                    "name": "__btrc_scope_released_6",
+                    "array_storage_root": "",
+                    "array_storage_known": false
+                  }
+                ],
+                "helper_ref": "__btrc_string_release",
+                "cleanup_slot": null,
+                "never_returns": false
+              }
+            },
+            {
+              "$type": "IRReturn",
+              "value": {
+                "$type": "IRVar",
+                "name": "__btrc_ret_7",
+                "array_storage_root": "",
+                "array_storage_known": false
+              }
+            }
+          ]
+        },
+        "is_static": false,
+        "archive_export": false
+      }
+    ],
+    "gpu_kernels": [],
+    "_generated_runtime_preprocessor": [
+      {
+        "$type": "IRInclude",
+        "header": "stdatomic.h",
+        "is_system": true
+      }
+    ],
+    "_freestanding_system_includes_lowered": false
+  }
+}

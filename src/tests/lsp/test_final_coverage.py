@@ -3,13 +3,18 @@ inheritance + properties, vars nested in blocks, var-inferred call/new types,
 static + inherited signatures, nested active-parameter counting, struct/typedef
 symbols + tokens, include-error diagnostics, and builtin signatures."""
 
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_references, get_rename_edits
-from src.tests.lsp.lsphelp import get_semantic_tokens
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import (
+    analyze,
+    get_completions,
+    get_definition,
+    get_hover_info,
+    get_references,
+    get_rename_edits,
+    get_semantic_tokens,
+    get_signature_help,
+    hover_text,
+    pos_of,
+)
 
 # ---- generics + inheritance + property -------------------------------------
 

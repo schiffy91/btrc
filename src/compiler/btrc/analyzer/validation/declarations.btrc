@@ -4,7 +4,6 @@ import std.map;
 import std.strings;
 import std.vector;
 import ../../generated/ast/node.btrc;
-import ../../syntax/literals.btrc;
 import ../../syntax/types.btrc;
 import ../declarations.btrc;
 import ../hosted_abi.btrc;
@@ -52,84 +51,6 @@ class DeclarationValidator {
         self.ownership = ownership;
         self.expressions = expressions;
         self.controlFlow = controlFlow;
-    }
-
-
-    public Node? declaredMember(string owner, string memberName,
-            int memberKind, bool classAccess, Analyzed analyzed) {
-        Node? declaration = null;
-        if (analyzed.classTable.has(owner)) {
-            declaration = analyzed.classTable.get(owner);
-        } else if (analyzed.genericClassTable.has(owner)) {
-            declaration = analyzed.genericClassTable.get(owner);
-        }
-        if (declaration == null) { return null; }
-        Node concreteDeclaration = declaration;
-        int index = 0;
-        while (index < concreteDeclaration.members.len) {
-            Node member = concreteDeclaration.members.get(index);
-            bool accessMatches = (member.access == "class") == classAccess;
-            if (member.kind == memberKind && accessMatches
-                    && !member.is_constructor && member.name == memberName) {
-                return member;
-            }
-            index = index + 1;
-        }
-        return null;
-    }
-
-    public string resolveMemberOwner(string className, string memberName,
-            int memberKind, bool classAccess, bool inherited,
-            Analyzed analyzed) {
-        string current = className;
-        Map<string, bool> visited = {};
-        while (current != "" && !visited.has(current)) {
-            visited.put(current, true);
-            Node? member = self.declaredMember(
-                current, memberName, memberKind, classAccess, analyzed);
-            if (member != null) { return current; }
-            if (!inherited || !analyzed.classTable.has(current)) {
-                return "";
-            }
-            current = DeclarationRegistry.parentName(analyzed.classTable.get(current));
-        }
-        return "";
-    }
-
-    public void validateMemberAccess(Node declaration, string owner,
-            string memberKind, string memberName,
-             Node site) {
-        if (declaration.access != "private") { return; }
-        if (!self.state.owner.startsWith(owner + ".")) {
-            TypeValidator.fail("Cannot access private " + memberKind + " '"
-                + memberName + "' of class '" + owner + "'", site);
-        }
-    }
-
-    public bool validateResolvedMemberAccess(string className,
-            string memberName, int declarationKind, bool classAccess,
-            bool inherited, string memberKind,
-             Node site) {
-        string owner = self.resolveMemberOwner(className, memberName,
-            declarationKind, classAccess, inherited, self.state.analyzed);
-        if (owner == "") { return false; }
-        Node? declaration = self.declaredMember(
-            owner, memberName, declarationKind, classAccess, self.state.analyzed);
-        if (declaration == null) { return false; }
-        Node concreteDeclaration = declaration;
-        self.validateMemberAccess(
-            concreteDeclaration, owner, memberKind, memberName,  site);
-        return true;
-    }
-
-    public void validateMethodAccess(string className, Node method,
-             Node site) {
-        string owner = self.resolveMemberOwner(
-            className, method.name, NK_METHOD_DECL,
-            method.access == "class", true, self.state.analyzed);
-        if (owner == "") { owner = className; }
-        self.validateMemberAccess(
-            method, owner, "method", method.name,  site);
     }
 
     public string hostedNormalizedBase(string base) {
@@ -443,197 +364,6 @@ class DeclarationValidator {
         }
     }
 
-    public bool staticArrayDesignator(
-            Node? expression) {
-        if (expression == null) { return false; }
-        if (expression.kind == NK_STRING_LITERAL) { return true; }
-        if (expression.kind == NK_IDENTIFIER
-                && self.state.analyzed.globalVarTypes.has(expression.name)) {
-            Node typeExpr = self.state.analyzed.globalVarTypes.get(expression.name);
-            return typeExpr.is_array;
-        }
-        return false;
-    }
-
-    public bool staticAddressOperand(
-            Node? expression) {
-        if (expression == null) { return false; }
-        if (expression.kind == NK_STRING_LITERAL) { return true; }
-        if (expression.kind == NK_IDENTIFIER) {
-            return self.state.analyzed.funcNames.has(expression.name)
-                || self.state.analyzed.globalVarTypes.has(expression.name);
-        }
-        if (expression.kind == NK_FIELD_ACCESS_EXPR && !expression.arrow) {
-            return self.staticAddressOperand(expression.obj);
-        }
-        if (expression.kind == NK_INDEX_EXPR) {
-            Map<string, bool> unrestricted = {};
-            SemanticIntegerConstant index = self.constants.integerConstant(
-                expression.index,  false, "", unrestricted);
-            return index.valid
-                && self.staticArrayDesignator(expression.obj);
-        }
-        return false;
-    }
-
-    public bool knownNumericZero(Node expression) {
-        if (expression.kind == NK_INT_LITERAL) {
-            IntegerLiteralInfo info = IntegerLiteral(expression.raw).details();
-            return info.valid && info.magnitude == 0ULL;
-        }
-        if (expression.kind == NK_FLOAT_LITERAL) {
-            return expression.value_float == 0.0;
-        }
-        if (expression.kind == NK_BOOL_LITERAL) {
-            return !expression.value_bool;
-        }
-        return false;
-    }
-
-    public int staticInitializerCategory(
-            Node? expression) {
-        if (expression == null) { return SC_INVALID; }
-        Map<string, bool> unrestricted = {};
-        SemanticIntegerConstant integer = self.constants.integerConstant(
-            expression,  false, "", unrestricted);
-        if (integer.valid) { return SC_INTEGER; }
-        if (expression.kind == NK_FLOAT_LITERAL) { return SC_ARITHMETIC; }
-        if (expression.kind == NK_STRING_LITERAL
-                || expression.kind == NK_NULL_LITERAL) {
-            return SC_ADDRESS;
-        }
-        if (expression.kind == NK_IDENTIFIER) {
-            if (expression.name == "NULL") { return SC_ADDRESS; }
-            if (self.state.analyzed.funcNames.has(expression.name)) {
-                return SC_ADDRESS;
-            }
-            if (self.state.analyzed.globalVarTypes.has(expression.name)
-                    && self.state.analyzed.globalVarTypes.get(
-                        expression.name).is_array) {
-                return SC_ADDRESS;
-            }
-            return SC_INVALID;
-        }
-        if (expression.kind == NK_UNARY_EXPR) {
-            if (expression.op == "&"
-                    && self.staticAddressOperand(
-                        expression.operand)) {
-                return SC_ADDRESS;
-            }
-            if (expression.op == "+" || expression.op == "-") {
-                int operand = self.staticInitializerCategory(
-                    expression.operand);
-                if (operand == SC_ARITHMETIC) { return SC_ARITHMETIC; }
-            }
-            return SC_INVALID;
-        }
-        if (expression.kind == NK_BINARY_EXPR) {
-            int left = self.staticInitializerCategory(
-                expression.left);
-            int right = self.staticInitializerCategory(
-                expression.right);
-            if (expression.op == "+"
-                    && ((left == SC_ADDRESS && right == SC_INTEGER)
-                        || (left == SC_INTEGER && right == SC_ADDRESS))) {
-                return SC_ADDRESS;
-            }
-            if (expression.op == "-"
-                    && left == SC_ADDRESS && right == SC_INTEGER) {
-                return SC_ADDRESS;
-            }
-            bool leftArithmetic = left == SC_INTEGER || left == SC_ARITHMETIC;
-            bool rightArithmetic = right == SC_INTEGER || right == SC_ARITHMETIC;
-            if (leftArithmetic && rightArithmetic
-                    && (expression.op == "+" || expression.op == "-"
-                        || expression.op == "*" || expression.op == "/"
-                        || expression.op == "<" || expression.op == ">"
-                        || expression.op == "<=" || expression.op == ">="
-                        || expression.op == "==" || expression.op == "!=")) {
-                if (expression.op == "/"
-                        && self.knownNumericZero(expression.right)) {
-                    return SC_INVALID;
-                }
-                if (expression.op == "<" || expression.op == ">"
-                        || expression.op == "<=" || expression.op == ">="
-                        || expression.op == "==" || expression.op == "!=") {
-                    return SC_INTEGER;
-                }
-                return SC_ARITHMETIC;
-            }
-            return SC_INVALID;
-        }
-        if (expression.kind == NK_TERNARY_EXPR) {
-            SemanticIntegerConstant condition = self.constants.integerConstant(
-                expression.condition,  false, "", unrestricted);
-            if (!condition.valid) { return SC_INVALID; }
-            if (condition.known) {
-                if (condition.value != 0) {
-                    return self.staticInitializerCategory(
-                        expression.true_expr);
-                }
-                return self.staticInitializerCategory(
-                    expression.false_expr);
-            }
-            int whenTrue = self.staticInitializerCategory(
-                expression.true_expr);
-            int whenFalse = self.staticInitializerCategory(
-                expression.false_expr);
-            if (whenTrue == whenFalse) { return whenTrue; }
-            return SC_INVALID;
-        }
-        if (expression.kind == NK_CAST_EXPR) {
-            Node? target = self.types.resolveAliases(
-                expression.target_type);
-            int operand = self.staticInitializerCategory(
-                expression.expr);
-            if (target == null || operand == SC_INVALID) { return SC_INVALID; }
-            if (self.operators.isReferenceType(target)) {
-                if (operand == SC_INTEGER || operand == SC_ADDRESS) {
-                    return SC_ADDRESS;
-                }
-                return SC_INVALID;
-            }
-            if (NumericSemantics.isType(target, self.state.analyzed)
-                    && (operand == SC_INTEGER || operand == SC_ARITHMETIC)) {
-                if (self.types.integralType(target, self.state.analyzed)) {
-                    return SC_INTEGER;
-                }
-                return SC_ARITHMETIC;
-            }
-        }
-        return SC_INVALID;
-    }
-
-    public bool staticInitializer(Node? expression, Node? expected) {
-        if (expression == null) { return true; }
-        if (expected != null && expected.generic_args.len > 0
-                && expected.base != "Tuple"
-                && expected.base != "__fn_ptr"
-                && (self.state.analyzed.isGenericClass(expected.base)
-                    || self.types.runtimeTypeBase(expected.base))) {
-            /* Collection/class literals allocate and populate at runtime; their
-             * brace spelling is not a C aggregate constant initializer. */
-            return false;
-        }
-        if (expression.kind == NK_BRACE_INITIALIZER
-                || expression.kind == NK_LIST_LITERAL) {
-            if (expression.kind == NK_LIST_LITERAL
-                    && (expected == null || !expected.is_array)) {
-                return false;
-            }
-            int index = 0;
-            while (index < expression.elements.len) {
-                if (!self.staticInitializer(
-                        expression.elements.get(index), null)) {
-                    return false;
-                }
-                index = index + 1;
-            }
-            return true;
-        }
-        return self.staticInitializerCategory(expression) != SC_INVALID;
-    }
-
     public bool interfaceExtends(
             string child, string parent) {
         string current = child;
@@ -645,34 +375,6 @@ class DeclarationValidator {
             Node declaration = self.state.interfaces.get(current);
             if (declaration.parent == null) { return false; }
             current = declaration.parent;
-        }
-        return false;
-    }
-
-    public bool classImplements(
-            string className, string interfaceName) {
-        string current = className;
-        Map<string, bool> seen = {};
-        while (current != "" && !seen.has(current)) {
-            seen.put(current, true);
-            Node? declaration = null;
-            if (self.state.analyzed.classTable.has(current)) {
-                declaration = self.state.analyzed.classTable.get(current);
-            } else if (self.state.analyzed.genericClassTable.has(current)) {
-                declaration = self.state.analyzed.genericClassTable.get(current);
-            }
-            if (declaration == null) { return false; }
-            int index = 0;
-            while (index < declaration.interfaces.len) {
-                string implemented = declaration.interfaces.get(index);
-                if (implemented == interfaceName
-                        || self.interfaceExtends(
-                             implemented, interfaceName)) {
-                    return true;
-                }
-                index = index + 1;
-            }
-            current = DeclarationRegistry.parentName(declaration);
         }
         return false;
     }
@@ -1008,7 +710,7 @@ class DeclarationValidator {
                             + member.name + "')", member);
                     }
                     if (member.access == "class"
-                            && !self.staticInitializer(
+                            && !self.storage.staticInitializer(
                                 member.initializer, member.type)) {
                         TypeValidator.fail("Static field '"
                             + declaration.name + "." + member.name
@@ -1017,6 +719,8 @@ class DeclarationValidator {
                     }
                     self.expressions.contextualizeGenericConstructor(
                         member.type, member.initializer,  fieldVars);
+                    self.controlFlow.prepareExpression(
+                        member.initializer, fieldVars);
                     self.expressions.validateExpr(member.initializer,  fieldVars);
                     self.expressions.validateTypedInitializer(fieldValueType,
                         member.initializer, "Field '" + declaration.name + "."
@@ -1102,6 +806,8 @@ class DeclarationValidator {
                     parameter.type, parameter.default_,  vars);
                 bool previousDefault = self.state.inParameterDefault;
                 self.state.inParameterDefault = true;
+                self.controlFlow.prepareExpression(
+                    parameter.default_, vars);
                 self.expressions.validateExpr(parameter.default_,  vars);
                 self.state.inParameterDefault = previousDefault;
                 self.expressions.validateTypedInitializer(parameterValueType,

@@ -6,11 +6,11 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from types import MappingProxyType
 
-from src.compiler.python.syntax.ast.generated import ClassDecl, FieldDecl, MethodDecl, PropertyDecl, TypeExpr
 from src.compiler.python.lexer.lexer import Lexer, LexerError
 from src.compiler.python.parser.parser import ParseError, Parser
+from src.compiler.python.syntax.ast.generated import ClassDecl, FieldDecl, MethodDecl, PropertyDecl, TypeExpr
 
-from .verification import GeneratedArtifact
+from . import GeneratedArtifact
 
 INTRINSIC_STRING_MEMBERS = (
     ("len", "int", "field", (), "Length of the string (bytes)"),

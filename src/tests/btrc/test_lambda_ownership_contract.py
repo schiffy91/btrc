@@ -273,7 +273,8 @@ def test_lambda_managed_returns_transfer_one_reference(
         marker = "int main(void) {"
         assert marker in emitted
         foreign_body = emitted.split("void exerciseForeignPointer(void) {", 1)[1].split("}", 1)[0]
-        assert "__btrc_string_retain(borrowed)" in foreign_body
+        assert foreign_body.count("__btrc_string_retain(") == 1
+        assert foreign_body.index("__btrc_string_retain(") < foreign_body.index("__btrc_string_release(")
         generated.write_text(emitted.replace(marker, counter + marker, 1))
 
     _strict_build_and_run(

@@ -94,15 +94,58 @@ class RuntimeReferenceCollector {
         }
     }
 
+    private void collectTypeProviderReferences(
+            string cType, Map<string, bool> used) {
+        int length = cType.length();
+        int index = 0;
+        while (index < length) {
+            while (index < length
+                    && !self.isIdentifierChar(cType[index])) {
+                index = index + 1;
+            }
+            int start = index;
+            while (index < length
+                    && self.isIdentifierChar(cType[index])) {
+                index = index + 1;
+            }
+            if (start < index) {
+                string identifier =
+                    cType.substring(start, index - start);
+                string provider =
+                    self.catalog.helperProvidingType(identifier);
+                if (provider != "") { used.put(provider, true); }
+            }
+        }
+    }
+
+    private void collectObjectProviderReference(
+            string name, Map<string, bool> used) {
+        string provider = self.catalog.helperProvidingObject(name);
+        if (provider != "") { used.put(provider, true); }
+    }
+
     private void collectNode(IRNode? node, Map<string, bool> used) {
         if (node == null) { return; }
         if (node.callee != "" && !used.has(node.callee)
                 && self.catalog.has(node.callee)) {
             used.put(node.callee, true);
         }
+        if (node.helper_ref != "" && !used.has(node.helper_ref)
+                && self.catalog.has(node.helper_ref)) {
+            used.put(node.helper_ref, true);
+        }
         if (node.kind == IRK_FUNCTION_REF && !used.has(node.name)
                 && self.catalog.has(node.name)) {
             used.put(node.name, true);
+        }
+        self.collectTypeProviderReferences(node.c_type, used);
+        self.collectTypeProviderReferences(node.target_type, used);
+        if (node.cleanup_slot != null) {
+            self.collectTypeProviderReferences(
+                node.cleanup_slot.c_type, used);
+        }
+        if (node.kind == IRK_VAR) {
+            self.collectObjectProviderReference(node.name, used);
         }
 
         self.collectNode(node.left, used);
@@ -197,37 +240,16 @@ class RuntimeReferenceCollector {
         }
     }
 
-    private bool typeUsesArcCallbackAbi(string cType) {
-        Vector<string> abiTypes = [
-            "__btrc_arc_count",
-            "__btrc_arc_type",
-            "__btrc_arc_header",
-            "__btrc_arc_incoming",
-            "__btrc_destroy_fn",
-            "__btrc_field_visit_fn",
-            "__btrc_visit_fn"
-        ];
-        Map<string, bool> references = {};
-        self.scanTextForNames(cType, abiTypes, references);
-        return references.len > 0;
-    }
-
-    private void rootArcCallbackAbiType(
-            string cType, Map<string, bool> used) {
-        if (self.typeUsesArcCallbackAbi(cType)) {
-            used.put("__btrc_arc_callback_types", true);
-        }
-    }
-
     private void collectStructuredRoots(
             IRModule module, Map<string, bool> used) {
         int functionIndex = 0;
         while (functionIndex < module.functions.len) {
             IRFunction definition = module.functions.get(functionIndex);
-            self.rootArcCallbackAbiType(definition.return_type, used);
+            self.collectTypeProviderReferences(
+                definition.return_type, used);
             int parameterIndex = 0;
             while (parameterIndex < definition.params.len) {
-                self.rootArcCallbackAbiType(
+                self.collectTypeProviderReferences(
                     definition.params.get(parameterIndex).c_type, used);
                 parameterIndex = parameterIndex + 1;
             }
@@ -240,7 +262,7 @@ class RuntimeReferenceCollector {
             int fieldIndex = 0;
             while (fieldIndex < definition.fields.len) {
                 IRStructField field = definition.fields.get(fieldIndex);
-                self.rootArcCallbackAbiType(field.c_type, used);
+                self.collectTypeProviderReferences(field.c_type, used);
                 self.collectNode(field.array_size, used);
                 fieldIndex = fieldIndex + 1;
             }
@@ -250,18 +272,32 @@ class RuntimeReferenceCollector {
         int globalIndex = 0;
         while (globalIndex < module.global_decls.len) {
             IRGlobalDecl global = module.global_decls.get(globalIndex);
-            self.rootArcCallbackAbiType(global.c_type, used);
+            self.collectTypeProviderReferences(global.c_type, used);
+            self.collectNode(global.array_size, used);
             globalIndex = globalIndex + 1;
+        }
+
+        int enumIndex = 0;
+        while (enumIndex < module.enum_defs.len) {
+            IREnumDef definition = module.enum_defs.get(enumIndex);
+            int valueIndex = 0;
+            while (valueIndex < definition.values.len) {
+                self.collectNode(
+                    definition.values.get(valueIndex).value, used);
+                valueIndex = valueIndex + 1;
+            }
+            enumIndex = enumIndex + 1;
         }
 
         int declarationIndex = 0;
         while (declarationIndex < module.function_decls.len) {
             IRFunctionDecl declaration =
                 module.function_decls.get(declarationIndex);
-            self.rootArcCallbackAbiType(declaration.return_type, used);
+            self.collectTypeProviderReferences(
+                declaration.return_type, used);
             int parameterIndex = 0;
             while (parameterIndex < declaration.params.len) {
-                self.rootArcCallbackAbiType(
+                self.collectTypeProviderReferences(
                     declaration.params.get(parameterIndex).c_type, used);
                 parameterIndex = parameterIndex + 1;
             }
@@ -272,10 +308,10 @@ class RuntimeReferenceCollector {
         while (pointerIndex < module.function_pointer_typedefs.len) {
             IRFunctionPointerTypedef pointer =
                 module.function_pointer_typedefs.get(pointerIndex);
-            self.rootArcCallbackAbiType(pointer.return_type, used);
+            self.collectTypeProviderReferences(pointer.return_type, used);
             int parameterIndex = 0;
             while (parameterIndex < pointer.param_types.len) {
-                self.rootArcCallbackAbiType(
+                self.collectTypeProviderReferences(
                     pointer.param_types.get(parameterIndex), used);
                 parameterIndex = parameterIndex + 1;
             }
@@ -284,7 +320,7 @@ class RuntimeReferenceCollector {
 
         int typedefIndex = 0;
         while (typedefIndex < module.typedef_defs.len) {
-            self.rootArcCallbackAbiType(
+            self.collectTypeProviderReferences(
                 module.typedef_defs.get(typedefIndex).target_type, used);
             typedefIndex = typedefIndex + 1;
         }
@@ -293,7 +329,7 @@ class RuntimeReferenceCollector {
         while (taggedIndex < module.tagged_union_defs.len) {
             IRTaggedUnionDef tagged =
                 module.tagged_union_defs.get(taggedIndex);
-            self.rootArcCallbackAbiType(tagged.tag_type, used);
+            self.collectTypeProviderReferences(tagged.tag_type, used);
             int variantIndex = 0;
             while (variantIndex < tagged.variants.len) {
                 IRTaggedUnionVariant variant =
@@ -302,7 +338,8 @@ class RuntimeReferenceCollector {
                 while (fieldIndex < variant.fields.len) {
                     IRStructField field =
                         variant.fields.get(fieldIndex);
-                    self.rootArcCallbackAbiType(field.c_type, used);
+                    self.collectTypeProviderReferences(
+                        field.c_type, used);
                     self.collectNode(field.array_size, used);
                     fieldIndex = fieldIndex + 1;
                 }

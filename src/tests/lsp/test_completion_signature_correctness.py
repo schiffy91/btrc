@@ -3,9 +3,7 @@
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.devex.lsp.analysis.resolution import LexicalScopeIndex
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import analyze, get_completions, get_signature_help, pos_of
 
 
 def _labels(source: str, needle: str, offset: int) -> set[str]:

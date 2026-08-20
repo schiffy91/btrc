@@ -7,8 +7,8 @@ import re
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.program import ClassInfo
-from src.compiler.python.syntax.ast.generated import FunctionDecl, MethodDecl
 from src.compiler.python.lexer.lexer import Lexer, LexerError
+from src.compiler.python.syntax.ast.generated import FunctionDecl, MethodDecl
 from src.compiler.python.syntax.tokens import Token, TokenKind
 from src.devex.lsp.analysis.document import DocumentAnalysis
 from src.devex.lsp.analysis.resolution import SemanticResolver

@@ -405,7 +405,7 @@ class StringLowerer {
         }
         /* Helper-backed methods: helper(obj, args...), wrapped in __btrc_str_track
          * when the result is a new heap string. */
-        string helper = stringMethodHelper(method);
+        string helper = self.stringMethodHelper(method);
         if (helper == "") { return null; }
         self.context.referenceHelper(helper);
         Vector<IRNode> hargs = [];

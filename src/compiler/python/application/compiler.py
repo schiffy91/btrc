@@ -116,9 +116,7 @@ class Compiler:
     ) -> None:
         self.pipeline = pipeline if pipeline is not None else CompilationPipeline()
         self.cache = cache if cache is not None else DisabledCompilerCache()
-        self._bundle_builder = (
-            bundle_builder if bundle_builder is not None else DisabledSelfhostBundlePublisher()
-        )
+        self._bundle_builder = bundle_builder if bundle_builder is not None else DisabledSelfhostBundlePublisher()
 
     @property
     def stdlib_directory(self) -> str:

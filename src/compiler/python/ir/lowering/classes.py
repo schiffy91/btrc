@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.generated_symbols import GeneratedSymbolRegistry
@@ -48,6 +49,7 @@ if TYPE_CHECKING:
     from .calls import CallableStorageBoundary, CallLowerer
     from .collections import CollectionLowerer
     from .expressions import ExpressionLowerer
+    from .generics import SpecializedDeclarationView
     from .ownership import (
         CycleMetadata,
         ManagedLifetimeLowerer,
@@ -99,10 +101,19 @@ class ClassLowerer:
             declaration,
         )
 
-    def lower_specialization(self, view):
-        return self.emit_class_decl(
-            view.declaration,
-        )
+    def lower_specialization(self, view: SpecializedDeclarationView[ClassDecl]) -> None:
+        self.emit_class_decl(view.declaration)
+
+    def declare_specialization(self, view: SpecializedDeclarationView[ClassDecl]) -> None:
+        """Declare every callable for one concrete class before any body lowers."""
+        declaration = replace(view.declaration, name=view.symbol, generic_params=[])
+        class_info = self._analyzed.class_table.get(view.base_name)
+        if class_info is not None:
+            self.emit_class_callable_declarations(
+                declaration,
+                class_info,
+                view.selected_callables,
+            )
 
     def configure_pack_alignments(self, alignments: dict[int, int]) -> None:
         """Install the translation unit's resolved pragma-pack layout."""
@@ -166,7 +177,11 @@ class ClassLowerer:
             )
         self._session.module.function_defs.append(
             IRFunctionDef(
-                name=f"{name}_init", return_type=CType(text="void"), params=init_params, body=IRBlock(stmts=init_stmts)
+                name=f"{name}_init",
+                return_type=CType(text="void"),
+                params=init_params,
+                body=IRBlock(stmts=init_stmts),
+                is_static=self._specialized_linkage(),
             )
         )
         new_provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
@@ -205,18 +220,20 @@ class ClassLowerer:
                 return_type=CType(text=f"{name}*"),
                 params=new_constructor_params,
                 body=IRBlock(stmts=new_stmts),
+                is_static=self._specialized_linkage(),
             )
         )
 
     def _lower_field_init(self, field: FieldDecl, provenance: CallableProvenance):
         initializer = field.initializer
+        field_type = self._types.canonical_type(field.type)
         is_empty = (
             (isinstance(initializer, BraceInitializer) and (not initializer.elements))
             or (isinstance(initializer, ListLiteral) and (not initializer.elements))
             or (isinstance(initializer, MapLiteral) and (not initializer.entries))
         )
-        if is_empty and field.type and self._types.is_generic_class_type(field.type):
-            mangled = self._type_identity.specialization_symbol(field.type.base, field.type.generic_args)
+        if is_empty and field_type and self._types.is_generic_class_type(field_type):
+            mangled = self._type_identity.specialization_symbol(field_type.base, field_type.generic_args)
             return IRCall(callee=f"{mangled}_new", args=[])
         return self._expressions.lower_expr(
             initializer,
@@ -226,9 +243,23 @@ class ClassLowerer:
     def _is_managed_field(self, field: FieldDecl) -> bool:
         return self._values.is_managed(field.type)
 
-    def emit_class_callable_declarations(self, declaration: ClassDecl, class_info: ClassInfo) -> None:
+    def emit_class_callable_declarations(
+        self,
+        declaration: ClassDecl,
+        class_info: ClassInfo,
+        selected_callables: frozenset[tuple[str, str]] | None = None,
+    ) -> None:
         """Register declarations for a class's own and inherited callables."""
-        for function in self.class_callable_declarations(declaration, class_info):
+        functions = [
+            IRFunctionDecl(
+                name=f"{declaration.name}_destroy",
+                return_type=CType(text="void"),
+                params=[IRParam(c_type=CType(text="void*"), name="object")],
+                is_static=self._specialized_linkage(),
+            ),
+            *self.class_callable_declarations(declaration, class_info, selected_callables),
+        ]
+        for function in functions:
             if function not in self._session.module.function_decls:
                 self._session.module.function_decls.append(function)
 
@@ -236,6 +267,7 @@ class ClassLowerer:
         self,
         declaration: ClassDecl,
         class_info: ClassInfo,
+        selected_callables: frozenset[tuple[str, str]] | None = None,
     ) -> list[IRFunctionDecl]:
         """Describe every callable prototype exposed by one concrete class."""
         name = declaration.name
@@ -248,8 +280,14 @@ class ClassLowerer:
                 name=f"{name}_init",
                 return_type=CType(text="void"),
                 params=[IRParam(c_type=CType(text=f"{name}*"), name="self")] + constructor_params,
+                is_static=self._specialized_linkage(),
             ),
-            IRFunctionDecl(name=f"{name}_new", return_type=CType(text=f"{name}*"), params=list(constructor_params)),
+            IRFunctionDecl(
+                name=f"{name}_new",
+                return_type=CType(text=f"{name}*"),
+                params=list(constructor_params),
+                is_static=self._specialized_linkage(),
+            ),
         ]
         for member in declaration.members:
             if (
@@ -257,6 +295,7 @@ class ClassLowerer:
                 and (not member.is_constructor)
                 and (member.name != "__del__")
                 and (not member.generic_params)
+                and (selected_callables is None or ("method", member.name) in selected_callables)
             ):
                 params = []
                 if member.access != "class":
@@ -267,12 +306,29 @@ class ClassLowerer:
                         name=f"{name}_{member.name}",
                         return_type=CType(text=self._types.render(member.return_type)),
                         params=params,
+                        is_static=self._specialized_linkage(),
                     )
                 )
             elif isinstance(member, PropertyDecl):
-                declarations.extend(self._property_declarations(name, member, self._signatures))
-        declarations.extend(self._inherited_property_declarations(name, declaration, class_info, self._signatures))
-        declarations.extend(self._inherited_method_declarations(name, declaration, class_info, self._signatures))
+                declarations.extend(self._property_declarations(name, member, self._signatures, selected_callables))
+        declarations.extend(
+            self._inherited_property_declarations(
+                name,
+                declaration,
+                class_info,
+                self._signatures,
+                selected_callables,
+            )
+        )
+        declarations.extend(
+            self._inherited_method_declarations(
+                name,
+                declaration,
+                class_info,
+                self._signatures,
+                selected_callables,
+            )
+        )
         return declarations
 
     @staticmethod
@@ -284,15 +340,21 @@ class ClassLowerer:
         class_name: str,
         declaration: PropertyDecl,
         signatures: CallableSignatureLowerer,
+        selected_callables: frozenset[tuple[str, str]] | None = None,
     ) -> list[IRFunctionDecl]:
         prop_type = CType(text=self._types.render(declaration.type))
         self_param = IRParam(c_type=CType(text=f"{class_name}*"), name="self")
         result = []
-        if declaration.has_getter:
+        if declaration.has_getter and (selected_callables is None or ("get", declaration.name) in selected_callables):
             result.append(
-                IRFunctionDecl(name=f"{class_name}_get_{declaration.name}", return_type=prop_type, params=[self_param])
+                IRFunctionDecl(
+                    name=f"{class_name}_get_{declaration.name}",
+                    return_type=prop_type,
+                    params=[self_param],
+                    is_static=self._specialized_linkage(),
+                )
             )
-        if declaration.has_setter:
+        if declaration.has_setter and (selected_callables is None or ("set", declaration.name) in selected_callables):
             result.append(
                 IRFunctionDecl(
                     name=f"{class_name}_set_{declaration.name}",
@@ -301,6 +363,7 @@ class ClassLowerer:
                         self_param,
                         signatures.lower_named_source_type_param(declaration.type, prop_type, "value"),
                     ],
+                    is_static=self._specialized_linkage(),
                 )
             )
         return result
@@ -311,6 +374,7 @@ class ClassLowerer:
         declaration: ClassDecl,
         class_info: ClassInfo,
         signatures: CallableSignatureLowerer,
+        selected_callables: frozenset[tuple[str, str]] | None = None,
     ) -> list[IRFunctionDecl]:
         parent = self._analyzed.class_table.get(class_info.parent) if class_info.parent else None
         if parent is None:
@@ -319,7 +383,7 @@ class ClassLowerer:
         result = []
         for name, prop in parent.properties.items():
             if name not in own:
-                result.extend(self._property_declarations(class_name, prop, signatures))
+                result.extend(self._property_declarations(class_name, prop, signatures, selected_callables))
         return result
 
     def _inherited_method_declarations(
@@ -328,6 +392,7 @@ class ClassLowerer:
         declaration: ClassDecl,
         class_info: ClassInfo,
         signatures: CallableSignatureLowerer,
+        selected_callables: frozenset[tuple[str, str]] | None = None,
     ) -> list[IRFunctionDecl]:
         declarations = []
         seen = {member.name for member in declaration.members if isinstance(member, MethodDecl)}
@@ -338,6 +403,8 @@ class ClassLowerer:
                 if method_name in seen or method_name in {"__del__", parent_name} or method.generic_params:
                     continue
                 seen.add(method_name)
+                if selected_callables is not None and ("method", method_name) not in selected_callables:
+                    continue
                 params = []
                 if method.access != "class":
                     params.append(IRParam(c_type=CType(text=f"{class_name}*"), name="self"))
@@ -347,6 +414,7 @@ class ClassLowerer:
                         name=f"{class_name}_{method_name}",
                         return_type=CType(text=self._types.render(method.return_type)),
                         params=params,
+                        is_static=self._specialized_linkage(),
                     )
                 )
             parent_name = parent_info.parent
@@ -412,6 +480,7 @@ class ClassLowerer:
                 return_type=CType(text="void"),
                 params=[IRParam(c_type=CType(text="void*"), name="object")],
                 body=IRBlock(stmts=body_stmts),
+                is_static=self._specialized_linkage(),
             )
         )
         return GeneratedSymbolRegistry.destructor_hook_symbol(name) if hook is not None else None
@@ -421,6 +490,18 @@ class ClassLowerer:
         provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
         name = decl.name
         is_static = method.access == "class"
+        collection_instance_method = not is_static and self._collections.owns_persistent_element_edges(
+            self._session.current_class_name
+        )
+        specialization = self._session.active_specialization
+        collection_type = (
+            TypeExpr(
+                base=self._session.current_class_name,
+                generic_args=list(specialization.type_arguments),
+            )
+            if collection_instance_method and specialization is not None
+            else None
+        )
         params = []
         if not is_static:
             params.append(IRParam(c_type=CType(text=f"{name}*"), name="self"))
@@ -437,25 +518,35 @@ class ClassLowerer:
             self._session.current_return_type = method.return_type
             self._session.current_return_owned = True
             try:
-                body = self._statements.lower_block(
-                    method.body,
-                    provenance,
-                    local_bindings=["self", *(parameter.name for parameter in method.params)],
-                    callable_bindings=method.params,
-                )
+                edge_owner = "self" if collection_instance_method else None
+                with self._session.persistent_edge_scope(edge_owner):
+                    body = self._statements.lower_block(
+                        method.body,
+                        provenance,
+                        local_bindings=["self", *(parameter.name for parameter in method.params)],
+                        callable_bindings=method.params,
+                    )
             finally:
                 self._session.current_return_type = previous_return_type
                 self._session.current_return_c_type = previous_return_c_type
                 self._session.current_return_owned = previous_return_owned
-        self._session.module.function_defs.append(
-            IRFunctionDef(name=f"{name}_{method.name}", return_type=CType(text=ret_type), params=params, body=body)
+        function = IRFunctionDef(
+            name=f"{name}_{method.name}",
+            return_type=CType(text=ret_type),
+            params=params,
+            body=body,
+            is_static=self._specialized_linkage(),
         )
+        if collection_type is not None:
+            self._collections.protect_topology_mutation(function, collection_type)
+        self._session.module.function_defs.append(function)
 
     def emit_inherited_methods(
         self,
         decl: ClassDecl,
         cls_info: ClassInfo,
         own_methods: set[str],
+        selected_callables: frozenset[tuple[str, str]] | None = None,
     ):
         """Emit wrapper functions for inherited methods not overridden."""
         parent_name = cls_info.parent
@@ -463,6 +554,8 @@ class ClassLowerer:
             parent_info = self._analyzed.class_table[parent_name]
             for mname, method in parent_info.methods.items():
                 if mname in own_methods or mname == "__del__" or method.is_constructor or method.generic_params:
+                    continue
+                if selected_callables is not None and ("method", mname) not in selected_callables:
                     continue
                 if method.is_abstract or method.body is None:
                     continue
@@ -484,7 +577,11 @@ class ClassLowerer:
                     body = IRBlock(stmts=[IRReturn(value=call)])
                 self._session.module.function_defs.append(
                     IRFunctionDef(
-                        name=f"{decl.name}_{mname}", return_type=CType(text=ret_type), params=params, body=body
+                        name=f"{decl.name}_{mname}",
+                        return_type=CType(text=ret_type),
+                        params=params,
+                        body=body,
+                        is_static=self._specialized_linkage(),
                     )
                 )
             parent_name = parent_info.parent
@@ -512,12 +609,17 @@ class ClassLowerer:
             ]
         )
 
-    def emit_property(self, declaration: ClassDecl, prop: PropertyDecl) -> None:
+    def emit_property(
+        self,
+        declaration: ClassDecl,
+        prop: PropertyDecl,
+        selected_callables: frozenset[tuple[str, str]] | None = None,
+    ) -> None:
         """Emit getter/setter functions for one declared property."""
         name = declaration.name
         prop_type = self._types.render(prop.type) if prop.type else "int"
         backing = f"_prop_{prop.name}"
-        if prop.has_getter:
+        if prop.has_getter and (selected_callables is None or ("get", prop.name) in selected_callables):
             provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
             body = self._getter_body(
                 prop,
@@ -531,9 +633,10 @@ class ClassLowerer:
                     return_type=CType(text=prop_type),
                     params=[IRParam(c_type=CType(text=f"{name}*"), name="self")],
                     body=body,
+                    is_static=self._specialized_linkage(),
                 )
             )
-        if prop.has_setter:
+        if prop.has_setter and (selected_callables is None or ("set", prop.name) in selected_callables):
             provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
             value_name = provenance.source_binding_c_name("value")
             body = self._setter_body(
@@ -551,6 +654,7 @@ class ClassLowerer:
                         provenance.lower_named_source_type_param(prop.type, prop_type, "value"),
                     ],
                     body=body,
+                    is_static=self._specialized_linkage(),
                 )
             )
 
@@ -559,6 +663,7 @@ class ClassLowerer:
         declaration: ClassDecl,
         class_info: ClassInfo,
         own_properties: set[str],
+        selected_callables: frozenset[tuple[str, str]] | None = None,
     ) -> None:
         """Expose direct-parent property accessors with child-typed wrappers."""
         parent_name = class_info.parent
@@ -570,7 +675,7 @@ class ClassLowerer:
             if name in own_properties:
                 continue
             prop_type = CType(text=self._types.render(prop.type))
-            if prop.has_getter:
+            if prop.has_getter and (selected_callables is None or ("get", name) in selected_callables):
                 self._session.module.function_defs.append(
                     IRFunctionDef(
                         name=f"{declaration.name}_get_{name}",
@@ -579,9 +684,10 @@ class ClassLowerer:
                         body=IRBlock(
                             stmts=[IRReturn(value=IRCall(callee=f"{parent_name}_get_{name}", args=[cast_self]))]
                         ),
+                        is_static=self._specialized_linkage(),
                     )
                 )
-            if prop.has_setter:
+            if prop.has_setter and (selected_callables is None or ("set", name) in selected_callables):
                 provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
                 value_name = provenance.source_binding_c_name("value")
                 self._session.module.function_defs.append(
@@ -601,6 +707,7 @@ class ClassLowerer:
                                 )
                             ]
                         ),
+                        is_static=self._specialized_linkage(),
                     )
                 )
 
@@ -719,20 +826,14 @@ class ClassLowerer:
                     "class field storage",
                     provenance,
                 )
-            if isinstance(initializer, (BraceInitializer, ListLiteral)):
-                init = self._expressions.lower_static_initializer(
+            init = (
+                self._expressions.lower_static_initializer(
                     initializer,
                     provenance,
                 )
-            else:
-                init = (
-                    self._expressions.lower_expr(
-                        initializer,
-                        provenance,
-                    )
-                    if initializer is not None
-                    else None
-                )
+                if initializer is not None
+                else None
+            )
             self._session.module.global_decls.append(
                 IRGlobalDecl(
                     c_type=CType(text=self._types.render(field_type)),
@@ -791,7 +892,12 @@ class ClassLowerer:
             effective_is_volatile=StorageModel.effective_outer_volatile(field_type, self._analyzed.typedef_table),
         )
 
-    def emit_class_visitor(self, emitted_name: str, storage: Iterable[tuple[str, object]]) -> None:
+    def emit_class_visitor(
+        self,
+        emitted_name: str,
+        concrete_type: TypeExpr,
+        storage: Iterable[tuple[str, object]],
+    ) -> None:
         """Emit ``NAME_visit(object, fn)`` for one cyclable representation."""
         self._cycles.register_visitor(emitted_name)
         self._collections.ensure_cycle_callback_alias()
@@ -811,18 +917,30 @@ class ClassLowerer:
                 init=IRCast(target_type=CType(text=f"{emitted_name}*"), expr=IRVar(name="object")),
             )
         ]
-        visited = False
-        for field_name, field_decl in storage:
-            field_type = getattr(field_decl, "type", None)
-            if field_type is None:
-                continue
-            field = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
-            field_visits = self._collections.slot_visit_stmts(
-                field_type,
-                field,
-            )
-            visited = visited or bool(field_visits)
-            body.extend(field_visits)
+        collection_visits = self._collections.cycle_storage_visit_stmts(
+            concrete_type,
+            IRVar(name="self"),
+        )
+        visited = bool(collection_visits)
+        if collection_visits is not None:
+            body.extend(collection_visits)
+        else:
+            specialization = self._session.active_specialization
+            for field_name, field_decl in storage:
+                field_type = getattr(field_decl, "type", None)
+                if field_type is None:
+                    continue
+                if specialization is not None:
+                    field_type = specialization.substitution.resolve(field_type)
+                if field_type is None:
+                    continue
+                field = IRFieldAccess(obj=IRVar(name="self"), field=field_name, arrow=True)
+                field_visits = self._collections.slot_visit_stmts(
+                    field_type,
+                    field,
+                )
+                visited = visited or bool(field_visits)
+                body.extend(field_visits)
         if not visited:
             body.extend(
                 [
@@ -884,14 +1002,21 @@ class ClassLowerer:
 
     def emit_class_decl(self, decl: ClassDecl):
         """Emit a class: struct + constructor + destructor + methods."""
-        cls_info = self._analyzed.class_table.get(decl.name)
+        source_declaration = decl
+        source_name = decl.name
+        cls_info = self._analyzed.class_table.get(source_name)
         if not cls_info:
             return
+        specialization = self._session.active_specialization
+        selected_callables = specialization.selected_callables if specialization is not None else None
+        if specialization is not None and specialization.declaration is decl:
+            decl = replace(decl, name=specialization.symbol, generic_params=[])
         self._session.current_class = cls_info
-        self._session.current_class_name = decl.name
+        self._session.current_class_name = source_name
         self._emit_class_struct(
             decl,
             cls_info,
+            source_declaration,
         )
         self.emit_static_fields(
             decl,
@@ -899,6 +1024,7 @@ class ClassLowerer:
         self.emit_class_callable_declarations(
             decl,
             cls_info,
+            selected_callables,
         )
         self.emit_constructor(
             decl,
@@ -909,9 +1035,14 @@ class ClassLowerer:
             cls_info,
         )
         visitor_name = None
-        if self._cycles.type_needs_visitor(TypeExpr(base=decl.name), set()):
+        specialized_type = TypeExpr(
+            base=source_name,
+            generic_args=list(specialization.type_arguments) if specialization is not None else [],
+        )
+        if self._cycles.type_needs_visitor(specialized_type, set()):
             self.emit_class_visitor(
                 decl.name,
+                specialized_type,
                 cls_info.instance_storage,
             )
             visitor_name = self._cycles.visitor_symbol(decl.name)
@@ -921,7 +1052,12 @@ class ClassLowerer:
         for member in decl.members:
             if isinstance(member, MethodDecl) and (not member.is_constructor) and (member.name != "__del__"):
                 own_methods.add(member.name)
-                if not member.generic_params and (not member.is_abstract) and (member.body is not None):
+                if (
+                    not member.generic_params
+                    and (not member.is_abstract)
+                    and (member.body is not None)
+                    and (selected_callables is None or ("method", member.name) in selected_callables)
+                ):
                     self.emit_method(
                         decl,
                         member,
@@ -930,23 +1066,35 @@ class ClassLowerer:
                 self.emit_property(
                     decl,
                     member,
+                    selected_callables,
                 )
                 own_properties.add(member.name)
         self.emit_inherited_properties(
             decl,
             cls_info,
             own_properties,
+            selected_callables,
         )
         if cls_info.parent and cls_info.parent in self._analyzed.class_table:
             self.emit_inherited_methods(
                 decl,
                 cls_info,
                 own_methods,
+                selected_callables,
             )
         self._session.current_class = None
         self._session.current_class_name = ""
 
-    def _emit_class_struct(self, decl: ClassDecl, cls_info: ClassInfo):
+    def _specialized_linkage(self) -> bool:
+        """Whether the active class instance has translation-unit-local linkage."""
+        return self._session.active_specialization is not None
+
+    def _emit_class_struct(
+        self,
+        decl: ClassDecl,
+        cls_info: ClassInfo,
+        source_declaration: ClassDecl,
+    ) -> None:
         """Emit the struct definition for a class."""
         provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
         fields: list[IRStructField] = []
@@ -960,7 +1108,11 @@ class ClassLowerer:
                 )
             )
         self._session.module.struct_defs.append(
-            IRStructDef(name=decl.name, fields=fields, pack_alignment=self._pack_alignments.get(id(decl)))
+            IRStructDef(
+                name=decl.name,
+                fields=fields,
+                pack_alignment=self._pack_alignments.get(id(source_declaration)),
+            )
         )
 
     @staticmethod

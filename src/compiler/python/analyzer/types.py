@@ -591,6 +591,16 @@ class TypeIdentity:
             right, left, classes, interfaces
         )
 
+    def specialization_is_subtype(
+        self,
+        child: TypeExpr,
+        parent: TypeExpr,
+        class_table: Mapping[str, object],
+        interface_table: Mapping[str, object],
+    ) -> bool:
+        """Whether one concrete class/interface specialization derives from another."""
+        return self._specialization_is_subtype(child, parent, class_table, interface_table)
+
     def nominally_related(
         self, left: str, right: str, class_table: Mapping[str, object], interface_table: Mapping[str, object]
     ) -> bool:
@@ -1094,7 +1104,7 @@ class TypeSystem:
 
     def is_scalar_string_value(self, type_expr: TypeExpr | None) -> bool:
         """Whether a type is exactly one language string value."""
-        return self._type_identity.is_scalar_string(type_expr)
+        return self._type_identity.is_scalar_string(self.canonical_type(type_expr))
 
     def generic_symbol(self, base: str, arguments: Iterable[TypeExpr]) -> str:
         """Spell the generated C symbol for a parameterized type."""
@@ -1269,6 +1279,7 @@ class TypeSystem:
 
     def operator_method(self, receiver_type, operator, *, unary=False):
         """Return an overload and its class substitutions, if one exists."""
+        receiver_type = self.canonical_type(receiver_type)
         if receiver_type is None:
             return None
         cls = self.index.class_table.get(receiver_type.base)
@@ -1388,10 +1399,7 @@ class TypeSystem:
         type_line = type_expr.line or line
         type_col = type_expr.col or col
         self._validate_storage_qualifiers(type_expr, subject, role, type_line, type_col)
-        if role == "return" and (
-            self._effective_outer_qualifier(type_expr, "is_const")
-            or self._effective_outer_qualifier(type_expr, "is_volatile")
-        ):
+        if role == "return" and self._return_type_has_outer_cv_qualifier(type_expr):
             self.session.error(
                 f"{subject} cannot carry an outer const/volatile qualifier; C discards qualifiers on returned values",
                 type_line,
@@ -1504,7 +1512,7 @@ class TypeSystem:
             expected = None
         if expected is not None and (not is_active_type_parameter) and len(type_expr.generic_args or []) != expected:
             self.report_type_shape_error(
-                f"Type '{type_expr.base}' expects {expected} generic argument(s), got {len(type_expr.generic_args or [])}",
+                f"Type '{type_expr.base}' expects {expected} generic argument(s) but got {len(type_expr.generic_args or [])}",
                 type_expr,
                 type_expr.line,
                 type_expr.col,
@@ -1520,11 +1528,56 @@ class TypeSystem:
         reported.add(marker)
         self.session.error(message, error_line, error_col)
 
-    def _effective_outer_qualifier(self, type_expr, qualifier) -> bool:
-        resolved = self.canonical_type(type_expr)
-        if resolved is None:
+    def _return_type_has_outer_cv_qualifier(self, type_expr) -> bool:
+        """Whether C would discard a qualifier on the returned value itself.
+
+        Canonicalizing first is insufficient here: flattening a typedef keeps
+        the qualifier bit but loses the declarator layer that says whether it
+        belongs to the value or to a pointee.  Const and volatile also have
+        intentionally different source semantics.  ``const T*`` qualifies
+        ``T``, while an explicit ``volatile T*`` qualifies the pointer storage;
+        typedef-inherited qualifiers remain below any pointer shell applied at
+        the use site.
+        """
+        return self._declarator_has_outer_const(type_expr) or self._declarator_has_outer_volatile(type_expr)
+
+    def _declarator_has_outer_const(self, type_expr, seen=frozenset()) -> bool:
+        if type_expr is None:
             return False
-        return bool(getattr(resolved, qualifier, False))
+        target = self._qualifier_typedef_target(type_expr, seen)
+        applied_layers = self._qualifier_applied_storage_layers(type_expr, target)
+        implicit_pointee = target is None and type_expr.base in {"Mutex", "Thread", "string"}
+        if type_expr.is_const and (applied_layers + int(implicit_pointee) == 0):
+            return True
+        if target is None or applied_layers > 0:
+            return False
+        return self._declarator_has_outer_const(target, seen | {type_expr.base})
+
+    def _declarator_has_outer_volatile(self, type_expr, seen=frozenset()) -> bool:
+        if type_expr is None:
+            return False
+        if type_expr.is_volatile:
+            return True
+        target = self._qualifier_typedef_target(type_expr, seen)
+        if target is None or self._qualifier_applied_pointer_layers(type_expr, target) > 0:
+            return False
+        return self._declarator_has_outer_volatile(target, seen | {type_expr.base})
+
+    def _qualifier_typedef_target(self, type_expr, seen):
+        if type_expr.generic_args or type_expr.base in seen:
+            return None
+        return self.index.typedef_table.get(type_expr.base)
+
+    @staticmethod
+    def _qualifier_applied_storage_layers(type_expr, target) -> int:
+        return TypeSystem._qualifier_applied_pointer_layers(type_expr, target) + int(type_expr.is_array)
+
+    @staticmethod
+    def _qualifier_applied_pointer_layers(type_expr, target) -> int:
+        reference_shape = TypeSystem.resolved_reference_shape(target) if target is not None else False
+        return type_expr.pointer_depth - int(
+            TypeSystem.nullable_collapses_reference_layer(type_expr, base_is_reference=reference_shape)
+        )
 
     def _is_known_declaration_type(self, type_expr, active_type_params=()) -> bool:
         base = type_expr.base

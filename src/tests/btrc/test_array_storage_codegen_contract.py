@@ -160,6 +160,9 @@ def test_generic_method_array_locals_preserve_declarators_and_storage(
         assert "static int cached[2] = {7, 11};" in c_source
         assert "volatile int local[2];" in c_source
         assert "extern int shared[];" in c_source
+        assert "Value volatile* __btrc_lvalue" not in c_source
+        if index == 0:
+            assert "int volatile* __btrc_lvalue" in c_source
         _strict_build_and_run(path, tmp_path / f"generic-array-locals-{index}")
 
 

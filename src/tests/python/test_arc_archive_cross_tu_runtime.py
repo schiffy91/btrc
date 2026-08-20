@@ -55,9 +55,7 @@ pytestmark = pytest.mark.skipif(
 @pytest.fixture(scope="module")
 def stdlib_output(tmp_path_factory: pytest.TempPathFactory) -> Path:
     output = tmp_path_factory.mktemp("arc-cross-tu-stdlib")
-    compiler = Compiler(
-        CompilationPipeline(archive_repository=archive.StdlibArtifactRepository())
-    )
+    compiler = Compiler(CompilationPipeline(archive_repository=archive.StdlibArtifactRepository()))
     assert compiler.build_stdlib_archive(str(output)).successful
     return output
 

@@ -266,11 +266,28 @@ def test_frontend_scan_limits_are_wired_before_materialization() -> None:
     frontend = (REPO / "src/compiler/btrc/frontend/resolver.btrc").read_text()
     source_io = (REPO / "src/compiler/btrc/frontend/source_io.btrc").read_text()
     filesystem = (REPO / "src/stdlib/fs.btrc").read_text()
+    read_required = source_io[
+        source_io.index("private Vector<string> readRequired(") : source_io.index(
+            "public Vector<string> sortedEntries("
+        )
+    ]
+    budgeted_scan = source_io[source_io.index("public Vector<string> sortedEntriesWithinBudget(") :]
+    tree_scan = frontend[frontend.index("private void collectTree(") : frontend.index("private void sortPaths(")]
+    directory_scan = frontend[
+        frontend.index("private void collectDirectory(") : frontend.index("private Vector<string> resolveRelative(")
+    ]
 
-    assert "path, budget.remainingEntries())" in frontend
     assert "source.readBytesBounded(self.policy.sourceByteLimit())" in source_io
-    assert "directory.entriesBounded(maximumEntries)" in frontend
-    assert "budget.addEntries(entries.len)" in frontend
+    assert "directory.entriesBounded(maximumEntries)" in read_required
+    assert budgeted_scan.index("path, budget.remainingEntries())") < budgeted_scan.index(
+        "budget.addEntries(entries.len)"
+    )
+    assert tree_scan.index(".sortedEntriesWithinBudget(current, budget)") < tree_scan.index(
+        "while (index < entries.len)"
+    )
+    assert directory_scan.index(".sortedEntriesWithinBudget(root, budget)") < directory_scan.index(
+        "while (index < entries.len)"
+    )
     assert "budget.addFile()" in frontend
     assert "Vector<string> pending = []" in frontend
     assert "result.len > maxEntries" in filesystem
@@ -291,11 +308,12 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
     mutable_module.write_text("class BeforeRefresh { }\n", encoding="utf-8")
     virtual_source = tmp_path / "virtual.btrc"
     isolated_source = tmp_path / "isolated.btrc"
+    isolated_source.write_text("int isolatedValue;\n", encoding="utf-8")
     program = tmp_path / "resolver_reuse.btrc"
     generated = tmp_path / "resolver_reuse.c"
     executable = tmp_path / "resolver_reuse"
     first_source = "import std.mutable;\nint firstValue;\n"
-    second_source = "import std.mutable;\nint secondValue;\n"
+    second_source = 'import std.mutable;\n#include "isolated.btrc"\nint secondValue;\n'
     refreshed_module = "class AfterRefresh { }\n"
     program.write_text(
         f"import {json.dumps(str(stage))};\n"
@@ -315,7 +333,9 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         "            || firstGraphBudget.fileCount() != 1\n"
         "            || secondGraphBudget.sourceBytes() != 0\n"
         "            || secondGraphBudget.fileCount() != 0) { return 9; }\n"
-        f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
+        f"    string grammarSource = sourceFiles.readRequired({json.dumps(str(grammar_path))});\n"
+        "    EbnfGrammarParser grammarParser = EbnfGrammarParser(grammarSource);\n"
+        "    GrammarInfo grammar = grammarParser.parse();\n"
         f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, sourceFiles, resolutionPolicy);\n"
         "    FeFrontendResolver resolver = FeFrontendResolver(\n"
         "        grammar, stdlib, false, true, resolutionPolicy);\n"
@@ -334,8 +354,8 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         '            || !second.userSource.contains("int secondValue")) { return 3; }\n'
         "    if (first.stdlibSnapshot.sameContents(second.stdlibSnapshot)) { return 4; }\n"
         f"    string isolatedPath = {json.dumps(str(isolated_source))};\n"
-        "    second.dependencies.ensureSource(isolatedPath);\n"
-        "    if (first.dependencies.hasSource(isolatedPath)) { return 5; }\n"
+        "    if (!second.dependencies.hasSource(isolatedPath)\n"
+        "            || first.dependencies.hasSource(isolatedPath)) { return 5; }\n"
         "    return 0;\n"
         "}\n",
         encoding="utf-8",
@@ -405,7 +425,9 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
         "int main() {\n"
         "    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();\n"
         "    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);\n"
-        f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
+        f"    string grammarSource = sourceFiles.readRequired({json.dumps(str(grammar_path))});\n"
+        "    EbnfGrammarParser grammarParser = EbnfGrammarParser(grammarSource);\n"
+        "    GrammarInfo grammar = grammarParser.parse();\n"
         f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, sourceFiles, resolutionPolicy);\n"
         "    FeStdlibRootSnapshot snapshot = stdlib.rootSnapshot();\n"
         "    FeSourceDirectoryScanner directories = FeSourceDirectoryScanner(resolutionPolicy);\n"
@@ -521,11 +543,17 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         f"    string firstReadAgain = sourceFiles.readRequired({json.dumps(str(first_input))});\n"
         '    if (!firstRead.equals("alpha\\n") || !secondRead.equals("beta\\n")\n'
         "            || !firstReadAgain.equals(firstRead)) { return 1; }\n"
-        f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
+        f"    string grammarSource = sourceFiles.readRequired({json.dumps(str(grammar_path))});\n"
+        "    EbnfGrammarParser grammarParser = EbnfGrammarParser(grammarSource);\n"
+        "    GrammarInfo grammar = grammarParser.parse();\n"
         f"    FeStdlibRepository first = FeStdlibRepository({json.dumps(str(stdlib_a))}, sourceFiles, resolutionPolicy);\n"
         f"    FeStdlibRepository second = FeStdlibRepository({json.dumps(str(stdlib_b))}, sourceFiles, resolutionPolicy);\n"
         "    FeStdlibRootSnapshot firstSnapshot = first.rootSnapshot();\n"
         "    FeStdlibRootSnapshot secondSnapshot = second.rootSnapshot();\n"
+        "    FeFrontendResolver firstResolver = FeFrontendResolver(\n"
+        "        grammar, first, false, true, resolutionPolicy);\n"
+        "    FeFrontendResolver secondResolver = FeFrontendResolver(\n"
+        "        grammar, second, false, true, resolutionPolicy);\n"
         "    if (firstSnapshot.count() != 2\n"
         '            || !PathTools.basename(firstSnapshot.pathAt(0)).equals("vector.btrc")\n'
         '            || !PathTools.basename(firstSnapshot.pathAt(1)).equals("zeta.btrc")) { return 2; }\n'
@@ -535,12 +563,12 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         '            || first.requiredModuleForCompilation("strings", firstSnapshot).found) { return 4; }\n'
         '    if (!second.requiredModuleForCompilation("strings", secondSnapshot).found\n'
         '            || second.requiredModuleForCompilation("vector", secondSnapshot).found) { return 5; }\n'
-        '    string firstSource = first.sourceAtSnapshot("int userValue;\\n", firstSnapshot);\n'
+        '    string firstSource = firstResolver.sourceAtSnapshot("int userValue;\\n", firstSnapshot);\n'
         '    if (!firstSource.contains("class Alpha")\n'
         '            || !firstSource.contains("class Zeta")\n'
         '            || firstSource.contains("import std.strings")) { return 6; }\n'
-        '    if (!second.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
-        '    if (second.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 8; }\n'
+        '    if (!secondResolver.sourceAtSnapshot("int userValue;\\n", secondSnapshot).contains("class Beta")) { return 7; }\n'
+        '    if (secondResolver.sourceAtSnapshot("class Beta { }\\n", secondSnapshot).contains("class Beta")) { return 8; }\n'
         "    return 0;\n"
         "}\n",
         encoding="utf-8",
@@ -586,7 +614,7 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
-    parser_stage = REPO / "src/compiler/btrc/parser/stage.btrc"
+    frontend_stage = REPO / "src/compiler/btrc/frontend/stage.btrc"
     grammar_path = REPO / "src/language/grammar.ebnf"
     stdlib = tmp_path / "stdlib"
     stdlib.mkdir()
@@ -600,38 +628,67 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
     fixed_stdlib_source = "class Beta { }\nclass Gamma { }\n"
     program.write_text(
         "import std.fs;\n"
-        f"import {json.dumps(str(parser_stage))};\n"
+        f"import {json.dumps(str(frontend_stage))};\n"
+        "\n"
+        "FeVisibilityCheckResult checkStdlibSnapshot(\n"
+        "        FeStdlibRepository repository, FeStdlibSymbolIndex index,\n"
+        "        GrammarInfo grammar, FeSourceResolutionPolicy resolutionPolicy,\n"
+        "        string sourcePath) {\n"
+        "    FeFrontendResolver resolver = FeFrontendResolver(\n"
+        "        grammar, repository, false, true, resolutionPolicy);\n"
+        '    FeResolvedSource resolved = resolver.resolve("int localValue;\\n", sourcePath);\n'
+        "    Lexer lexer = Lexer(resolved.source, grammar);\n"
+        "    Vector<Token> tokens = lexer.tokenize();\n"
+        "    Parser parser = Parser(tokens, grammar);\n"
+        "    Node parsed = parser.parseProgram();\n"
+        "    Map<string, bool> implicitFunctions = {};\n"
+        "    FeImportVisibilityChecker checker = FeImportVisibilityChecker(\n"
+        "        parsed, resolved, repository, index, grammar, implicitFunctions);\n"
+        "    return checker.check();\n"
+        "}\n"
         "\n"
         "int main() {\n"
         "    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();\n"
         "    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);\n"
-        f"    GrammarInfo grammar = parseGrammar(sourceFiles.readRequired({json.dumps(str(grammar_path))}));\n"
+        f"    string grammarSource = sourceFiles.readRequired({json.dumps(str(grammar_path))});\n"
+        "    EbnfGrammarParser grammarParser = EbnfGrammarParser(grammarSource);\n"
+        "    GrammarInfo grammar = grammarParser.parse();\n"
         f"    FeStdlibRepository repository = FeStdlibRepository({json.dumps(str(stdlib))}, sourceFiles, resolutionPolicy);\n"
         "    FeStdlibSymbolIndex index = FeStdlibSymbolIndex();\n"
-        "    Map<string, Vector<string>> firstSymbols = {};\n"
+        f"    string sourcePath = {json.dumps(str(program))};\n"
         "    FeStdlibRootSnapshot firstSnapshot = repository.rootSnapshot();\n"
-        "    FeStdlibSymbolIndexResult first = index.mergeSnapshotInto(\n"
-        "        firstSymbols, firstSnapshot);\n"
-        '    if (!first.success || !firstSymbols.has("Alpha")\n'
+        "    FeVisibilityCheckResult first = checkStdlibSnapshot(\n"
+        "        repository, index, grammar, resolutionPolicy, sourcePath);\n"
+        "    Map<string, Vector<string>> firstSymbols = {};\n"
+        "    index.mergeInto(firstSymbols);\n"
+        "    if (!first.success || !index.currentFor(firstSnapshot)\n"
+        '            || !firstSymbols.has("Alpha")\n'
         '            || firstSymbols.get("Alpha").len != 1) { return 1; }\n'
         f"    if (!FileSystem.writeText({json.dumps(str(indexed_source))}, "
         f"{json.dumps(invalid_stdlib_source)})) {{ return 2; }}\n"
         "    FeStdlibRootSnapshot invalidSnapshot = repository.rootSnapshot();\n"
+        "    FeVisibilityCheckResult failed = checkStdlibSnapshot(\n"
+        "        repository, index, grammar, resolutionPolicy, sourcePath);\n"
         "    Map<string, Vector<string>> failedSymbols = {};\n"
-        "    FeStdlibSymbolIndexResult failed = index.mergeSnapshotInto(\n"
-        "        failedSymbols, invalidSnapshot);\n"
+        "    index.mergeInto(failedSymbols);\n"
         "    if (failed.success || !failed.diagnostic.contains(\n"
         '            "cannot index standard-library source")\n'
         "            || firstSnapshot.sameContents(invalidSnapshot)\n"
-        '            || failedSymbols.has("Alpha")\n'
+        "            || !index.currentFor(firstSnapshot)\n"
+        "            || index.currentFor(invalidSnapshot)\n"
+        '            || !failedSymbols.has("Alpha")\n'
+        '            || failedSymbols.get("Alpha").len != 1\n'
         '            || failedSymbols.has("Beta")) { return 3; }\n'
         f"    if (!FileSystem.writeText({json.dumps(str(indexed_source))}, "
         f"{json.dumps(fixed_stdlib_source)})) {{ return 4; }}\n"
         "    FeStdlibRootSnapshot fixedSnapshot = repository.rootSnapshot();\n"
+        "    FeVisibilityCheckResult fixed = checkStdlibSnapshot(\n"
+        "        repository, index, grammar, resolutionPolicy, sourcePath);\n"
         "    Map<string, Vector<string>> fixedSymbols = {};\n"
-        "    FeStdlibSymbolIndexResult fixed = index.mergeSnapshotInto(\n"
-        "        fixedSymbols, fixedSnapshot);\n"
+        "    index.mergeInto(fixedSymbols);\n"
         "    if (!fixed.success || fixedSnapshot.sameContents(invalidSnapshot)\n"
+        "            || !index.currentFor(fixedSnapshot)\n"
+        "            || index.currentFor(firstSnapshot)\n"
         '            || fixedSymbols.has("Alpha")\n'
         '            || !fixedSymbols.has("Beta")\n'
         '            || !fixedSymbols.has("Gamma")\n'

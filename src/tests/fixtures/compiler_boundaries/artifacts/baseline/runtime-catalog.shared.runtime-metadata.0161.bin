@@ -1,0 +1,1 @@
+{"asset":"strings.c","btrc_order":36,"category":"string","dependencies":["__btrc_string_length","__btrc_string_alloc","__btrc_strdup"],"headers":[],"name":"__btrc_removePrefix","provided_objects":[],"provided_types":[],"python_order":37,"source_sha256":"3a0b48e8a4612a4ba30593f81542951b5ee4f7d6cdd05c12f83295dba5c14077","source_size":506,"source_visible":false}

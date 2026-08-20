@@ -1,9 +1,9 @@
 """Semantic contracts for inferred array-returning GPU bindings."""
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.syntax.ast.generated import FunctionDecl, VarDeclStmt
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import FunctionDecl, VarDeclStmt
 
 
 def _analyze(source: str):

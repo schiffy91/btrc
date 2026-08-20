@@ -11,9 +11,9 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -183,6 +183,8 @@ int receiverCalls = 0;
 int indexCalls = 0;
 int rhsCalls = 0;
 char storage[1] = {'x'};
+char output[2] = {'x', 'y'};
+int written = 0;
 Cell cell = {'x'};
 
 char* receiverProbe() {
@@ -224,6 +226,10 @@ void ordinary() {
     receiverProbe()[indexProbe()] = rhsProbe();
 }
 
+void postIncrementIndex() {
+    output[written++] = ' ';
+}
+
 class Writer<T> {
     public void write() {
         receiverProbe()[indexProbe()] = rhsProbe();
@@ -233,6 +239,9 @@ class Writer<T> {
 int main() {
     ordinary();
     assert(step == 3 && storage[0] == 'a');
+
+    postIncrementIndex();
+    assert(written == 1 && output[0] == ' ');
 
     step = 0;
     cellProbe()->value = fieldRhsProbe();
@@ -248,6 +257,27 @@ int main() {
 }
 """
 
+VALUE_STRUCT_FIELD_SOURCE = r"""
+#include <assert.h>
+
+struct Cell { int value; };
+
+int probeCalls = 0;
+
+int probe() {
+    probeCalls++;
+    return 7;
+}
+
+int main() {
+    Cell cell = {1};
+    cell.value = probe();
+    assert(cell.value == 7);
+    assert(probeCalls == 1);
+    return 0;
+}
+"""
+
 
 def _analyze(source: str):
     program = Parser(Lexer(source, "<lvalue-update>").tokenize()).parse()
@@ -258,22 +288,36 @@ def _analyze(source: str):
 def _emit_runtime() -> str:
     analyzed = _analyze(RUNTIME_SOURCE)
     assert not analyzed.errors
-    return CEmitter().emit(IROptimizer(IRLowerer(analyzed).lower()).optimize())
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
+    return pipeline.emit(module)
 
 
 @functools.lru_cache(maxsize=1)
 def _emit_physical_slot_runtime() -> str:
     analyzed = _analyze(PHYSICAL_SLOT_SOURCE)
     assert not analyzed.errors
-    return CEmitter().emit(IROptimizer(IRLowerer(analyzed).lower()).optimize())
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
+    return pipeline.emit(module)
+
+
+@functools.lru_cache(maxsize=1)
+def _emit_value_struct_field_runtime() -> str:
+    analyzed = _analyze(VALUE_STRUCT_FIELD_SOURCE)
+    assert not analyzed.errors
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
+    return pipeline.emit(module)
 
 
 def test_lvalue_runtime_uses_correct_volatile_declarators():
     generated = _emit_runtime()
     main = generated[generated.index("int main(void) {") :]
-    assert re.search(r"volatile int\*\s+[A-Za-z_]\w*;", main)
+    assert "volatile int scalar = 1;" in main
     assert "char* volatile text" in generated
-    assert re.search(r"int\* volatile\*\s+[A-Za-z_]\w*;", generated)
+    assert re.search(r"int __btrc_update_old_\d+;", main)
+    assert "(&scalar)" not in main
     assert "__btrc_div" in generated and "__btrc_mod" in generated
 
 
@@ -281,9 +325,48 @@ def test_projection_assignment_addresses_the_physical_slot():
     generated = _emit_physical_slot_runtime()
     assert "(&((" not in generated
     assert re.search(
-        r"\(&__btrc_call_operand_\d+\[__btrc_call_operand_\d+\]\)",
+        r"\(__btrc_storage_receiver_\d+\[__btrc_storage_index_\d+\] = ",
         generated,
     )
+
+
+def test_value_struct_field_assignment_preserves_the_original_lvalue():
+    generated = _emit_value_struct_field_runtime()
+    main = generated[generated.index("int main(void) {") :]
+    assert "Cell __btrc_call_operand_" not in main
+    assert "(cell.value = probe())" in main
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_value_struct_field_assignment_is_strict_c11(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    c_path = tmp_path / "value_struct_field_assignment.c"
+    binary = tmp_path / "value_struct_field_assignment"
+    c_path.write_text(_emit_value_struct_field_runtime())
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O0",
+            str(c_path),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(binary),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    subprocess.run([str(binary)], check=True, timeout=10)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
@@ -402,6 +485,10 @@ def test_nested_pointer_generic_storage_remains_raw_indexing():
         }
     """)
     # Nested pointer storage is raw C storage, not an indexed-protocol call.
-    assert len(re.findall(r"\bself->values\s*\[\s*i\s*\]", generated)) >= 2
+    assert len(re.findall(r"\bself->values\b", generated)) >= 2
+    assert re.search(
+        r"__btrc_storage_receiver_\d+\[__btrc_storage_index_\d+\] = value",
+        generated,
+    )
     assert "_get(self->values" not in generated
     assert "_set(self->values" not in generated

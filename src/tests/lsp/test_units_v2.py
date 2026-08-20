@@ -4,6 +4,10 @@ import os
 
 from lsprotocol import types as lsp
 
+from src.compiler.python.frontend.sources import (
+    SourceDependencyGraph,
+    SourceDependencyKind,
+)
 from src.compiler.python.syntax.ast.generated import (
     FunctionDecl,
     ImportDecl,
@@ -11,17 +15,10 @@ from src.compiler.python.syntax.ast.generated import (
     RelativePath,
     StdModules,
 )
-from src.compiler.python.frontend.sources import (
-    SourceDependencyGraph,
-    SourceDependencyKind,
-)
-from src.tests.lsp.lsphelp import get_definition
 from src.devex.lsp.protocol.server import BtrcLanguageServer
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import pos_of
 from src.devex.lsp.workspace.units import FileUnit
 from src.devex.lsp.workspace.workspace import Composition, Workspace
-from src.tests.lsp.lsphelp import compute_diagnostics
+from src.tests.lsp.lsphelp import compute_diagnostics, get_definition, get_hover_info, pos_of
 
 srv = BtrcLanguageServer(debounce_seconds=0)
 

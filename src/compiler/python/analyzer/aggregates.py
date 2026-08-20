@@ -640,13 +640,38 @@ class AggregateAnalyzer:
             return True
         return storage == "static-field" and (not isinstance(member.initializer, (BraceInitializer, ListLiteral)))
 
+    def heap_collection_has_capacity(self, type_expr) -> bool:
+        """Whether a heap collection exposes the canonical data/length buffer view."""
+        canonical = self.types.canonical_type(type_expr)
+        if canonical is None or canonical.base not in {"Array", "Vector"} or len(canonical.generic_args) != 1:
+            return False
+        declaration = self.index.class_table.get(canonical.base)
+        if declaration is None or len(declaration.generic_params) != 1:
+            return False
+        data = declaration.fields.get("data")
+        length = declaration.fields.get("len")
+        if data is None or length is None:
+            return False
+        substitutions = dict(zip(declaration.generic_params, canonical.generic_args))
+        data_type = self.types.substitute_type(data.type, substitutions)
+        length_type = self.types.substitute_type(length.type, substitutions)
+        expected_data = self.types.add_outer_pointer(canonical.generic_args[0])
+        return bool(
+            data_type is not None
+            and self.types.type_shape_key(data_type) == self.types.type_shape_key(expected_data)
+            and length_type is not None
+            and length_type.base == "int"
+            and length_type.pointer_depth == 0
+            and not length_type.is_array
+        )
+
     def array_target_has_capacity(self, target, inferred) -> bool:
         inferred = self.array_target_value_type(target, inferred)
         canonical = self.types.canonical_type(inferred)
         if canonical is None:
             return False
         if canonical.base in {"Array", "Vector"} and canonical.generic_args:
-            return True
+            return self.heap_collection_has_capacity(canonical)
         if not canonical.is_array:
             return False
         if isinstance(target, FieldAccessExpr):

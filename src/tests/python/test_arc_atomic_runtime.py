@@ -372,7 +372,12 @@ def _build_and_run(
     )
     assert build.returncode == 0, build.stderr
     run_environment = dict(os.environ if environment is None else environment)
-    run_environment["TSAN_OPTIONS"] = "halt_on_error=1"
+    tsan_options = ["halt_on_error=1"]
+    if sys.platform == "darwin" and os.path.realpath(compiler) == "/usr/bin/clang":
+        # Apple TSAN's atos attach depends on host developer authorization.
+        # Raw PCs keep a real race observable when that symbolizer cannot attach.
+        tsan_options.append("symbolize=0")
+    run_environment["TSAN_OPTIONS"] = ":".join(tsan_options)
     return subprocess.run(
         [str(output)],
         env=run_environment,
@@ -387,6 +392,18 @@ def _build_and_run(
 def test_atomic_arc_stress_is_strict_c11_clean(tmp_path: Path, c_compiler: str) -> None:
     run = _build_and_run(tmp_path, c_compiler)
     assert run.returncode == 0, run.stderr
+
+
+def _tsan_unavailable(detail: str) -> bool:
+    unavailable = (
+        "cannot find -ltsan",
+        "unsupported option '-fsanitize=thread'",
+        "unexpected memory mapping",
+        "failed to mmap",
+        "Library not loaded: @rpath/libclang_rt.tsan",
+        "undefined symbol: _dispatch_",
+    )
+    return any(message in detail for message in unavailable)
 
 
 def test_atomic_arc_stress_is_thread_sanitizer_clean(tmp_path: Path) -> None:
@@ -406,9 +423,9 @@ def test_atomic_arc_stress_is_thread_sanitizer_clean(tmp_path: Path) -> None:
             ),
         )
     except AssertionError as error:
-        if "ThreadSanitizer" in str(error) or "-ltsan" in str(error):
+        if _tsan_unavailable(str(error)):
             pytest.skip(f"ThreadSanitizer unavailable: {error}")
         raise
-    if run.returncode != 0 and "ThreadSanitizer" in run.stderr:
+    if run.returncode != 0 and _tsan_unavailable(run.stderr):
         pytest.skip(f"ThreadSanitizer runtime unavailable: {run.stderr[:200]}")
     assert run.returncode == 0, run.stderr

@@ -21,9 +21,9 @@ import tempfile
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import TypeExpr
@@ -36,8 +36,9 @@ def emit_c(source: str) -> str:
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, f"analyzer errors: {analyzed.errors}"
     ir_module = IRLowerer(analyzed).lower()
-    ir_module = IROptimizer(ir_module).optimize()
-    return CEmitter().emit(ir_module)
+    pipeline = CompilationPipeline()
+    ir_module = pipeline.optimize(ir_module, CompilerOptions())
+    return pipeline.emit(ir_module)
 
 
 def analyze(source: str):
@@ -99,7 +100,7 @@ def test_builtin_print_still_lowers_to_printf_when_undefined():
 
 def test_user_printf_function_lowered_as_normal_call_with_defaults():
     c = emit_c("int printf(int x, int y = 5) { return x + y; }\nint main() { return printf(1); }\n")
-    main = c.split("int main(void)", 1)[1]
+    main = c.split("int main(void) {", 1)[1].split("\n}", 1)[0]
     assert main.count(" = 1)") == 1
     assert main.count("__btrc_default___btrc_source_printf_2(") == 1
     assert main.count("__btrc_source_printf(") == 1

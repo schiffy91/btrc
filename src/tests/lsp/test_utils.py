@@ -2,9 +2,9 @@
 
 from lsprotocol import types as lsp
 
-from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.compiler.python.syntax.tokens import Token, TokenKind
 from src.devex.lsp.analysis.resolution import LexicalScopeIndex
 from src.tests.lsp.lsphelp import RESOLVER, analyze

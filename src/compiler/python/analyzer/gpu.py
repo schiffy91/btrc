@@ -5,8 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 
 from src.compiler.python.abi.hosted import HOSTED_ABI
+from src.compiler.python.analyzer.aggregates import AggregateAnalyzer
 from src.compiler.python.analyzer.program import AnalysisContext, AnalysisSession, DeclarationIndex, Scope
-from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import TypeSystem
 from src.compiler.python.frontend.sources import CompilerStdlibSource
 from src.compiler.python.lexer.lexer import LiteralDecoder
@@ -53,13 +53,13 @@ class GpuKernelValidator:
         index: DeclarationIndex,
         node_types: dict[int, TypeExpr],
         types: TypeSystem,
-        storage: StorageModel,
+        aggregates: AggregateAnalyzer,
     ) -> None:
         self._context = context
         self._index = index
         self._node_types = node_types
         self._types = types
-        self._storage = storage
+        self._aggregates = aggregates
         self._intrinsics = GpuIntrinsicResolver(context, index)
         self._expressions = GpuExpressionValidator(self._intrinsics)
 
@@ -79,7 +79,7 @@ class GpuKernelValidator:
                 if (
                     actual is not None
                     and (not inherited_capacity)
-                    and (not self._storage.array_target_has_capacity(parameter.default, actual))
+                    and (not self._aggregates.array_target_has_capacity(parameter.default, actual))
                 ):
                     self._context.error(
                         f"Default for parameter '{parameter.name}' has no provable readable GPU buffer capacity",
@@ -805,12 +805,11 @@ class GpuAnalyzer:
         session: AnalysisSession,
         index: DeclarationIndex,
         types: TypeSystem,
-        storage: StorageModel,
+        aggregates: AggregateAnalyzer,
     ) -> None:
         self.session = session
         self.index = index
         self.types = types
-        self.storage = storage
         self._dispatch = GpuDispatchValidator(
             session,
             index,
@@ -821,7 +820,7 @@ class GpuAnalyzer:
             index,
             session.node_types,
             types,
-            storage,
+            aggregates,
         )
 
     def is_array_result(self, expression: object) -> bool:

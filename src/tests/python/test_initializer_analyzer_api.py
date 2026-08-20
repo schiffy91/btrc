@@ -71,8 +71,7 @@ def test_initializer_analyzer_owns_structural_shape_diagnostics():
     )
 
     assert any(
-        "has 2 initializer elements but struct 'Count' has 1 fields" in error
-        for error in analyzer.session.errors
+        "has 2 initializer elements but struct 'Count' has 1 fields" in error for error in analyzer.session.errors
     )
 
 

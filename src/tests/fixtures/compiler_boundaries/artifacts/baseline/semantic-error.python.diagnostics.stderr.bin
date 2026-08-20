@@ -1,0 +1,5 @@
+error: Unresolved identifier 'missing_value' used as a value
+  --> build/verification/compiler-boundaries/workspace/sources/semantic-error/semantic_error.btrc:2:12
+   |
+ 2 |     return missing_value;
+   |            ^

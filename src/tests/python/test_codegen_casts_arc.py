@@ -111,12 +111,17 @@ def test_managed_field_assignment_is_warning_clean_in_both_contexts(tmp_path: Pa
         "",
     )
     assert "__btrc_arc_replace_edge" in statement_assignment
-    assert "__btrc_arc_retain" in statement_assignment
+    assert "}), 0)" in statement_assignment
     assert "__btrc_arc_release" in statement_assignment
-    assigned_declaration = next(
-        (line for line in c.splitlines() if "Node* assigned =" in line),
-        "",
-    )
+    store_value = statement_assignment.split(" = makeNode(7)", maxsplit=1)[0].rsplit("(", maxsplit=1)[-1]
+    assert store_value.startswith("__btrc_store_value_")
+    assert f" = {store_value}), ({store_value} = NULL), __btrc_arc_release(" in statement_assignment
+    assert "__btrc_arc_retain" not in statement_assignment
+
+    lines = c.splitlines()
+    assigned_start = next(i for i, line in enumerate(lines) if "Node* assigned =" in line)
+    assigned_end = next(i for i in range(assigned_start, len(lines)) if lines[i].strip() == ");")
+    assigned_declaration = "\n".join(lines[assigned_start : assigned_end + 1])
     assert "head->next" in assigned_declaration
     assert "__btrc_arc_replace_edge" in assigned_declaration
     assert assigned_declaration.count("__btrc_arc_retain") >= 2

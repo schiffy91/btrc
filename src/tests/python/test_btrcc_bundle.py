@@ -153,7 +153,9 @@ def test_windows_bundle_uses_exe_and_deterministic_zip(tmp_path: Path) -> None:
 def test_invalid_target_names_are_rejected(tmp_path: Path, target: str) -> None:
     source_root, binary = _fixture(tmp_path / "source")
     with pytest.raises(ValueError, match="invalid target"):
-        SelfhostBundleBuilder().build(binary=binary, target=target, output_dir=tmp_path / "dist", source_root=source_root)
+        SelfhostBundleBuilder().build(
+            binary=binary, target=target, output_dir=tmp_path / "dist", source_root=source_root
+        )
 
 
 def test_unknown_well_formed_target_is_rejected(tmp_path: Path) -> None:

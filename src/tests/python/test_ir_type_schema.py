@@ -1,6 +1,8 @@
 """Resolved-type and symbolic-expression contracts for structured IR."""
 
 import ast
+import shutil
+import subprocess
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
@@ -8,28 +10,28 @@ import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
 from src.compiler.python.analyzer.generated_symbols import GeneratedSymbolRegistry
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.backend.c_emitter import CEmitter
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import (
     CType,
-    IRBinOp,
     IRCall,
     IRCast,
-    IRCommaExpr,
     IRFieldAccess,
     IRLiteral,
     IRModule,
     IRNode,
     IRSizeof,
     IRVar,
-    IRVarDecl,
 )
 from src.compiler.python.ir.verifier import IRVerifier
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
 IR_ROOT = Path(__file__).parents[2] / "compiler/python/ir"
+COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
 
 def _self_attribute_chain(node: ast.AST) -> tuple[str, ...]:
@@ -64,6 +66,12 @@ def _analyze(source: str):
 
 def _generate(source: str):
     return IRLowerer(_analyze(source)).lower()
+
+
+def _emit(source: str) -> str:
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(_generate(source), CompilerOptions())
+    return pipeline.emit(module)
 
 
 @pytest.mark.parametrize(
@@ -205,7 +213,11 @@ def test_cycle_visitor_calls_its_function_pointer_as_an_expression():
         class Node { public Node next; }
         int main() { return 0; }
     """)
-    visitor = next(function for function in module.function_defs if function.name == GeneratedSymbolRegistry.cycle_visitor_symbol("Node"))
+    visitor = next(
+        function
+        for function in module.function_defs
+        if function.name == GeneratedSymbolRegistry.cycle_visitor_symbol("Node")
+    )
     calls = [node for node in IRNode.walk_value(visitor) if isinstance(node, IRCall)]
 
     assert len(calls) == 1
@@ -227,55 +239,81 @@ def test_complex_function_pointer_member_calls_preserve_receiver_structure():
         ("callValue", "makeValue", False),
         ("callPointer", "makePointer", True),
     ):
-        materialized = next(
+        member_call = next(
             node
             for node in IRNode.walk_value(functions[function_name])
-            if isinstance(node, IRBinOp) and isinstance(node.right, IRFieldAccess)
+            if isinstance(node, IRCall) and isinstance(node.callee, IRFieldAccess)
         )
-        assert isinstance(materialized.left, IRVar)
-        assert materialized.right.arrow is arrow
-        assert materialized.right.field == "apply"
-        assert materialized.right.obj == IRCall(callee=factory_name, args=[])
-        declarations = {
-            node.name: node
-            for node in IRNode.walk_value(functions[function_name])
-            if isinstance(node, IRVarDecl)
-        }
-        assert declarations[materialized.left.name].c_type == CType("__btrc_fn_int_int")
+        member = member_call.callee
+        assert member.arrow is arrow
+        assert member.field == "apply"
+        assert member.obj == IRCall(callee=factory_name, args=[])
+        assert member_call.args == [IRLiteral(text="1")]
 
         factory_calls = [
             node
             for node in IRNode.walk_value(functions[function_name])
             if isinstance(node, IRCall) and node.callee == factory_name
         ]
-        assert factory_calls == [materialized.right.obj]
-        member_call = next(
-            node
-            for node in IRNode.walk_value(functions[function_name])
-            if isinstance(node, IRCall) and node.callee == materialized.left
-        )
-        assert len(member_call.args) == 1
-        argument = member_call.args[0]
-        assert isinstance(argument, IRVar)
-        assert declarations[argument.name].c_type == CType("int")
+        assert factory_calls == [member.obj]
 
-        argument_materialized = next(
-            node
-            for node in IRNode.walk_value(functions[function_name])
-            if isinstance(node, IRBinOp) and node.left == argument and node.right == IRLiteral(text="1")
-        )
-        invocation = next(
-            node
-            for node in IRNode.walk_value(functions[function_name])
-            if isinstance(node, IRBinOp) and node.right is member_call
-        )
-        sequence = next(
-            node
-            for node in IRNode.walk_value(functions[function_name])
-            if isinstance(node, IRCommaExpr) and materialized in node.expressions and invocation in node.expressions
-        )
-        assert sequence.expressions.index(materialized) < sequence.expressions.index(argument_materialized)
-        assert sequence.expressions.index(argument_materialized) < sequence.expressions.index(invocation)
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_complex_function_pointer_member_calls_run_in_strict_c11(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    generated = _emit("""
+        #include <assert.h>
+        struct Handler { __fn_ptr<int, int> apply; };
+        int valueFactoryCalls = 0;
+        int pointerFactoryCalls = 0;
+        int addForty(int value) { return value + 40; }
+        struct Handler pointerHandler = {addForty};
+        struct Handler makeValue() {
+            valueFactoryCalls += 1;
+            struct Handler result = {addForty};
+            return result;
+        }
+        struct Handler* makePointer() {
+            pointerFactoryCalls += 1;
+            return &pointerHandler;
+        }
+        int callValue() { return makeValue().apply(1); }
+        int callPointer() { return makePointer().apply(2); }
+        int main() {
+            assert(callValue() == 41);
+            assert(callPointer() == 42);
+            assert(valueFactoryCalls == 1);
+            assert(pointerFactoryCalls == 1);
+            return 0;
+        }
+    """)
+    source = tmp_path / "function_pointer_member.c"
+    executable = tmp_path / "function_pointer_member"
+    source.write_text(generated)
+
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O1",
+            str(source),
+            "-lm",
+            "-pthread",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run([executable], check=True, capture_output=True, text=True)
 
 
 def test_unresolved_generic_constructor_never_guesses_a_registered_instance():

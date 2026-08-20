@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_codegen import emit_c
@@ -16,6 +16,9 @@ from src.tests.python.test_gpu_dispatch_failures import (
     COMPILERS,
     _compile_with_gpu_stubs,
 )
+
+GPU_INCLUDE = Path(__file__).resolve().parents[2] / "stdlib" / "gpu"
+GPU_UNAVAILABLE_STUB = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "gpu_unavailable_stub.c"
 
 
 def _analyzer_errors(source: str) -> list[str]:
@@ -251,6 +254,43 @@ def test_departed_array_shadow_does_not_lend_capacity_to_parameter() -> None:
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_live_gpu_dispatch_materializes_runtime_header_strictly(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    c_source = emit_c(
+        "@gpu void bump(int[] xs) { int i = gpu_id(); xs[i] += 1; } "
+        "int main() { int xs[1] = {1}; bump(xs); return xs[0] == 2 ? 0 : 1; }"
+    )
+    assert c_source.count("#include <btrc_gpu.h>") == 1
+    unit = tmp_path / "live_gpu.c"
+    binary = tmp_path / "live_gpu"
+    unit.write_text(c_source)
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic",
+            f"-I{GPU_INCLUDE}",
+            str(unit),
+            str(GPU_UNAVAILABLE_STUB),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(binary),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run([str(binary)], check=True)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_dead_gpu_kernel_leaves_no_unused_shader_constant(
     tmp_path: Path,
     c_compiler: str,
@@ -258,6 +298,7 @@ def test_dead_gpu_kernel_leaves_no_unused_shader_constant(
     c_source = emit_c("@gpu\nvoid dormant(int[] xs) { int i = gpu_id(); xs[i] += 1; }\nint main() { return 0; }")
     assert "dormant_wgsl" not in c_source
     assert "dormant__gpucpu" not in c_source
+    assert "#include <btrc_gpu.h>" not in c_source
     unit = tmp_path / "dead_gpu.c"
     unit.write_text(c_source)
     subprocess.run(

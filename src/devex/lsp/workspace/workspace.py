@@ -14,7 +14,6 @@ import threading
 from collections import OrderedDict
 from dataclasses import dataclass
 
-from src.compiler.python.syntax.ast.generated import Program
 from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.packages import IncludeResolutionError, ResolvedPackages
 from src.compiler.python.frontend.sources import (
@@ -25,6 +24,7 @@ from src.compiler.python.frontend.sources import (
     SourceResolutionPolicy,
     StdlibRepository,
 )
+from src.compiler.python.syntax.ast.generated import Program
 from src.devex.lsp.workspace.cache import PackageResolutionCache, UnitCache, WorkspaceCache
 from src.devex.lsp.workspace.units import FileUnit
 

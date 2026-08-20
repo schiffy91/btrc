@@ -56,6 +56,7 @@ class SemanticAnalyzer {
             self.expressions);
         validator.validate();
         self.generics.closeExpressionGraph(program);
+        validator.validateCompletedGeneratedSymbols();
         return self.analysis;
     }
 

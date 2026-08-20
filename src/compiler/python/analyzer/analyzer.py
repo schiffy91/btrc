@@ -45,7 +45,7 @@ class SemanticAnalyzer:
         storage = StorageModel(session, index, types, aggregates)
         callable_values = CallableValueSemantics(session, index, types)
         ownership = OwnershipAnalyzer(session, index, types, storage, callable_values)
-        gpu = GpuAnalyzer(session, index, types, storage)
+        gpu = GpuAnalyzer(session, index, types, aggregates)
         macros = SourceMacroAnalyzer(session, index, types)
         generics = GenericAnalyzer(session, index, types)
         calls = CallAnalyzer(
@@ -83,6 +83,21 @@ class SemanticAnalyzer:
         session.record_occurrences = record_occurrences
         if seed is not None:
             session.generic_instances = {name: list(instances) for name, instances in seed.generic_instances.items()}
+            session.generic_class_callable_instances = {
+                callable_identity: list(instances)
+                for callable_identity, instances in seed.generic_class_callable_instances.items()
+            }
+            session.generic_class_callable_dependencies = {
+                callable_identity: list(dependencies)
+                for callable_identity, dependencies in seed.generic_class_callable_dependencies.items()
+            }
+            session.generic_class_lifecycle_dependencies = {
+                owner: list(dependencies) for owner, dependencies in seed.generic_class_lifecycle_dependencies.items()
+            }
+            session.generic_method_callable_dependencies = {
+                callable_identity: list(dependencies)
+                for callable_identity, dependencies in seed.generic_method_callable_dependencies.items()
+            }
         self.session = session
         self.index = index
         self.declarations = declarations
@@ -126,6 +141,10 @@ class SemanticAnalyzer:
             program=program,
             generic_instances=state.generic_instances,
             class_table=self.index.class_table,
+            generic_class_callable_instances=state.generic_class_callable_instances,
+            generic_class_callable_dependencies=state.generic_class_callable_dependencies,
+            generic_class_lifecycle_dependencies=state.generic_class_lifecycle_dependencies,
+            generic_method_callable_dependencies=state.generic_method_callable_dependencies,
             generic_method_instances=state.generic_method_instances,
             generic_method_call_args=state.generic_method_call_args,
             function_table=self.index.function_table,
@@ -134,6 +153,7 @@ class SemanticAnalyzer:
                 for name, declaration in self.index.global_declarations.items()
                 if declaration.type is not None
             },
+            defined_global_names=frozenset(self.index.global_definitions),
             hosted_call_ids=set(state.hosted_call_ids),
             typedef_table=self.index.typedef_table,
             struct_table=self.index.struct_table,

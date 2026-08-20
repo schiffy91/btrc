@@ -70,6 +70,7 @@ class FrontendStage:
                 package_universe=package_universe,
                 resolution_policy=owned_policy,
             )
+
     def resolve(
         self,
         source: str,

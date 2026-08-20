@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from . import GeneratedArtifact
 from .runtime import RuntimeManifest
-from .verification import GeneratedArtifact
 
 
 class HostedAbiManifestError(ValueError):

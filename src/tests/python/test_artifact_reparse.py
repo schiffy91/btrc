@@ -12,12 +12,12 @@ from types import SimpleNamespace
 import pytest
 
 import src.compiler.python.artifacts.publication as storage_module
+from src.compiler.python.artifacts.archive import ArchiveCodec
 from src.compiler.python.artifacts.publication import (
     ArtifactStorage,
     ReparsePointError,
 )
 from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
-from src.compiler.python.artifacts.archive import ArchiveCodec
 
 ARCHIVE_CODEC = ArchiveCodec()
 write_tar_gz = ARCHIVE_CODEC.write_tar_gz

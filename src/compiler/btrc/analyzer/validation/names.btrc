@@ -14,6 +14,19 @@ import ./calls.btrc;
 import ./storage.btrc;
 import ./types.btrc;
 
+class DeferredGeneratedSymbolReference {
+    public Node identifier;
+    public bool directCall;
+    public bool sourceKnown;
+
+    public DeferredGeneratedSymbolReference(
+            Node identifier, bool directCall, bool sourceKnown) {
+        self.identifier = identifier;
+        self.directCall = directCall;
+        self.sourceKnown = sourceKnown;
+    }
+}
+
 class NameValidator {
     private SemanticValidationState state;
     private HostedAbiRepository hostedAbi;
@@ -22,6 +35,7 @@ class NameValidator {
     private TypeValidator types;
     private StorageValidator storage;
     private CallValidator calls;
+    private Vector<DeferredGeneratedSymbolReference> generatedReferences;
 
     public NameValidator(
             SemanticValidationState state,
@@ -38,6 +52,7 @@ class NameValidator {
         self.types = types;
         self.storage = storage;
         self.calls = calls;
+        self.generatedReferences = [];
     }
 
     private int magicArity(string name) {
@@ -927,6 +942,43 @@ class NameValidator {
         self.state.generatedSymbols.put(symbol, owner);
     }
 
+    public void claimGpuSymbols(
+            Map<string, string> symbols, Node declaration) {
+        self.claimGeneratedSymbol(symbols,
+            declaration.name + "__gpuitem",
+            "CPU item worker for @gpu function '" + declaration.name + "'",
+            declaration);
+        self.claimGeneratedSymbol(symbols,
+            declaration.name + "__gpucpu",
+            "CPU fallback wrapper for @gpu function '" + declaration.name + "'",
+            declaration);
+    }
+
+    public void claimGenericMethodSymbols(
+            Map<string, string> symbols) {
+        int index = 0;
+        while (index < self.state.analyzed.methodGenInstances.len) {
+            MethodGenInstance instance =
+                self.state.analyzed.methodGenInstances.get(index);
+            Node? method = null;
+            if (self.state.analyzed.isGenericClass(instance.classBase)) {
+                method = self.state.analyzed.genericClassMethod(
+                    instance.classBase, instance.methodName);
+            } else if (self.state.analyzed.isClass(instance.classBase)) {
+                method = self.state.analyzed.classMethod(
+                    instance.classBase, instance.methodName);
+            }
+            if (method != null) {
+                string symbol = GenericSpecializer.genericMethodInstanceName(
+                    instance.classBase, instance.classArgs,
+                    instance.methodName, instance.methodArgs);
+                self.claimGeneratedSymbol(symbols, symbol,
+                    "generic method instance '" + symbol + "'", method);
+            }
+            index = index + 1;
+        }
+    }
+
     public void claimTopLevelSymbol(
             Node declaration, Map<string, string> symbols) {
         if (!self.namedTopLevel(declaration)) { return; }
@@ -935,7 +987,7 @@ class NameValidator {
         self.claimSymbol(symbols, name, owner, declaration);
     }
 
-    public void validateEmittedSymbols(
+    public void publishKnownGeneratedSymbols(
             Node program) {
         Map<string, string> symbols = {};
         self.claimSourceMacroSymbols(program, symbols);
@@ -948,7 +1000,7 @@ class NameValidator {
         while (index < program.declarations.len) {
             Node declaration = program.declarations.get(index);
             if (declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu) {
-                self.calls.claimGpuSymbols( symbols, declaration);
+                self.claimGpuSymbols(symbols, declaration);
             } else if (declaration.kind == NK_CLASS_DECL
                     && declaration.generic_params.len == 0) {
                 self.claimClassSymbols(declaration,  symbols);
@@ -960,8 +1012,256 @@ class NameValidator {
             index = index + 1;
         }
         self.claimGenericInstanceSymbols( symbols);
-        self.calls.claimGenericMethodSymbols( symbols);
+        self.claimGenericMethodSymbols(symbols);
+    }
+
+    public void validateEmittedSymbols(
+            Node program) {
+        self.publishKnownGeneratedSymbols(program);
         self.validatePreprocessorSymbolReferences(program);
+    }
+
+    public void deferGeneratedSymbolCall(
+            Node call, Map<string, Node> variables) {
+        if (call.callee == null || call.callee.kind != NK_IDENTIFIER) {
+            return;
+        }
+        Node identifier = call.callee;
+        string symbol = identifier.name;
+        if (variables.has(symbol)
+                || self.state.analyzed.funcTable.has(symbol)
+                || self.state.analyzed.isClass(symbol)
+                || self.state.analyzed.isGenericClass(symbol)) {
+            return;
+        }
+        if (self.state.generatedSymbols.has(symbol)) {
+            TypeValidator.fail(
+                "Direct call to compiler-generated C symbol '" + symbol
+                    + "' for " + self.state.generatedSymbols.get(symbol)
+                    + " is not allowed",
+                identifier);
+        }
+        self.generatedReferences.push(
+            DeferredGeneratedSymbolReference(identifier, true, false));
+    }
+
+    private bool genericMethodStemMatches(string symbol,
+            string classBase, int classArity, Node method) {
+        if (method.kind != NK_METHOD_DECL || method.is_constructor
+                || method.generic_params.len == 0) {
+            return false;
+        }
+        return TypeIdentity.possibleMethodInstanceSymbol(
+            symbol, classBase, classArity,
+            method.name, method.generic_params.len);
+    }
+
+    private bool ordinaryGenericMethodStemMatches(
+            string symbol, string classBase) {
+        string current = classBase;
+        Map<string, bool> visited = {};
+        while (current != "" && !visited.has(current)
+                && self.state.analyzed.classTable.has(current)) {
+            visited.put(current, true);
+            Node declaration = self.state.analyzed.classTable.get(current);
+            int index = 0;
+            while (index < declaration.members.len) {
+                if (self.genericMethodStemMatches(
+                        symbol, classBase, 0,
+                        declaration.members.get(index))) {
+                    return true;
+                }
+                index = index + 1;
+            }
+            current = DeclarationRegistry.parentName(declaration);
+        }
+        return false;
+    }
+
+    private bool genericTemplateSymbolMatches(
+            string symbol, Node declaration) {
+        string base = declaration.name;
+        int arity = declaration.generic_params.len;
+        if (TypeIdentity.possibleGenericInstanceSymbol(
+                    symbol, base, arity, "_init")
+                || TypeIdentity.possibleGenericInstanceSymbol(
+                    symbol, base, arity, "_new")
+                || TypeIdentity.possibleGenericInstanceSymbol(
+                    symbol, base, arity, "_destroy")) {
+            return true;
+        }
+        int memberIndex = 0;
+        while (memberIndex < declaration.members.len) {
+            Node member = declaration.members.get(memberIndex);
+            if (member.kind == NK_METHOD_DECL && !member.is_constructor
+                    && member.name != "__del__") {
+                if (member.generic_params.len > 0) {
+                    if (self.genericMethodStemMatches(
+                            symbol, base, arity, member)) {
+                        return true;
+                    }
+                } else if (TypeIdentity.possibleGenericInstanceSymbol(
+                        symbol, base, arity, "_" + member.name)) {
+                    return true;
+                }
+            } else if (member.kind == NK_PROPERTY_DECL) {
+                if (member.has_getter
+                        && TypeIdentity.possibleGenericInstanceSymbol(
+                            symbol, base, arity,
+                            "_get_" + member.name)) {
+                    return true;
+                }
+                if (member.has_setter
+                        && TypeIdentity.possibleGenericInstanceSymbol(
+                            symbol, base, arity,
+                            "_set_" + member.name)) {
+                    return true;
+                }
+            }
+            memberIndex = memberIndex + 1;
+        }
+        string visitorPrefix = "__btrc_arc_visit_";
+        if (symbol.startsWith(visitorPrefix)) {
+            string visitedType = symbol.substring(
+                visitorPrefix.length(),
+                symbol.length() - visitorPrefix.length());
+            if (TypeIdentity.possibleMangledGenericType(
+                    visitedType, base, arity)) {
+                return true;
+            }
+        }
+        string hookPrefix = "__btrc_";
+        string hookSuffix = "_destructor_hook";
+        if (symbol.startsWith(hookPrefix)) {
+            Node? destructor = self.state.analyzed.genericClassMethod(
+                base, "__del__");
+            if (destructor != null && destructor.body_node != null) {
+                string unprefixed = symbol.substring(
+                    hookPrefix.length(),
+                    symbol.length() - hookPrefix.length());
+                if (TypeIdentity.possibleGenericInstanceSymbol(
+                        unprefixed, base, arity, hookSuffix)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private bool couldBeLateGeneratedSymbol(string symbol) {
+        /* Already-discovered instances give the narrowest possible answer. */
+        int instanceIndex = 0;
+        while (instanceIndex < self.state.analyzed.methodGenInstances.len) {
+            MethodGenInstance instance =
+                self.state.analyzed.methodGenInstances.get(instanceIndex);
+            if (symbol == GenericSpecializer.genericMethodInstanceName(
+                    instance.classBase, instance.classArgs,
+                    instance.methodName, instance.methodArgs)) {
+                return true;
+            }
+            instanceIndex = instanceIndex + 1;
+        }
+
+        /* Ordinary receiver classes may inherit the declared generic method;
+         * the emitted owner remains the concrete receiver class. */
+        Vector<string> classNames = self.state.analyzed.classTable.keys();
+        int classIndex = 0;
+        while (classIndex < classNames.len) {
+            if (self.ordinaryGenericMethodStemMatches(
+                    symbol, classNames.get(classIndex))) {
+                return true;
+            }
+            classIndex = classIndex + 1;
+        }
+
+        /* Closure may discover the receiver instance itself after body
+         * validation.  Match the declared generic base/arity grammar, then
+         * only lifecycle and member suffixes the template can really emit. */
+        Vector<string> genericNames =
+            self.state.analyzed.genericClassTable.keys();
+        int genericIndex = 0;
+        while (genericIndex < genericNames.len) {
+            Node declaration = self.state.analyzed.genericClassTable.get(
+                genericNames.get(genericIndex));
+            if (self.genericTemplateSymbolMatches(symbol, declaration)) {
+                return true;
+            }
+            genericIndex = genericIndex + 1;
+        }
+        return false;
+    }
+
+    public void deferGeneratedSymbolReference(
+            Node identifier, Map<string, Node> variables,
+            bool sourceKnown) {
+        string symbol = identifier.name;
+        if (variables.has(symbol)
+                || self.state.analyzed.funcTable.has(symbol)
+                || self.state.analyzed.isClass(symbol)
+                || self.state.analyzed.isGenericClass(symbol)
+                || self.state.analyzed.isEnumValue(symbol)) {
+            return;
+        }
+        if (self.state.generatedSymbols.has(symbol)) {
+            TypeValidator.fail(
+                "Source reference to compiler-generated C symbol '" + symbol
+                    + "' for " + self.state.generatedSymbols.get(symbol)
+                    + " is not allowed",
+                identifier);
+        }
+        if (sourceKnown || self.couldBeLateGeneratedSymbol(symbol)) {
+            self.generatedReferences.push(
+                DeferredGeneratedSymbolReference(
+                    identifier, false, sourceKnown));
+            return;
+        }
+        if (self.sourceRuntimeSymbols.compilerOwnedUnresolved(symbol)) {
+            TypeValidator.fail(
+                "Source reference to compiler-owned C symbol '" + symbol
+                    + "' is not allowed",
+                identifier);
+        }
+        TypeValidator.fail(
+            "Unknown identifier '" + symbol + "'", identifier);
+    }
+
+    private void validateGeneratedSymbolReference(
+            DeferredGeneratedSymbolReference reference) {
+        Node identifier = reference.identifier;
+        string symbol = identifier.name;
+        string action = reference.directCall
+            ? "Direct call to" : "Source reference to";
+        if (self.state.generatedSymbols.has(symbol)) {
+            TypeValidator.fail(
+                action + " compiler-generated C symbol '" + symbol
+                    + "' for " + self.state.generatedSymbols.get(symbol)
+                    + " is not allowed",
+                identifier);
+        }
+        bool supported = self.sourceRuntimeSymbols.helper(symbol)
+            || (reference.directCall
+                && self.sourceRuntimeSymbols.intrinsic(symbol));
+        if (self.sourceRuntimeSymbols.compilerOwnedUnresolved(symbol)
+                && !supported) {
+            TypeValidator.fail(
+                action + " compiler-owned C symbol '" + symbol
+                    + "' is not allowed",
+                identifier);
+        }
+        if (!reference.directCall && !reference.sourceKnown && !supported) {
+            TypeValidator.fail(
+                "Unknown identifier '" + symbol + "'", identifier);
+        }
+    }
+
+    public void validateCompletedGeneratedSymbols(Node program) {
+        self.validateEmittedSymbols(program);
+        int index = 0;
+        while (index < self.generatedReferences.len) {
+            self.validateGeneratedSymbolReference(
+                self.generatedReferences.get(index));
+            index = index + 1;
+        }
     }
 
     public void validateMacroName(string name, Node site) {

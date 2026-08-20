@@ -2,10 +2,15 @@
 
 from pathlib import Path
 
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_references, get_rename_edits
-from src.tests.lsp.lsphelp import analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import (
+    analyze,
+    get_definition,
+    get_hover_info,
+    get_references,
+    get_rename_edits,
+    hover_text,
+    pos_of,
+)
 
 
 def _write_import_case(tmp_path):

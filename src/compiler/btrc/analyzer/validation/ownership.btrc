@@ -184,12 +184,6 @@ class OwnershipValidator {
         return false;
     }
 
-    public bool containsMutexStorage(
-            Node? typeExpr) {
-        Map<string, bool> visiting = {};
-        return self.containsMutexStorageImpl(typeExpr, visiting);
-    }
-
     public bool directManagedThreadResult(
             Node? typeExpr) {
         Node? canonical = self.types.resolveAliases(typeExpr);
@@ -1021,17 +1015,28 @@ class OwnershipValidator {
     public void rejectShallowStore(Node assignment,
              Map<string, Node> vars) {
         if (assignment.target == null
-                || assignment.target.kind != NK_FIELD_ACCESS_EXPR
                 || !self.expressionOwnsResult(
                     assignment.value_node,  vars)) { return; }
+        if (assignment.target.kind != NK_FIELD_ACCESS_EXPR
+                && assignment.target.kind != NK_INDEX_EXPR) { return; }
+        Node? targetType = self.types.resolveAliases(
+            self.types.inferType(assignment.target,  vars));
+        if (!self.managedOwnershipType(targetType)) { return; }
         Node? receiver = self.types.inferType(
             assignment.target.obj,  vars);
         receiver = self.types.resolveAliases(receiver);
         if (receiver == null) { return; }
-        string structName = StorageValidator.structTypeName(
-            receiver, self.state.analyzed);
-        if (receiver.base == "Tuple"
-                || (structName != "" && receiver.pointer_depth == 0)) {
+        bool shallow = false;
+        if (assignment.target.kind == NK_INDEX_EXPR) {
+            shallow = receiver.is_array
+                || self.storage.rawIndexedPointerInState(receiver);
+        } else {
+            string structName = StorageValidator.structTypeName(
+                receiver, self.state.analyzed);
+            shallow = receiver.base == "Tuple"
+                || (structName != "" && receiver.pointer_depth == 0);
+        }
+        if (shallow) {
             TypeValidator.fail("caller-owned temporary cannot be stored in a "
                 + "shallow aggregate; bind the owner to a local and store only "
                 + "its borrowed reference", assignment.value_node);

@@ -499,6 +499,61 @@ class CallableValueSemantics {
         return declaration;
     }
 
+    private bool typeContainsManagedSeen(
+            Node? typeExpr, CallableBoundaryContext context,
+            Map<string, bool> active) {
+        Node? canonicalType = self.canonicalType(typeExpr, context);
+        if (canonicalType == null) { return false; }
+        Node canonical = canonicalType;
+        if (self.managedReturnCallable(canonical, context)) {
+            return true;
+        }
+        if (self.validatedReferenceOwner(canonical)) {
+            return false;
+        }
+        string key = TypeIdentity.shapeKey(canonical);
+        if (active.has(key)) { return false; }
+        active.put(key, true);
+        bool contains = false;
+        if (canonical.is_array) {
+            contains = self.typeContainsManagedSeen(
+                self.arrayElement(canonical), context, active);
+        } else if (canonical.pointer_depth == 0
+                && (canonical.base == "Array" || canonical.base == "List"
+                    || canonical.base == "Set" || canonical.base == "Vector")
+                && canonical.generic_args.len == 1) {
+            contains = self.typeContainsManagedSeen(
+                canonical.generic_args.get(0), context, active);
+        } else if (canonical.pointer_depth == 0
+                && (canonical.base == "Map" || canonical.base == "Tuple")) {
+            int index = 0;
+            while (!contains && index < canonical.generic_args.len) {
+                contains = self.typeContainsManagedSeen(
+                    canonical.generic_args.get(index), context, active);
+                index = index + 1;
+            }
+        } else {
+            Node? declaration = self.structDeclaration(canonical);
+            if (declaration != null) {
+                int index = 0;
+                while (!contains && index < declaration.fields.len) {
+                    contains = self.typeContainsManagedSeen(
+                        declaration.fields.get(index).type,
+                        context, active);
+                    index = index + 1;
+                }
+            }
+        }
+        active.remove(key);
+        return contains;
+    }
+
+    public bool typeContainsManaged(
+            Node? typeExpr, CallableBoundaryContext context) {
+        Map<string, bool> active = {};
+        return self.typeContainsManagedSeen(typeExpr, context, active);
+    }
+
     public bool valueRequiresEnvironment(
             Node? expectedType, Node? value,
             CallableBoundaryContext context) {
@@ -634,61 +689,6 @@ class CallableBoundaryPolicy {
         }
     }
 
-    private bool typeContainsManagedSeen(
-            Node? typeExpr, CallableBoundaryContext context,
-            Map<string, bool> active) {
-        Node? canonicalType = self.values.canonicalType(typeExpr, context);
-        if (canonicalType == null) { return false; }
-        Node canonical = canonicalType;
-        if (self.values.managedReturnCallable(canonical, context)) {
-            return true;
-        }
-        if (self.values.validatedReferenceOwner(canonical)) {
-            return false;
-        }
-        string key = TypeIdentity.shapeKey(canonical);
-        if (active.has(key)) { return false; }
-        active.put(key, true);
-        bool contains = false;
-        if (canonical.is_array) {
-            contains = self.typeContainsManagedSeen(
-                self.values.arrayElement(canonical), context, active);
-        } else if (canonical.pointer_depth == 0
-                && (canonical.base == "Array" || canonical.base == "List"
-                    || canonical.base == "Set" || canonical.base == "Vector")
-                && canonical.generic_args.len == 1) {
-            contains = self.typeContainsManagedSeen(
-                canonical.generic_args.get(0), context, active);
-        } else if (canonical.pointer_depth == 0
-                && (canonical.base == "Map" || canonical.base == "Tuple")) {
-            int index = 0;
-            while (!contains && index < canonical.generic_args.len) {
-                contains = self.typeContainsManagedSeen(
-                    canonical.generic_args.get(index), context, active);
-                index = index + 1;
-            }
-        } else {
-            Node? declaration = self.values.structDeclaration(canonical);
-            if (declaration != null) {
-                int index = 0;
-                while (!contains && index < declaration.fields.len) {
-                    contains = self.typeContainsManagedSeen(
-                        declaration.fields.get(index).type,
-                        context, active);
-                    index = index + 1;
-                }
-            }
-        }
-        active.remove(key);
-        return contains;
-    }
-
-    private bool typeContainsManaged(
-            Node? typeExpr, CallableBoundaryContext context) {
-        Map<string, bool> active = {};
-        return self.typeContainsManagedSeen(typeExpr, context, active);
-    }
-
     private bool unsafeValue(
             Node? expectedType, Node? value,
             CallableBoundaryContext context) {
@@ -782,12 +782,13 @@ class CallableBoundaryPolicy {
             return false;
         }
         /* Aggregate values carry no ABI tag for their callback leaves. */
-        return self.typeContainsManaged(canonical, context);
+        return self.values.typeContainsManaged(canonical, context);
     }
 
     public void rejectPersistentStorage(
             Node? expectedType, Node? value,
-            CallableBoundaryContext context, string boundary) {
+            CallableBoundaryContext context, bool unsafe,
+            string boundary) {
         if (self.values.valueRequiresEnvironment(
                 expectedType, value, context)) {
             print("Environment-requiring callable value cannot cross "
@@ -795,7 +796,7 @@ class CallableBoundaryPolicy {
                 + "closure environment");
             exit(1);
         }
-        if (!self.unsafeValue(expectedType, value, context)) { return; }
+        if (!unsafe) { return; }
         print("Managed-return callback cannot cross " + boundary
             + "; bare __fn_ptr storage erases its return ABI");
         exit(1);
@@ -803,7 +804,7 @@ class CallableBoundaryPolicy {
 
     public void rejectAggregateInitializer(
             Node? expectedType, Node? value,
-            CallableBoundaryContext context) {
+            CallableBoundaryContext context, bool unsafe) {
         /* A direct local lambda is lowered as a lifted function plus a
          * compiler-owned environment slot. It is not being persisted through
          * a bare aggregate representation at this boundary. */
@@ -812,7 +813,8 @@ class CallableBoundaryPolicy {
             return;
         }
         self.rejectPersistentStorage(
-            expectedType, value, context, "aggregate storage");
+            expectedType, value, context, unsafe,
+            "aggregate storage");
     }
 
     public void rejectAddressEscape(
@@ -870,7 +872,7 @@ class CallableBoundaryPolicy {
 
     public void rejectAssignment(
             Node assignment, Node? targetType,
-            CallableBoundaryContext context) {
+            CallableBoundaryContext context, bool unsafe) {
         if (assignment.op != "=" || assignment.target == null) { return; }
         Node target = assignment.target;
         bool localIdentifier = target.kind == NK_IDENTIFIER
@@ -890,7 +892,8 @@ class CallableBoundaryPolicy {
             boundary = "indexed storage";
         }
         self.rejectPersistentStorage(
-            targetType, assignment.value_node, context, boundary);
+            targetType, assignment.value_node, context, unsafe,
+            boundary);
     }
 
     private void rejectUnsafeArgument(
@@ -1003,6 +1006,18 @@ class CallableLambdaPlan {
         self.bodyPrefix = [];
         self.hasEnvironment = false;
         self.materialized = false;
+    }
+}
+
+class CallableInvocationEnvironment {
+    public Vector<IRNode> declarations;
+    public Vector<IRNode> prefix;
+    public IRNode? environmentArgument;
+
+    public CallableInvocationEnvironment() {
+        self.declarations = [];
+        self.prefix = [];
+        self.environmentArgument = null;
     }
 }
 
@@ -1253,37 +1268,50 @@ class CallableValueLowerer {
     }
 
 
-    public IRNode materializeInvocation(
-            CallableLambdaPlan lambda, Vector<IRNode> arguments) {
-        if (!lambda.hasEnvironment) {
-            return IRNode.indirectCall(lambda.value, arguments);
+    public CallableInvocationEnvironment prepareInvocationEnvironment(
+            CallableLambdaPlan lambda,
+            Vector<IRNode> captureValues) {
+        if (captureValues.len != lambda.captures.len) {
+            print("internal compiler error: immediate lambda capture plan is incomplete");
+            exit(1);
         }
+        CallableInvocationEnvironment invocation =
+            CallableInvocationEnvironment();
+        if (!lambda.hasEnvironment) { return invocation; }
         string environmentStorage =
             lambda.functionName + "_call_env";
-        Vector<IRNode> declarations = [];
-        declarations.push(IRNode.variableDeclaration(
+        IRNode declaration = IRNode.variableDeclaration(
             "struct " + lambda.environmentName,
-            environmentStorage, null));
-        Vector<IRNode> sequence = [];
+            environmentStorage, null);
+        invocation.declarations.push(declaration);
+        self.context.recordLocal(declaration);
         int captureIndex = 0;
         while (captureIndex < lambda.captures.len) {
             string capture = lambda.captures.get(captureIndex);
-            sequence.push(IRNode.binary(
+            invocation.prefix.push(IRNode.binary(
                 IRNode.fieldAccess(
                     IRNode.variable(environmentStorage),
                     self.hostedAbi.lexicalBindingCName(
                         capture, false), false),
-                "=", IRNode.variable(
-                    self.context.sourceCName(capture))));
+                "=", captureValues.get(captureIndex)));
             captureIndex = captureIndex + 1;
         }
-        arguments.push(IRNode.cast(
+        invocation.environmentArgument = IRNode.cast(
             "void*", IRNode.addressOf(
-                IRNode.variable(environmentStorage))));
-        sequence.push(IRNode.call(
-            lambda.functionName, arguments));
-        return IRNode.statementExpression(
-            declarations, IRNode.commaExpression(sequence));
+                IRNode.variable(environmentStorage)));
+        return invocation;
+    }
+
+    public IRNode materializeInvocation(
+            CallableLambdaPlan lambda, Vector<IRNode> arguments,
+            CallableInvocationEnvironment invocation) {
+        if (invocation.environmentArgument != null) {
+            arguments.push(invocation.environmentArgument);
+        } else if (lambda.hasEnvironment) {
+            print("internal compiler error: immediate lambda environment was not prepared");
+            exit(1);
+        }
+        return IRNode.call(lambda.functionName, arguments);
     }
 
     public CallableSpawnPlan prepareSpawn(

@@ -3,10 +3,11 @@
 import dataclasses
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.syntax.ast.generated import Identifier
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.nodes import IRBinOp, IRFor, IRLiteral, IRNode
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import Identifier
 
 
 def _walk(value):
@@ -39,4 +40,9 @@ def test_parallel_range_binding_is_typed_inside_body():
     uses = [node for node in _walk(program) if isinstance(node, Identifier) and node.name == "index"]
     assert uses
     assert all(analyzed.node_types[id(node)].base == "int" for node in uses)
-    IRLowerer(analyzed).lower()
+    module = IRLowerer(analyzed).lower()
+    loop = next(node for node in IRNode.walk_value(module) if isinstance(node, IRFor))
+
+    assert isinstance(loop.condition, IRBinOp)
+    assert isinstance(loop.condition.right, IRLiteral)
+    assert loop.condition.right.text == "10"

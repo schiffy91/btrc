@@ -15,19 +15,19 @@ from pathlib import Path
 
 import pytest
 
-import src.compiler.python.artifacts.publication as transaction_module
 import src.compiler.python.artifacts.archive as archive_source_module
+import src.compiler.python.artifacts.publication as transaction_module
+from src.compiler.python.artifacts.archive import ArchiveCodec, TargetBinaryValidator
 from src.compiler.python.artifacts.publication import (
     ArtifactPublisher,
+    ArtifactStorage,
     PublishedArtifact,
 )
-from src.compiler.python.artifacts.publication import ArtifactStorage
-from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
 from src.compiler.python.artifacts.selfhost import (
+    SelfhostBundleBuilder,
     SelfhostBundlePublisher,
+    SelfhostBundleValidator,
 )
-from src.compiler.python.artifacts.selfhost import SelfhostBundleValidator
-from src.compiler.python.artifacts.archive import ArchiveCodec, TargetBinaryValidator
 
 ARCHIVE_CODEC = ArchiveCodec()
 write_checksum = ARCHIVE_CODEC.write_checksum

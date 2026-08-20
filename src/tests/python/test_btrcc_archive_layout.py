@@ -12,9 +12,8 @@ from pathlib import Path
 import pytest
 
 import src.compiler.python.artifacts.archive as archive_validation_module
-from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
-from src.compiler.python.artifacts.selfhost import SelfhostBundleValidator
 from src.compiler.python.artifacts.archive import ArchiveCodec
+from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder, SelfhostBundleValidator
 
 ARCHIVE_CODEC = ArchiveCodec()
 write_checksum = ARCHIVE_CODEC.write_checksum
@@ -24,9 +23,7 @@ from src.tests.python.test_btrcc_bundle import _fixture
 def test_bundle_archive_validation_behavior_has_one_explicit_owner() -> None:
     module = ast.parse(Path(archive_validation_module.__file__).read_text())
     loose_behavior = [node.name for node in module.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))]
-    owner = next(
-        node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "ArchiveValidator"
-    )
+    owner = next(node for node in module.body if isinstance(node, ast.ClassDef) and node.name == "ArchiveValidator")
     operations = {node.name for node in owner.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
 
     assert loose_behavior == []

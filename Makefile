@@ -1,6 +1,6 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required gui ast-generate ast-generate-btrc \
-        test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost bootstrap test-c11 test-generate-goldens \
+        test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui bench \
         extension extension-install \
@@ -232,7 +232,7 @@ ast-generate-btrc: compiler-codegen-generate ## Regenerate both AST catalogs thr
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
-test: generated-check gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
+test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
 	$(NIX) $(PYTEST) src/tests/ \
 		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
 	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py $(PYTEST_SERIAL_ARGS)
@@ -248,6 +248,12 @@ test-debug: generated-check ## Run the debugger (DAP adapter) tests (needs lldb 
 
 test-selfhost: generated-check ## Verify the self-hosted lexer is byte-identical to btrcpy
 	$(NIX) python3 -m tools.compiler_codegen.main verify-lexer
+
+test-boundaries: generated-check ## Check frozen compiler boundaries with portable host gating
+	$(NIX) python3 -m tools.compiler_codegen.main boundary-check
+
+test-boundaries-observed: generated-check ## Require the recorded local GCC/Clang behavior envelope
+	$(NIX) python3 -m tools.compiler_codegen.main boundary-check --require-observed
 
 test-btrc: generated-check ## Language corpus through the Python reference compiler (fast)
 	$(NIX) $(PYTEST) src/tests/runner.py --compilers=python $(PYTEST_ARGS)

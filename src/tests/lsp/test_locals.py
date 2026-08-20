@@ -2,10 +2,7 @@
 the statement-scanning variable resolution shared by hover, definition, and
 completion (_check_stmt_for_var / _collect_vars_in_stmt / _scan_for_var_type)."""
 
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import analyze, get_completions, get_definition, get_hover_info, hover_text, pos_of
 
 SRC = """\
 class Widget {

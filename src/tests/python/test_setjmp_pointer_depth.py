@@ -71,12 +71,12 @@ def test_terminal_scalar_dereference_drops_return_provenance_through_casts():
     )
     probe = IRFunctionDef("probe", CType("void"), body=IRBlock())
 
-    summaries = ExceptionLowerer.build_setjmp_call_effects(
+    catalog = ExceptionLowerer.build_setjmp_call_effects(
         IRModule(typedef_defs=_deep_typedefs(), function_defs=[scalar, peel, probe])
-    )["probe"].function_effects
+    )["probe"].catalog
 
-    assert summaries["scalar"].returns == frozenset()
-    assert summaries["peel"].returns == frozenset({ParameterEffect(0, 3)})
+    assert catalog.resolve("scalar", 1).returns == frozenset()
+    assert catalog.resolve("peel", 1).returns == frozenset({ParameterEffect(0, 3)})
 
 
 def test_recursive_return_summary_reaches_a_finite_declared_depth_fixed_point():
@@ -98,11 +98,9 @@ def test_recursive_return_summary_reaches_a_finite_declared_depth_fixed_point():
         ),
     )
 
-    summary = ExceptionLowerer.build_setjmp_call_effects(IRModule(function_defs=[recursive]))[
-        "recursive"
-    ].function_effects["recursive"]
+    catalog = ExceptionLowerer.build_setjmp_call_effects(IRModule(function_defs=[recursive]))["recursive"].catalog
 
-    assert summary.returns == frozenset({ParameterEffect(0, 1)})
+    assert catalog.resolve("recursive", 1).returns == frozenset({ParameterEffect(0, 1)})
 
 
 def test_unresolved_pointer_depth_saturates_instead_of_growing():
@@ -121,11 +119,11 @@ def test_unresolved_pointer_depth_saturates_instead_of_growing():
     )
 
     module.function_defs = [opaque]
-    summary = ExceptionLowerer.build_setjmp_call_effects(module)["opaque"].function_effects["opaque"]
+    catalog = ExceptionLowerer.build_setjmp_call_effects(module)["opaque"].catalog
 
     assert facts.pointer_depth(CType("OpaqueA")) == OPAQUE_POINTER_DEPTH
     assert facts.pointer_depth(CType("OpaqueB")) == OPAQUE_POINTER_DEPTH
-    assert summary.returns == frozenset({ParameterEffect(0, OPAQUE_POINTER_DEPTH)})
+    assert catalog.resolve("opaque", 1).returns == frozenset({ParameterEffect(0, OPAQUE_POINTER_DEPTH)})
 
 
 def test_saturated_write_effect_maps_back_to_concrete_caller_storage():
@@ -157,7 +155,7 @@ def test_saturated_write_effect_maps_back_to_concrete_caller_storage():
 
     effects = ExceptionLowerer.build_setjmp_call_effects(module)
 
-    assert effects["opaque_write"].function_effects["opaque_write"].writes == frozenset(
+    assert effects["opaque_write"].catalog.resolve("opaque_write", 1).writes == frozenset(
         {ParameterEffect(0, OPAQUE_POINTER_DEPTH)}
     )
     assert {(origin.storage.identity, origin.depth) for origin in effects["caller"].flow.writes[id(call)]} == {

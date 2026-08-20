@@ -14,9 +14,7 @@ FUNCTIONS = LOWERING / "functions.btrc"
 DECLARATIONS = LOWERING / "declarations.btrc"
 EXPRESSIONS = LOWERING / "expressions.btrc"
 GPU_PIPELINE = REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc"
-OWNERSHIP_OPERAND_PLANNER = (
-    LOWERING / "ownership/operands.btrc"
-)
+OWNERSHIP_OPERAND_PLANNER = LOWERING / "ownership/operands.btrc"
 
 
 def _function(source: str, signature: str, next_signature: str) -> str:
@@ -89,12 +87,8 @@ def test_cache_is_epoch_scoped_and_bypasses_mutable_contexts() -> None:
     assert lower.index("self.expressionTypes.disableMemo()") < lower.index(
         "self.gpuPipeline.registerKernels(program, module)"
     )
-    assert lower.rindex("self.expressionTypes.disableMemo()") > lower.index(
-        "self.cleanupSlots.finalize(module)"
-    )
-    assert gpu_fallback.index("self.resetFuncVarDecls();") < gpu_fallback.index(
-        "self.lowerBody("
-    )
+    assert lower.rindex("self.expressionTypes.disableMemo()") > lower.index("self.cleanupSlots.finalize(module)")
+    assert gpu_fallback.index("self.resetFuncVarDecls();") < gpu_fallback.index("self.lowerBody(")
     assert "contextualExprTypeUnmemoized(" in gpu_context
     assert "self.expressions.inferSpecializationWithoutMemo(" in gpu_types
     assert "expressionInferenceMemo" not in gpu_types
@@ -128,6 +122,46 @@ def test_recursive_inference_memo_has_one_miss_per_ast_node() -> None:
     )
     assert "self.memoKnown.put(key, true)" in cached
     assert "self.memoValues.put(key, result)" in cached
+
+
+def test_binary_inference_uses_left_to_right_postorder_without_recursion() -> None:
+    analyzer = ANALYZER.read_text()
+    binary = _function(
+        analyzer,
+        "private Node? inferBinaryType(",
+        "private Node? inferTypeRaw(",
+    )
+
+    assert "Vector<Node> expressions = [root];" in binary
+    assert "Vector<int> stages = [0];" in binary
+    assert binary.index("expression.left") < binary.index("expression.right")
+    assert binary.index("Node? rightType = self.popBinaryType(values, present);") < binary.index(
+        "Node? leftType = self.popBinaryType(values, present);"
+    )
+    assert "self.binaryTypeFromOperands(" in binary
+    assert "self.rememberBinaryType(expression, value);" in binary
+    assert "self.inferBinaryType(node, a, operators, varTypes)" in analyzer
+
+
+def test_binary_validation_scopes_memo_to_iterative_postorder() -> None:
+    analyzer = ANALYZER.read_text()
+    validation = (REPO / "src/compiler/btrc/analyzer/validation/expressions.btrc").read_text()
+    binary = _function(
+        validation,
+        "private void validateBinaryTree(",
+        "public void validateExpr(",
+    )
+
+    assert "bool ownsMemo = self.expressionTypes.beginScopedMemo();" in binary
+    assert "Vector<Node> expressions = [root];" in binary
+    assert "Vector<int> stages = [0];" in binary
+    assert binary.index("expression.left") < binary.index("expression.right")
+    assert binary.index("self.validateExpr(expression.right, vars);") < binary.index(
+        "self.validateBinary(expression, vars);"
+    )
+    assert "self.expressionTypes.endScopedMemo(ownsMemo);" in binary
+    assert "public bool beginScopedMemo()" in analyzer
+    assert "public void endScopedMemo(bool owned)" in analyzer
 
 
 def test_shared_generic_ast_is_reinferred_for_each_type_mapping(

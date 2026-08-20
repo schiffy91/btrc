@@ -1,0 +1,1 @@
+{"asset":"strings.c","btrc_order":76,"category":"string","dependencies":["__btrc_string_alloc"],"headers":[],"name":"__btrc_doubleToString","provided_objects":[],"provided_types":[],"python_order":77,"source_sha256":"6e6166d1e83a9cf651daed818bf1631a6f37eb61b1cbb7ec657ad1ec03dee6f2","source_size":144,"source_visible":false}

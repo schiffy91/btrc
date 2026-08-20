@@ -70,20 +70,14 @@ class HostedFunction:
         parameters = None
         effects: tuple[str, ...] = ()
         if row.parameters is not None:
-            parameters = tuple(
-                AbiType.from_generated(parameter.type_shape) for parameter in row.parameters
-            )
+            parameters = tuple(AbiType.from_generated(parameter.type_shape) for parameter in row.parameters)
             effects = tuple(parameter.effect for parameter in row.parameters)
         return cls(
             result=AbiType.from_generated(row.result),
             parameters=parameters,
             effects=effects,
             variadic=row.variadic,
-            semantic_result=(
-                AbiType.from_generated(row.semantic_result)
-                if row.semantic_result is not None
-                else None
-            ),
+            semantic_result=(AbiType.from_generated(row.semantic_result) if row.semantic_result is not None else None),
             return_effect=row.return_effect,
             return_alias_parameter=row.return_alias_parameter,
             return_alias_null_effect=row.return_alias_null_effect,

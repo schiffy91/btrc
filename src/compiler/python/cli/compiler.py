@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
-import pprint
 import secrets
 import stat
 import sys
@@ -221,7 +220,8 @@ class CompilerCommand:
                 print(token)
             return 0
         if output is CompilerOutput.AST:
-            pprint.pprint(result.program)
+            for line in result.ast_dump_lines():
+                print(line)
             return 0
         if self._emit_result_diagnostics(result, printer):
             raise SystemExit(1)
@@ -260,16 +260,35 @@ class CompilerFileIO:
         try:
             with open(path, "rb") as source_file:
                 encoded = source_file.read(self.MAX_INPUT_BYTES + 1)
-            if len(encoded) > self.MAX_INPUT_BYTES:
-                raise ValueError(f"source file exceeds the {self.MAX_INPUT_BYTES}-byte limit")
-            source = encoded.decode("utf-8-sig")
-            nul = source.find("\0")
-            if nul >= 0:
-                raise ValueError(f"source file contains a NUL byte at character {nul}")
-            return source.replace("\r\n", "\n").replace("\r", "\n")
-        except (OSError, UnicodeError, ValueError) as error:
+        except FileNotFoundError as error:
+            print(f"error: source file {path!r} not found", file=sys.stderr)
+            raise SystemExit(1) from error
+        except OSError as error:
             print(f"error: cannot read source file {path!r}: {error}", file=sys.stderr)
             raise SystemExit(1) from error
+
+        if len(encoded) > self.MAX_INPUT_BYTES:
+            print(
+                f"error: source file {path!r} exceeds the {self.MAX_INPUT_BYTES}-byte limit",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        try:
+            source = encoded.decode("utf-8-sig")
+        except UnicodeDecodeError as error:
+            print(
+                f"error: source file {path!r} is not valid UTF-8 at byte {error.start}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from error
+        nul = source.find("\0")
+        if nul >= 0:
+            print(
+                f"error: source file {path!r} contains a NUL byte at character {nul}",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        return source.replace("\r\n", "\n").replace("\r", "\n")
 
     def output_path(self, input_path: str, requested_path: str | None) -> str:
         """Return the requested/default output path, rejecting source aliases."""
@@ -533,5 +552,6 @@ class DiagnosticPrinter:
         if severity != "error":
             rendered = rendered.replace("error:", f"{severity}:", 1)
         print(rendered, file=self.diagnostics.stderr)
+
 
 __all__ = ("CompilerCommand", "CompilerDiagnostics", "CompilerFileIO")

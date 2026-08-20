@@ -9,6 +9,8 @@ class GeneratedRuntimeHelperRow(NamedTuple):
     c_source: str
     depends_on: tuple[str, ...]
     required_headers: tuple[str, ...]
+    provided_types: tuple[str, ...]
+    provided_objects: tuple[str, ...]
     source_visible: bool
 
 
@@ -26,6 +28,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -39,6 +43,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -54,6 +60,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -93,6 +101,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -132,6 +142,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -145,6 +157,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -157,6 +171,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -169,6 +185,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -181,6 +199,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -195,6 +215,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -205,6 +227,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('stdatomic.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -221,6 +245,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_registry_lock_state',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -234,6 +260,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -248,6 +276,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_registry', '__btrc_string_registry_hash'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -258,6 +288,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -281,6 +313,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_registry', '__btrc_string_registry_hash', '__btrc_safe_calloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -305,6 +339,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_registry_resize', '__btrc_string_registry_slot', '__btrc_string_registry_lock', '__btrc_string_registry_count', '__btrc_safe_realloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -322,6 +358,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_registry_slot', '__btrc_string_registry_lock'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -346,6 +384,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_registry_slot', '__btrc_string_registry_lock', '__btrc_string_registry_count'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -357,6 +397,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_release',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -369,6 +411,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_registry_lock', '__btrc_string_registry_count'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -380,6 +424,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_adopt',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -391,6 +437,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -402,6 +450,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -415,6 +465,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -429,6 +481,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_safe_realloc', '__btrc_string_adopt'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -441,6 +495,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -453,6 +509,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -465,6 +523,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -480,6 +540,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -496,6 +558,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_ascii_space'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -509,6 +573,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_ascii_upper'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -522,6 +588,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_ascii_lower'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -547,6 +615,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_strdup'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -575,6 +645,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_safe_realloc', '__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -592,6 +664,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -605,6 +679,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -622,6 +698,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_strdup'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -639,6 +717,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_strdup'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -653,6 +733,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_ascii_lower', '__btrc_ascii_upper'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -669,6 +751,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_ascii_lower', '__btrc_ascii_space', '__btrc_ascii_upper'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -685,6 +769,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_ascii_lower', '__btrc_ascii_upper'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -700,6 +786,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -715,6 +803,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -732,6 +822,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -747,6 +839,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_ascii_space'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -761,6 +855,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_ascii_space'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -778,6 +874,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -796,6 +894,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc', '__btrc_strdup'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -821,6 +921,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length', '__btrc_string_alloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -835,6 +937,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -848,6 +952,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -862,6 +968,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -873,6 +981,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -886,6 +996,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -900,6 +1012,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -912,6 +1026,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -927,6 +1043,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -942,6 +1060,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -954,6 +1074,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -967,6 +1089,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -979,6 +1103,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_ascii_space',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -992,6 +1118,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_ascii_space',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1005,6 +1133,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_ascii_space',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1019,6 +1149,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1047,6 +1179,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_length',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1058,6 +1192,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_utf8_charlen',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1079,6 +1215,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1091,6 +1229,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_parseLong',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1102,6 +1242,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1113,6 +1255,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1124,6 +1268,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1136,6 +1282,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1148,6 +1296,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1160,6 +1310,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1172,6 +1324,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1184,6 +1338,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1195,6 +1351,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1207,6 +1365,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1218,6 +1378,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1229,6 +1391,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1240,6 +1404,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_string_alloc',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1254,6 +1420,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1268,6 +1436,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1282,6 +1452,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_math_gcd',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1295,6 +1467,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1308,6 +1482,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1323,6 +1499,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1336,6 +1514,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1346,6 +1526,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1358,6 +1540,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_try_level',),
         required_headers=('setjmp.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1373,6 +1557,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('string.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1383,6 +1569,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1393,6 +1581,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1412,6 +1602,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_launder_state',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1441,6 +1633,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_trycatch_globals', '__btrc_try_capacity', '__btrc_safe_realloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1457,6 +1651,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_try_level', '__btrc_arc_callback_types'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1467,6 +1663,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1501,6 +1699,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_cleanup_types', '__btrc_cleanup_capacity', '__btrc_safe_realloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1513,6 +1713,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_register_cleanup_kind',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1525,6 +1727,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_register_cleanup_kind',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1544,6 +1748,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_cleanup_types', '__btrc_push_try', '__btrc_arc_release'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1563,6 +1769,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_callback_types', '__btrc_push_try', '__btrc_copy_error_message'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1575,6 +1783,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_callback_types',),
         required_headers=('stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1588,6 +1798,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_push_try', '__btrc_flush_cycles'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1622,6 +1834,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_cleanup_types', '__btrc_safe_realloc', '__btrc_destroyed_tracking_scope', '__btrc_is_destroyed', '__btrc_run_cleanup_guarded', '__btrc_flush_cycles_guarded'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1634,6 +1848,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_cleanup_types',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1645,6 +1861,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_cleanup_types',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1658,6 +1876,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_cleanup_types',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1674,6 +1894,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_trycatch_globals', '__btrc_copy_error_message', '__btrc_run_cleanups'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1690,6 +1912,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_trycatch_globals', '__btrc_try_capacity', '__btrc_cleanup_types', '__btrc_cleanup_capacity', '__btrc_launder_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1708,6 +1932,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1720,6 +1946,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1732,6 +1960,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1746,6 +1976,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1759,6 +1991,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1772,6 +2006,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1785,6 +2021,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1798,6 +2036,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1811,6 +2051,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1824,6 +2066,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1836,6 +2080,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1849,6 +2095,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1863,6 +2111,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1876,6 +2126,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1889,6 +2141,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1902,6 +2156,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1931,6 +2187,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=('__btrc_arc_count', '__btrc_arc_type', '__btrc_arc_incoming', '__btrc_arc_state', '__btrc_arc_header', '__btrc_destroy_fn', '__btrc_arc_slot_access_fn', '__btrc_field_visit_fn', '__btrc_visit_fn', '__btrc_hook_fn', '__btrc_hook_guard_fn', '__btrc_raise_fn'),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1942,6 +2200,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_callback_types',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1955,6 +2215,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_header_of',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1979,6 +2241,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_header_of',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -1991,6 +2255,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2016,6 +2282,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_destroyed_tracking', '__btrc_arc_mutation_lock', '__btrc_arc_active_unwinds_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2030,6 +2298,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_destroyed_tracking', '__btrc_arc_mutation_lock'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2040,6 +2310,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2067,6 +2339,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_destroyed_tracking', '__btrc_destroyed_capacity', '__btrc_safe_realloc', '__btrc_arc_mutation_lock'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2081,6 +2355,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_callback_types',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2091,6 +2367,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2103,6 +2381,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2163,6 +2443,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_suspect_state', '__btrc_suspect_capacity', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc', '__btrc_arc_type_of', '__btrc_arc_validate'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2176,6 +2458,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_suspect_locked', '__btrc_arc_mutation_lock'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2191,6 +2475,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('stdatomic.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2201,6 +2487,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2211,6 +2499,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2221,6 +2511,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2231,6 +2523,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('stdatomic.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2249,6 +2543,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_shutdown_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2260,6 +2556,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2271,6 +2569,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2301,6 +2601,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_snapshot_gate_state', '__btrc_arc_shutdown_state', '__btrc_arc_topology_state', '__btrc_arc_topology_depth_state'),
         required_headers=('limits.h', 'stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2322,6 +2624,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_lock_state', '__btrc_arc_shutdown_state', '__btrc_arc_topology_state', '__btrc_arc_topology_depth_state'),
         required_headers=('stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2335,6 +2639,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_topology_leave', '__btrc_arc_abandon_queue_drain', '__btrc_flush_cycles', '__btrc_arc_drain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2350,6 +2656,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_topology_leave', '__btrc_arc_abandon_queue_drain', '__btrc_flush_cycles', '__btrc_arc_drain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2374,6 +2682,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_callback_types', '__btrc_arc_header_of'),
         required_headers=('stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2385,6 +2695,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('stdatomic.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2423,6 +2735,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_snapshot_gate_state', '__btrc_arc_shutdown_state', '__btrc_arc_topology_state', '__btrc_arc_topology_depth_state'),
         required_headers=('limits.h', 'stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2437,6 +2751,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2454,6 +2770,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_header_of', '__btrc_safe_realloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2476,6 +2794,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_header_of',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2492,6 +2812,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_validate',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2558,6 +2880,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_reverse_state', '__btrc_arc_validate', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2577,6 +2901,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_validate', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2601,6 +2927,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_register_incoming', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2625,6 +2953,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_register_incoming', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2649,6 +2979,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_unregister_incoming', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2675,6 +3007,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_suspect_state', '__btrc_ptr_hash'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2705,6 +3039,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_suspect_locked', '__btrc_arc_incoming_teardown_pending', '__btrc_arc_reverse_proves_live', '__btrc_forget_suspect', '__btrc_arc_deferred_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2755,6 +3091,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_release_impl', '__btrc_arc_register_incoming', '__btrc_arc_unregister_incoming', '__btrc_arc_mutation_lock', '__btrc_arc_drain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2768,6 +3106,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_release_impl', '__btrc_arc_mutation_lock', '__btrc_arc_drain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2782,6 +3122,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_release_impl', '__btrc_arc_mutation_lock', '__btrc_arc_drain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2805,6 +3147,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_type_of', '__btrc_arc_validate', '__btrc_arc_mutation_lock', '__btrc_arc_drain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2817,6 +3161,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_validate', '__btrc_arc_mutation_lock'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2845,6 +3191,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_forget_suspect', '__btrc_arc_type_of', '__btrc_arc_validate', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state', '__btrc_arc_drain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2877,6 +3225,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_forget_suspect', '__btrc_arc_unregister_incoming', '__btrc_arc_type_of', '__btrc_arc_validate', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state', '__btrc_arc_drain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -2901,6 +3251,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3033,6 +3385,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_cycle_collector_state', '__btrc_ptr_hash', '__btrc_safe_calloc', '__btrc_safe_realloc', '__btrc_arc_type_of', '__btrc_arc_validate'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3149,6 +3503,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_graph_primitives', '__btrc_arc_unregister_incoming', '__btrc_forget_suspect', '__btrc_arc_exclusive_snapshot', '__btrc_arc_deferred_state', '__btrc_arc_drain'),
         required_headers=('stdlib.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3160,6 +3516,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3172,6 +3530,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_abandon_callback_state',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3184,6 +3544,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_abandon_callback_state',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3227,6 +3589,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_abandon_graph', '__btrc_arc_abandon_queue_state', '__btrc_safe_realloc', '__btrc_arc_mutation_lock', '__btrc_arc_topology_state', '__btrc_arc_topology_depth_state'),
         required_headers=('limits.h', 'stdint.h', 'stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3332,27 +3696,31 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'ct);\n    }\n}\nstatic int __btrc_collect_cycles_once(void) {\n    __btrc_ar'
             'c_lock_raw();\n    if (__btrc_arc_shutdown) {\n        __btrc_arc_unlock_r'
             'aw();\n        fprintf(stderr, "btrc: ARC operation after shutdown\\n");\n '
-            '       exit(1);\n    }\n    if (__btrc_suspect_count == 0) {\n        __btr'
-            'c_arc_unlock_raw();\n        return 0;\n    }\n    if (__btrc_collecting) {'
+            '       exit(1);\n    }\n    /* The snapshot owner resets the suspect buffe'
+            'r outside the raw lock.\n     * Gate that ownership before inspecting any'
+            ' suspect-buffer state. */\n    if (__btrc_collecting) {\n        __btrc_ar'
+            'c_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        r'
+            'eturn 2;\n    }\n    if (atomic_load_explicit(\n                &__btrc_arc'
+            '_snapshot_pending, memory_order_acquire)\n            || atomic_load_expl'
+            'icit(\n                &__btrc_arc_snapshotting, memory_order_acquire)) {'
             '\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unloc'
-            'k_raw();\n        return 2;\n    }\n    if (atomic_load_explicit(\n         '
-            '       &__btrc_arc_snapshot_pending, memory_order_acquire)\n            |'
-            '| atomic_load_explicit(\n                &__btrc_arc_snapshotting, memory'
-            '_order_acquire)) {\n        __btrc_arc_topology_flush_pending = 1;\n      '
-            '  __btrc_arc_unlock_raw();\n        return 2;\n    }\n    if (__btrc_arc_to'
-            'pology_active > 0) {\n        __btrc_arc_topology_flush_pending = 1;\n    '
-            '    __btrc_arc_unlock_raw();\n        return 2;\n    }\n    __btrc_collecti'
-            'ng = 1;\n    __btrc_arc_topology_flush_pending = 0;\n    atomic_store_expl'
-            'icit(\n        &__btrc_arc_snapshotting, 1, memory_order_release);\n    __'
-            'btrc_arc_unlock_raw();\n\n    __btrc_cycle_context* context = &__btrc_cycl'
-            'e_scratch;\n    __btrc_cycle_reset_context(context);\n    __btrc_cycle_sna'
-            'pshot(context);\n    __btrc_cycle_mark_live(context);\n\n    __btrc_arc_loc'
-            'k_raw();\n    __btrc_cycle_reclaim(context);\n    __btrc_collecting = 0;\n '
-            '   atomic_store_explicit(\n        &__btrc_arc_snapshotting, 0, memory_or'
-            'der_release);\n    __btrc_arc_unlock_raw();\n    return 1;\n}\n'
+            'k_raw();\n        return 2;\n    }\n    if (__btrc_suspect_count == 0) {\n  '
+            '      __btrc_arc_unlock_raw();\n        return 0;\n    }\n    if (__btrc_ar'
+            'c_topology_active > 0) {\n        __btrc_arc_topology_flush_pending = 1;\n'
+            '        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    __btrc_coll'
+            'ecting = 1;\n    __btrc_arc_topology_flush_pending = 0;\n    atomic_store_'
+            'explicit(\n        &__btrc_arc_snapshotting, 1, memory_order_release);\n  '
+            '  __btrc_arc_unlock_raw();\n\n    __btrc_cycle_context* context = &__btrc_'
+            'cycle_scratch;\n    __btrc_cycle_reset_context(context);\n    __btrc_cycle'
+            '_snapshot(context);\n    __btrc_cycle_mark_live(context);\n\n    __btrc_arc'
+            '_lock_raw();\n    __btrc_cycle_reclaim(context);\n    __btrc_collecting = '
+            '0;\n    atomic_store_explicit(\n        &__btrc_arc_snapshotting, 0, memor'
+            'y_order_release);\n    __btrc_arc_unlock_raw();\n    return 1;\n}\n'
         ),
         depends_on=('__btrc_arc_graph_primitives', '__btrc_suspect_state', '__btrc_ptr_hash', '__btrc_safe_realloc', '__btrc_arc_unregister_incoming', '__btrc_forget_suspect', '__btrc_arc_type_of', '__btrc_arc_validate', '__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_snapshot_gate_state', '__btrc_arc_topology_state', '__btrc_arc_shutdown_state', '__btrc_arc_deferred_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3411,6 +3779,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_deferred_state', '__btrc_collect_cycles_once', '__btrc_arc_mutation_lock', '__btrc_arc_topology_state', '__btrc_arc_topology_depth_state', '__btrc_arc_shutdown_state', '__btrc_arc_active_drains_state'),
         required_headers=('limits.h', 'stdio.h', 'stdlib.h', 'string.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3422,6 +3792,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_drain',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3435,6 +3807,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_drain', '__btrc_arc_mutation_lock'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3446,6 +3820,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_drain',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3469,6 +3845,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_abandon_queue_state', '__btrc_arc_abandon_queue_drain', '__btrc_arc_drain', '__btrc_arc_mutation_lock', '__btrc_arc_topology_depth_state', '__btrc_arc_deferred_state', '__btrc_destroyed_tracking', '__btrc_destroyed_capacity'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3510,6 +3888,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_flush_cycles', '__btrc_arc_thread_state_cleanup', '__btrc_suspect_capacity', '__btrc_arc_reverse_state', '__btrc_arc_deferred_state', '__btrc_arc_drain', '__btrc_arc_mutation_lock', '__btrc_arc_lock_state', '__btrc_arc_snapshot_state', '__btrc_arc_snapshot_gate_state', '__btrc_arc_shutdown_state', '__btrc_arc_active_drains_state', '__btrc_arc_active_unwinds_state', '__btrc_arc_topology_state', '__btrc_cycle_collector_state'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3531,6 +3911,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('stdint.h', 'sys/resource.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3558,6 +3940,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('errno.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3572,6 +3956,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_close_descriptors_from',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3594,6 +3980,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_close_descriptors_from',),
         required_headers=('errno.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3618,6 +4006,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('errno.h', 'fcntl.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3675,6 +4065,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('errno.h', 'sys/types.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3686,6 +4078,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3701,6 +4095,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('errno.h', 'sys/stat.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3716,6 +4112,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('errno.h', 'sys/stat.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3728,6 +4126,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('errno.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3742,6 +4142,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('errno.h', 'pthread.h', 'signal.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3755,6 +4157,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_exec_signal_guard_begin',),
         required_headers=('errno.h', 'pthread.h', 'signal.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3776,6 +4180,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_exec_signal_guard_begin',),
         required_headers=('errno.h', 'pthread.h', 'signal.h', 'string.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
@@ -3789,11 +4195,13 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=(),
         required_headers=('errno.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=True,
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
-        name='__btrc_thread_spawn',
+        name='__btrc_thread_types',
         c_source=(
             'typedef void (*__btrc_thread_result_dispose)(void*, void*);\ntypedef void'
             ' (*__btrc_thread_arg_dispose)(void*);\ntypedef struct {\n    void* (*fn)(v'
@@ -3801,48 +4209,61 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'd* result;\n    void* result_context;\n    __btrc_thread_result_dispose di'
             'spose_result;\n    __btrc_raise_fn raise_result;\n    __btrc_raise_fn rais'
             'e_worker;\n    int has_worker_error;\n    char worker_error[1024];\n    pth'
-            'read_t handle;\n} __btrc_thread_t;\n\nstatic int __btrc_thread_guard(\n     '
-            '   __btrc_thread_t* t, __btrc_hook_fn hook, void* object) {\n    char err'
-            "or[1024];\n    error[0] = '\\0';\n    int failed = __btrc_arc_guard_hook(\n "
-            '       hook, object, error, sizeof error);\n    if (failed && !t->has_wor'
-            'ker_error) {\n        memcpy(t->worker_error, error, sizeof t->worker_err'
-            'or);\n        t->has_worker_error = 1;\n    }\n    return failed;\n}\n\nstatic'
-            ' void __btrc_thread_entry_thunk(void* raw) {\n    __btrc_thread_t* t = (_'
-            '_btrc_thread_t*)raw;\n    t->result = t->fn(t->arg);\n}\n\nstatic void __btr'
-            'c_thread_arc_cleanup_thunk(void* unused) {\n    (void)unused;\n    __btrc_'
-            'arc_thread_state_cleanup();\n}\n\nstatic void* __btrc_thread_wrapper(void* '
-            'raw) {\n    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n    (void)__btrc_'
-            'thread_guard(\n        t, __btrc_thread_entry_thunk, t);\n    if (t->dispo'
-            'se_arg)\n        (void)__btrc_thread_guard(t, t->dispose_arg, t->arg);\n  '
-            '  t->arg = NULL;\n    t->dispose_arg = NULL;\n    int cleanup_failed = __b'
-            'trc_thread_guard(\n        t, __btrc_thread_arc_cleanup_thunk, NULL);\n   '
-            ' if (cleanup_failed)\n        __btrc_arc_thread_state_finalize();\n    __b'
-            'trc_try_state_cleanup();\n    return NULL;\n}\n\nstatic __btrc_thread_t* __b'
-            'trc_thread_spawn(\n        void* (*fn)(void*), void* arg,\n        __btrc_'
-            'thread_arg_dispose dispose_arg,\n        const void* result_context, size'
-            '_t context_size,\n        __btrc_thread_result_dispose dispose_result,\n  '
-            '      __btrc_raise_fn raise_result) {\n    if (!fn) { fprintf(stderr, "bt'
-            'rc: cannot spawn a null thread function\\n"); exit(1); }\n    if (dispose_'
-            'arg && !arg) { fprintf(stderr, "btrc: cannot dispose a null thread argum'
-            'ent\\n"); exit(1); }\n    if ((!result_context) != (context_size == 0) || '
-            '(result_context && !dispose_result)) { fprintf(stderr, "btrc: invalid th'
-            'read result disposal context\\n"); exit(1); }\n    if (raise_result && !di'
-            'spose_result) { fprintf(stderr, "btrc: invalid thread result raise callb'
-            'ack\\n"); exit(1); }\n    __btrc_thread_t* t = (__btrc_thread_t*)__btrc_sa'
-            'fe_realloc(\n        NULL, sizeof(__btrc_thread_t));\n    t->fn = fn;\n    '
-            't->arg = arg;\n    t->dispose_arg = dispose_arg;\n    t->result = NULL;\n  '
-            '  t->result_context = NULL;\n    if (context_size != 0) {\n        t->resu'
-            'lt_context = __btrc_safe_realloc(NULL, context_size);\n        memcpy(t->'
-            'result_context, result_context, context_size);\n    }\n    t->dispose_resu'
-            'lt = dispose_result;\n    t->raise_result = raise_result;\n    t->raise_wo'
-            'rker = __btrc_throw;\n    t->has_worker_error = 0;\n    t->worker_error[0]'
-            " = '\\0';\n    int err = pthread_create(&t->handle, NULL, __btrc_thread_wr"
-            'apper, t);\n    if (err != 0) { fprintf(stderr, "btrc: pthread_create fai'
-            'led (%d)\\n", err); free(t->result_context); free(t); exit(1); }\n    retu'
-            'rn t;\n}'
+            'read_t handle;\n} __btrc_thread_t;'
         ),
-        depends_on=('__btrc_safe_realloc', '__btrc_try_state_cleanup', '__btrc_arc_thread_state_cleanup', '__btrc_arc_callback_types', '__btrc_arc_guard_hook', '__btrc_throw'),
+        depends_on=('__btrc_arc_callback_types',),
+        required_headers=('pthread.h',),
+        provided_types=('__btrc_thread_result_dispose', '__btrc_thread_arg_dispose', '__btrc_thread_t'),
+        provided_objects=(),
+        source_visible=False,
+    ),
+    GeneratedRuntimeHelperRow(
+        category='threads',
+        name='__btrc_thread_spawn',
+        c_source=(
+            'static int __btrc_thread_guard(\n        __btrc_thread_t* t, __btrc_hook_'
+            "fn hook, void* object) {\n    char error[1024];\n    error[0] = '\\0';\n    "
+            'int failed = __btrc_arc_guard_hook(\n        hook, object, error, sizeof '
+            'error);\n    if (failed && !t->has_worker_error) {\n        memcpy(t->work'
+            'er_error, error, sizeof t->worker_error);\n        t->has_worker_error = '
+            '1;\n    }\n    return failed;\n}\n\nstatic void __btrc_thread_entry_thunk(voi'
+            'd* raw) {\n    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n    t->result '
+            '= t->fn(t->arg);\n}\n\nstatic void __btrc_thread_arc_cleanup_thunk(void* un'
+            'used) {\n    (void)unused;\n    __btrc_arc_thread_state_cleanup();\n}\n\nstat'
+            'ic void* __btrc_thread_wrapper(void* raw) {\n    __btrc_thread_t* t = (__'
+            'btrc_thread_t*)raw;\n    (void)__btrc_thread_guard(\n        t, __btrc_thr'
+            'ead_entry_thunk, t);\n    if (t->dispose_arg)\n        (void)__btrc_thread'
+            '_guard(t, t->dispose_arg, t->arg);\n    t->arg = NULL;\n    t->dispose_arg'
+            ' = NULL;\n    int cleanup_failed = __btrc_thread_guard(\n        t, __btrc'
+            '_thread_arc_cleanup_thunk, NULL);\n    if (cleanup_failed)\n        __btrc'
+            '_arc_thread_state_finalize();\n    __btrc_try_state_cleanup();\n    return'
+            ' NULL;\n}\n\nstatic __btrc_thread_t* __btrc_thread_spawn(\n        void* (*f'
+            'n)(void*), void* arg,\n        __btrc_thread_arg_dispose dispose_arg,\n   '
+            '     const void* result_context, size_t context_size,\n        __btrc_thr'
+            'ead_result_dispose dispose_result,\n        __btrc_raise_fn raise_result)'
+            ' {\n    if (!fn) { fprintf(stderr, "btrc: cannot spawn a null thread func'
+            'tion\\n"); exit(1); }\n    if (dispose_arg && !arg) { fprintf(stderr, "btr'
+            'c: cannot dispose a null thread argument\\n"); exit(1); }\n    if ((!resul'
+            't_context) != (context_size == 0) || (result_context && !dispose_result)'
+            ') { fprintf(stderr, "btrc: invalid thread result disposal context\\n"); e'
+            'xit(1); }\n    if (raise_result && !dispose_result) { fprintf(stderr, "bt'
+            'rc: invalid thread result raise callback\\n"); exit(1); }\n    __btrc_thre'
+            'ad_t* t = (__btrc_thread_t*)__btrc_safe_realloc(\n        NULL, sizeof(__'
+            'btrc_thread_t));\n    t->fn = fn;\n    t->arg = arg;\n    t->dispose_arg = '
+            'dispose_arg;\n    t->result = NULL;\n    t->result_context = NULL;\n    if '
+            '(context_size != 0) {\n        t->result_context = __btrc_safe_realloc(NU'
+            'LL, context_size);\n        memcpy(t->result_context, result_context, con'
+            'text_size);\n    }\n    t->dispose_result = dispose_result;\n    t->raise_r'
+            'esult = raise_result;\n    t->raise_worker = __btrc_throw;\n    t->has_wor'
+            "ker_error = 0;\n    t->worker_error[0] = '\\0';\n    int err = pthread_crea"
+            'te(&t->handle, NULL, __btrc_thread_wrapper, t);\n    if (err != 0) { fpri'
+            'ntf(stderr, "btrc: pthread_create failed (%d)\\n", err); free(t->result_c'
+            'ontext); free(t); exit(1); }\n    return t;\n}'
+        ),
+        depends_on=('__btrc_thread_types', '__btrc_safe_realloc', '__btrc_try_state_cleanup', '__btrc_arc_thread_state_cleanup', '__btrc_arc_guard_hook', '__btrc_throw'),
         required_headers=('pthread.h', 'string.h'),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3855,6 +4276,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_thread_spawn',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3866,6 +4289,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_thread_spawn',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3877,6 +4302,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_thread_spawn',),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3889,6 +4316,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_thread_spawn', '__btrc_arc_release', '__btrc_flush_cycles'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3901,6 +4330,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_thread_spawn', '__btrc_string_release'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3920,6 +4351,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_thread_spawn', '__btrc_arc_guard_hook'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3941,6 +4374,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_thread_finish', '__btrc_thread_destroy_handle', '__btrc_thread_dispose_guarded', '__btrc_raise_captured'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3962,6 +4397,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_thread_finish', '__btrc_thread_destroy_handle', '__btrc_thread_dispose_guarded', '__btrc_raise_captured'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -3980,6 +4417,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_arc_callback_types',),
         required_headers=('pthread.h',),
+        provided_types=('__btrc_mutex_value_access', '__btrc_mutex_value_callback', '__btrc_mutex_finalize_callback', '__btrc_mutex_val_t'),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4001,6 +4440,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_arc_guard_hook'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4019,6 +4460,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_arc_guard_hook'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4058,6 +4501,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_arc_type', '__btrc_mutex_value_callback_guard', '__btrc_raise_captured', '__btrc_safe_realloc'),
         required_headers=('string.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4072,6 +4517,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_arc_retain', '__btrc_arc_retain_edge'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4088,6 +4535,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_arc_release', '__btrc_arc_release_edge', '__btrc_arc_unlink_edge'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4099,6 +4548,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_flush_cycles'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4112,6 +4563,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_string_retain'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4125,6 +4578,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_string_release'),
         required_headers=(),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4159,6 +4614,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_val_types', '__btrc_arc_topology_begin', '__btrc_arc_topology_leave', '__btrc_mark_destroyed', '__btrc_throw'),
         required_headers=('stdio.h', 'stdlib.h'),
+        provided_types=(),
+        provided_objects=('__btrc_mutex_arc_descriptor',),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4195,6 +4652,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_value_callback_guard', '__btrc_mutex_finalize_callback_guard', '__btrc_arc_topology_begin', '__btrc_arc_topology_leave', '__btrc_raise_captured', '__btrc_safe_realloc'),
         required_headers=('string.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
     GeneratedRuntimeHelperRow(
@@ -4229,6 +4688,8 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         ),
         depends_on=('__btrc_mutex_value_callback_guard', '__btrc_mutex_finalize_callback_guard', '__btrc_arc_topology_begin', '__btrc_arc_topology_leave', '__btrc_raise_captured'),
         required_headers=('string.h',),
+        provided_types=(),
+        provided_objects=(),
         source_visible=False,
     ),
 )

@@ -102,19 +102,21 @@ def test_pipeline_owns_the_explicit_stage_five_preparation_cascade() -> None:
     pipeline = next(
         node for node in tree.body if isinstance(node, python_ast.ClassDef) and node.name == "CompilationPipeline"
     )
-    methods = {
-        node.name: node
-        for node in pipeline.body
-        if isinstance(node, python_ast.FunctionDef)
-    }
+    methods = {node.name: node for node in pipeline.body if isinstance(node, python_ast.FunctionDef)}
 
-    optimize_calls = [python_ast.unparse(node.func) for node in python_ast.walk(methods["optimize"]) if isinstance(node, python_ast.Call)]
+    optimize_calls = [
+        python_ast.unparse(node.func)
+        for node in python_ast.walk(methods["optimize"])
+        if isinstance(node, python_ast.Call)
+    ]
     prepare_calls = [
         python_ast.unparse(statement.value.func)
         for statement in methods["_finalize_optimized_ir"].body
         if isinstance(statement, python_ast.Expr) and isinstance(statement.value, python_ast.Call)
     ]
-    emit_calls = [python_ast.unparse(node.func) for node in python_ast.walk(methods["emit"]) if isinstance(node, python_ast.Call)]
+    emit_calls = [
+        python_ast.unparse(node.func) for node in python_ast.walk(methods["emit"]) if isinstance(node, python_ast.Call)
+    ]
 
     assert "IRVerifier(module).validate_schema" in optimize_calls
     assert "IROptimizer" in optimize_calls
@@ -247,19 +249,14 @@ def test_analyzer_failure_stops_before_ir_lowering(tmp_path):
 
 def test_application_dependency_boundaries_are_explicit_and_acyclic():
     for path in (PYTHON_COMPILER / "application").glob("*.py"):
-        assert not any(
-            target.startswith("src.compiler.python.artifacts")
-            for target in _imports(path)
-        ), path
+        assert not any(target.startswith("src.compiler.python.artifacts") for target in _imports(path)), path
 
     frontend_forbidden = ("src.compiler.python.application", "src.compiler.python.artifacts")
     for path in (PYTHON_COMPILER / "frontend").glob("*.py"):
         assert not any(target.startswith(frontend_forbidden) for target in _imports(path)), path
 
     for path in (PYTHON_COMPILER / "cli").glob("*.py"):
-        compiler_imports = {
-            target for target in _imports(path) if target.startswith("src.compiler.python.")
-        }
+        compiler_imports = {target for target in _imports(path) if target.startswith("src.compiler.python.")}
         assert all(target.startswith("src.compiler.python.application") for target in compiler_imports), path
 
     artifact_forbidden = tuple(
@@ -277,32 +274,34 @@ def test_application_dependency_boundaries_are_explicit_and_acyclic():
     archive_tree = python_ast.parse((PYTHON_COMPILER / "artifacts/archive.py").read_text())
     command_tree = python_ast.parse((PYTHON_COMPILER / "cli/compiler.py").read_text())
     main_imports = _imports(PYTHON_COMPILER / "main.py")
-    assert "FrontendParseResult" in {
-        node.name for node in stage_tree.body if isinstance(node, python_ast.ClassDef)
-    }
+    assert "FrontendParseResult" in {node.name for node in stage_tree.body if isinstance(node, python_ast.ClassDef)}
     assert "FrontendParseResult" not in {
         node.name for node in result_tree.body if isinstance(node, python_ast.ClassDef)
+    }
+    result_owner = next(
+        node for node in result_tree.body if isinstance(node, python_ast.ClassDef) and node.name == "CompilerResult"
+    )
+    assert {"ast_dump_lines", "ir_dump_lines"} <= {
+        node.name for node in result_owner.body if isinstance(node, python_ast.FunctionDef)
     }
     assert "StdlibArtifactRepository" in {
         node.name for node in artifact_tree.body if isinstance(node, python_ast.ClassDef)
     }
-    assert "StdlibArchiveAdapter" in {
-        node.name for node in pipeline_tree.body if isinstance(node, python_ast.ClassDef)
-    }
+    assert "StdlibArchiveAdapter" in {node.name for node in pipeline_tree.body if isinstance(node, python_ast.ClassDef)}
     for tree, owner_name in (
         (stage_tree, "FrontendStage"),
         (pipeline_tree, "CompilationPipeline"),
     ):
-        owner = next(
-            node for node in tree.body if isinstance(node, python_ast.ClassDef) and node.name == owner_name
-        )
+        owner = next(node for node in tree.body if isinstance(node, python_ast.ClassDef) and node.name == owner_name)
         initializer = next(
             node for node in owner.body if isinstance(node, python_ast.FunctionDef) and node.name == "__init__"
         )
         assert not any(argument.arg.endswith("_factory") for argument in initializer.args.args)
         assert not any(argument.arg.endswith("_factory") for argument in initializer.args.kwonlyargs)
     publisher = next(
-        node for node in publication_tree.body if isinstance(node, python_ast.ClassDef) and node.name == "ArtifactPublisher"
+        node
+        for node in publication_tree.body
+        if isinstance(node, python_ast.ClassDef) and node.name == "ArtifactPublisher"
     )
     publish = next(
         node for node in publisher.body if isinstance(node, python_ast.FunctionDef) and node.name == "publish"

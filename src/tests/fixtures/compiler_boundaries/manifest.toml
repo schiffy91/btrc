@@ -1,0 +1,3986 @@
+# Frozen compiler-boundary contract. Candidate paths are derived build output only.
+# Self-host raw/optimized IR is intentionally absent: btrcc exposes no such capability.
+# bootstrap-fixed-point is intentionally absent from this atom; make bootstrap remains its separate final gate.
+# Rich Python and terse self-host phase diagnostics are separately exact; strict-import diagnostics are shared.
+# Managed C text is separately exact while observed GCC/Clang behavior proves cross-compiler semantics.
+schema_version = 1
+baseline_revision = "fce26b8502feb4019784b18cdee27028ec4e3d15"
+source_root = "src/tests/fixtures/compiler_boundaries/sources"
+artifact_root = "src/tests/fixtures/compiler_boundaries/artifacts"
+candidate_root = "build/verification/compiler-boundaries/candidate"
+
+[formats]
+ast = "selfhost-canonical-v1"
+ir = "btrc-ir-v1"
+status = "signed-decimal-lf-v1"
+
+[[capabilities]]
+id = "python.tokens"
+compiler = "python"
+boundary = "tokens"
+portability = "portable"
+channels = [
+  "artifact",
+  "status",
+]
+
+[[capabilities]]
+id = "python.ast"
+compiler = "python"
+boundary = "ast"
+portability = "portable"
+channels = [
+  "artifact",
+  "status",
+]
+
+[[capabilities]]
+id = "python.raw-ir"
+compiler = "python"
+boundary = "raw-ir"
+portability = "portable"
+channels = [
+  "artifact",
+  "status",
+]
+
+[[capabilities]]
+id = "python.optimized-ir"
+compiler = "python"
+boundary = "optimized-ir"
+portability = "portable"
+channels = [
+  "artifact",
+  "status",
+]
+
+[[capabilities]]
+id = "python.c"
+compiler = "python"
+boundary = "c"
+portability = "portable"
+channels = [
+  "artifact",
+  "status",
+]
+
+[[capabilities]]
+id = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+portability = "portable"
+channels = [
+  "status",
+  "stderr",
+]
+
+[[capabilities]]
+id = "btrc.tokens"
+compiler = "btrc"
+boundary = "tokens"
+portability = "portable"
+channels = [
+  "artifact",
+  "status",
+]
+
+[[capabilities]]
+id = "btrc.ast"
+compiler = "btrc"
+boundary = "ast"
+portability = "portable"
+channels = [
+  "artifact",
+  "status",
+]
+
+[[capabilities]]
+id = "btrc.c"
+compiler = "btrc"
+boundary = "c"
+portability = "portable"
+channels = [
+  "artifact",
+  "status",
+]
+
+[[capabilities]]
+id = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+portability = "portable"
+channels = [
+  "status",
+  "stderr",
+]
+
+[[capabilities]]
+id = "python.behavior-gcc"
+compiler = "python"
+boundary = "behavior-gcc"
+portability = "observed"
+channels = [
+  "observation",
+  "source-status",
+  "compile-status",
+  "status",
+  "stdout",
+  "stderr",
+]
+
+[[capabilities]]
+id = "python.behavior-clang"
+compiler = "python"
+boundary = "behavior-clang"
+portability = "observed"
+channels = [
+  "observation",
+  "source-status",
+  "compile-status",
+  "status",
+  "stdout",
+  "stderr",
+]
+
+[[capabilities]]
+id = "btrc.behavior-gcc"
+compiler = "btrc"
+boundary = "behavior-gcc"
+portability = "observed"
+channels = [
+  "observation",
+  "source-status",
+  "compile-status",
+  "status",
+  "stdout",
+  "stderr",
+]
+
+[[capabilities]]
+id = "btrc.behavior-clang"
+compiler = "btrc"
+boundary = "behavior-clang"
+portability = "observed"
+channels = [
+  "observation",
+  "source-status",
+  "compile-status",
+  "status",
+  "stdout",
+  "stderr",
+]
+
+[[capabilities]]
+id = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+portability = "portable"
+channels = [
+  "asset.btrc_rt_h",
+  "asset.collections_c",
+  "asset.core_c",
+  "asset.cycles_c",
+  "asset.gpu_c",
+  "asset.mutex_c",
+  "asset.process_c",
+  "asset.strings_c",
+  "asset.threads_c",
+  "asset.trycatch_c",
+]
+
+[[capabilities]]
+id = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+portability = "portable"
+channels = [
+  "manifest",
+  "helper.List_all",
+  "helper.List_any",
+  "helper.List_filter",
+  "helper.List_findIndex",
+  "helper.List_forEach",
+  "helper.List_map",
+  "helper.List_reduce",
+  "helper.Map_containsValue",
+  "helper.Map_forEach",
+  "helper.Set_all",
+  "helper.Set_any",
+  "helper.Set_filter",
+  "helper.Set_findIndex",
+  "helper.Set_forEach",
+  "helper.__btrc_arc_abandon",
+  "helper.__btrc_arc_abandon_callback_state",
+  "helper.__btrc_arc_abandon_graph",
+  "helper.__btrc_arc_abandon_queue_drain",
+  "helper.__btrc_arc_abandon_queue_state",
+  "helper.__btrc_arc_active_drains_state",
+  "helper.__btrc_arc_active_unwinds_state",
+  "helper.__btrc_arc_adopt_edge",
+  "helper.__btrc_arc_callback_types",
+  "helper.__btrc_arc_deferred_state",
+  "helper.__btrc_arc_destroy_edge",
+  "helper.__btrc_arc_destroy_slot",
+  "helper.__btrc_arc_drain",
+  "helper.__btrc_arc_exclusive_snapshot",
+  "helper.__btrc_arc_graph_primitives",
+  "helper.__btrc_arc_guard_hook",
+  "helper.__btrc_arc_header_of",
+  "helper.__btrc_arc_incoming_teardown_pending",
+  "helper.__btrc_arc_invalidate",
+  "helper.__btrc_arc_lock_state",
+  "helper.__btrc_arc_mutation_lock",
+  "helper.__btrc_arc_register_incoming",
+  "helper.__btrc_arc_release",
+  "helper.__btrc_arc_release_acyclic",
+  "helper.__btrc_arc_release_edge",
+  "helper.__btrc_arc_release_impl",
+  "helper.__btrc_arc_replace_edge",
+  "helper.__btrc_arc_retain",
+  "helper.__btrc_arc_retain_edge",
+  "helper.__btrc_arc_reverse_proves_live",
+  "helper.__btrc_arc_reverse_state",
+  "helper.__btrc_arc_shutdown_state",
+  "helper.__btrc_arc_snapshot_gate_state",
+  "helper.__btrc_arc_snapshot_state",
+  "helper.__btrc_arc_thread_state_cleanup",
+  "helper.__btrc_arc_topology_begin",
+  "helper.__btrc_arc_topology_cleanup",
+  "helper.__btrc_arc_topology_complete",
+  "helper.__btrc_arc_topology_depth_state",
+  "helper.__btrc_arc_topology_leave",
+  "helper.__btrc_arc_topology_state",
+  "helper.__btrc_arc_type_of",
+  "helper.__btrc_arc_unlink_edge",
+  "helper.__btrc_arc_unregister_incoming",
+  "helper.__btrc_arc_validate",
+  "helper.__btrc_ascii_lower",
+  "helper.__btrc_ascii_space",
+  "helper.__btrc_ascii_upper",
+  "helper.__btrc_capitalize",
+  "helper.__btrc_center",
+  "helper.__btrc_charAt",
+  "helper.__btrc_charLen",
+  "helper.__btrc_charToString",
+  "helper.__btrc_cleanup_capacity",
+  "helper.__btrc_cleanup_mark",
+  "helper.__btrc_cleanup_types",
+  "helper.__btrc_close_descriptors_except",
+  "helper.__btrc_close_descriptors_except_many",
+  "helper.__btrc_close_descriptors_from",
+  "helper.__btrc_collect_cycles",
+  "helper.__btrc_collect_cycles_once",
+  "helper.__btrc_copy_error_message",
+  "helper.__btrc_count",
+  "helper.__btrc_cycle_collector_state",
+  "helper.__btrc_cycle_state_cleanup",
+  "helper.__btrc_descriptor_close_bound",
+  "helper.__btrc_destroyed_capacity",
+  "helper.__btrc_destroyed_tracking",
+  "helper.__btrc_destroyed_tracking_scope",
+  "helper.__btrc_discard_cleanups",
+  "helper.__btrc_discard_cleanups_to",
+  "helper.__btrc_div",
+  "helper.__btrc_div_double",
+  "helper.__btrc_div_int",
+  "helper.__btrc_doubleToString",
+  "helper.__btrc_endsWith",
+  "helper.__btrc_enter_working_directory_descriptor",
+  "helper.__btrc_exec_executable_descriptor",
+  "helper.__btrc_exec_signal_guard_begin",
+  "helper.__btrc_exec_signal_guard_child_end",
+  "helper.__btrc_exec_signal_guard_parent_end",
+  "helper.__btrc_find",
+  "helper.__btrc_floatToString",
+  "helper.__btrc_flush_cycles",
+  "helper.__btrc_flush_cycles_guarded",
+  "helper.__btrc_forget_suspect",
+  "helper.__btrc_fromFloat",
+  "helper.__btrc_fromInt",
+  "helper.__btrc_gpu_index_check",
+  "helper.__btrc_hash_real",
+  "helper.__btrc_hash_str",
+  "helper.__btrc_indexOf",
+  "helper.__btrc_intToString",
+  "helper.__btrc_isAlnumStr",
+  "helper.__btrc_isAlphaStr",
+  "helper.__btrc_isBlank",
+  "helper.__btrc_isDigitStr",
+  "helper.__btrc_isEmpty",
+  "helper.__btrc_isLower",
+  "helper.__btrc_isUpper",
+  "helper.__btrc_is_destroyed",
+  "helper.__btrc_join",
+  "helper.__btrc_lastIndexOf",
+  "helper.__btrc_launder",
+  "helper.__btrc_launder_state",
+  "helper.__btrc_longDoubleToString",
+  "helper.__btrc_longLongToString",
+  "helper.__btrc_longToString",
+  "helper.__btrc_lstrip",
+  "helper.__btrc_mark_destroyed",
+  "helper.__btrc_math_factorial",
+  "helper.__btrc_math_fibonacci",
+  "helper.__btrc_math_fsum",
+  "helper.__btrc_math_gcd",
+  "helper.__btrc_math_isPrime",
+  "helper.__btrc_math_lcm",
+  "helper.__btrc_math_sum_int",
+  "helper.__btrc_mod",
+  "helper.__btrc_mod_int",
+  "helper.__btrc_move_descriptor_outside_stdio",
+  "helper.__btrc_mutex_arc_finalize",
+  "helper.__btrc_mutex_arc_release",
+  "helper.__btrc_mutex_arc_retain",
+  "helper.__btrc_mutex_arc_type",
+  "helper.__btrc_mutex_finalize_callback_guard",
+  "helper.__btrc_mutex_string_release",
+  "helper.__btrc_mutex_string_retain",
+  "helper.__btrc_mutex_val_create",
+  "helper.__btrc_mutex_val_get",
+  "helper.__btrc_mutex_val_set",
+  "helper.__btrc_mutex_val_types",
+  "helper.__btrc_mutex_value_callback_guard",
+  "helper.__btrc_padLeft",
+  "helper.__btrc_padRight",
+  "helper.__btrc_parseBool",
+  "helper.__btrc_parseInt",
+  "helper.__btrc_parseLong",
+  "helper.__btrc_poll_cycles",
+  "helper.__btrc_posix_spawn_cloexec",
+  "helper.__btrc_process_descriptors_supported",
+  "helper.__btrc_ptr_hash",
+  "helper.__btrc_push_try",
+  "helper.__btrc_raise_captured",
+  "helper.__btrc_register_cleanup",
+  "helper.__btrc_register_cleanup_kind",
+  "helper.__btrc_register_direct_cleanup",
+  "helper.__btrc_removePrefix",
+  "helper.__btrc_removeSuffix",
+  "helper.__btrc_repeat",
+  "helper.__btrc_replace",
+  "helper.__btrc_reverse",
+  "helper.__btrc_rstrip",
+  "helper.__btrc_run_cleanup_guarded",
+  "helper.__btrc_run_cleanups",
+  "helper.__btrc_safe_calloc",
+  "helper.__btrc_safe_realloc",
+  "helper.__btrc_split",
+  "helper.__btrc_startsWith",
+  "helper.__btrc_strContains",
+  "helper.__btrc_str_flush",
+  "helper.__btrc_str_track",
+  "helper.__btrc_strcat",
+  "helper.__btrc_strdup",
+  "helper.__btrc_string_adopt",
+  "helper.__btrc_string_alloc",
+  "helper.__btrc_string_length",
+  "helper.__btrc_string_live_count",
+  "helper.__btrc_string_or_empty",
+  "helper.__btrc_string_registry",
+  "helper.__btrc_string_registry_count",
+  "helper.__btrc_string_registry_hash",
+  "helper.__btrc_string_registry_lock",
+  "helper.__btrc_string_registry_lock_state",
+  "helper.__btrc_string_registry_resize",
+  "helper.__btrc_string_registry_slot",
+  "helper.__btrc_string_release",
+  "helper.__btrc_string_release_cleanup",
+  "helper.__btrc_string_retain",
+  "helper.__btrc_substring",
+  "helper.__btrc_suspect",
+  "helper.__btrc_suspect_capacity",
+  "helper.__btrc_suspect_locked",
+  "helper.__btrc_suspect_state",
+  "helper.__btrc_swapCase",
+  "helper.__btrc_thread_arc_dispose",
+  "helper.__btrc_thread_box_dispose",
+  "helper.__btrc_thread_destroy_handle",
+  "helper.__btrc_thread_dispose_guarded",
+  "helper.__btrc_thread_finish",
+  "helper.__btrc_thread_free",
+  "helper.__btrc_thread_join",
+  "helper.__btrc_thread_spawn",
+  "helper.__btrc_thread_string_dispose",
+  "helper.__btrc_thread_types",
+  "helper.__btrc_throw",
+  "helper.__btrc_title",
+  "helper.__btrc_toLower",
+  "helper.__btrc_toUpper",
+  "helper.__btrc_trim",
+  "helper.__btrc_try_capacity",
+  "helper.__btrc_try_level",
+  "helper.__btrc_try_state_cleanup",
+  "helper.__btrc_trycatch_globals",
+  "helper.__btrc_uintToString",
+  "helper.__btrc_ulongLongToString",
+  "helper.__btrc_ulongToString",
+  "helper.__btrc_utf8_charlen",
+  "helper.__btrc_validate_executable_descriptor",
+  "helper.__btrc_validate_working_directory_descriptor",
+  "helper.__btrc_zfill",
+]
+
+[[capabilities]]
+id = "shared.runtime-order"
+compiler = "shared"
+boundary = "runtime-helper-order"
+portability = "portable"
+channels = [
+  "python",
+  "btrc",
+]
+
+[[fixtures]]
+id = "surface"
+kind = "source"
+entry = "surface.btrc"
+files = [
+  { path = "surface.btrc", source = "surface.source" },
+]
+capabilities = [
+  "python.tokens",
+  "python.ast",
+  "python.raw-ir",
+  "python.optimized-ir",
+  "python.c",
+  "btrc.tokens",
+  "btrc.ast",
+  "btrc.c",
+]
+
+[[fixtures]]
+id = "managed"
+kind = "source"
+entry = "managed.btrc"
+files = [
+  { path = "managed.btrc", source = "managed.source" },
+]
+capabilities = [
+  "python.raw-ir",
+  "python.optimized-ir",
+  "python.c",
+  "btrc.c",
+  "python.behavior-gcc",
+  "python.behavior-clang",
+  "btrc.behavior-gcc",
+  "btrc.behavior-clang",
+]
+
+[[fixtures]]
+id = "lexical-error"
+kind = "source"
+entry = "lexical_error.btrc"
+files = [
+  { path = "lexical_error.btrc", source = "lexical_error.source" },
+]
+capabilities = [
+  "python.diagnostics",
+  "btrc.diagnostics",
+]
+
+[[fixtures]]
+id = "parse-error"
+kind = "source"
+entry = "parse_error.btrc"
+files = [
+  { path = "parse_error.btrc", source = "parse_error.source" },
+]
+capabilities = [
+  "python.diagnostics",
+  "btrc.diagnostics",
+]
+
+[[fixtures]]
+id = "semantic-error"
+kind = "source"
+entry = "semantic_error.btrc"
+files = [
+  { path = "semantic_error.btrc", source = "semantic_error.source" },
+]
+capabilities = [
+  "python.diagnostics",
+  "btrc.diagnostics",
+]
+
+[[fixtures]]
+id = "strict-import-error"
+kind = "source"
+entry = "main.btrc"
+files = [
+  { path = "main.btrc", source = "strict_import_main.source" },
+  { path = "owner.btrc", source = "strict_import_owner.source" },
+  { path = "consumer.btrc", source = "strict_import_consumer.source" },
+]
+capabilities = [
+  "python.diagnostics",
+  "btrc.diagnostics",
+]
+
+[[fixtures]]
+id = "runtime-catalog"
+kind = "runtime"
+entry = ""
+files = [
+]
+capabilities = [
+  "shared.runtime-source",
+  "shared.runtime-metadata",
+  "shared.runtime-order",
+]
+
+[[records]]
+id = "surface.python.tokens.artifact"
+fixture = "surface"
+capability = "python.tokens"
+compiler = "python"
+boundary = "tokens"
+channel = "artifact"
+baseline_path = "baseline/surface.python.tokens.artifact.bin"
+baseline_sha256 = "823e429b80c796825bbe6ffbac4119282e0286fd5163e6bec032f3eec555e050"
+
+[[records]]
+id = "surface.python.tokens.status"
+fixture = "surface"
+capability = "python.tokens"
+compiler = "python"
+boundary = "tokens"
+channel = "status"
+baseline_path = "baseline/surface.python.tokens.status.bin"
+baseline_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+
+[[records]]
+id = "surface.python.ast.artifact"
+fixture = "surface"
+capability = "python.ast"
+compiler = "python"
+boundary = "ast"
+channel = "artifact"
+baseline_path = "baseline/surface.python.ast.artifact.bin"
+baseline_sha256 = "d4391bc21cf3b1fe58345444199e2401d9c6414f2fdff088473a4f2259427a89"
+
+[[records]]
+id = "surface.python.ast.status"
+fixture = "surface"
+capability = "python.ast"
+compiler = "python"
+boundary = "ast"
+channel = "status"
+baseline_path = "baseline/surface.python.ast.status.bin"
+baseline_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+
+[[records]]
+id = "surface.python.raw-ir.artifact"
+fixture = "surface"
+capability = "python.raw-ir"
+compiler = "python"
+boundary = "raw-ir"
+channel = "artifact"
+baseline_path = "baseline/surface.python.raw-ir.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/surface.python.raw-ir.artifact.bin"
+accepted_sha256 = "3227d7e1aeab54c65dae8c019d17813bfb0692be556093eb1a57cdb9b1289066"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.python.raw-ir.status"
+fixture = "surface"
+capability = "python.raw-ir"
+compiler = "python"
+boundary = "raw-ir"
+channel = "status"
+baseline_path = "baseline/surface.python.raw-ir.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/surface.python.raw-ir.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.python.optimized-ir.artifact"
+fixture = "surface"
+capability = "python.optimized-ir"
+compiler = "python"
+boundary = "optimized-ir"
+channel = "artifact"
+baseline_path = "baseline/surface.python.optimized-ir.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/surface.python.optimized-ir.artifact.bin"
+accepted_sha256 = "b075de730cca5bf2a3690d3faa1e8eee355b11fcf4bae3a991269e4570b9abb9"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.python.optimized-ir.status"
+fixture = "surface"
+capability = "python.optimized-ir"
+compiler = "python"
+boundary = "optimized-ir"
+channel = "status"
+baseline_path = "baseline/surface.python.optimized-ir.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/surface.python.optimized-ir.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.python.c.artifact"
+fixture = "surface"
+capability = "python.c"
+compiler = "python"
+boundary = "c"
+channel = "artifact"
+baseline_path = "baseline/surface.python.c.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/surface.python.c.artifact.bin"
+accepted_sha256 = "01eb0beb2ca3ce44767c4ee7e620803c8337b70ae0d7670f3d1969459195a7c7"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.python.c.status"
+fixture = "surface"
+capability = "python.c"
+compiler = "python"
+boundary = "c"
+channel = "status"
+baseline_path = "baseline/surface.python.c.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/surface.python.c.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.btrc.tokens.artifact"
+fixture = "surface"
+capability = "btrc.tokens"
+compiler = "btrc"
+boundary = "tokens"
+channel = "artifact"
+baseline_path = "baseline/surface.btrc.tokens.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/surface.btrc.tokens.artifact.bin"
+accepted_sha256 = "823e429b80c796825bbe6ffbac4119282e0286fd5163e6bec032f3eec555e050"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.btrc.tokens.status"
+fixture = "surface"
+capability = "btrc.tokens"
+compiler = "btrc"
+boundary = "tokens"
+channel = "status"
+baseline_path = "baseline/surface.btrc.tokens.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/surface.btrc.tokens.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.btrc.ast.artifact"
+fixture = "surface"
+capability = "btrc.ast"
+compiler = "btrc"
+boundary = "ast"
+channel = "artifact"
+baseline_path = "baseline/surface.btrc.ast.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/surface.btrc.ast.artifact.bin"
+accepted_sha256 = "d4391bc21cf3b1fe58345444199e2401d9c6414f2fdff088473a4f2259427a89"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.btrc.ast.status"
+fixture = "surface"
+capability = "btrc.ast"
+compiler = "btrc"
+boundary = "ast"
+channel = "status"
+baseline_path = "baseline/surface.btrc.ast.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/surface.btrc.ast.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.btrc.c.artifact"
+fixture = "surface"
+capability = "btrc.c"
+compiler = "btrc"
+boundary = "c"
+channel = "artifact"
+baseline_path = "baseline/surface.btrc.c.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/surface.btrc.c.artifact.bin"
+accepted_sha256 = "01eb0beb2ca3ce44767c4ee7e620803c8337b70ae0d7670f3d1969459195a7c7"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "surface.btrc.c.status"
+fixture = "surface"
+capability = "btrc.c"
+compiler = "btrc"
+boundary = "c"
+channel = "status"
+baseline_path = "baseline/surface.btrc.c.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/surface.btrc.c.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.python.raw-ir.artifact"
+fixture = "managed"
+capability = "python.raw-ir"
+compiler = "python"
+boundary = "raw-ir"
+channel = "artifact"
+baseline_path = "baseline/managed.python.raw-ir.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
+accepted_sha256 = "f1c2fb8329ac9161acf3f283967d759373ab12500441dfaf64e8955f898f30c6"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.python.raw-ir.status"
+fixture = "managed"
+capability = "python.raw-ir"
+compiler = "python"
+boundary = "raw-ir"
+channel = "status"
+baseline_path = "baseline/managed.python.raw-ir.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/managed.python.raw-ir.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.python.optimized-ir.artifact"
+fixture = "managed"
+capability = "python.optimized-ir"
+compiler = "python"
+boundary = "optimized-ir"
+channel = "artifact"
+baseline_path = "baseline/managed.python.optimized-ir.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
+accepted_sha256 = "4f4378569faf25dc3c2feb8f49a55c69a2a90adde0c8a9031e65b34b6906eca8"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.python.optimized-ir.status"
+fixture = "managed"
+capability = "python.optimized-ir"
+compiler = "python"
+boundary = "optimized-ir"
+channel = "status"
+baseline_path = "baseline/managed.python.optimized-ir.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/managed.python.optimized-ir.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.python.c.artifact"
+fixture = "managed"
+capability = "python.c"
+compiler = "python"
+boundary = "c"
+channel = "artifact"
+baseline_path = "baseline/managed.python.c.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/managed.python.c.artifact.bin"
+accepted_sha256 = "d1c2d680f37f500354059a5ae4b04f4405bac13fb48c61f525593472974d8af4"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.python.c.status"
+fixture = "managed"
+capability = "python.c"
+compiler = "python"
+boundary = "c"
+channel = "status"
+baseline_path = "baseline/managed.python.c.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/managed.python.c.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.btrc.c.artifact"
+fixture = "managed"
+capability = "btrc.c"
+compiler = "btrc"
+boundary = "c"
+channel = "artifact"
+baseline_path = "baseline/managed.btrc.c.artifact.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/managed.btrc.c.artifact.bin"
+accepted_sha256 = "7fc3f4816830901eded4cf2c637c4a5b074425251fbfe5405a089e5e6de1fc8c"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.btrc.c.status"
+fixture = "managed"
+capability = "btrc.c"
+compiler = "btrc"
+boundary = "c"
+channel = "status"
+baseline_path = "baseline/managed.btrc.c.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/managed.btrc.c.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
+regressions = ["src/tests/python/test_boundary_renderers.py"]
+
+[[records]]
+id = "managed.python.behavior-gcc.observation"
+fixture = "managed"
+capability = "python.behavior-gcc"
+compiler = "python"
+boundary = "behavior-gcc"
+channel = "observation"
+baseline_path = "baseline/managed.python.behavior-gcc.observation.bin"
+baseline_sha256 = "0c320b17e6291fa5a4057a09e12017c9240f89f7cbcf5ba572ec651151b3ea24"
+
+[[records]]
+id = "managed.python.behavior-gcc.source-status"
+fixture = "managed"
+capability = "python.behavior-gcc"
+compiler = "python"
+boundary = "behavior-gcc"
+channel = "source-status"
+baseline_path = "baseline/managed.python.behavior-gcc.source-status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/managed.python.behavior-gcc.source-status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.python.behavior-gcc.compile-status"
+fixture = "managed"
+capability = "python.behavior-gcc"
+compiler = "python"
+boundary = "behavior-gcc"
+channel = "compile-status"
+baseline_path = "baseline/managed.python.behavior-gcc.compile-status.bin"
+baseline_sha256 = "ee3aa64bb94a50845d5024cd4bd20202a4567aed5cd5328c0d97e9920775fc28"
+accepted_path = "accepted/managed.python.behavior-gcc.compile-status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.python.behavior-gcc.status"
+fixture = "managed"
+capability = "python.behavior-gcc"
+compiler = "python"
+boundary = "behavior-gcc"
+channel = "status"
+baseline_path = "baseline/managed.python.behavior-gcc.status.bin"
+baseline_sha256 = "ee3aa64bb94a50845d5024cd4bd20202a4567aed5cd5328c0d97e9920775fc28"
+accepted_path = "accepted/managed.python.behavior-gcc.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.python.behavior-gcc.stdout"
+fixture = "managed"
+capability = "python.behavior-gcc"
+compiler = "python"
+boundary = "behavior-gcc"
+channel = "stdout"
+baseline_path = "baseline/managed.python.behavior-gcc.stdout.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/managed.python.behavior-gcc.stdout.bin"
+accepted_sha256 = "c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.python.behavior-gcc.stderr"
+fixture = "managed"
+capability = "python.behavior-gcc"
+compiler = "python"
+boundary = "behavior-gcc"
+channel = "stderr"
+baseline_path = "baseline/managed.python.behavior-gcc.stderr.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[records]]
+id = "managed.python.behavior-clang.observation"
+fixture = "managed"
+capability = "python.behavior-clang"
+compiler = "python"
+boundary = "behavior-clang"
+channel = "observation"
+baseline_path = "baseline/managed.python.behavior-clang.observation.bin"
+baseline_sha256 = "7b9876e8390f94bb531e37045d73ebc3ddf24215dc96d83d84f0cf7c7ecfb703"
+
+[[records]]
+id = "managed.python.behavior-clang.source-status"
+fixture = "managed"
+capability = "python.behavior-clang"
+compiler = "python"
+boundary = "behavior-clang"
+channel = "source-status"
+baseline_path = "baseline/managed.python.behavior-clang.source-status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/managed.python.behavior-clang.source-status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.python.behavior-clang.compile-status"
+fixture = "managed"
+capability = "python.behavior-clang"
+compiler = "python"
+boundary = "behavior-clang"
+channel = "compile-status"
+baseline_path = "baseline/managed.python.behavior-clang.compile-status.bin"
+baseline_sha256 = "ee3aa64bb94a50845d5024cd4bd20202a4567aed5cd5328c0d97e9920775fc28"
+accepted_path = "accepted/managed.python.behavior-clang.compile-status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.python.behavior-clang.status"
+fixture = "managed"
+capability = "python.behavior-clang"
+compiler = "python"
+boundary = "behavior-clang"
+channel = "status"
+baseline_path = "baseline/managed.python.behavior-clang.status.bin"
+baseline_sha256 = "ee3aa64bb94a50845d5024cd4bd20202a4567aed5cd5328c0d97e9920775fc28"
+accepted_path = "accepted/managed.python.behavior-clang.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.python.behavior-clang.stdout"
+fixture = "managed"
+capability = "python.behavior-clang"
+compiler = "python"
+boundary = "behavior-clang"
+channel = "stdout"
+baseline_path = "baseline/managed.python.behavior-clang.stdout.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/managed.python.behavior-clang.stdout.bin"
+accepted_sha256 = "c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.python.behavior-clang.stderr"
+fixture = "managed"
+capability = "python.behavior-clang"
+compiler = "python"
+boundary = "behavior-clang"
+channel = "stderr"
+baseline_path = "baseline/managed.python.behavior-clang.stderr.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[records]]
+id = "managed.btrc.behavior-gcc.observation"
+fixture = "managed"
+capability = "btrc.behavior-gcc"
+compiler = "btrc"
+boundary = "behavior-gcc"
+channel = "observation"
+baseline_path = "baseline/managed.btrc.behavior-gcc.observation.bin"
+baseline_sha256 = "0c320b17e6291fa5a4057a09e12017c9240f89f7cbcf5ba572ec651151b3ea24"
+
+[[records]]
+id = "managed.btrc.behavior-gcc.source-status"
+fixture = "managed"
+capability = "btrc.behavior-gcc"
+compiler = "btrc"
+boundary = "behavior-gcc"
+channel = "source-status"
+baseline_path = "baseline/managed.btrc.behavior-gcc.source-status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/managed.btrc.behavior-gcc.source-status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.btrc.behavior-gcc.compile-status"
+fixture = "managed"
+capability = "btrc.behavior-gcc"
+compiler = "btrc"
+boundary = "behavior-gcc"
+channel = "compile-status"
+baseline_path = "baseline/managed.btrc.behavior-gcc.compile-status.bin"
+baseline_sha256 = "ee3aa64bb94a50845d5024cd4bd20202a4567aed5cd5328c0d97e9920775fc28"
+accepted_path = "accepted/managed.btrc.behavior-gcc.compile-status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.btrc.behavior-gcc.status"
+fixture = "managed"
+capability = "btrc.behavior-gcc"
+compiler = "btrc"
+boundary = "behavior-gcc"
+channel = "status"
+baseline_path = "baseline/managed.btrc.behavior-gcc.status.bin"
+baseline_sha256 = "ee3aa64bb94a50845d5024cd4bd20202a4567aed5cd5328c0d97e9920775fc28"
+accepted_path = "accepted/managed.btrc.behavior-gcc.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.btrc.behavior-gcc.stdout"
+fixture = "managed"
+capability = "btrc.behavior-gcc"
+compiler = "btrc"
+boundary = "behavior-gcc"
+channel = "stdout"
+baseline_path = "baseline/managed.btrc.behavior-gcc.stdout.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/managed.btrc.behavior-gcc.stdout.bin"
+accepted_sha256 = "c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.btrc.behavior-gcc.stderr"
+fixture = "managed"
+capability = "btrc.behavior-gcc"
+compiler = "btrc"
+boundary = "behavior-gcc"
+channel = "stderr"
+baseline_path = "baseline/managed.btrc.behavior-gcc.stderr.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[records]]
+id = "managed.btrc.behavior-clang.observation"
+fixture = "managed"
+capability = "btrc.behavior-clang"
+compiler = "btrc"
+boundary = "behavior-clang"
+channel = "observation"
+baseline_path = "baseline/managed.btrc.behavior-clang.observation.bin"
+baseline_sha256 = "7b9876e8390f94bb531e37045d73ebc3ddf24215dc96d83d84f0cf7c7ecfb703"
+
+[[records]]
+id = "managed.btrc.behavior-clang.source-status"
+fixture = "managed"
+capability = "btrc.behavior-clang"
+compiler = "btrc"
+boundary = "behavior-clang"
+channel = "source-status"
+baseline_path = "baseline/managed.btrc.behavior-clang.source-status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+accepted_path = "accepted/managed.btrc.behavior-clang.source-status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.btrc.behavior-clang.compile-status"
+fixture = "managed"
+capability = "btrc.behavior-clang"
+compiler = "btrc"
+boundary = "behavior-clang"
+channel = "compile-status"
+baseline_path = "baseline/managed.btrc.behavior-clang.compile-status.bin"
+baseline_sha256 = "ee3aa64bb94a50845d5024cd4bd20202a4567aed5cd5328c0d97e9920775fc28"
+accepted_path = "accepted/managed.btrc.behavior-clang.compile-status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.btrc.behavior-clang.status"
+fixture = "managed"
+capability = "btrc.behavior-clang"
+compiler = "btrc"
+boundary = "behavior-clang"
+channel = "status"
+baseline_path = "baseline/managed.btrc.behavior-clang.status.bin"
+baseline_sha256 = "ee3aa64bb94a50845d5024cd4bd20202a4567aed5cd5328c0d97e9920775fc28"
+accepted_path = "accepted/managed.btrc.behavior-clang.status.bin"
+accepted_sha256 = "9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.btrc.behavior-clang.stdout"
+fixture = "managed"
+capability = "btrc.behavior-clang"
+compiler = "btrc"
+boundary = "behavior-clang"
+channel = "stdout"
+baseline_path = "baseline/managed.btrc.behavior-clang.stdout.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/managed.btrc.behavior-clang.stdout.bin"
+accepted_sha256 = "c26de83abdc9496cd1301470918ec39ecca1cf389ef0ae1c6504da1800d1c431"
+reason = "The current compiler now emits strict C11 that builds and runs under this observed toolchain."
+regressions = ["src/tests/python/test_c_warning_contracts.py"]
+
+[[records]]
+id = "managed.btrc.behavior-clang.stderr"
+fixture = "managed"
+capability = "btrc.behavior-clang"
+compiler = "btrc"
+boundary = "behavior-clang"
+channel = "stderr"
+baseline_path = "baseline/managed.btrc.behavior-clang.stderr.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
+[[records]]
+id = "lexical-error.python.diagnostics.status"
+fixture = "lexical-error"
+capability = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+channel = "status"
+baseline_path = "baseline/lexical-error.python.diagnostics.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+
+[[records]]
+id = "lexical-error.python.diagnostics.stderr"
+fixture = "lexical-error"
+capability = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+channel = "stderr"
+baseline_path = "baseline/lexical-error.python.diagnostics.stderr.bin"
+baseline_sha256 = "2651553ad31d7d1add93a20a2a89a0b443d2f997cf20729510714fb1750cc3c4"
+
+[[records]]
+id = "lexical-error.btrc.diagnostics.status"
+fixture = "lexical-error"
+capability = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+channel = "status"
+baseline_path = "baseline/lexical-error.btrc.diagnostics.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+
+[[records]]
+id = "lexical-error.btrc.diagnostics.stderr"
+fixture = "lexical-error"
+capability = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+channel = "stderr"
+baseline_path = "baseline/lexical-error.btrc.diagnostics.stderr.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/lexical-error.btrc.diagnostics.stderr.bin"
+accepted_sha256 = "d89bbe935f1613a6d7cc7a219ebc261c7ef794f2edb1310aa29c720d70df8333"
+reason = "The current compiler now reports the stable phase diagnostic instead of failing inside an incomplete pipeline."
+regressions = ["src/tests/btrc/test_driver_frontend_parity.py"]
+
+[[records]]
+id = "parse-error.python.diagnostics.status"
+fixture = "parse-error"
+capability = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+channel = "status"
+baseline_path = "baseline/parse-error.python.diagnostics.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+
+[[records]]
+id = "parse-error.python.diagnostics.stderr"
+fixture = "parse-error"
+capability = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+channel = "stderr"
+baseline_path = "baseline/parse-error.python.diagnostics.stderr.bin"
+baseline_sha256 = "fb9a5b11c134c28f9ec7c58127ce30b7819bb319d123b99dc86dbdc95a6a7328"
+
+[[records]]
+id = "parse-error.btrc.diagnostics.status"
+fixture = "parse-error"
+capability = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+channel = "status"
+baseline_path = "baseline/parse-error.btrc.diagnostics.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+
+[[records]]
+id = "parse-error.btrc.diagnostics.stderr"
+fixture = "parse-error"
+capability = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+channel = "stderr"
+baseline_path = "baseline/parse-error.btrc.diagnostics.stderr.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/parse-error.btrc.diagnostics.stderr.bin"
+accepted_sha256 = "aed655f75cbbbaf56fc29e04972228a63adeb4ce55e0b59632568deed0ca5698"
+reason = "The current compiler now reports the stable phase diagnostic instead of failing inside an incomplete pipeline."
+regressions = ["src/tests/btrc/test_driver_frontend_parity.py"]
+
+[[records]]
+id = "semantic-error.python.diagnostics.status"
+fixture = "semantic-error"
+capability = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+channel = "status"
+baseline_path = "baseline/semantic-error.python.diagnostics.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+
+[[records]]
+id = "semantic-error.python.diagnostics.stderr"
+fixture = "semantic-error"
+capability = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+channel = "stderr"
+baseline_path = "baseline/semantic-error.python.diagnostics.stderr.bin"
+baseline_sha256 = "93707a550f366c3fbaadb521bad34da76fcab33b2a1e2278f8051df8b60a9401"
+
+[[records]]
+id = "semantic-error.btrc.diagnostics.status"
+fixture = "semantic-error"
+capability = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+channel = "status"
+baseline_path = "baseline/semantic-error.btrc.diagnostics.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+
+[[records]]
+id = "semantic-error.btrc.diagnostics.stderr"
+fixture = "semantic-error"
+capability = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+channel = "stderr"
+baseline_path = "baseline/semantic-error.btrc.diagnostics.stderr.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/semantic-error.btrc.diagnostics.stderr.bin"
+accepted_sha256 = "92cc846667b5a32ba7514991bebd8f10a3b2c5842daf89b2746761f5b1cc855e"
+reason = "The current compiler now reports the stable phase diagnostic instead of failing inside an incomplete pipeline."
+regressions = ["src/tests/btrc/test_driver_frontend_parity.py"]
+
+[[records]]
+id = "strict-import-error.python.diagnostics.status"
+fixture = "strict-import-error"
+capability = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+channel = "status"
+baseline_path = "baseline/strict-import-error.python.diagnostics.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+
+[[records]]
+id = "strict-import-error.python.diagnostics.stderr"
+fixture = "strict-import-error"
+capability = "python.diagnostics"
+compiler = "python"
+boundary = "diagnostics"
+channel = "stderr"
+baseline_path = "baseline/strict-import-error.python.diagnostics.stderr.bin"
+baseline_sha256 = "d97489bda9f2e40cf26c65b6a0ade218ca847b6181721569d9a686ad7343ee1d"
+
+[[records]]
+id = "strict-import-error.btrc.diagnostics.status"
+fixture = "strict-import-error"
+capability = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+channel = "status"
+baseline_path = "baseline/strict-import-error.btrc.diagnostics.status.bin"
+baseline_sha256 = "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+
+[[records]]
+id = "strict-import-error.btrc.diagnostics.stderr"
+fixture = "strict-import-error"
+capability = "btrc.diagnostics"
+compiler = "btrc"
+boundary = "diagnostics"
+channel = "stderr"
+baseline_path = "baseline/strict-import-error.btrc.diagnostics.stderr.bin"
+baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+accepted_path = "accepted/strict-import-error.btrc.diagnostics.stderr.bin"
+accepted_sha256 = "d97489bda9f2e40cf26c65b6a0ade218ca847b6181721569d9a686ad7343ee1d"
+reason = "The current compiler now reports the stable phase diagnostic instead of failing inside an incomplete pipeline."
+regressions = ["src/tests/btrc/test_driver_frontend_parity.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.btrc_rt_h"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.btrc_rt_h"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.btrc_rt_h.bin"
+baseline_sha256 = "925d122a8142fba8118171c9f9ad797a6976c9e16c7222b47ca49cd6f34d3932"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.collections_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.collections_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.collections_c.bin"
+baseline_sha256 = "39b07577674bc4c413dd4776c57dee0d433ae461051661354c8379a2e723ef0d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.core_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.core_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.core_c.bin"
+baseline_sha256 = "9073d4d1c0363d79bc29c168852ab117112c4f0796256864c553d5430f804cac"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.cycles_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.cycles_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
+baseline_sha256 = "6a0d034d5d19ee0ab69b789a82d6898c5060a3d095dc1145f82c90248ad074a2"
+accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.cycles_c.bin"
+accepted_sha256 = "b96d6dc0c7392138507d71d6190595ac99cf37ee4932b6193bc9ae1f08f68de0"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.gpu_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.gpu_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.gpu_c.bin"
+baseline_sha256 = "0b837b7d256a621577a3229eee6eb434ca852b1579c0562875c78d9518fcd53f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.mutex_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.mutex_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.mutex_c.bin"
+baseline_sha256 = "68be258549a2c0f35041fe1b884a417546df478106a5a0596632c6f8a985bd8b"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.process_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.process_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.process_c.bin"
+baseline_sha256 = "8d35b40f606ef8d82a96f24b7f15807dcd484cd40c5b3cdef6d3ae8e1934ee1f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.strings_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.strings_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.strings_c.bin"
+baseline_sha256 = "0fb602f3c9a6b5e658c350b465199016c773cb50d411c082110c907c86cc3770"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.threads_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.threads_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.threads_c.bin"
+baseline_sha256 = "914cdd968337a25ca0bb90dedcdc1191f161b7dc6b44db279e5cd96ea21e5ec2"
+accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.threads_c.bin"
+accepted_sha256 = "f92585bf748f2998f5ef0cdb0af4e49741606f5010548a7953fa2f763ed38089"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-source.asset.trycatch_c"
+fixture = "runtime-catalog"
+capability = "shared.runtime-source"
+compiler = "shared"
+boundary = "runtime-helper-source"
+channel = "asset.trycatch_c"
+baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.trycatch_c.bin"
+baseline_sha256 = "aa851e085554c048b119ea587348aaee4a2f60ec889bfa6541ef0d04830fabcd"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0000"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "manifest"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0000.bin"
+baseline_sha256 = "d50a8adfc16401de4293409dba6e41c5d17fd5d1ef2b0dbc5409ce67c7fd995d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0000.bin"
+accepted_sha256 = "902e3894a4764d24b6c87402787d89fe1bb4cbc4c20990b18c2dc82e0f318d2c"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0001"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.List_all"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0001.bin"
+baseline_sha256 = "52762df6b9cd76475b536831493ce3a97f92568811a5e3bcbc63301ed371c533"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0002"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.List_any"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0002.bin"
+baseline_sha256 = "35d0c462e1e3bdbf3a705d030c4f0278a4485a71fad061b67376dfcb3e47aa0d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0003"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.List_filter"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0003.bin"
+baseline_sha256 = "1f97d9fc7bb472dfb8868908ec52079f810146c7c15ff2422bcab0e2f1aa89b2"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0004"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.List_findIndex"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0004.bin"
+baseline_sha256 = "9697828c033defa458c9121d2997696c6dc27dc07ab9b9be05fc24f3904c6450"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0005"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.List_forEach"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0005.bin"
+baseline_sha256 = "e260f67dd2f4ad9a27e656ea1c8aa3ca78f6bc973f8f6b1f2fae549af42f1016"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0006"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.List_map"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0006.bin"
+baseline_sha256 = "07901ecc470807067b7390e1fe0b7246f6570d5203bfc41ffdff34339efcf210"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0007"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.List_reduce"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0007.bin"
+baseline_sha256 = "a48e2bfcfbaf76840c5b5097706422b706fd7a3ed662dd53a926fd00b381ae54"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0008"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.Map_containsValue"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0008.bin"
+baseline_sha256 = "fe6c6fc996ad3fde055207a38bd71092b4a5572a315d066e5ba2fd144fedb00a"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0009"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.Map_forEach"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0009.bin"
+baseline_sha256 = "08f8c6bea83e31d77b03e243ea3ae282fcf2df76a9b16f363953b8213dc816d0"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0010"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.Set_all"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0010.bin"
+baseline_sha256 = "af5825c09a0e406a95a4cd9d6226d10bad5ecfebcaca7d5230e1a2da957675b9"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0011"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.Set_any"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0011.bin"
+baseline_sha256 = "ec758283a3e10fab49d4c77e1b947105fa3de9c866731aff28c042f238e0debc"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0012"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.Set_filter"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0012.bin"
+baseline_sha256 = "a36c8443be2c7d99d221ae4e5be675de8da26bd9172372e558aa66830a62c5df"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0013"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.Set_findIndex"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0013.bin"
+baseline_sha256 = "e721a206531028285f4d3809d9ace91cc3db6f8582e320d801a25e8e2d35caa2"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0014"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.Set_forEach"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0014.bin"
+baseline_sha256 = "618b9dfd3123f94d01d53d64531e1dbc4be5a2f98b281811abcb4b3eb39638dc"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0015"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_abandon"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0015.bin"
+baseline_sha256 = "25c46613f6a5b50278ce92c8ad22671174bd0cedd8f80c96925e0140b74454a3"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0016"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_abandon_callback_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0016.bin"
+baseline_sha256 = "8c79832f16adfd3e6f41f478b78201e00573798a68a28fb4170567ef226de0ea"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0017"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_abandon_graph"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0017.bin"
+baseline_sha256 = "6a625c5ad25b915cf0b5bc46a9ed154a7ceea08b7d77aec9011128588c9d3967"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0018"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_abandon_queue_drain"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0018.bin"
+baseline_sha256 = "b23d679a38bcf4e87f8f512fee5e7a09e8f87736d12981d36bb021a4598d2460"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0019"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_abandon_queue_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0019.bin"
+baseline_sha256 = "bb9ac8bc2567572b8c9714d7a56ad4637492b6af727adc8630543de53605d177"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0020"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_active_drains_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0020.bin"
+baseline_sha256 = "a4120906c336354615bfec459bfe3fe012bc5b101d57b2cb6aacd8d5e77e9174"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0021"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_active_unwinds_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0021.bin"
+baseline_sha256 = "2c13c5ce29ead26f74f456aeaa60373451f0c0c565e154e6b923bef96d184402"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0022"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_adopt_edge"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0022.bin"
+baseline_sha256 = "db0b453df600752f98f1f28bba53fc71fdd71884ff5dfe67a0d4e404d7b47229"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0023"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_callback_types"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0023.bin"
+baseline_sha256 = "642525460bc856e7fe062c97b707c84d98636058ed6b4809154093243ae530c9"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0023.bin"
+accepted_sha256 = "3dd1fe6db0f1095333b3304ef49051cfaaf9a059ca0d8c56995d51f4877f163b"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0024"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_deferred_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0024.bin"
+baseline_sha256 = "f391833aa7f141d24d9d928278228615367027dcd301281134381caf0f892024"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0025"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_destroy_edge"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0025.bin"
+baseline_sha256 = "0abc39f8d26a93683d9dc2c612fe2208ca664d34046183a15aebbe6ed16c8159"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0026"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_destroy_slot"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0026.bin"
+baseline_sha256 = "06f0de7c0221018c51cb33a293e9babbd72d6735f6d8f143616720b5e57b3693"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0027"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_drain"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0027.bin"
+baseline_sha256 = "cc4c2fca5738ecfdb9e1ff47285106316f48105313680881895ea8d32c811d38"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0028"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_exclusive_snapshot"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0028.bin"
+baseline_sha256 = "1d354719c3cc688511e96f6d6803c956da3391a9d590cd0938a7986fe6ec4e9e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0029"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_graph_primitives"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0029.bin"
+baseline_sha256 = "3f08975a0fd9994d72d268263691fa23f5464a60310f4babdbbb331fad8fc2df"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0030"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_guard_hook"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0030.bin"
+baseline_sha256 = "59077e6d1a652c18f06ad7e447d8a760b77734b5ee3bdde45e4384860fc0427a"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0031"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_header_of"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0031.bin"
+baseline_sha256 = "b8d296f2411172d9e47a525a28b898f9424df9a8a882b420b8ca916d81ec8e61"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0032"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_incoming_teardown_pending"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0032.bin"
+baseline_sha256 = "63aa5576ec4bafcf1e4c4f5b9d03c3f182f8327c0ac64437e358a31b7e4a77ce"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0033"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_invalidate"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0033.bin"
+baseline_sha256 = "d196cee045f7bc81499185c4e12c4c9e3bd7d8a75c0d374395429613ae2eb6e6"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0034"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_lock_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0034.bin"
+baseline_sha256 = "2953863e9ce0b19d1faa2fe48cf167145ad9a33454d12d9305fd77187a569e11"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0035"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_mutation_lock"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0035.bin"
+baseline_sha256 = "0f8d859570217b36bd39e94f72836fc4031df62b4d46e4c62f167890abb4bbe5"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0036"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_register_incoming"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0036.bin"
+baseline_sha256 = "abbd2ea69cdf92e45731d786d5c348a547fa68dc62bc4960f7a9c783e63a259d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0037"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_release"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0037.bin"
+baseline_sha256 = "b9c8f0e7698e2aeae9581ab8c3153e9961a21d86a08b7f0c6972ae90afd7a7be"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0038"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_release_acyclic"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0038.bin"
+baseline_sha256 = "d6e97f25f784ea8d1837c37a3efc1b294c81232141dd571dc79fad5d552d044d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0039"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_release_edge"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0039.bin"
+baseline_sha256 = "aaaf8bb981e747030f2a12d5b64d2cc8f46be99f79f6c5d61044f72d6a9ca629"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0040"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_release_impl"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0040.bin"
+baseline_sha256 = "9fa2b8c8c15c973b7c2e761d88290ecd1b8891339f0e7f4336d8ed157d5f1159"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0041"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_replace_edge"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0041.bin"
+baseline_sha256 = "bf635c55224f2e32ed4926b098cae1a4b37b02206d5adf64d9b0962023cf9ca4"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0042"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_retain"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0042.bin"
+baseline_sha256 = "85893a203a5f41c7288e1f1319b3dabd1431eea29b015f4817729ccb50b24cae"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0043"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_retain_edge"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0043.bin"
+baseline_sha256 = "be024f3cf6448d6ad60638c2291a567d8c2507232843a14019a16e98da96ee43"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0044"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_reverse_proves_live"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0044.bin"
+baseline_sha256 = "172bb2295ac27b10af8851754f21fc6dcf391cbb82a8978a6def89c2c00a0aa5"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0045"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_reverse_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0045.bin"
+baseline_sha256 = "d6897dd3ce0d7def4b83e67eba0c441280f9dd5031995ee29d193be476f1dbba"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0046"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_shutdown_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0046.bin"
+baseline_sha256 = "525f87f65f0b108cce0afc2bbfaa74e9f366956d1ae5197a1357923d669a0f6c"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0047"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_snapshot_gate_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0047.bin"
+baseline_sha256 = "c718f38598f6a5b4ddc3258aca4b22d41c34c7bafeacc628cfbf7dd4c9bd9b83"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0048"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_snapshot_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0048.bin"
+baseline_sha256 = "b2250c33be40a9d9b486aeed14fd05cfe7da1189bb66020f3474ec28894a67ea"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0049"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_thread_state_cleanup"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0049.bin"
+baseline_sha256 = "6eff0ad14c04f2f532ef20af4e1a0776f83622f8bc9c3720fd92b25abccb1b51"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0050"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_topology_begin"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0050.bin"
+baseline_sha256 = "721a1a313932811fd11b9c0ce2910f81bb6cfa103c5b7f8fc0c2784a30174795"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0051"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_topology_cleanup"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0051.bin"
+baseline_sha256 = "c0247592a586f286f123f10c38be13873bee177865eb68e8550c97800d4ab014"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0052"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_topology_complete"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0052.bin"
+baseline_sha256 = "56749304897deb60d8520bf437b38c29e56881fed39fa30fd9d061d83b60dc1f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0053"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_topology_depth_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0053.bin"
+baseline_sha256 = "59248800649c89d7ec483c5eb5b0ed7b9b11cf45fa249ff07e58890968bd3924"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0054"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_topology_leave"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0054.bin"
+baseline_sha256 = "0b42a28a2251e193076362283f274274b72e7a790c19144927a2da08fc2ae676"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0055"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_topology_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0055.bin"
+baseline_sha256 = "9470b8a287a805005e43a4cf053e5cd65791391d660a0dd032cb561cae70ee43"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0056"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_type_of"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0056.bin"
+baseline_sha256 = "510fe6cbfa89cce3a3f8639e093747e866c1306bac1fe84fce014ced6cbd5241"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0057"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_unlink_edge"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0057.bin"
+baseline_sha256 = "73287766c5beae7e6c4f9cef3bee1b49ad5699207639048ffc655a6b5c34d7a1"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0058"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_unregister_incoming"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0058.bin"
+baseline_sha256 = "879156f1ea10a38d82fb91cd9f8df0f0197742b2d404bf36329200422b0b078c"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0059"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_arc_validate"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0059.bin"
+baseline_sha256 = "9bd236e2fb685072b225d21201839a9c23e7fe3759440546022562c2c4090dc8"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0060"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_ascii_lower"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0060.bin"
+baseline_sha256 = "4e876ec35539a109dc99960fa4c384f4990c91adb6accaa6b220d079467b06a5"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0061"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_ascii_space"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0061.bin"
+baseline_sha256 = "aff90245916c87af156d074e8485e9ffce47a655414096f7aadcf84b4762c181"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0062"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_ascii_upper"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0062.bin"
+baseline_sha256 = "78fba39e832444cf64610761e5034627150ff7826aedca5fd67405cdfcfed552"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0063"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_capitalize"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0063.bin"
+baseline_sha256 = "fa0e39b496fbc4012b50a52860642703e9b2b8fe6ef18b2ae2257e5e2712ac60"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0064"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_center"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0064.bin"
+baseline_sha256 = "041b5032fed4adfa365e86f3038db504a7d7376cdd6518e14b828366cec2c41b"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0065"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_charAt"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0065.bin"
+baseline_sha256 = "edad652a580e2341ae2f53972d40e3f1fd9ec1023276ae612a30527449c8f91f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0066"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_charLen"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0066.bin"
+baseline_sha256 = "f648e0aa5fd3791ba79e78dc6b8f864aee6f501d0315988795586851835aca8f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0067"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_charToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0067.bin"
+baseline_sha256 = "93d3334eb438abe558d78497c39b5b9d9ed629be69386e2514864d59f37d88bc"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0068"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_cleanup_capacity"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0068.bin"
+baseline_sha256 = "e8b29d54e51603becc742f5e1ecfbab25e0de842378888184138e820dce801f5"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0069"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_cleanup_mark"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0069.bin"
+baseline_sha256 = "eab6428f92ca0b1fa2f87b7c0c694a4b85c410e7f442536e23f66676354fafc0"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0070"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_cleanup_types"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0070.bin"
+baseline_sha256 = "c76796364b02175bdc5c332f348b8fcb3421f21f050560d9cd03ab0b6a0195d1"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0071"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_close_descriptors_except"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0071.bin"
+baseline_sha256 = "11785de5067035fc3816524e6a289a3a5467370f35e6af6d5f7a337b4518e812"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0072"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_close_descriptors_except_many"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0072.bin"
+baseline_sha256 = "d823fc647d652dd611445d4c8e4214e75acb1d535e7907461838683ca07bf2ae"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0073"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_close_descriptors_from"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0073.bin"
+baseline_sha256 = "1407888970a60e0b8981868491278ba287078e1f8be2d93e12d412db0fd49b24"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0074"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_collect_cycles"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0074.bin"
+baseline_sha256 = "ff6a181bb96dc3222dd8cd25482f619f90fc33647ac18a8630c065c213f32f5d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0075"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_collect_cycles_once"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0075.bin"
+baseline_sha256 = "ac879c9fba649a1ab6f18875ab692fc58d54eee715f7562b75febecf3afddca3"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0075.bin"
+accepted_sha256 = "a1542f3958a12875bbe483052dda8e292069a1a0dc064dc10185fd1a23893f77"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0076"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_copy_error_message"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0076.bin"
+baseline_sha256 = "4a4f8525112a098e69229b4ce5dcf42bcda4f7c0033fd43e85ef7f9353c30d7e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0077"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_count"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0077.bin"
+baseline_sha256 = "a7d41120c4c6e31596870c07c55cb943222e2ec125df4dd0a1acdb8a471282e1"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0078"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_cycle_collector_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0078.bin"
+baseline_sha256 = "a34a228f3c245c7c4f0e2fa052c5b3328ef31ba2d01110e42c274f11a3b0708a"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0079"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_cycle_state_cleanup"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0079.bin"
+baseline_sha256 = "9a6752e57e701bf85bfb0d59d2904fad77898314c2ff63ad5805a4928141b5a0"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0080"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_descriptor_close_bound"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0080.bin"
+baseline_sha256 = "e1dc48e8bb0208cde2e200fd328458af4d978725c202a4e400fed289a3278349"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0081"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_destroyed_capacity"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0081.bin"
+baseline_sha256 = "5d16c32144c04a9e62c207dd9588f3829ff9a86bfd9a9b0743256bc81915876b"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0082"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_destroyed_tracking"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0082.bin"
+baseline_sha256 = "3306b0dd50233b2d6edcbd3c2c3dbf40f4d7164b44c5f96a6534a635c4deba94"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0083"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_destroyed_tracking_scope"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0083.bin"
+baseline_sha256 = "284540a91980ea9ec0ae9fa0cf4a6298635407a1c202e9424ae936a3e0354ed7"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0084"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_discard_cleanups"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0084.bin"
+baseline_sha256 = "8d4a39303d88bac3c0207669c9348912cd140cda1bea0260a505ca5893b9a301"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0085"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_discard_cleanups_to"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0085.bin"
+baseline_sha256 = "a99b8e9f89b4e24887879a0508866c1ea0dd6cdd538c03722802b2d9468e36dd"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0086"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_div"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0086.bin"
+baseline_sha256 = "b53d52ed5b8d6802c285ace3a6dbaed8889d9fa5dd06b29266edb669892a8b85"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0087"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_div_double"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0087.bin"
+baseline_sha256 = "7a8c4d004fed3515aca1264a877ec3d39f745b24393673515ffccd03d638e8df"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0088"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_div_int"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0088.bin"
+baseline_sha256 = "33a52826ebb95b4868214bcbd2950a2cae3919c61c68bfeea8053ab0ca3f35a1"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0089"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_doubleToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0089.bin"
+baseline_sha256 = "956a45a41a8050c628905fabb8c548fccfe7df630310f7ca01d4741641b6abd9"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0090"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_endsWith"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0090.bin"
+baseline_sha256 = "7352185d77daa75b41287eac2f7dc11adcec118cb3d401255de362b46467df9d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0091"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_enter_working_directory_descriptor"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0091.bin"
+baseline_sha256 = "0920ef469a4a49c5f3e4af20e522db842ea424565840fc90bb9415a448c6bfbb"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0092"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_exec_executable_descriptor"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0092.bin"
+baseline_sha256 = "8da1c25d53c790d3c849e94049cad8467f3c78aa7f1d1320a1bd8f97909bafec"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0093"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_exec_signal_guard_begin"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0093.bin"
+baseline_sha256 = "643ec83856890849bdb5da8314fbb88fb570b8d94ec537f55579bd5b071c7729"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0094"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_exec_signal_guard_child_end"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0094.bin"
+baseline_sha256 = "578b81790a6f82dbf33e09299d75cbf21871a37a7c8af00f8c9bb0a0ef95cb0f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0095"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_exec_signal_guard_parent_end"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0095.bin"
+baseline_sha256 = "397e5ad01fed4318f32b60b26644af3c14b38d9734446f3a86d8108fca45b187"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0096"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_find"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0096.bin"
+baseline_sha256 = "bdbc50fa4394e5854b6d575a571ba86df21c710dbe1a6b18627305b9f9325f31"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0097"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_floatToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0097.bin"
+baseline_sha256 = "bc68104533fa0b17d0f0cfbdbc2a57d712c3b039833042a6c2a14b147cd7ff49"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0098"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_flush_cycles"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0098.bin"
+baseline_sha256 = "571af1d489e6bc369d26a6e24be4f6d03923e2733220498e8ffc55fdb7d1e08f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0099"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_flush_cycles_guarded"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0099.bin"
+baseline_sha256 = "67dc3c57d731d9db040e95c817d2b463e858ebe2bb310907c613317d0cc0c3b6"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0100"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_forget_suspect"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0100.bin"
+baseline_sha256 = "8e0f03262a9a3213f674a6ef68d57362314b59c47e26ef0887744258b5ec2972"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0101"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_fromFloat"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0101.bin"
+baseline_sha256 = "2dd5b83a7e0f4a8191fd995b8ba3cc59141e3425c19213ebca39b6bc546e2b43"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0102"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_fromInt"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0102.bin"
+baseline_sha256 = "7c07bcb5f8d2dfc69261075569595a66cf7c5923bf2e1d407e358efff480bc4f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0103"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_gpu_index_check"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0103.bin"
+baseline_sha256 = "d03609123ea30b639b8511be23b4388d1491bc944de227f96393a1fa48bef2a9"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0104"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_hash_real"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0104.bin"
+baseline_sha256 = "65e463325e457fd1e27fdc84ba8fb778acc442deb2f5963933c47ccf007bc64c"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0105"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_hash_str"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0105.bin"
+baseline_sha256 = "a8ab70028bc0e624991ce42335d70c59a1058be340e31c93df2ba5f9e6da6ec7"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0106"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_indexOf"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0106.bin"
+baseline_sha256 = "a482a98691f892933c790bc68a13ac1f1d2c25e69b682f3adfab3ac92908e715"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0107"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_intToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0107.bin"
+baseline_sha256 = "36b16e7f8f905918a39249d499aa5ce3e7e8495c9a0bfc865cccf025c2085a06"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0108"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_isAlnumStr"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0108.bin"
+baseline_sha256 = "909b71bd26a70875990607440ce2b56533dc8771403577010de7893a3402aa3b"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0109"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_isAlphaStr"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0109.bin"
+baseline_sha256 = "01c80e8bf696a21a638b9f08cb154ecfe335f95dbb1ab90965c6e15f4547aeff"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0110"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_isBlank"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0110.bin"
+baseline_sha256 = "1cdab3a654b0f65e23127edffb97b73b85c012a9aaedd00b70690e1663721383"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0111"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_isDigitStr"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0111.bin"
+baseline_sha256 = "a594f1413c98c6f7c1d14a8865c2d29869e3364f3626991f3e8a4cdcbd4dd2e3"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0112"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_isEmpty"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0112.bin"
+baseline_sha256 = "7db99cb38b13c545f06d978bdf094dc4f30857ad2de87b4562279a959b6096b6"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0113"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_isLower"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0113.bin"
+baseline_sha256 = "3d5bd37843d9100517e4b44c768882260dfc9feaf45017f2bca2eb6510770c65"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0114"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_isUpper"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0114.bin"
+baseline_sha256 = "0fee8fd0172e8c9d0c7f8139655dfbd4b645a8a20b23a87ed2edf54a1a50db04"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0115"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_is_destroyed"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0115.bin"
+baseline_sha256 = "508bc889b9e0d7cf6ebc86c186f112e03bd722091aa7fe1f5f8b4a52901daf67"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0116"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_join"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0116.bin"
+baseline_sha256 = "a334983c994b2703874f5266a698b2ab6d360fb6d080bc9bc83808c271dc07f1"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0117"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_lastIndexOf"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0117.bin"
+baseline_sha256 = "40615a712caf9bad63e6415590343c17781f82d38fc6d74be5078fead1c6e2d2"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0118"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_launder"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0118.bin"
+baseline_sha256 = "32a311bde9e4fed6db0d682f44ac78fbc9723bc6d0af74063de289bbecee68a3"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0119"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_launder_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0119.bin"
+baseline_sha256 = "43f5529d1fac7ef713cc0f66854a2f3b211e3f9be4968c260e1d9eeefbad40f0"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0120"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_longDoubleToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0120.bin"
+baseline_sha256 = "fe86866a8f1ce235741ee8412dbe6561e4e0365209f5d11544925f9629aa14e6"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0121"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_longLongToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0121.bin"
+baseline_sha256 = "84700e1c99881f8d6391a922ec568264c732d282ab45eff4c88797a3ba2cfaef"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0122"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_longToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0122.bin"
+baseline_sha256 = "19f41099c8274f46ea126e3fc3e04f4d937a4016760f408910a316908c5463f8"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0123"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_lstrip"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0123.bin"
+baseline_sha256 = "73e27905b48a1eef3ec6706d553112b03e43e711800af9480b08a4fe6025a6da"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0124"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mark_destroyed"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0124.bin"
+baseline_sha256 = "a44f80c6ab3287576d9f41f069d50969388308796f642348eaa22eeed18c2311"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0125"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_math_factorial"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0125.bin"
+baseline_sha256 = "8ebdf2631602a37179102a8c1a4c244d2cb7e0c13d6c68a56ce57723f7d2e86f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0126"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_math_fibonacci"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0126.bin"
+baseline_sha256 = "48060b8c392fb336cce39672f6176dc59e8eab9a9661475f7596e7a08916b45e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0127"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_math_fsum"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0127.bin"
+baseline_sha256 = "3ccbdb3813b05773e4647df1f5bddb6b3fecef80af74f3f83d6db18c3d47c99b"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0128"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_math_gcd"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0128.bin"
+baseline_sha256 = "114e70a38eba731deb934abf6429697d2290ba4ce2a5be63b6c03281bedeb2b5"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0129"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_math_isPrime"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0129.bin"
+baseline_sha256 = "6af6472451270350fc038ea87f0b820c36c4995f69322e781c6fe9540963d30d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0130"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_math_lcm"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0130.bin"
+baseline_sha256 = "dc0ef48e03c6b73c39624f2acc6a4f999f563fd8403d471b370b8a5ff3434489"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0131"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_math_sum_int"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0131.bin"
+baseline_sha256 = "c785e1f33ae8e60468f2fbf80cfed477f918e9d7ce77dfd1351dbf62c3037126"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0132"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mod"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0132.bin"
+baseline_sha256 = "fb4d2d349667e564eba16bdd4f2c3af3bf6d33cfdf3b413071250f50e183ef15"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0133"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mod_int"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0133.bin"
+baseline_sha256 = "6ecb00148bdb946be305d928e3684675566bbbf2c42c9d4b28fe233db70e325e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0134"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_move_descriptor_outside_stdio"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0134.bin"
+baseline_sha256 = "b8ae546dd80824cf479ab39000719ec17610fd212a031f66324fe7a4c2882893"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0135"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_arc_finalize"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0135.bin"
+baseline_sha256 = "d645930a1bb2b9a4088d1902e2e58e62742bab3e45e4f8891a58aa390ed6a92e"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0135.bin"
+accepted_sha256 = "174fca5eeb3ddb4610f812ba74771893e8bccd96306e05401f2266169a3be9fc"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0136"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_arc_release"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0136.bin"
+baseline_sha256 = "958a747b191199f2582aef52019217ce25c4e28b8f22d8129de68b3cd85e9d4e"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0136.bin"
+accepted_sha256 = "e6ff5d3d609a79b12668060f6be87a5dda0fe54e52a6088d1096eb6d3cc4c1b5"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0137"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_arc_retain"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0137.bin"
+baseline_sha256 = "f69c5629f6ad3be88c19356ce8468b252fd5e94dcecad25de077c4a45d6dc58f"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0137.bin"
+accepted_sha256 = "68afca2e5a8ea5950863cdda1c0fa2f651bb75bf4c7537de1ef0bebeebbb87fc"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0138"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_arc_type"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0138.bin"
+baseline_sha256 = "85d7bf07a9d37118f846e6eb634e140a994bacf82b1b912f4f4b890303b7281b"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0138.bin"
+accepted_sha256 = "cbc530f5c08b3d0190c0431fb5577026f6da1ae3dbb74af33dd6216a745a901d"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0139"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_finalize_callback_guard"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0139.bin"
+baseline_sha256 = "59a097b567db42bb61290e6d4f79f214c83a107695cade7cb097c205a4308829"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0139.bin"
+accepted_sha256 = "03bb504dab23cef1a6eeb5348207039b6c165b4ea49909ba3b54b94f11d75387"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0140"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_string_release"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0140.bin"
+baseline_sha256 = "85aee26ee0587059eb25b0b843312098e9433149ea3874c41d2881df334e71fe"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0140.bin"
+accepted_sha256 = "b29b74febf8e03bb927d6c8470fede79d3ab0beb57d29239190df2b4e97b6cd3"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0141"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_string_retain"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0141.bin"
+baseline_sha256 = "bd2ef3a06d8b9d157e053e0d6b41b197b1cbd69f3d56d1095d57ce6c694af11d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0141.bin"
+accepted_sha256 = "30cf9f60bc1590680c7818d24ccb60d357515631454912c774fbe8c27c8466a6"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0142"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_val_create"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0142.bin"
+baseline_sha256 = "05c0674f211651b27f63f17ac3b7effdd6551ddd291242f00c238eeae69cba73"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0142.bin"
+accepted_sha256 = "5216aeaa5cd5584b7c0620afc34de05ebebae0b415c20d8ee50a60609e2495a7"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0143"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_val_get"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0143.bin"
+baseline_sha256 = "375bd5921b252c4b20bed3763abbc8d4be9f46c13f3c50d3e93a5efe3dd580e1"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0143.bin"
+accepted_sha256 = "a2086ab4152e5d087b8846ab3e71d47741eab432be025fb9abf8cee8d87a956f"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0144"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_val_set"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0144.bin"
+baseline_sha256 = "3f045d89053ba2d9bb00b8272291c9ef3a8642910b1ef306bc04a25ba2fb0b7d"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0144.bin"
+accepted_sha256 = "c9d59072553add5e3596deb6960706b159cfc1c3b8f6c0cf33b15727f84ed6f3"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0145"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_val_types"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0145.bin"
+baseline_sha256 = "b7370fe586eff7b262bf5280a2ff66f09b57d7422c049fd99cb7b1a825c3fba7"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0145.bin"
+accepted_sha256 = "ba293447f8468ab4520721f7625c8b01db2faf8f969ee2d8d8c57cbb81cab77d"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0146"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_mutex_value_callback_guard"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0146.bin"
+baseline_sha256 = "ba461f2baa40ab447016bce12d34573a0d11b960aeff5b2e82807739e838e2a5"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0146.bin"
+accepted_sha256 = "f3dcce332421d3e9aa424c5a14227ab467af3b12d7107a1ab7cbff19a7caddb5"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0147"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_padLeft"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0147.bin"
+baseline_sha256 = "eb7486c8b8cef482f33c5c7904cc36387e7599ef4c78fa6d65400d6b3c9f0268"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0148"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_padRight"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0148.bin"
+baseline_sha256 = "290efaeb62e5312e40b90bab6ed85f5e6bdd9ec1ad0228d67d3c8e57d9d0d6df"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0149"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_parseBool"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0149.bin"
+baseline_sha256 = "e5de3a84f69f5a241d316da28d1bd5ad3005922027754e250882f02fc097f8e8"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0150"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_parseInt"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0150.bin"
+baseline_sha256 = "f6aa1907efc0bed77cafb626f19b284aeb08ec95614bbb2a262b06fb9d4bead8"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0151"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_parseLong"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0151.bin"
+baseline_sha256 = "e720961f3b1f192dcb147db1e96ebe37c7cd15743401c6aa23a6da0401b53024"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0152"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_poll_cycles"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0152.bin"
+baseline_sha256 = "c2af592b3c6a7ab466bc61798692ad5f0001271c428f9f9f013a718c5e7be519"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0153"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_posix_spawn_cloexec"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0153.bin"
+baseline_sha256 = "2757c47cd1cea5cb953a32e7d82628b2761756a6b8060b71d545e8a0b2ddb485"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0154"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_process_descriptors_supported"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0154.bin"
+baseline_sha256 = "11539eafe7adddbb6bf70157eb2b7e434cf496943dbc62bce7f9e3781fe2bdfb"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0155"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_ptr_hash"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0155.bin"
+baseline_sha256 = "0846506d63c73d65f8db2f4ab99893300f0729aec9a59ab2f26af6d3d46b2651"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0156"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_push_try"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0156.bin"
+baseline_sha256 = "df68bff0649402ab01782f5e1f6f7ca261226316ac6e27f4fc41ec02dfd40133"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0157"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_raise_captured"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0157.bin"
+baseline_sha256 = "76034e1a928c453647c329d1505e3a5b8fcac6adc814d3d28e7bcaee43b4d30c"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0158"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_register_cleanup"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0158.bin"
+baseline_sha256 = "6c1ca0f1ea7c4c4924050701cf72450573cddff3121872f45f4c73b1b73554c2"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0159"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_register_cleanup_kind"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0159.bin"
+baseline_sha256 = "deba8e0417508305b8353e2e24bfb7f5c2c9a50f9a4b558de4b0e76a476bad2a"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0160"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_register_direct_cleanup"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0160.bin"
+baseline_sha256 = "b7e9a6ad62c2ba3267f05dc2bc2fd6191057b16c9425678fff0f2351d84121eb"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0161"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_removePrefix"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0161.bin"
+baseline_sha256 = "6873fdc6904ddb9e12268840e9469df98c982962b7bfafa03d1bcb911afab446"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0162"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_removeSuffix"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0162.bin"
+baseline_sha256 = "0e3ac5a50337092f62949cf1f895f49e9d33779bdc1998740c1dc9a630968a97"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0163"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_repeat"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0163.bin"
+baseline_sha256 = "8a5230002ea74e84844e6cbdfac7e2626091449d8ed068163edeb2cd51977b1d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0164"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_replace"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0164.bin"
+baseline_sha256 = "dcf08a8801b9a74766100da1e075f60746bca33a487d4fec7a362cc474b9d72f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0165"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_reverse"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0165.bin"
+baseline_sha256 = "b0dbc67a2feeec71289ba1a549e7fe943c76960d3659d74534c6fd2c5d972ad2"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0166"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_rstrip"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0166.bin"
+baseline_sha256 = "46dda0f6d91c8a5e4b91be824812dfbd1c3c035e7a5306a0afbfe29cd055b4a7"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0167"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_run_cleanup_guarded"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0167.bin"
+baseline_sha256 = "6788220c02764e9a35d2797fe0a008f41cb08fecc0c9f620c7a0dcbf421805d3"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0168"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_run_cleanups"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0168.bin"
+baseline_sha256 = "4f08888f5b7472363efc3d366bb3dfb5f6102e810f844ac4bedb1784b3498bf3"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0169"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_safe_calloc"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0169.bin"
+baseline_sha256 = "a74d1d8aad09d060c854204c019bf1da9027327146929e3ef40c5c310496b9cf"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0170"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_safe_realloc"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0170.bin"
+baseline_sha256 = "93e50a1df73b5604e46d898d27cd2b1844d9ad55b583760f6fefbf655be59a4f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0171"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_split"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0171.bin"
+baseline_sha256 = "0d7c945c9cb27c14f90e104970caf2b794c8696ee92ef43820c7e9af7b7fc475"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0172"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_startsWith"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0172.bin"
+baseline_sha256 = "02df440dde1e8048b4604fa1d711d5b67bbbe2892ba87d99a9adcfc78c457b5e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0173"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_strContains"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0173.bin"
+baseline_sha256 = "e462aad910b820425bf476291924f93e99e0b68a59d40affe71213bf4df69c30"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0174"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_str_flush"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0174.bin"
+baseline_sha256 = "5936b54fe67e3fcf27258e861cf8cfe42cfb1edfb5cf60f7d2f9f4b1391a976f"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0175"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_str_track"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0175.bin"
+baseline_sha256 = "e03edef5f2d2f93f5b7eb1247db36694506705d9b07527252a075c7e370f5efb"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0176"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_strcat"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0176.bin"
+baseline_sha256 = "78f110e8763a0b4153d27b298d805af4121885f9277e86c4649fd1cb95ab8a4e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0177"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_strdup"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0177.bin"
+baseline_sha256 = "7c408f3b849407e5d7867e4b6d6418f22090fbbbaff2db3d670032d3a0d599c2"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0178"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_adopt"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0178.bin"
+baseline_sha256 = "5f8c8a5210fd38b1ed83ba23b6e41df4a02828b56c291cc98862d5fee19439a6"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0179"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_alloc"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0179.bin"
+baseline_sha256 = "4fe880c8c911feae28b866a0a0003be9281693c6020af32b0c090aee0e67e669"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0180"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_length"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0180.bin"
+baseline_sha256 = "947b08317fbccc3b6fc78c4deecca5df811632e92e094a4fc8a6b00f689c96d9"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0181"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_live_count"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0181.bin"
+baseline_sha256 = "9b059f069a7a5b9e9f09c5a6fe43ac9c5182bedde20b24403ebf411e58d4cdb3"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0182"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_or_empty"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0182.bin"
+baseline_sha256 = "3855ffccef3bd546c950bacd7964f59aacf6a91c7835e08158f065a3dffdd2e5"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0183"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_registry"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0183.bin"
+baseline_sha256 = "41e86985209b4ab57535cbdd0e013e5167ab4b8dca368f6096d014b4e5d1a39d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0184"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_registry_count"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0184.bin"
+baseline_sha256 = "179b2c22c76f103c71e81e37e9e6128017c5404ee075984970d1a03bb270cd15"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0185"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_registry_hash"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0185.bin"
+baseline_sha256 = "faa7fc7b56ab30156118b3d2453d94554d8b61feeae90eb6ff75ef570ac30576"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0186"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_registry_lock"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0186.bin"
+baseline_sha256 = "3313178edaede77d2103e9bcfc40e8dc37fce74f2f48e0ecc37dfad323800ad2"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0187"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_registry_lock_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0187.bin"
+baseline_sha256 = "940c0724f82d66513f0dc0d346e6ce6dea580c9db6dd97c914c32e4d0ea3f3d1"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0188"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_registry_resize"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0188.bin"
+baseline_sha256 = "1d4966c31a10d3016c9fe5243b501555680da7f6c42ffd96f433b9672c105a18"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0189"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_registry_slot"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0189.bin"
+baseline_sha256 = "34bb4798556075590de4e12740f04b9a98d225aea186d344b55037312d9d5bf3"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0190"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_release"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0190.bin"
+baseline_sha256 = "0e9491a7acc147cd186ddf98eed91b0e6645679589bf80e07531c4b6b8075634"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0191"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_release_cleanup"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0191.bin"
+baseline_sha256 = "67a3256aecf7bee13b9c9bc34a6fecad430c293815f2cca47bfbebe9c57e7c1e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0192"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_string_retain"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0192.bin"
+baseline_sha256 = "f0f847748a59e9234eef3af7a07ff4f18719cd3256acf5f42d7a51e75a5af783"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0193"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_substring"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0193.bin"
+baseline_sha256 = "1ec46e15f6a6bb6a928bb65225a7c0a6617e6fcc9431de128ce1007b1a6a62d2"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0194"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_suspect"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0194.bin"
+baseline_sha256 = "0dce73bb668c97bbbcb0287d15b1a80d24e5a7e39ffb82b0cfed45dc9ada370e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0195"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_suspect_capacity"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0195.bin"
+baseline_sha256 = "9de12c7a8a967e891e47d49431eff0e55d3c438dac1ba4cf89b1f52b4f4b31ee"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0196"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_suspect_locked"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0196.bin"
+baseline_sha256 = "1c019203a760a890df43433200d6c8fad342c42c3482c4b37707bf00c7b0386c"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0197"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_suspect_state"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0197.bin"
+baseline_sha256 = "f67c5523c7189f6fc02ae0cf880829d116337e800cf8f0c1b664b07e7a4d2534"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0198"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_swapCase"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0198.bin"
+baseline_sha256 = "6eb6e2ddffdba12f77219b4da24c6cf148f3d109742b8b4979aafa3aba5c6a9c"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0199"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_arc_dispose"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0199.bin"
+baseline_sha256 = "660fb02ecb2ac79091e4b128610504824f483ad9ab3626d79124865b601069dd"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0199.bin"
+accepted_sha256 = "f28b01ed03b0435f229ba5a8729202055b8867af7bbd54799af891f7ab840a8a"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0200"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_box_dispose"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0200.bin"
+baseline_sha256 = "36185be1b8dbcb34e1fe4fa136cfae4b94dd224af17f0b3c90d05535968da838"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0200.bin"
+accepted_sha256 = "90adfd57cf1db7cda74e38166026dee1efac2b265ead6d89d4973434492f8979"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0201"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_destroy_handle"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0201.bin"
+baseline_sha256 = "2ea83b647492716d067596b3dbf774d406072f7b6ed98258f1c56499f049918f"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0201.bin"
+accepted_sha256 = "2b774ff8d235882673c9b8e9683376b25bfa472ba1124e47dc784290f4c4bb65"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0202"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_dispose_guarded"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0202.bin"
+baseline_sha256 = "800f7b52011db8d41c9909d5e2814e3858fcdb0f6d05b100ed6b3547276cdcb4"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0202.bin"
+accepted_sha256 = "2a8b26ea6624155c183301f604f6ec42e56c0e5a41d0b5e707c13a1c6a5acb99"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0203"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_finish"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0203.bin"
+baseline_sha256 = "58684475525179d0ea6f230b418f2fda40b1cd642c3bf8139f4aafd53894b7d3"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0203.bin"
+accepted_sha256 = "a51c9c094421196897cfab8c4d0a617f2b8045c6b382d0b2da7e80b2c5c0df57"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0204"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_free"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0204.bin"
+baseline_sha256 = "cce5e1ed301f90cb9d88d19f3b509c30682e873e85f9cd7ebb4c71ad02f9c0d1"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0204.bin"
+accepted_sha256 = "453bb1da3c3bd710d541fb8be6608483bd3674595e56069305c984372abb4134"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0205"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_join"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0205.bin"
+baseline_sha256 = "56aaa5ff8c234bc6e6f14cd45a30240fda8e2483b8143abc4b5fdf0d69bf31e7"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0205.bin"
+accepted_sha256 = "c3f1cf48868211fc439c3440d1a1a61ab18949d25b32f436fdd8d006f0cadc8e"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0206"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_spawn"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0206.bin"
+baseline_sha256 = "2799a6c0c4862dac65dbea8e6fd1869361ded5d7dde961d8ad0a8bc4db3fe375"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0206.bin"
+accepted_sha256 = "eda9381a74a47384dae873d8ceadc4cd3ee405d24a9993d9b6291c1713f4d4e6"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0207"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_string_dispose"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0207.bin"
+baseline_sha256 = "7ae8e5a81f227816a739b5738974b733716d5776de4aa24dd60dd0d99c886026"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0207.bin"
+accepted_sha256 = "2043a8a589e438001abbaa27606dd9f1a255f5d9684e13efed3fbd41402472ac"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0208"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_thread_types"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0208.bin"
+baseline_sha256 = "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0208.bin"
+accepted_sha256 = "84f1b59f6fc4822e387485f3ecda01fa7938c4a7e11e629a32b8ff0eb5a6feb8"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0209"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_throw"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0209.bin"
+baseline_sha256 = "dde5640c9ee147bb5b976736c15bf7d71858f7194b51d34b2370e27db6e6a179"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0210"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_title"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0210.bin"
+baseline_sha256 = "3b1d503c4acd5da5eb8c18613538db900321b7464733dbe49092f4f6c052e043"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0211"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_toLower"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0211.bin"
+baseline_sha256 = "e24669168397c12c73507f1b69862cdb61d498ca780a599fa12b800492be64dd"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0212"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_toUpper"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0212.bin"
+baseline_sha256 = "16b4f2c03c31a43239c9aa34b8250dd7554b1dfaa1d475afd8ee9529657c1dff"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0213"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_trim"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0213.bin"
+baseline_sha256 = "3afa569ab3c7280510e8931904021fcb222b7288bf742d2d7a1620579ea5af75"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0214"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_try_capacity"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0214.bin"
+baseline_sha256 = "b7882b2b793596883629387a0b11ed00a3b8a509d57c9a91113d5c5cd9c40e92"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0215"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_try_level"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0215.bin"
+baseline_sha256 = "e2c327eb39d0d3cee97b5da619cb08b6858f9ff30c725025b2c08e98051edd37"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0216"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_try_state_cleanup"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0216.bin"
+baseline_sha256 = "a2cc5d75a588949a937d8c535047b64ccac2da286fb67cebbe95dd39398e2262"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0217"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_trycatch_globals"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0217.bin"
+baseline_sha256 = "7d1fd916786ca4843168e25a90fcd4dc0dce2b3a42fc2342110747af8e7ad609"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0218"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_uintToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0218.bin"
+baseline_sha256 = "9277769b8ab677fcb12ddafb77bb9d4f21ddd9b644586b451cb0f8fb2022416e"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0219"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_ulongLongToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0219.bin"
+baseline_sha256 = "0d115e4f71a4cf66d829c0aa72fbe49e5243b46074db84cb8749737be25618d9"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0220"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_ulongToString"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0220.bin"
+baseline_sha256 = "75d7e0af6454ef3bdf35c79c1d4bb904c0e63e8b2120b81d633a68c001388240"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0221"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_utf8_charlen"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0221.bin"
+baseline_sha256 = "31df854453639fa6ba74fa2008eb771158dac65e8667751ac33ba2f0e53c7b7a"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0222"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_validate_executable_descriptor"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0222.bin"
+baseline_sha256 = "4d864bc6715c7762b382bfce879eefde0acffd5e293a7797e15b9d22a2cca48d"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0223"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_validate_working_directory_descriptor"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0223.bin"
+baseline_sha256 = "04c31995ebb113479698cb5db9ad803d3a14e8cdb86882972dd44f7a547ba620"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0224"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_zfill"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0224.bin"
+baseline_sha256 = "33a693d9f393997d8aa68b9e7c5ff660042ce8a6a241db2117cf62f856691263"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-order.python"
+fixture = "runtime-catalog"
+capability = "shared.runtime-order"
+compiler = "shared"
+boundary = "runtime-helper-order"
+channel = "python"
+baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
+baseline_sha256 = "f27deaf2aec320275a3dbe88d8003b07ca6a8b3e0a1dc0f1e8520769425931b9"
+accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
+accepted_sha256 = "c773019d3e73f987924bed8fe12db988feca7210938e78a3734231d61d67c1e6"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[records]]
+id = "runtime-catalog.shared.runtime-order.btrc"
+fixture = "runtime-catalog"
+capability = "shared.runtime-order"
+compiler = "shared"
+boundary = "runtime-helper-order"
+channel = "btrc"
+baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
+baseline_sha256 = "ec63f7782d406fefa9e6ece7bad6e1a4ab06d5cd80197f94f77e40fd9b74adea"
+accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
+accepted_sha256 = "857433f3ac7fe428ce39c1df13684c61e8d24b41fe50856af432416f8261feb1"
+reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
+regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+
+[[equalities]]
+id = "surface.tokens.artifact"
+left = "surface.python.tokens.artifact"
+right = "surface.btrc.tokens.artifact"
+
+[[equalities]]
+id = "surface.tokens.status"
+left = "surface.python.tokens.status"
+right = "surface.btrc.tokens.status"
+
+[[equalities]]
+id = "surface.ast.artifact"
+left = "surface.python.ast.artifact"
+right = "surface.btrc.ast.artifact"
+
+[[equalities]]
+id = "surface.ast.status"
+left = "surface.python.ast.status"
+right = "surface.btrc.ast.status"
+
+[[equalities]]
+id = "surface.c.artifact"
+left = "surface.python.c.artifact"
+right = "surface.btrc.c.artifact"
+
+[[equalities]]
+id = "surface.c.status"
+left = "surface.python.c.status"
+right = "surface.btrc.c.status"
+
+[[equalities]]
+id = "managed.c.status"
+left = "managed.python.c.status"
+right = "managed.btrc.c.status"
+
+[[equalities]]
+id = "lexical-error.diagnostics.status"
+left = "lexical-error.python.diagnostics.status"
+right = "lexical-error.btrc.diagnostics.status"
+
+[[equalities]]
+id = "parse-error.diagnostics.status"
+left = "parse-error.python.diagnostics.status"
+right = "parse-error.btrc.diagnostics.status"
+
+[[equalities]]
+id = "semantic-error.diagnostics.status"
+left = "semantic-error.python.diagnostics.status"
+right = "semantic-error.btrc.diagnostics.status"
+
+[[equalities]]
+id = "strict-import-error.diagnostics.status"
+left = "strict-import-error.python.diagnostics.status"
+right = "strict-import-error.btrc.diagnostics.status"
+
+[[equalities]]
+id = "strict-import-error.diagnostics.stderr"
+left = "strict-import-error.python.diagnostics.stderr"
+right = "strict-import-error.btrc.diagnostics.stderr"
+
+[[equalities]]
+id = "managed.gcc.compiler-parity.observation"
+left = "managed.python.behavior-gcc.observation"
+right = "managed.btrc.behavior-gcc.observation"
+
+[[equalities]]
+id = "managed.gcc.compiler-parity.source-status"
+left = "managed.python.behavior-gcc.source-status"
+right = "managed.btrc.behavior-gcc.source-status"
+
+[[equalities]]
+id = "managed.gcc.compiler-parity.compile-status"
+left = "managed.python.behavior-gcc.compile-status"
+right = "managed.btrc.behavior-gcc.compile-status"
+
+[[equalities]]
+id = "managed.gcc.compiler-parity.status"
+left = "managed.python.behavior-gcc.status"
+right = "managed.btrc.behavior-gcc.status"
+
+[[equalities]]
+id = "managed.gcc.compiler-parity.stdout"
+left = "managed.python.behavior-gcc.stdout"
+right = "managed.btrc.behavior-gcc.stdout"
+
+[[equalities]]
+id = "managed.gcc.compiler-parity.stderr"
+left = "managed.python.behavior-gcc.stderr"
+right = "managed.btrc.behavior-gcc.stderr"
+
+[[equalities]]
+id = "managed.clang.compiler-parity.observation"
+left = "managed.python.behavior-clang.observation"
+right = "managed.btrc.behavior-clang.observation"
+
+[[equalities]]
+id = "managed.clang.compiler-parity.source-status"
+left = "managed.python.behavior-clang.source-status"
+right = "managed.btrc.behavior-clang.source-status"
+
+[[equalities]]
+id = "managed.clang.compiler-parity.compile-status"
+left = "managed.python.behavior-clang.compile-status"
+right = "managed.btrc.behavior-clang.compile-status"
+
+[[equalities]]
+id = "managed.clang.compiler-parity.status"
+left = "managed.python.behavior-clang.status"
+right = "managed.btrc.behavior-clang.status"
+
+[[equalities]]
+id = "managed.clang.compiler-parity.stdout"
+left = "managed.python.behavior-clang.stdout"
+right = "managed.btrc.behavior-clang.stdout"
+
+[[equalities]]
+id = "managed.clang.compiler-parity.stderr"
+left = "managed.python.behavior-clang.stderr"
+right = "managed.btrc.behavior-clang.stderr"
+
+[[equalities]]
+id = "managed.python.toolchain-parity.source-status"
+left = "managed.python.behavior-gcc.source-status"
+right = "managed.python.behavior-clang.source-status"
+
+[[equalities]]
+id = "managed.python.toolchain-parity.compile-status"
+left = "managed.python.behavior-gcc.compile-status"
+right = "managed.python.behavior-clang.compile-status"
+
+[[equalities]]
+id = "managed.python.toolchain-parity.status"
+left = "managed.python.behavior-gcc.status"
+right = "managed.python.behavior-clang.status"
+
+[[equalities]]
+id = "managed.python.toolchain-parity.stdout"
+left = "managed.python.behavior-gcc.stdout"
+right = "managed.python.behavior-clang.stdout"
+
+[[equalities]]
+id = "managed.python.toolchain-parity.stderr"
+left = "managed.python.behavior-gcc.stderr"
+right = "managed.python.behavior-clang.stderr"
+
+[[equalities]]
+id = "managed.btrc.toolchain-parity.source-status"
+left = "managed.btrc.behavior-gcc.source-status"
+right = "managed.btrc.behavior-clang.source-status"
+
+[[equalities]]
+id = "managed.btrc.toolchain-parity.compile-status"
+left = "managed.btrc.behavior-gcc.compile-status"
+right = "managed.btrc.behavior-clang.compile-status"
+
+[[equalities]]
+id = "managed.btrc.toolchain-parity.status"
+left = "managed.btrc.behavior-gcc.status"
+right = "managed.btrc.behavior-clang.status"
+
+[[equalities]]
+id = "managed.btrc.toolchain-parity.stdout"
+left = "managed.btrc.behavior-gcc.stdout"
+right = "managed.btrc.behavior-clang.stdout"
+
+[[equalities]]
+id = "managed.btrc.toolchain-parity.stderr"
+left = "managed.btrc.behavior-gcc.stderr"
+right = "managed.btrc.behavior-clang.stderr"

@@ -1,0 +1,1 @@
+{"asset":"trycatch.c","btrc_order":168,"category":"trycatch","dependencies":["__btrc_cleanup_types","__btrc_push_try","__btrc_arc_release"],"headers":[],"name":"__btrc_run_cleanup_guarded","provided_objects":[],"provided_types":[],"python_order":101,"source_sha256":"a95e281ac614014fa70faa985ec300c3fb20d5baaeed3dc91acd17e75e94973d","source_size":692,"source_visible":false}

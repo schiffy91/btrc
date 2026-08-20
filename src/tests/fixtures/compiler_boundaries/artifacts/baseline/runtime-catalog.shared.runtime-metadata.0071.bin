@@ -1,0 +1,1 @@
+{"asset":"process.c","btrc_order":175,"category":"process","dependencies":["__btrc_close_descriptors_from"],"headers":[],"name":"__btrc_close_descriptors_except","provided_objects":[],"provided_types":[],"python_order":190,"source_sha256":"1e5e0700fde46267697cc7b226e973bc2f214f4de1bd34e5812652f31262d54d","source_size":325,"source_visible":true}

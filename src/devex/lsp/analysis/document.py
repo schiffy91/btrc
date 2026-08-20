@@ -13,9 +13,9 @@ from urllib.request import url2pathname
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
-from src.compiler.python.syntax.ast.generated import Program
 from src.compiler.python.frontend.imports import ImportVisibilityChecker, ImportVisibilityFailure
 from src.compiler.python.frontend.sources import SourceDependencyGraph
+from src.compiler.python.syntax.ast.generated import Program
 from src.compiler.python.syntax.tokens import Token
 from src.devex.lsp.workspace.units import FileUnit
 from src.devex.lsp.workspace.workspace import Workspace

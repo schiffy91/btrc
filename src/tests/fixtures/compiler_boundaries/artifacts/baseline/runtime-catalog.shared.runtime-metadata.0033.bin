@@ -1,0 +1,1 @@
+{"asset":"cycles.c","btrc_order":151,"category":"cycles","dependencies":["__btrc_arc_validate","__btrc_arc_mutation_lock"],"headers":[],"name":"__btrc_arc_invalidate","provided_objects":[],"provided_types":[],"python_order":171,"source_sha256":"2b7c304378aaf2601765476f2fb43ebf2ccbc6f18d371bef5461dcc60d66a4a5","source_size":170,"source_visible":false}

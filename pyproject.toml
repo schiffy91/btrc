@@ -13,7 +13,13 @@ requires-python = ">=3.13"
 dependencies = ["lsprotocol>=2023.0.0", "pygls>=2.0.0"]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-xdist>=3.0", "ruff>=0.1.0"]
+dev = [
+    "build>=1.2.2",
+    "pytest>=7.0",
+    "pytest-xdist>=3.0",
+    "ruff>=0.1.0",
+    "setuptools>=77.0",
+]
 
 [project.scripts]
 btrcpy = "src.compiler.python.main:main"
@@ -70,6 +76,7 @@ extend-exclude = [
     # Generated verbatim from the ASDL and stdlib specifications. Keeping the
     # checked-in files byte-identical to their generators is more important
     # than applying a second, non-authoritative formatting pass.
+    "src/compiler/python/abi/generated.py",
     "src/compiler/python/syntax/ast/generated.py",
     "src/compiler/python/runtime/generated.py",
     "src/compiler/btrc/generated/runtime/catalog.btrc",

@@ -10,9 +10,9 @@ importantly that the output is strict C11 with no compiler-specific extensions
 import re
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -28,8 +28,9 @@ def emit_c(source: str) -> str:
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors, f"analyzer errors: {analyzed.errors}"
     ir_module = IRLowerer(analyzed).lower()
-    ir_module = IROptimizer(ir_module).optimize()
-    return CEmitter().emit(ir_module)
+    pipeline = CompilationPipeline()
+    ir_module = pipeline.optimize(ir_module, CompilerOptions())
+    return pipeline.emit(ir_module)
 
 
 def test_switch_fallthrough_metadata_survives_normal_and_generic_lowering():

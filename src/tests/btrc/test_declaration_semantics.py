@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from src.tests.btrc.test_semantic_validation import (
+    _compile_reference_source,
     _compile_source,
     _strict_build_and_run,
 )
@@ -311,6 +312,97 @@ def test_valid_declaration_contracts_compile_strictly(
     result, generated = _compile_source(semantic_btrcc, tmp_path, source)
     assert result.returncode == 0, result.stderr
     _strict_build_and_run(generated, tmp_path / "program")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+            int globalValue = 42;
+            class Values { class int classValue = 42; }
+            int main() {
+                static int localValue = 42;
+                return globalValue == 42 && localValue == 42 ? 0 : 1;
+            }
+        """,
+        """
+            int globalValue = 84 / 2;
+            class Values { class int classValue = 126 / 3; }
+            int main() {
+                static int localValue = 168 / 4;
+                return globalValue == 42
+                    && Values.classValue == 42
+                    && localValue == 42 ? 0 : 1;
+            }
+        """,
+        """
+            int values[2] = {20, 22};
+            int* globalPointer = &values[0];
+            class Values { class int* classPointer = &values[1]; }
+            int main() {
+                static int* localPointer = values;
+                return *globalPointer + *localPointer == 40 ? 0 : 1;
+            }
+        """,
+        """
+            struct Pair { int left; int right; };
+            Pair globalPair = {20, 22};
+            class Values { class Pair classPair = {19, 23}; }
+            int main() {
+                static Pair localPair = {21, 21};
+                return globalPair.left + localPair.right == 41 ? 0 : 1;
+            }
+        """,
+    ],
+    ids=("literal", "arithmetic", "address", "aggregate"),
+)
+def test_static_storage_initializer_acceptance_matches_reference(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+) -> None:
+    compiled = (
+        _compile_reference_source(tmp_path, source),
+        _compile_source(semantic_btrcc, tmp_path, source),
+    )
+    for index, (result, generated) in enumerate(compiled):
+        assert result.returncode == 0, result.stderr
+        _strict_build_and_run(generated, tmp_path / f"static-valid-{index}")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "int run() { return 1; } int value = run(); int main() { return value; }",
+        "int run() { return 1; } class Values { class int value = run(); } int main() { return 0; }",
+        "int run() { return 1; } int main() { static int value = run(); return value; }",
+        "int first = 1; int second = first; int main() { return second; }",
+        "int value = 1 / 0; int main() { return value; }",
+        "class Values { class int value = 1 / 0; } int main() { return 0; }",
+        "int main() { static int value = 1 / 0; return value; }",
+    ],
+    ids=(
+        "global-call",
+        "class-static-call",
+        "local-static-call",
+        "dynamic-identifier",
+        "global-zero",
+        "class-static-zero",
+        "local-static-zero",
+    ),
+)
+def test_dynamic_static_storage_initializers_are_rejected_in_both_compilers(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+) -> None:
+    compiled = (
+        _compile_reference_source(tmp_path, source),
+        _compile_source(semantic_btrcc, tmp_path, source),
+    )
+    for result, _ in compiled:
+        assert result.returncode == 1
+        assert "requires a C constant/address initializer" in result.stderr
 
 
 def test_native_abi_allowlist_only_permits_bodyless_prototype(semantic_btrcc: Path, tmp_path: Path) -> None:

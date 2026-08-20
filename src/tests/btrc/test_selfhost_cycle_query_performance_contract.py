@@ -9,11 +9,7 @@ CYCLE_SEMANTICS = SELFHOST / "analyzer/ownership/cycles.btrc"
 
 def test_runtime_cycle_queries_cache_positive_and_negative_results() -> None:
     cycles = CYCLE_SEMANTICS.read_text()
-    other_units = "\n".join(
-        path.read_text()
-        for path in SELFHOST.rglob("*.btrc")
-        if path != CYCLE_SEMANTICS
-    )
+    other_units = "\n".join(path.read_text() for path in SELFHOST.rglob("*.btrc") if path != CYCLE_SEMANTICS)
     start = cycles.index("public bool runtimeTypeMayCycle(")
     end = cycles.index("\n    }", start)
     implementation = cycles[start:end]

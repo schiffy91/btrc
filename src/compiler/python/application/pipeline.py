@@ -159,9 +159,7 @@ class StdlibArchiveAdapter:
                     "__btrc_arc_topology_cleanup",
                 }
             ),
-            "string_registry": frozenset(
-                {"__btrc_string_retain", "__btrc_string_release", "__btrc_string_live_count"}
-            ),
+            "string_registry": frozenset({"__btrc_string_retain", "__btrc_string_release", "__btrc_string_live_count"}),
         }
     )
     ARCHIVE_API_GROUPS = MappingProxyType(
@@ -174,12 +172,10 @@ class StdlibArchiveAdapter:
         repository: StdlibArchivePort,
         runtime_catalog: RuntimeHelperCatalog,
         emitter: CEmitter,
-        stdlib_root: str,
     ) -> None:
         self.repository = repository
         self.runtime_catalog = runtime_catalog
         self.emitter = emitter
-        self.stdlib_root = os.path.realpath(stdlib_root)
 
     def publish(self, out_dir: str, module, stdlib_source: str) -> dict:
         shared, declarations = self.transform_module(module)
@@ -216,7 +212,7 @@ class StdlibArchiveAdapter:
             if not name or name not in provided:
                 continue
             source_file = getattr(declaration, "source_file", None)
-            if source_file and self._is_within(source_file, self.stdlib_root):
+            if CompilerStdlibSource.authenticated(source_file):
                 continue
             conflicts.add(name)
         if conflicts:
@@ -267,7 +263,9 @@ class StdlibArchiveAdapter:
         module.struct_defs = [entry for entry in module.struct_defs if entry.name not in types]
         module.function_defs = [entry for entry in module.function_defs if entry.name not in functions]
         module.struct_forwards = [entry for entry in module.struct_forwards if entry.name not in types]
-        module.function_pointer_typedefs = [entry for entry in module.function_pointer_typedefs if entry.name not in types]
+        module.function_pointer_typedefs = [
+            entry for entry in module.function_pointer_typedefs if entry.name not in types
+        ]
         module.function_decls = [
             entry
             for entry in module.function_decls
@@ -458,13 +456,6 @@ class StdlibArchiveAdapter:
     def _macro_record_key(record: dict) -> tuple:
         return record["name"], None if record["params"] is None else tuple(record["params"]), record["replacement"]
 
-    @staticmethod
-    def _is_within(path: str, directory: str) -> bool:
-        try:
-            return os.path.commonpath((os.path.realpath(path), directory)) == directory
-        except (OSError, ValueError):
-            return False
-
 
 class CompilationPipeline:
     """Compose and orchestrate source, syntax, semantic, IR, and C stages."""
@@ -486,11 +477,7 @@ class CompilationPipeline:
         stdlib = (
             frontend.stdlib
             if frontend is not None
-            else (
-                resolver.stdlib
-                if resolver is not None
-                else StdlibRepository()
-            )
+            else (resolver.stdlib if resolver is not None else StdlibRepository())
         )
         self.type_identity = type_identity if type_identity is not None else TypeIdentity()
         self.runtime_catalog = runtime_catalog or RuntimeHelperCatalog()
@@ -505,7 +492,6 @@ class CompilationPipeline:
             repository,
             self.runtime_catalog,
             CEmitter(),
-            stdlib.directory(),
         )
 
     @staticmethod
@@ -534,13 +520,9 @@ class CompilationPipeline:
         ]
         diagnosed_errors = sum(diagnostic.severity == "error" for diagnostic in analyzed.diags)
         diagnosed_warnings = sum(diagnostic.severity == "warning" for diagnostic in analyzed.diags)
+        diagnostics.extend(CompilerDiagnostic(message) for message in analyzed.errors[diagnosed_errors:])
         diagnostics.extend(
-            CompilerDiagnostic(message)
-            for message in analyzed.errors[diagnosed_errors:]
-        )
-        diagnostics.extend(
-            CompilerDiagnostic(message, severity="warning")
-            for message in analyzed.warnings[diagnosed_warnings:]
+            CompilerDiagnostic(message, severity="warning") for message in analyzed.warnings[diagnosed_warnings:]
         )
         return tuple(diagnostics)
 

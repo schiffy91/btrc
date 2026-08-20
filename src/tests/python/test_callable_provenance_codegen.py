@@ -1,6 +1,7 @@
 """Managed-return callback provenance across nontrivial source control flow."""
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -47,6 +48,15 @@ ASAN_COMPILER = (
     if sys.platform == "darwin" and os.access("/usr/bin/clang", os.X_OK)
     else (STRICT_C_COMPILERS[-1] if STRICT_C_COMPILERS else None)
 )
+
+
+def _assert_value_initializer_promotes_call_result(function: str) -> None:
+    declarations = [line for line in function.splitlines() if re.search(r"\bvalue\s*=", line)]
+    for declaration in declarations:
+        result = re.search(r"(?P<name>__btrc_call_result_\d+)\s*=", declaration)
+        if result is not None and f"__btrc_string_retain({result.group('name')})" in declaration:
+            return
+    raise AssertionError("value initializer did not promote its borrowed call-result temporary")
 
 
 def _callable_owner(
@@ -232,6 +242,9 @@ class CallableRuntimeHarness:
             (void)ignored;
             return NULL;
         }
+        int callableLiveStrings(void) {
+            return (int)__btrc_string_entry_count;
+        }
     """
 
     @classmethod
@@ -335,7 +348,7 @@ def test_bodyless_static_method_keeps_foreign_return_abi():
     assert owner.return_abi(expression) is CallableReturnABI.BORROWED
 
 
-def test_generic_bodyless_function_return_is_promoted_to_owned():
+def test_generic_bodyless_function_return_is_promoted_once_to_owned():
     emitted = emit_c(
         """
         extern string foreignString();
@@ -355,7 +368,7 @@ def test_generic_bodyless_function_return_is_promoted_to_owned():
         "static char* btrc_Wrap_int_get(btrc_Wrap_int* self) {",
         1,
     )[1].split("\n}", 1)[0]
-    assert "__btrc_string_retain" in method
+    assert method.count("__btrc_string_retain") == 1
 
 
 def test_generic_source_callback_return_keeps_owned_abi():
@@ -636,6 +649,133 @@ def test_callable_runtime_is_strict_c11_clean(
 
 
 @pytest.mark.skipif(
+    not STRICT_C_COMPILERS,
+    reason="requires a strict C11 compiler",
+)
+@pytest.mark.parametrize(
+    "c_compiler",
+    STRICT_C_COMPILERS,
+    ids=lambda path: Path(path).name,
+)
+def test_long_concat_classifies_each_leaf_at_its_source_flow_entry(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    trailing = " + ".join('"a"' for _ in range(30))
+    source = f"""
+        #include <assert.h>
+
+        extern string foreign(bool ignored);
+        extern int callableLiveStrings();
+        string make(bool ignored) {{ return f"owned={{1}}"; }}
+
+        int run(bool choose) {{
+            __fn_ptr<string, bool> callback = foreign;
+            string joined =
+                ((bool)(callback = make) ? "a" : "a")
+                + (choose ? callback(false) : foreign(false))
+                + {trailing};
+            return len(joined);
+        }}
+
+        int main() {{
+            assert(run(false) == 38);
+            assert(callableLiveStrings() == 0);
+            assert(run(true) == 38);
+            assert(callableLiveStrings() == 0);
+            return 0;
+        }}
+    """
+    emitted = emit_c(source)
+    run = emitted[emitted.index("int run(bool choose) {") : emitted.index("int main(void) {")]
+
+    assert "__btrc_concat_part" in run
+    assert "callback = make" in run
+    assert "__btrc_string_release(__btrc_concat_part" in run
+    CallableRuntimeHarness.build_and_run(
+        tmp_path,
+        c_compiler,
+        "-O2",
+        source_text=source,
+    )
+
+
+@pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
+def test_shallow_aggregate_rejection_uses_each_element_source_flow_entry(generic: bool) -> None:
+    body = """
+        __fn_ptr<string> callback = foreignString;
+        (bool, string) pair = (
+            (bool)(callback = make),
+            choose ? callback() : foreignString()
+        );
+        return pair._0 ? len(pair._1) : 0;
+    """
+    if generic:
+        source = f"""
+            extern string foreignString();
+            string make() {{ return f"owned={{1}}"; }}
+            class Wrap<T> {{
+                public Wrap() {{}}
+                public int run(bool choose) {{ {body} }}
+            }}
+            int main() {{
+                Wrap<int> wrap = new Wrap<int>();
+                return wrap.run(true);
+            }}
+        """
+    else:
+        source = f"""
+            extern string foreignString();
+            string make() {{ return f"owned={{1}}"; }}
+            int run(bool choose) {{ {body} }}
+            int main() {{ return run(true); }}
+        """
+
+    with pytest.raises(CodegenError, match="caller-owned temporary cannot be embedded"):
+        emit_c(source)
+
+
+@pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
+def test_conditional_normalizes_branches_with_their_pre_argument_callable_abi(generic: bool) -> None:
+    body = """
+        __fn_ptr<string, bool> callback = make;
+        string value = choose
+            ? callback((bool)(callback = foreign))
+            : callback((bool)(callback = other));
+        return len(value);
+    """
+    declarations = """
+        extern string foreign(bool ignored);
+        string make(bool ignored) { return f"owned={1}"; }
+        string other(bool ignored) { return f"other={2}"; }
+    """
+    if generic:
+        source = f"""
+            {declarations}
+            class Wrap<T> {{
+                public Wrap() {{}}
+                public int run(bool choose) {{ {body} }}
+            }}
+            int main() {{
+                Wrap<int> wrap = new Wrap<int>();
+                return wrap.run(true);
+            }}
+        """
+    else:
+        source = f"""
+            {declarations}
+            int run(bool choose) {{ {body} }}
+            int main() {{ return run(true); }}
+        """
+
+    emitted = emit_c(source)
+    marker = "static int btrc_Wrap_int_run(" if generic else "int run(bool choose) {"
+    function = emitted[emitted.index(marker) :]
+    assert function.count("= callback)") == 2
+    assert not re.search(r"__btrc_string_retain\(__btrc_call_result_\d+\)", function)
+
+
+@pytest.mark.skipif(
     ASAN_COMPILER is None,
     reason="requires AddressSanitizer",
 )
@@ -808,7 +948,7 @@ def test_ordered_call_uses_callee_abi_from_before_argument_effects(generic):
     emitted = emit_c(source)
     function_marker = "static int btrc_Wrap_int_run(" if generic else "int run(void) {"
     function = emitted[emitted.index(function_marker) :]
-    assert "__btrc_string_retain(value)" in function
+    assert re.search(r"__btrc_string_retain\(__btrc_call_result_\d+\)", function)
 
 
 @pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))
@@ -950,7 +1090,7 @@ def test_non_fallthrough_if_branch_does_not_poison_continuation(generic):
     emitted = emit_c(source)
     function_marker = "static int btrc_Wrap_int_run(" if generic else "int run(bool choose) {"
     function = emitted[emitted.index(function_marker) :]
-    assert "__btrc_string_retain(value)" in function
+    _assert_value_initializer_promotes_call_result(function)
 
 
 @pytest.mark.parametrize(
@@ -1104,7 +1244,7 @@ def test_non_fallthrough_catch_does_not_poison_try_continuation(generic):
     emitted = emit_c(source)
     function_marker = "static int btrc_Wrap_int_run(" if generic else "int run(void) {"
     function = emitted[emitted.index(function_marker) :]
-    assert "__btrc_string_retain(value)" in function
+    _assert_value_initializer_promotes_call_result(function)
 
 
 def test_switch_return_state_is_excluded_but_break_state_reaches_continuation():
@@ -1128,7 +1268,7 @@ def test_switch_return_state_is_excluded_but_break_state_reaches_continuation():
         """
     )
     function = emitted[emitted.index("int run(int choice) {") :]
-    assert "__btrc_string_retain(value)" in function
+    _assert_value_initializer_promotes_call_result(function)
 
     with pytest.raises(CodegenError, match="ambiguous ownership ABI"):
         emit_c(

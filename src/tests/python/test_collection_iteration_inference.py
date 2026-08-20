@@ -5,9 +5,10 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.compiler import Compiler
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.tests.python.test_strict_c_semantic_boundaries import (
@@ -24,7 +25,9 @@ def _analyze(source: str):
 def _emit(source: str) -> str:
     analyzed = _analyze(source)
     assert analyzed.errors == []
-    return CEmitter().emit(IROptimizer(IRLowerer(analyzed).lower()).optimize())
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
+    return pipeline.emit(module)
 
 
 def test_string_array_index_preserves_string_element_shape() -> None:
@@ -39,6 +42,46 @@ def test_string_array_index_preserves_string_element_shape() -> None:
     )
 
     assert analyzed.errors == []
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_inferred_vector_literal_import_materializes_live_specialization(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    source = """
+        import std.vector;
+
+        int main() {
+            var nums = [10, 20, 30];
+            int sum = 0;
+            for value in nums { sum += value; }
+            nums.free();
+            return sum == 60 ? 0 : 1;
+        }
+    """
+    source_path = tmp_path / "inferred_vector.btrc"
+    source_path.write_text(source)
+    result = Compiler().compile(
+        source,
+        str(source_path),
+        CompilerOptions(use_cache=False),
+    )
+
+    assert result.successful, result.failure or result.diagnostics
+    assert result.c_source is not None
+    assert "btrc_Vector_int* nums" in result.c_source
+    assert "struct btrc_Vector_int {" in result.c_source
+    for function in (
+        "btrc_Vector_int_new",
+        "btrc_Vector_int_push",
+        "btrc_Vector_int_iterLen",
+        "btrc_Vector_int_iterGet",
+        "btrc_Vector_int_free",
+    ):
+        assert function in result.c_source
+    _compile_and_run(result.c_source, tmp_path, c_compiler)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")

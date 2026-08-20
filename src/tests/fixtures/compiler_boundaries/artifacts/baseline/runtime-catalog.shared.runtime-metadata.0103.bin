@@ -1,0 +1,1 @@
+{"asset":"gpu.c","btrc_order":null,"category":"gpu","dependencies":[],"headers":["stdio.h","stdlib.h"],"name":"__btrc_gpu_index_check","provided_objects":[],"provided_types":[],"python_order":8,"source_sha256":"a076ac242456aa2f14381ec17be6f9cc480f7b1bd0442c60e8a2314f89bb572a","source_size":198,"source_visible":false}

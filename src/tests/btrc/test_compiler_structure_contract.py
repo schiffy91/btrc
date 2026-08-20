@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
-from collections import deque
+from collections import Counter, deque
+from collections.abc import Iterator
+from dataclasses import fields, is_dataclass
 from functools import cache
 from pathlib import Path
 
@@ -125,6 +127,15 @@ PUBLIC_ENTRY_POINTS = frozenset(
         "tools/parse_main.btrc",
         "tools/ast/dump_main.btrc",
         "tools/ast/generate_main.btrc",
+    }
+)
+
+INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
+    {
+        ("FeDependencyGraph", "hasSource"),
+        ("FeResolutionBudget", "sourceBytes"),
+        ("FeResolutionBudget", "fileCount"),
+        ("FeDirectoryScanBudget", "entryCount"),
     }
 )
 
@@ -278,6 +289,125 @@ def _without_comments(source: str) -> str:
     return re.sub(r"//.*", "", source)
 
 
+def _ast_nodes(root: object) -> Iterator[object]:
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        if is_dataclass(node) and not isinstance(node, type):
+            yield node
+            pending.extend(getattr(node, field.name) for field in fields(node))
+        elif isinstance(node, (list, tuple)):
+            pending.extend(node)
+        elif isinstance(node, dict):
+            pending.extend(node.values())
+
+
+def _declaring_method(
+    classes: dict[str, tuple[str, object]], owner: str | None, name: str
+) -> tuple[str, object] | None:
+    visited: set[str] = set()
+    while owner is not None and owner in classes and owner not in visited:
+        visited.add(owner)
+        declaration = classes[owner][1]
+        for member in declaration.members:
+            if type(member).__name__ == "MethodDecl" and member.name == name:
+                return owner, member
+        owner = declaration.parent
+    return None
+
+
+def _member_result_owner(classes: dict[str, tuple[str, object]], owner: str | None, name: str) -> str | None:
+    visited: set[str] = set()
+    while owner is not None and owner in classes and owner not in visited:
+        visited.add(owner)
+        declaration = classes[owner][1]
+        for member in declaration.members:
+            if member.name != name:
+                continue
+            if type(member).__name__ in {"FieldDecl", "PropertyDecl"}:
+                return member.type.base
+            if type(member).__name__ == "MethodDecl":
+                return member.return_type.base
+        owner = declaration.parent
+    return None
+
+
+def _receiver_owner(
+    expression: object,
+    current: str | None,
+    bindings: dict[str, object],
+    classes: dict[str, tuple[str, object]],
+) -> str | None:
+    kind = type(expression).__name__
+    if kind == "SelfExpr":
+        return current
+    if kind == "SuperExpr":
+        return classes[current][1].parent if current is not None else None
+    if kind == "Identifier":
+        binding = bindings.get(
+            expression.name,
+            expression.name if expression.name in classes else None,
+        )
+        return binding if isinstance(binding, str) else getattr(binding, "base", None)
+    if kind == "NewExpr":
+        return expression.type.base
+    if kind == "CastExpr":
+        return expression.target_type.base
+    if kind == "CallExpr":
+        callee = expression.callee
+        if type(callee).__name__ == "Identifier" and callee.name in classes:
+            return callee.name
+        if type(callee).__name__ == "FieldAccessExpr":
+            if type(callee.obj).__name__ == "Identifier":
+                receiver_type = bindings.get(callee.obj.name)
+                generic_arguments = getattr(receiver_type, "generic_args", [])
+                if callee.field in {"get", "first", "last", "iterGet"} and generic_arguments:
+                    return generic_arguments[0].base
+                if callee.field in {"getOrDefault", "iterValueAt"} and len(generic_arguments) > 1:
+                    return generic_arguments[1].base
+            owner = _receiver_owner(callee.obj, current, bindings, classes)
+            return _member_result_owner(classes, owner, callee.field)
+    if kind == "FieldAccessExpr":
+        owner = _receiver_owner(expression.obj, current, bindings, classes)
+        return _member_result_owner(classes, owner, expression.field)
+    return None
+
+
+def _callable_bindings(
+    body: object,
+    parameters: list[object],
+    current: str | None,
+    classes: dict[str, tuple[str, object]],
+) -> dict[str, object]:
+    bindings = {parameter.name: parameter.type for parameter in parameters}
+    if current is not None:
+        bindings["self"] = current
+        owner: str | None = current
+        visited: set[str] = set()
+        while owner is not None and owner in classes and owner not in visited:
+            visited.add(owner)
+            for member in classes[owner][1].members:
+                if type(member).__name__ in {"FieldDecl", "PropertyDecl"}:
+                    bindings.setdefault(member.name, member.type)
+            owner = classes[owner][1].parent
+
+    variables = [node for node in _ast_nodes(body) if type(node).__name__ == "VarDeclStmt"]
+    for variable in variables:
+        if variable.type is not None and variable.type.base != "var":
+            bindings[variable.name] = variable.type
+    while True:
+        changed = False
+        for variable in variables:
+            if variable.name in bindings:
+                continue
+            owner = _receiver_owner(variable.initializer, current, bindings, classes)
+            if owner is not None:
+                bindings[variable.name] = owner
+                changed = True
+        if not changed:
+            return bindings
+
+
 def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
@@ -309,15 +439,14 @@ def test_every_unit_parses_and_behavior_files_have_complete_owners() -> None:
 
 
 def test_call_lowering_has_one_typed_target_resolution_owner() -> None:
+    calls = _path("ir/lowering/calls.btrc").read_text()
     expressions = _path("ir/lowering/expressions.btrc").read_text()
+    operators = _path("analyzer/operators.btrc").read_text()
     ownership_calls = _path("ir/lowering/ownership/calls.btrc").read_text()
+    statements = _path("ir/lowering/statements.btrc").read_text()
 
     declarations = _program("ir/lowering/calls.btrc").declarations
-    classes = {
-        declaration.name
-        for declaration in declarations
-        if type(declaration).__name__ == "ClassDecl"
-    }
+    classes = {declaration.name for declaration in declarations if type(declaration).__name__ == "ClassDecl"}
     assert {
         "CallSignature",
         "CallTarget",
@@ -330,6 +459,319 @@ def test_call_lowering_has_one_typed_target_resolution_owner() -> None:
     assert "callTargetResolvedParameters" not in expressions
     assert "paramsForCall" not in expressions
     assert "parametersFor" not in ownership_calls
+    assert "self.expressions.lowerAssignedValueRaw(" not in statements
+    assert 'mangled + "_new"' not in statements
+    assert "replaceOptionalFallback" not in calls
+    assert expressions.count("private bool replaceOptionalFallback(") == 1
+    assert expressions.count("private string optionalResultVariable(") == 1
+    assert expressions.count("private IRNode? optionalResultAssignment(") == 1
+    assert expressions.count("private bool replaceOptionalResultDefinition(") == 1
+    assert expressions.count("private bool replaceOptionalSequenceFallback(") == 1
+    assert "resultName = alias;" in expressions
+    assert "node.expr, resultName" in expressions
+    assert "node.args.get(node.args.len - 1), resultName" in expressions
+    assert "absentAssignment.right = fallback;" in expressions
+    assert "definition.condition" not in expressions
+    assert operators.count("private bool isOptionalValueExpression(") == 1
+    assert "expression.kind == NK_CALL_EXPR" in operators
+    assert "expression.callee.kind == NK_FIELD_ACCESS_EXPR" in operators
+
+
+def test_default_helpers_share_call_claim_and_function_body_owners() -> None:
+    definitions: dict[str, list[str]] = {
+        "ensureDefaultHelper": [],
+        "materializeDefaultHelper": [],
+        "materializeDeferredClosure": [],
+    }
+    for relative in EXPECTED_BTRC_FILES:
+        for declaration in _program(relative).declarations:
+            if type(declaration).__name__ != "ClassDecl":
+                continue
+            for member in declaration.members:
+                if type(member).__name__ == "MethodDecl" and member.name in definitions:
+                    definitions[member.name].append(f"{relative}:{declaration.name}")
+
+    assert definitions == {
+        "ensureDefaultHelper": ["ir/lowering/calls.btrc:CallLowerer"],
+        "materializeDefaultHelper": ["ir/lowering/functions.btrc:FunctionLowerer"],
+        "materializeDeferredClosure": ["ir/lowering/functions.btrc:FunctionLowerer"],
+    }
+    calls = _path("ir/lowering/calls.btrc").read_text()
+    expressions = _path("ir/lowering/expressions.btrc").read_text()
+    functions = _path("ir/lowering/functions.btrc").read_text()
+    lowerer = _path("ir/lowering/lowerer.btrc").read_text()
+    assert "activeModule().function_decls.push(declaration)" in calls
+    assert "selfType.generic_args.push(" in calls
+    assert expressions.count("self.calls.ensureDefaultHelper(") == 1
+    assert "self.calls.defaultHelperSymbol(" not in expressions
+    assert "self.calls.takePendingDefaultHelpers()" in functions
+    assert "activeModule().functions.push(definition)" in functions
+    assert lowerer.count("self.functions.materializeDeferredClosure()") == 1
+
+
+def test_gpu_call_classification_has_one_semantic_owner() -> None:
+    definitions: dict[str, list[str]] = {
+        "callResolvesToIntrinsic": [],
+        "callResolvesToSourceSymbol": [],
+    }
+    for relative in EXPECTED_BTRC_FILES:
+        for declaration in _program(relative).declarations:
+            if type(declaration).__name__ != "ClassDecl":
+                continue
+            for member in declaration.members:
+                if type(member).__name__ == "MethodDecl" and member.name in definitions:
+                    definitions[member.name].append(f"{relative}:{declaration.name}")
+
+    assert definitions == {
+        "callResolvesToIntrinsic": ["analyzer/gpu.btrc:GpuSemantics"],
+        "callResolvesToSourceSymbol": ["analyzer/gpu.btrc:GpuSemantics"],
+    }
+    semantics = _path("analyzer/gpu.btrc").read_text()
+    calls = _path("analyzer/validation/calls.btrc").read_text()
+    wgsl = _path("ir/gpu/wgsl.btrc").read_text()
+    contextual = semantics[semantics.index("public string contextualExprBase(") :]
+    assert contextual.count("callResolvesToIntrinsic(") == 2
+    assert "callResolvesToBuiltin(" not in contextual
+    assert calls.count("self.gpu.callResolvesToIntrinsic(") == 2
+    assert calls.count("self.gpu.callResolvesToSourceSymbol(") == 1
+    assert "self.state.gpuCallable\n            && !self.state.inParameterDefault" in calls
+    assert wgsl.count("self.semantics.callResolvesToSourceSymbol(") == 1
+    assert "callResolvesToBuiltin(" not in calls
+    assert "callResolvesToBuiltin(" not in wgsl
+
+
+def test_member_indexes_share_analyzed_canonical_identity() -> None:
+    definitions: list[str] = []
+    for relative in EXPECTED_BTRC_FILES:
+        for declaration in _program(relative).declarations:
+            if type(declaration).__name__ != "ClassDecl":
+                continue
+            definitions.extend(
+                f"{relative}:{declaration.name}"
+                for member in declaration.members
+                if type(member).__name__ == "MethodDecl" and member.name == "memberKey"
+            )
+
+    assert definitions == ["analyzer/models.btrc:Analyzed"]
+    models = _path("analyzer/models.btrc").read_text()
+    declarations = _path("analyzer/declarations.btrc").read_text()
+    assert "class string memberKey(string owner, string member)" in models
+    assert models.count("Analyzed.memberKey(") == 3
+    assert declarations.count("Analyzed.memberKey(") == 2
+    assert "DeclarationRegistry.memberKey(" not in declarations
+
+
+def test_managed_instance_field_stores_have_one_typed_owner() -> None:
+    owned_methods = {
+        "planStaticFieldStore",
+        "materializeStaticFieldStore",
+        "planInstanceFieldStore",
+        "materializeInstanceFieldStore",
+    }
+    definitions: list[str] = []
+    for relative in EXPECTED_BTRC_FILES:
+        for declaration in _program(relative).declarations:
+            if type(declaration).__name__ != "ClassDecl":
+                continue
+            definitions.extend(
+                f"{relative}:{declaration.name}.{member.name}"
+                for member in declaration.members
+                if type(member).__name__ == "MethodDecl" and member.name in owned_methods
+            )
+
+    assert definitions == [
+        "ir/lowering/ownership/managed_types.btrc:ManagedTypeLowerer.planStaticFieldStore",
+        "ir/lowering/ownership/managed_types.btrc:ManagedTypeLowerer.materializeStaticFieldStore",
+        "ir/lowering/ownership/managed_types.btrc:ManagedTypeLowerer.planInstanceFieldStore",
+        "ir/lowering/ownership/managed_types.btrc:ManagedTypeLowerer.materializeInstanceFieldStore",
+    ]
+    managed_types = _path("ir/lowering/ownership/managed_types.btrc").read_text()
+    expressions = _path("ir/lowering/expressions.btrc").read_text()
+    assert "member.kind != NK_FIELD_DECL" in managed_types
+    assert 'member.access == "class"' in managed_types
+    assert "self.managedValues.isClass(concreteReceiver)" in managed_types
+    assert managed_types.count("DeclarationRegistry.propertyNeedsBacking(member)") == 1
+    assert managed_types.count("DeclarationRegistry.propertyTargetUsesBacking(") == 1
+    assert managed_types.count("self.context.currentPropertyBacking") == 1
+    assert expressions.count("self.managedTypes.planStaticFieldStore(") == 1
+    assert expressions.count("self.managedTypes.materializeStaticFieldStore(") == 1
+    assert expressions.count("self.managedTypes.planInstanceFieldStore(") == 1
+    assert expressions.count("self.managedTypes.materializeInstanceFieldStore(") == 1
+    assert "self.managedLifetime.replaceEdge(" not in expressions
+
+
+def test_static_initializer_classification_is_typed_and_storage_owned() -> None:
+    relative = "analyzer/validation/storage.btrc"
+    declarations = _program(relative).declarations
+    category = next(
+        declaration
+        for declaration in declarations
+        if type(declaration).__name__ == "EnumDecl" and declaration.name == "StaticInitializerCategory"
+    )
+    assert [value.name for value in category.values] == [
+        "STATIC_INITIALIZER_INVALID",
+        "STATIC_INITIALIZER_INTEGER",
+        "STATIC_INITIALIZER_ARITHMETIC",
+        "STATIC_INITIALIZER_ADDRESS",
+    ]
+
+    validator = next(
+        declaration
+        for declaration in declarations
+        if type(declaration).__name__ == "ClassDecl" and declaration.name == "StorageValidator"
+    )
+    classifier = next(member for member in validator.members if member.name == "staticInitializerCategory")
+    assert classifier.return_type.base == "StaticInitializerCategory"
+    assert re.search(r"\bSC_(?:INVALID|INTEGER|ARITHMETIC|ADDRESS)\b", _path(relative).read_text()) is None
+
+    storage = _path(relative).read_text()
+    declaration_source = _path("analyzer/validation/declarations.btrc").read_text()
+    assert "bool hasStaticStorage = isGlobal" in storage
+    assert "!self.staticInitializer(" in storage
+    assert "self.storage.staticInitializer(" in declaration_source
+    assert "StaticInitializerCategory" not in declaration_source
+    assert "staticInitializerCategory(" not in declaration_source
+
+
+def test_static_initializer_lowering_uses_structured_constant_operators() -> None:
+    expressions = _path("ir/lowering/expressions.btrc").read_text()
+    statements = _path("ir/lowering/statements.btrc").read_text()
+    static_lowering = expressions[
+        expressions.index("private IRNode lowerStaticBinaryInitializer(") : expressions.index(
+            "/* Bounded-depth lowering for long left-associated string concatenations. */"
+        )
+    ]
+
+    for constructor in (
+        "IRNode.binary(",
+        "IRNode.unary(",
+        "IRNode.cast(",
+        "IRNode.ternary(",
+        "IRNode.addressOf(",
+        "IRNode.indexAccess(",
+    ):
+        assert constructor in static_lowering
+    assert "__btrc_div" not in static_lowering
+    assert "__btrc_mod" not in static_lowering
+    assert statements.count("self.expressions.lowerStaticInitializer(") >= 3
+
+    runtime_numeric = expressions[
+        expressions.index("public IRNode lowerNumericValues(") : expressions.index(
+            "public IRNode lowerNumericComparisonValues("
+        )
+    ]
+    assert 'if (op == "/" || op == "%")' in runtime_numeric
+    assert 'string helper = "__btrc_div";' in runtime_numeric
+    assert 'if (op == "%") { helper = "__btrc_mod"; }' in runtime_numeric
+
+
+def test_expression_lowering_has_no_uninitialized_managed_ir_locals() -> None:
+    offenders = {
+        relative: match.group(0).strip()
+        for relative in EXPECTED_BTRC_FILES
+        for match in re.finditer(
+            r"(?m)^\s*IRNode\s+[A-Za-z_][A-Za-z0-9_]*\s*;",
+            _without_comments(_path(relative).read_text()),
+        )
+    }
+    assert offenders == {}
+
+
+def test_ir_binary_nodes_use_the_canonical_typed_kind() -> None:
+    model = _program("ir/model.btrc")
+    ir_kind = next(
+        declaration
+        for declaration in model.declarations
+        if type(declaration).__name__ == "EnumDecl" and declaration.name == "IRKind"
+    )
+    variants = {value.name for value in ir_kind.values}
+    assert "IRK_BINOP" in variants
+    assert "IRK_BINARY" not in variants
+    assert all(re.search(r"\bIRK_BINARY\b", _path(relative).read_text()) is None for relative in EXPECTED_BTRC_FILES)
+
+
+def test_concurrency_requires_the_contexts_bound_module() -> None:
+    context = _path("ir/lowering/context.btrc").read_text()
+    concurrency = _path("ir/lowering/concurrency.btrc").read_text()
+    assert "public IRModule activeModule()" in context
+    assert "if (self.module == null)" in context
+    assert "IRModule module = self.context.activeModule();" in concurrency
+    assert "self.context.module.functions" not in concurrency
+
+
+def test_same_owner_method_calls_are_explicitly_qualified() -> None:
+    unqualified: list[str] = []
+    for relative in EXPECTED_BTRC_FILES:
+        for declaration in _program(relative).declarations:
+            if type(declaration).__name__ != "ClassDecl":
+                continue
+            methods = [member for member in declaration.members if type(member).__name__ == "MethodDecl"]
+            method_names = {method.name for method in methods if not method.is_constructor}
+            for method in methods:
+                for node in _ast_nodes(method.body):
+                    if type(node).__name__ != "CallExpr":
+                        continue
+                    callee = node.callee
+                    if type(callee).__name__ == "Identifier" and callee.name in method_names:
+                        unqualified.append(f"{relative}:{node.line} {declaration.name}.{method.name} -> {callee.name}")
+
+    assert unqualified == []
+
+
+def test_only_explicit_external_probes_are_definition_only() -> None:
+    classes = _class_declarations()
+    methods = {
+        (owner, member.name): member
+        for owner, (_, declaration) in classes.items()
+        for member in declaration.members
+        if type(member).__name__ == "MethodDecl"
+    }
+    references: Counter[tuple[str, str]] = Counter()
+    unresolved_names: set[str] = set()
+
+    def count_callable(body: object, parameters: list[object], current: str | None) -> None:
+        bindings = _callable_bindings(body, parameters, current, classes)
+        for node in _ast_nodes(body):
+            if type(node).__name__ == "FieldAccessExpr":
+                owner = _receiver_owner(node.obj, current, bindings, classes)
+                target = _declaring_method(classes, owner, node.field)
+                if target is None:
+                    unresolved_names.add(node.field)
+                else:
+                    references[(target[0], target[1].name)] += 1
+            elif (
+                current is not None and type(node).__name__ == "CallExpr" and type(node.callee).__name__ == "Identifier"
+            ):
+                target = _declaring_method(classes, current, node.callee.name)
+                if target is not None:
+                    references[(target[0], target[1].name)] += 1
+
+    for _, declaration in classes.values():
+        for member in declaration.members:
+            if type(member).__name__ == "MethodDecl" and member.body is not None:
+                count_callable(member.body, member.params, declaration.name)
+    for relative in EXPECTED_BTRC_FILES:
+        for declaration in _program(relative).declarations:
+            if type(declaration).__name__ == "FunctionDecl" and declaration.body is not None:
+                count_callable(declaration.body, declaration.params, None)
+
+    identities_by_name: dict[str, set[tuple[str, str]]] = {}
+    for identity in methods:
+        identities_by_name.setdefault(identity[1], set()).add(identity)
+    for name in unresolved_names:
+        identities = identities_by_name.get(name, set())
+        if len(identities) == 1:
+            references[next(iter(identities))] += 1
+
+    definition_only = {
+        identity
+        for identity, method in methods.items()
+        if method.body is not None
+        and not method.is_abstract
+        and not method.is_constructor
+        and references[identity] == 0
+    }
+    assert definition_only == INTENTIONAL_DEFINITION_ONLY_METHODS
 
 
 def test_lexer_owns_its_cursor_and_literal_scanning() -> None:
@@ -456,10 +898,7 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         if "private HostedAbiRepository hostedAbi;" in _path(relative).read_text()
     }
     assert actual_owners == expected_owners
-    assert all(
-        "self.hostedAbi." in _path(relative).read_text()
-        for relative in actual_owners
-    )
+    assert all("self.hostedAbi." in _path(relative).read_text() for relative in actual_owners)
 
     pipeline = _path("pipeline/pipeline.btrc").read_text()
     analyzer = _path("analyzer/analyzer.btrc").read_text()
@@ -553,7 +992,9 @@ def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
     ):
         assert forbidden not in lowerer
 
-    optimize = optimizer[optimizer.index("public void optimize(") : optimizer.index("private void eliminateUnreachable(")]
+    optimize = optimizer[
+        optimizer.index("public void optimize(") : optimizer.index("private void eliminateUnreachable(")
+    ]
     assert optimize.index("self.setjmpSafety.apply(module)") < optimize.index("CleanupSlotValidator(")
     assert optimize.index("CleanupSlotValidator(") < optimize.index("self.eliminateUnreachable(module)")
     assert optimize.index("CycleReturnBoundaryLowerer(") < optimize.index("self.normalizeUnusedParameters(module)")
@@ -564,9 +1005,14 @@ def test_pipeline_exposes_the_six_stage_ir_boundary_explicitly() -> None:
     assert "public void materializeInto(" in runtime_catalog
     assert "class CycleReturnBoundaryLowerer {" in cycle_boundaries
     assert "private IRTemporaryNames temporaryNames;" in cycle_boundaries
-    assert "LoweringContext" not in cycle_boundaries[
-        cycle_boundaries.index("class CycleReturnBoundaryLowerer {") : cycle_boundaries.index("class CycleBoundaryLowerer {")
-    ]
+    assert (
+        "LoweringContext"
+        not in cycle_boundaries[
+            cycle_boundaries.index("class CycleReturnBoundaryLowerer {") : cycle_boundaries.index(
+                "class CycleBoundaryLowerer {"
+            )
+        ]
+    )
     assert "class IRTemporaryNames {" in model
     assert "public IRTemporaryNames temporary_names;" in model
     assert "private IRTemporaryNames temporaryNameState;" in context

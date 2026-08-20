@@ -97,9 +97,7 @@ def test_isolated_scope_snapshots_active_cleanup_markers_exactly() -> None:
         lifetime.index("class ManagedLifetimeSnapshot {") : lifetime.index("class CleanupSlotRegistry {")
     ]
     isolate = lifetime[
-        lifetime.index("public ManagedLifetimeSnapshot isolate()") : lifetime.index(
-            "private void clearState()"
-        )
+        lifetime.index("public ManagedLifetimeSnapshot isolate()") : lifetime.index("private void clearState()")
     ]
 
     assert "public Vector<string> activeCleanupMarkers;" in snapshot
@@ -134,11 +132,7 @@ def test_aggregate_ordering_uses_bounded_owners_and_typed_plans() -> None:
     boundary = _source("ir/lowering/ownership/calls.btrc")
     releases = _source("ir/lowering/ownership/managed_types.btrc")
     lowerer = _source("ir/lowering/lowerer.btrc")
-    release_slot = releases[
-        releases.index("class ManagedReleaseSlot {") : releases.index(
-            "class ManagedTypeLowerer {"
-        )
-    ]
+    release_slot = releases[releases.index("class ManagedReleaseSlot {") : releases.index("class ManagedTypeLowerer {")]
 
     assert "class OwnershipOperandEnvironment {" in ordering
     assert "private Map<string, Node> variableTypes;" in ordering

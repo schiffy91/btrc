@@ -148,7 +148,13 @@ class CodeActionProvider:
 
     def _existing_imports(self, result: DocumentAnalysis) -> set[str]:
         """Import-spec strings already present in the active file."""
-        from src.compiler.python.syntax.ast.generated import ImportDecl, PackagePath, QuotedPath, RelativePath, StdModules
+        from src.compiler.python.syntax.ast.generated import (
+            ImportDecl,
+            PackagePath,
+            QuotedPath,
+            RelativePath,
+            StdModules,
+        )
 
         out: set[str] = set()
         for decl in self.resolver.active_decls(result):

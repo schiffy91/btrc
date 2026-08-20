@@ -25,10 +25,6 @@ class DeclarationRegistry {
         return declaration.parent;
     }
 
-    class string memberKey(string owner, string member) {
-        return owner + ":" + member;
-    }
-
     /* Register source declarations and freeze their member indexes. Generic
      * normalization and expression inference are deliberately separate passes. */
     public void registerProgram(Node program) {
@@ -104,7 +100,7 @@ class DeclarationRegistry {
             int index = 0;
             while (index < declaration.members.len) {
                 Node member = declaration.members.get(index);
-                string key = DeclarationRegistry.memberKey(
+                string key = Analyzed.memberKey(
                     className, member.name);
                 if (member.kind == NK_METHOD_DECL
                         && member.is_constructor) {
@@ -134,7 +130,7 @@ class DeclarationRegistry {
         int index = 0;
         while (index < declaration.members.len) {
             Node member = declaration.members.get(index);
-            string key = DeclarationRegistry.memberKey(className, member.name);
+            string key = Analyzed.memberKey(className, member.name);
             if (member.kind == NK_METHOD_DECL && member.is_constructor) {
                 if (!analyzed.genericConstructorIndex.has(className)) {
                     analyzed.genericConstructorIndex.put(className, member);

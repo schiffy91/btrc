@@ -53,6 +53,25 @@ If you need a production systems language with full safety guarantees, use [Rust
 
 Plus, btrc *definitely* has bugs.
 
+## Development Handoff
+
+The architecture/ownership refactor is preserved on the
+`codex/compiler-refactor-handoff` branch, but the correctness hill-climb is not
+finished and this branch is not release-ready. The destination package layout,
+frozen compiler-boundary harness, runtime catalogs, strict-import path, and most
+focused Python/self-host parity fixes are in place. The remaining work starts
+with an effectful variable-length-array bound that the Python compiler currently
+emits twice, followed by the remaining self-host discovery shards and the final
+serial verification matrix.
+
+Claude Code and other contributors should read [CLAUDE.md](CLAUDE.md) and the
+detailed [active handoff in GOAL.md](GOAL.md#active-handoff-2026-08-19) before
+changing code. In particular, do not treat the size of the checkpoint as
+accidental, do not discard its frozen boundary fixtures, and do not claim
+completion until `make test`, `make bootstrap`, `make test-c11`, lint, format,
+generated-source, extension, and repository-hygiene gates all pass on the final
+tree.
+
 ## Quick Start
 
 ```bash

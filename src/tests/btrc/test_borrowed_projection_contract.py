@@ -141,3 +141,25 @@ def test_borrowed_projection_rejects_nonphysical_or_foreign_sources(
         tmp_path,
         _ITEM + body,
     )
+
+
+def test_nested_lambda_block_validates_borrowed_capture_rebind(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = f"""
+        {_ITEM}
+
+        int main() {{
+            Item? value = null;
+            var outer = () => {{
+                var inner = () => {{ value = value.custom; }};
+            }};
+            return 0;
+        }}
+    """
+    _assert_rejected_by_both(
+        semantic_btrcc,
+        tmp_path,
+        source,
+    )

@@ -133,6 +133,13 @@ class CallableFlowState {
             self.environmentStorage);
     }
 
+    private CallableBoundaryContext refreshedBoundaryContext(
+            CallableBoundaryContext context) {
+        return self.boundaryContext(
+            context.variables(), context.parameterTypes(),
+            context.resolvesParameters());
+    }
+
 
 
     /* 0 = borrowed C callback, 1 = source-owned +1, 2 = ambiguous join. */
@@ -636,12 +643,6 @@ class CallableFlowState {
         exit(1);
     }
 
-    public bool same(
-            CallableFlowSnapshot left,
-            CallableFlowSnapshot right) {
-        return self.changedBindings(left, right).len == 0;
-    }
-
     private Vector<string> changedBindings(
             CallableFlowSnapshot expected,
             CallableFlowSnapshot actual) {
@@ -696,22 +697,26 @@ class CallableFlowState {
             Node? expression, CallableValueSemantics values,
             CallableBoundaryContext context) {
         if (expression == null) { return 0; }
+        CallableBoundaryContext currentContext =
+            self.refreshedBoundaryContext(context);
         if (expression.kind == NK_ASSIGN_EXPR) {
             self.evaluateAssignmentTarget(
-                expression.target, values, context);
+                expression.target, values, currentContext);
             int valueAbi = self.evaluateExpression(
-                expression.value_node, values, context);
+                expression.value_node, values, currentContext);
+            CallableBoundaryContext assignmentContext =
+                self.refreshedBoundaryContext(currentContext);
             if (expression.op == "="
                     && expression.target != null
                     && expression.target.kind == NK_IDENTIFIER
-                    && context.hasVariable(
+                    && assignmentContext.hasVariable(
                         expression.target.name)
                     && values.callableType(
-                        context.variableType(
+                        assignmentContext.variableType(
                             expression.target.name),
-                        context)
+                        assignmentContext)
                     && values.lexicalIdentifier(
-                        expression.target.name, context)) {
+                        expression.target.name, assignmentContext)) {
                 self.setBindingAbi(
                     expression.target.name, valueAbi);
                 if (self.planningDepth == 0) {
@@ -722,14 +727,14 @@ class CallableFlowState {
         }
         if (expression.kind == NK_TERNARY_EXPR) {
             self.evaluateExpression(
-                expression.condition, values, context);
+                expression.condition, values, currentContext);
             CallableFlowSnapshot branchEntry = self.snapshot();
             int trueAbi = self.evaluateExpression(
-                expression.true_expr, values, context);
+                expression.true_expr, values, currentContext);
             CallableFlowSnapshot trueFlow = self.snapshot();
             self.restore(branchEntry);
             int falseAbi = self.evaluateExpression(
-                expression.false_expr, values, context);
+                expression.false_expr, values, currentContext);
             CallableFlowSnapshot falseFlow = self.snapshot();
             Vector<CallableFlowSnapshot> branches = [];
             branches.push(trueFlow);
@@ -739,13 +744,13 @@ class CallableFlowState {
         }
         if (expression.kind == NK_BINARY_EXPR) {
             int leftAbi = self.evaluateExpression(
-                expression.left, values, context);
+                expression.left, values, currentContext);
             if (expression.op == "??"
                     || expression.op == "&&"
                     || expression.op == "||") {
                 CallableFlowSnapshot skipped = self.snapshot();
                 int rightAbi = self.evaluateExpression(
-                    expression.right, values, context);
+                    expression.right, values, currentContext);
                 CallableFlowSnapshot executed = self.snapshot();
                 Vector<CallableFlowSnapshot> outcomes = [];
                 outcomes.push(skipped);
@@ -757,40 +762,46 @@ class CallableFlowState {
                 return 0;
             }
             self.evaluateExpression(
-                expression.right, values, context);
+                expression.right, values, currentContext);
             return 0;
         }
         if (expression.kind == NK_CAST_EXPR) {
             return self.evaluateExpression(
-                expression.expr, values, context);
+                expression.expr, values, currentContext);
         }
         if (expression.kind == NK_UNARY_EXPR) {
             return self.evaluateExpression(
-                expression.operand, values, context);
+                expression.operand, values, currentContext);
         }
         if (expression.kind == NK_CALL_EXPR) {
             self.evaluateExpression(
-                expression.callee, values, context);
+                expression.callee, values, currentContext);
             int argument = 0;
             while (argument < expression.args.len) {
                 self.evaluateExpression(
                     expression.args.get(argument),
-                    values, context);
+                    values, currentContext);
                 argument = argument + 1;
             }
-            return values.expressionAbi(expression, context);
+            return values.expressionAbi(
+                expression,
+                self.refreshedBoundaryContext(currentContext));
         }
         if (expression.kind == NK_FIELD_ACCESS_EXPR) {
             self.evaluateExpression(
-                expression.obj, values, context);
-            return values.expressionAbi(expression, context);
+                expression.obj, values, currentContext);
+            return values.expressionAbi(
+                expression,
+                self.refreshedBoundaryContext(currentContext));
         }
         if (expression.kind == NK_INDEX_EXPR) {
             self.evaluateExpression(
-                expression.obj, values, context);
+                expression.obj, values, currentContext);
             self.evaluateExpression(
-                expression.index, values, context);
-            return values.expressionAbi(expression, context);
+                expression.index, values, currentContext);
+            return values.expressionAbi(
+                expression,
+                self.refreshedBoundaryContext(currentContext));
         }
         if (expression.kind == NK_LIST_LITERAL
                 || expression.kind == NK_BRACE_INITIALIZER
@@ -799,7 +810,7 @@ class CallableFlowState {
             while (element < expression.elements.len) {
                 self.evaluateExpression(
                     expression.elements.get(element),
-                    values, context);
+                    values, currentContext);
                 element = element + 1;
             }
             return 0;
@@ -809,9 +820,9 @@ class CallableFlowState {
             while (entryIndex < expression.entries.len) {
                 Node entry = expression.entries.get(entryIndex);
                 self.evaluateExpression(
-                    entry.key, values, context);
+                    entry.key, values, currentContext);
                 self.evaluateExpression(
-                    entry.value_node, values, context);
+                    entry.value_node, values, currentContext);
                 entryIndex = entryIndex + 1;
             }
             return 0;
@@ -822,7 +833,7 @@ class CallableFlowState {
                 Node part = expression.parts.get(partIndex);
                 if (part.kind == NK_F_STRING_EXPR) {
                     self.evaluateExpression(
-                        part.expression, values, context);
+                        part.expression, values, currentContext);
                 }
                 partIndex = partIndex + 1;
             }
@@ -833,17 +844,19 @@ class CallableFlowState {
             while (argument < expression.args.len) {
                 self.evaluateExpression(
                     expression.args.get(argument),
-                    values, context);
+                    values, currentContext);
                 argument = argument + 1;
             }
             return 0;
         }
         if (expression.kind == NK_SPAWN_EXPR) {
             self.evaluateExpression(
-                expression.fn, values, context);
+                expression.fn, values, currentContext);
             return 0;
         }
-        return values.expressionAbi(expression, context);
+        return values.expressionAbi(
+            expression,
+            self.refreshedBoundaryContext(currentContext));
     }
 
     /* Apply only provenance effects. The caller owns the surrounding
@@ -865,6 +878,148 @@ class CallableFlowState {
             expression, values, context);
         self.restore(incoming);
         return abi;
+    }
+
+    private bool unsafePersistentValue(
+            Node? expectedType, Node? value,
+            CallableValueSemantics values,
+            CallableBoundaryContext context) {
+        if (value == null) { return false; }
+        CallableBoundaryContext currentContext =
+            self.refreshedBoundaryContext(context);
+        if (expectedType == null) {
+            self.applyEvaluation(value, values, currentContext);
+            return false;
+        }
+        Node? canonicalType = values.canonicalType(
+            expectedType, currentContext);
+        if (canonicalType == null) {
+            self.applyEvaluation(value, values, currentContext);
+            return false;
+        }
+        Node canonical = canonicalType;
+        if (values.managedReturnCallable(canonical, currentContext)) {
+            return self.applyEvaluation(
+                value, values, currentContext) != 0;
+        }
+        bool unsafe = false;
+        if (value.kind == NK_LIST_LITERAL
+                || value.kind == NK_BRACE_INITIALIZER) {
+            Node? elementType = null;
+            if (canonical.is_array) {
+                elementType = values.arrayElement(canonical);
+            } else if ((canonical.base == "Array"
+                    || canonical.base == "List"
+                    || canonical.base == "Set"
+                    || canonical.base == "Vector")
+                    && canonical.generic_args.len == 1) {
+                elementType = canonical.generic_args.get(0);
+            }
+            if (elementType != null) {
+                int index = 0;
+                while (index < value.elements.len) {
+                    if (self.unsafePersistentValue(
+                            elementType, value.elements.get(index),
+                            values, currentContext)) {
+                        unsafe = true;
+                    }
+                    index = index + 1;
+                }
+                return unsafe;
+            }
+            if (canonical.base == "Tuple") {
+                int index = 0;
+                while (index < value.elements.len
+                        && index < canonical.generic_args.len) {
+                    if (self.unsafePersistentValue(
+                            canonical.generic_args.get(index),
+                            value.elements.get(index),
+                            values, currentContext)) {
+                        unsafe = true;
+                    }
+                    index = index + 1;
+                }
+                return unsafe;
+            }
+            Node? declaration = values.structDeclaration(canonical);
+            if (declaration != null) {
+                int index = 0;
+                while (index < value.elements.len
+                        && index < declaration.fields.len) {
+                    if (self.unsafePersistentValue(
+                            declaration.fields.get(index).type,
+                            value.elements.get(index),
+                            values, currentContext)) {
+                        unsafe = true;
+                    }
+                    index = index + 1;
+                }
+                return unsafe;
+            }
+        }
+        if (value.kind == NK_TUPLE_LITERAL
+                && canonical.base == "Tuple") {
+            int index = 0;
+            while (index < value.elements.len
+                    && index < canonical.generic_args.len) {
+                if (self.unsafePersistentValue(
+                        canonical.generic_args.get(index),
+                        value.elements.get(index),
+                        values, currentContext)) {
+                    unsafe = true;
+                }
+                index = index + 1;
+            }
+            return unsafe;
+        }
+        if (value.kind == NK_MAP_LITERAL && canonical.base == "Map"
+                && canonical.generic_args.len == 2) {
+            int index = 0;
+            while (index < value.entries.len) {
+                Node entry = value.entries.get(index);
+                if (self.unsafePersistentValue(
+                        canonical.generic_args.get(0), entry.key,
+                        values, currentContext)) {
+                    unsafe = true;
+                }
+                if (self.unsafePersistentValue(
+                        canonical.generic_args.get(1), entry.value_node,
+                        values, currentContext)) {
+                    unsafe = true;
+                }
+                index = index + 1;
+            }
+            return unsafe;
+        }
+        self.applyEvaluation(value, values, currentContext);
+        if (values.validatedReferenceOwner(canonical)) {
+            return false;
+        }
+        return values.typeContainsManaged(canonical, currentContext);
+    }
+
+    public bool persistentStorageUnsafe(
+            Node? expectedType, Node? value,
+            CallableValueSemantics values,
+            CallableBoundaryContext context) {
+        CallableFlowSnapshot incoming = self.snapshot();
+        bool unsafe = self.unsafePersistentValue(
+            expectedType, value, values, context);
+        self.restore(incoming);
+        return unsafe;
+    }
+
+    public bool assignmentStorageUnsafe(
+            Node assignment, Node? targetType,
+            CallableValueSemantics values,
+            CallableBoundaryContext context) {
+        CallableFlowSnapshot incoming = self.snapshot();
+        self.applyEvaluation(
+            assignment.target, values, context);
+        bool unsafe = self.unsafePersistentValue(
+            targetType, assignment.value_node, values, context);
+        self.restore(incoming);
+        return unsafe;
     }
 
 

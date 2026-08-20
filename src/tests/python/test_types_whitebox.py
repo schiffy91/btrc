@@ -1,11 +1,11 @@
 """Focused contracts for owned type rendering and type identity policy."""
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
-from src.compiler.python.ir.lowering.types import CTypeLowerer
+from src.compiler.python.analyzer.types import TypeIdentity
 from src.compiler.python.ir.lowering.session import LoweringSession
+from src.compiler.python.ir.lowering.types import CTypeLowerer
 from src.compiler.python.ir.nodes import IRModule
 from src.compiler.python.syntax.ast.generated import Program, TypeExpr
-from src.compiler.python.analyzer.types import TypeIdentity
 
 IDENTITY = TypeIdentity()
 

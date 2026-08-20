@@ -33,6 +33,7 @@ from .publication import (
 
 _CHUNK_SIZE = 1024 * 1024
 
+
 class SelfhostBundleCopier:
     """Copy one stable source while proving its content and identity."""
 
@@ -122,6 +123,7 @@ class SelfhostBundleCopier:
 
     def _identity(self, metadata: os.stat_result) -> tuple[int, int, int]:
         return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
+
 
 _MANIFEST_PATH = "share/btrc/manifest.json"
 _MAX_MANIFEST_BYTES = 16 * 1024 * 1024
@@ -468,6 +470,7 @@ class SelfhostBundleValidator:
     def _identity(self, metadata: os.stat_result) -> tuple[int, int, int]:
         return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
 
+
 @dataclass(frozen=True)
 class SelfhostBundlePublicationPolicy(StagedPublicationPolicy):
     """Validate one named self-host generation under its publication lock."""
@@ -527,6 +530,7 @@ class SelfhostBundlePublisher:
                 archive.name,
             ),
         )
+
 
 FORMAT_VERSION = 1
 MAX_ARCHIVE_EPOCH = 0xFFFFFFFF

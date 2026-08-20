@@ -7,7 +7,8 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.nodes import (
     IRCall,
@@ -38,9 +39,7 @@ def _analyze(source: str):
 
 def _spawn_calls(module):
     return [
-        node
-        for node in IRNode.walk_value(module)
-        if isinstance(node, IRCall) and node.callee == "__btrc_thread_spawn"
+        node for node in IRNode.walk_value(module) if isinstance(node, IRCall) and node.callee == "__btrc_thread_spawn"
     ]
 
 
@@ -108,7 +107,11 @@ def test_spawn_call_drives_helper_and_wrapper_reachability():
     ).optimize()
 
     assert _spawn_calls(module)
-    assert any(function.name.startswith("__btrc_spawn_wrapper_") for function in module.function_defs)
+    wrapper = next(function for function in module.function_defs if function.name.startswith("__btrc_spawn_wrapper_"))
+    declaration = next(declaration for declaration in module.function_decls if declaration.name == wrapper.name)
+    assert declaration.is_static
+    assert declaration.return_type.text == "void*"
+    assert [parameter.c_type.text for parameter in declaration.params] == ["void*"]
     helpers = {helper.name for helper in module.helper_decls}
     assert "__btrc_thread_spawn" in helpers
     assert "__btrc_launder_state" in helpers
@@ -122,8 +125,31 @@ def test_spawn_call_drives_helper_and_wrapper_reachability():
     assert "__btrc_launder" not in helpers
 
 
+def test_spawn_wrapper_default_helpers_reach_a_deferred_fixed_point():
+    module = _generate_ir("""
+        class Runner {
+            public int run(int value = 7) { return value; }
+        }
+        int main() {
+            Runner runner = new Runner();
+            var thread = spawn(() => runner.run());
+            return thread.join();
+        }
+    """)
+
+    definitions = {function.name for function in module.function_defs}
+    declarations = {
+        declaration.name
+        for declaration in module.function_decls
+        if declaration.name.startswith("__btrc_default_Runner_run_")
+    }
+    assert declarations
+    assert declarations <= definitions
+
+
 def test_managed_capture_disposer_retains_structured_raise_callback():
-    module = IROptimizer(
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(
         _generate_ir("""
         class Item {}
         int main() {
@@ -131,8 +157,9 @@ def test_managed_capture_disposer_retains_structured_raise_callback():
             var thread = spawn(() => captured == null ? 0 : 1);
             return thread.join() == 1 ? 0 : 1;
         }
-    """)
-    ).optimize()
+    """),
+        CompilerOptions(),
+    )
 
     disposer = next(
         function for function in module.function_defs if function.name.startswith("__btrc_spawn_env_dispose_")
@@ -145,7 +172,7 @@ def test_managed_capture_disposer_retains_structured_raise_callback():
     assert isinstance(raise_call.args[0], IRFunctionRef)
     assert raise_call.args[0].name == "__btrc_throw"
     assert "__btrc_throw" in {helper.name for helper in module.helper_decls}
-    assert "static _Noreturn void __btrc_throw(const char* msg)" in CEmitter().emit(module)
+    assert "static _Noreturn void __btrc_throw(const char* msg)" in pipeline.emit(module)
 
 
 @pytest.mark.parametrize(

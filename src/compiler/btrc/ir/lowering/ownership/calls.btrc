@@ -98,13 +98,24 @@ class OwnershipBoundary {
     public void addLoweredCallOperand(Node expression, Node resolvedType,
             IRNode lowered, bool owned, bool keepValue,
             bool transferred) {
+        IRNode value = self.stageValue(
+            resolvedType,
+            self.operandPlanner.operandCType(
+                expression, resolvedType),
+            lowered, owned, keepValue, transferred);
+        self.rememberOverride(expression, value);
+    }
+
+    public IRNode stageValue(Node resolvedType,
+            string storageCType, IRNode lowered,
+            bool owned, bool keepValue, bool transferred) {
         string runtimeType = "";
         if (self.managedValues.isManaged(resolvedType)) {
             runtimeType = self.managedValues.runtimeType(resolvedType);
         }
         string name = self.context.freshTemporary("__btrc_operand");
         IRNode declaration = IRNode.variableDeclaration(
-            self.operandPlanner.operandCType(expression, resolvedType), name, null);
+            storageCType, name, null);
         self.declarations.push(declaration);
         self.context.recordLocal(declaration);
         IRNode value = IRNode.variable(name);
@@ -147,7 +158,7 @@ class OwnershipBoundary {
             self.appendReleaseAndClear(
                 kept, resolvedType, runtimeType);
         }
-        self.rememberOverride(expression, callValue);
+        return callValue;
     }
 
     public void appendReleaseAndClear(IRNode value,
@@ -557,24 +568,25 @@ class CallOwnershipLowerer {
         result.parameters = result.target.signature.parameters;
         result.operands = self.planOperands(
             call, result.target, environment, callableFlow);
-        result.receiver = result.target.receiver;
-        if (result.receiver != null) {
+        Node? plannedReceiver = result.target.receiver;
+        result.receiver = plannedReceiver;
+        bool operandEffect = self.operandsHaveEffect(
+            result.operands, environment);
+        if (plannedReceiver != null) {
+            Node receiver = plannedReceiver;
             result.receiverType = self.semantics.expressionType(
-                result.receiver, environment);
+                receiver, environment);
             result.receiverOwned = self.semantics.isManaged(
                     result.receiverType, environment)
                 && self.semantics.unconsumedOwnedResult(
-                    result.receiver, environment, callableFlow);
+                    receiver, environment, callableFlow);
+            result.receiverPinned = self.semantics.isManaged(
+                    result.receiverType, environment)
+                && !result.receiverOwned
+                && receiver.kind != NK_SELF_EXPR
+                && receiver.kind != NK_SUPER_EXPR
+                && (operandEffect || result.declaration != null);
         }
-        bool operandEffect = self.operandsHaveEffect(
-            result.operands, environment);
-        result.receiverPinned = result.receiver != null
-            && self.semantics.isManaged(
-                result.receiverType, environment)
-            && !result.receiverOwned
-            && result.receiver.kind != NK_SELF_EXPR
-            && result.receiver.kind != NK_SUPER_EXPR
-            && (operandEffect || result.declaration != null);
         bool forceCandidate = result.target.resolved()
             || result.parameters.len > 0;
         result.forceOrder = forceCandidate

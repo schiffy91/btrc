@@ -177,6 +177,16 @@ class ExpressionTypeResolver {
         self.disableExpressionInferenceMemo();
     }
 
+    public bool beginScopedMemo() {
+        if (self.memoEnabled) { return false; }
+        self.beginExpressionInferenceMemo();
+        return true;
+    }
+
+    public void endScopedMemo(bool owned) {
+        if (owned) { self.disableExpressionInferenceMemo(); }
+    }
+
     public Node? genericArgumentType(
             Node argument, Map<string, Node> variables) {
         if (argument.kind == NK_IDENTIFIER
@@ -278,6 +288,120 @@ class ExpressionTypeResolver {
     /* On-demand type inference for an expression node, given a map of in-scope
      * variable name -> declared TypeExpr node. Returns a TypeExpr Node, or null if
      * the type is unknown (mirrors Python's node_types.get returning None). */
+    private Node? binaryTypeFromOperands(
+            Node expression, Node? leftType, Node? rightType,
+            Analyzed analyzed, OperatorSemantics operators) {
+        Node? overloaded = operators.overloadReturnType(
+            leftType, expression.op, false);
+        if (overloaded != null) { return overloaded; }
+        if (SemanticTypeSystem.isComparisonOperator(expression.op)) {
+            return SemanticTypeSystem.primitive("bool");
+        }
+        Node? pointerType = operators.pointerArithmeticType(
+            leftType, rightType, expression.op);
+        if (pointerType != null) { return pointerType; }
+        Node? numericType = NumericSemantics.resultType(
+            leftType, rightType, analyzed);
+        if (numericType != null) { return numericType; }
+        if (leftType != null) { return leftType; }
+        return rightType;
+    }
+
+    private void appendBinaryType(
+            Node? value, Vector<Node> values, Vector<bool> present) {
+        present.push(value != null);
+        if (value != null) { values.push(value); }
+    }
+
+    private Node? popBinaryType(
+            Vector<Node> values, Vector<bool> present) {
+        if (!present.pop()) { return null; }
+        return values.pop();
+    }
+
+    private bool appendMemoizedBinaryType(
+            Node expression, Vector<Node> values, Vector<bool> present) {
+        if (!self.memoEnabled) { return false; }
+        string key = AstIdentity.key(expression);
+        if (!self.memoKnown.has(key)) { return false; }
+        Node? value = null;
+        if (self.memoValues.has(key)) {
+            value = self.memoValues.get(key);
+        }
+        self.appendBinaryType(value, values, present);
+        return true;
+    }
+
+    private void rememberBinaryType(Node expression, Node? value) {
+        if (!self.memoEnabled) { return; }
+        string key = AstIdentity.key(expression);
+        self.memoKnown.put(key, true);
+        if (value != null) {
+            self.memoValues.put(key, value);
+        }
+    }
+
+    private void appendBinaryOperand(
+            Node? operand, Analyzed analyzed,
+            OperatorSemantics operators, Map<string, Node> varTypes,
+            Vector<Node> expressions, Vector<int> stages,
+            Vector<Node> values, Vector<bool> present) {
+        if (operand != null && operand.kind == NK_BINARY_EXPR) {
+            expressions.push(operand);
+            stages.push(0);
+            return;
+        }
+        self.appendBinaryType(
+            self.inferSpecializationType(
+                operand, analyzed, operators, varTypes),
+            values, present);
+    }
+
+    private Node? inferBinaryType(
+            Node root, Analyzed analyzed,
+            OperatorSemantics operators, Map<string, Node> varTypes) {
+        Vector<Node> expressions = [root];
+        Vector<int> stages = [0];
+        Vector<Node> values = [];
+        Vector<bool> present = [];
+        while (expressions.len > 0) {
+            Node expression = expressions.pop();
+            int stage = stages.pop();
+            if (stage == 0) {
+                if (self.appendMemoizedBinaryType(
+                        expression, values, present)) {
+                    continue;
+                }
+                expressions.push(expression);
+                stages.push(1);
+                self.appendBinaryOperand(
+                    expression.left, analyzed, operators, varTypes,
+                    expressions, stages, values, present);
+                continue;
+            }
+            if (stage == 1) {
+                expressions.push(expression);
+                stages.push(2);
+                self.appendBinaryOperand(
+                    expression.right, analyzed, operators, varTypes,
+                    expressions, stages, values, present);
+                continue;
+            }
+            Node? rightType = self.popBinaryType(values, present);
+            Node? leftType = self.popBinaryType(values, present);
+            Node? value = self.binaryTypeFromOperands(
+                expression, leftType, rightType, analyzed, operators);
+            if (expressions.len > 0) {
+                value = SemanticTypeSystem.resolveOuterTypedefType(
+                    value, analyzed.typedefTable);
+                self.rememberBinaryType(expression, value);
+            }
+            self.appendBinaryType(value, values, present);
+        }
+        if (present.len == 0) { return null; }
+        return self.popBinaryType(values, present);
+    }
+
     private Node? inferTypeRaw(Node? node, Analyzed a,
             OperatorSemantics operators, Map<string, Node> varTypes) {
         if (node == null) { return null; }
@@ -325,23 +449,7 @@ class ExpressionTypeResolver {
             return null;
         }
         if (node.kind == NK_BINARY_EXPR) {
-            Node? leftType = self.inferSpecializationType(
-                node.left, a, operators, varTypes);
-            Node? rightType = self.inferSpecializationType(
-                node.right, a, operators, varTypes);
-            Node? overloaded = operators.overloadReturnType(
-                leftType, node.op, false);
-            if (overloaded != null) { return overloaded; }
-            /* Comparison/logical ops yield bool. Arithmetic follows the shared,
-             * operand-order-independent numeric contract. */
-            if (SemanticTypeSystem.isComparisonOperator(node.op)) { return SemanticTypeSystem.primitive("bool"); }
-            Node? pointerType = operators.pointerArithmeticType(
-                leftType, rightType, node.op);
-            if (pointerType != null) { return pointerType; }
-            Node? numericType = NumericSemantics.resultType(leftType, rightType, a);
-            if (numericType != null) { return numericType; }
-            if (leftType != null) { return leftType; }
-            return rightType;
+            return self.inferBinaryType(node, a, operators, varTypes);
         }
         if (node.kind == NK_ASSIGN_EXPR) {
             return self.inferSpecializationType(

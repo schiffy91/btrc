@@ -1,0 +1,1 @@
+{"asset":"strings.c","btrc_order":37,"category":"string","dependencies":["__btrc_string_length","__btrc_string_alloc","__btrc_strdup"],"headers":[],"name":"__btrc_removeSuffix","provided_objects":[],"provided_types":[],"python_order":38,"source_sha256":"c9cc459a7786c7b23195366d5ea03e21f4a2cfc0430ac3c05df2b06bbc2b5596","source_size":535,"source_visible":false}

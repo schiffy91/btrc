@@ -16,15 +16,33 @@ class RuntimeHelperCatalog:
     ) -> None:
         self._rows = rows
         self._index: dict[str, GeneratedRuntimeHelperRow] = {}
+        type_providers: dict[str, str] = {}
+        object_providers: dict[str, str] = {}
         categories: dict[str, list[GeneratedRuntimeHelperRow]] = {}
         stable_order: list[str] = []
         for definition in rows:
             if definition.name in self._index:
                 raise ValueError(f"duplicate runtime helper registration: {definition.name}")
             self._index[definition.name] = definition
+            for provided_type in definition.provided_types:
+                previous = type_providers.get(provided_type)
+                if previous is not None:
+                    raise ValueError(
+                        f"runtime type {provided_type} is provided by both {previous} and {definition.name}"
+                    )
+                type_providers[provided_type] = definition.name
+            for provided_object in definition.provided_objects:
+                previous = object_providers.get(provided_object)
+                if previous is not None:
+                    raise ValueError(
+                        f"runtime object {provided_object} is provided by both {previous} and {definition.name}"
+                    )
+                object_providers[provided_object] = definition.name
             categories.setdefault(definition.category, []).append(definition)
             stable_order.append(definition.name)
         self._stable_order = tuple(stable_order)
+        self._type_providers = type_providers
+        self._object_providers = object_providers
         self._categories = {name: tuple(definitions) for name, definitions in categories.items()}
         self._source_visible_names = frozenset(definition.name for definition in rows if definition.source_visible)
 
@@ -65,6 +83,22 @@ class RuntimeHelperCatalog:
         """Whether source code may name this runtime helper directly."""
 
         return name in self._source_visible_names
+
+    def helper_names_providing_types(self, type_names: Set[str]) -> frozenset[str]:
+        """Return the catalog helpers that own any requested C type."""
+
+        return frozenset(
+            provider for type_name in type_names if (provider := self._type_providers.get(type_name)) is not None
+        )
+
+    def helper_names_providing_objects(self, object_names: Set[str]) -> frozenset[str]:
+        """Return the catalog helpers that own any requested C object."""
+
+        return frozenset(
+            provider
+            for object_name in object_names
+            if (provider := self._object_providers.get(object_name)) is not None
+        )
 
     def definitions_for(
         self,

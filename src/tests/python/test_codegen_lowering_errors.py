@@ -3,8 +3,8 @@
 import pytest
 
 from src.compiler.python.backend.c_emitter import CEmitter
-from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.lowering.expressions import ExpressionLowerer
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import IRExpr, IRStmt
 
 

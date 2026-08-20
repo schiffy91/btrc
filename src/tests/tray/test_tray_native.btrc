@@ -56,13 +56,11 @@ int main() {
         /* Requesting quit makes the next pump report not-alive. */
         tray.quit();
         assert(!tray.pump(0));
-        print("native tray: realized and pumped");
     } else {
         /* Headless host: degrade cleanly, no crash. */
         assert(!tray.available());
         assert(!tray.realized);
         assert(!tray.pump(0));
-        print("native tray: headless (no GUI session)");
     }
 
     print("PASS: test_tray_native");

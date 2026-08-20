@@ -212,6 +212,7 @@ class ArtifactStorage:
     def _identity(self, metadata: os.stat_result) -> tuple[int, int, int]:
         return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)
 
+
 _NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
@@ -311,6 +312,7 @@ class PublicationLock:
         if self._process_lock_held:
             self._process_lock.release()
             self._process_lock_held = False
+
 
 _JOURNAL_SCHEMA, _MAX_JOURNAL_BYTES = 1, 64 * 1024
 

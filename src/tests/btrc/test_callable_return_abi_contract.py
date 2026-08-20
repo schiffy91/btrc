@@ -117,7 +117,8 @@ def test_literal_false_while_does_not_join_unreachable_callback_mutation(
         source,
     ):
         assert result.returncode == 0, result.stdout + result.stderr
-        assert "__btrc_string_retain(value)" in generated.read_text()
+        emitted = generated.read_text()
+        assert emitted.count("__btrc_string_retain(") == 2
 
 
 @pytest.mark.parametrize("generic", (False, True), ids=("ordinary", "generic"))

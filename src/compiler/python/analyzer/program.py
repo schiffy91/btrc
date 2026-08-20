@@ -6,6 +6,7 @@ from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field, fields, is_dataclass
 from types import MappingProxyType
+from typing import Literal
 
 from src.compiler.python.syntax.ast.generated import (
     FieldDecl,
@@ -93,6 +94,63 @@ class ClassInfo:
     interfaces: list[str] = field(default_factory=list)
     is_abstract: bool = False
     is_cyclable: bool = False
+
+
+ClassCallableKind = Literal["method", "get", "set"]
+
+
+@dataclass(frozen=True, slots=True)
+class ClassCallableIdentity:
+    """Stable semantic identity for one class method or property accessor."""
+
+    owner: str
+    kind: ClassCallableKind
+    name: str
+
+    def __post_init__(self) -> None:
+        if not self.owner or not self.name:
+            raise ValueError("class callable identities require an owner and name")
+        if self.kind not in {"method", "get", "set"}:
+            raise ValueError(f"unknown class callable kind: {self.kind}")
+
+    @classmethod
+    def method(cls, owner: str, name: str) -> ClassCallableIdentity:
+        return cls(owner, "method", name)
+
+    @classmethod
+    def getter(cls, owner: str, name: str) -> ClassCallableIdentity:
+        return cls(owner, "get", name)
+
+    @classmethod
+    def setter(cls, owner: str, name: str) -> ClassCallableIdentity:
+        return cls(owner, "set", name)
+
+
+@dataclass(frozen=True, slots=True)
+class GenericClassCallableDependency:
+    """One deferred generic receiver call made by a template callable body."""
+
+    receiver: TypeExpr
+    callable: ClassCallableIdentity
+
+
+@dataclass(frozen=True, slots=True)
+class GenericMethodInstanceDependency:
+    """One deferred generic-method instance demanded by a template body."""
+
+    owner: str
+    method_name: str
+    class_arguments: tuple[TypeExpr, ...]
+    method_arguments: tuple[TypeExpr, ...]
+    line: int = 0
+    col: int = 0
+
+    def __post_init__(self) -> None:
+        if not self.owner or not self.method_name:
+            raise ValueError("generic-method dependencies require an owner and method name")
+
+
+GenericTemplateDependency = GenericClassCallableDependency | GenericMethodInstanceDependency
 
 
 @dataclass
@@ -218,10 +276,21 @@ class AnalyzedProgram:
     program: Program
     generic_instances: dict[str, list[tuple[TypeExpr, ...]]]
     class_table: dict[str, ClassInfo]
+    generic_class_callable_instances: dict[ClassCallableIdentity, list[tuple[TypeExpr, ...]]] = field(
+        default_factory=dict
+    )
+    generic_class_callable_dependencies: dict[ClassCallableIdentity, list[GenericTemplateDependency]] = field(
+        default_factory=dict
+    )
+    generic_class_lifecycle_dependencies: dict[str, list[GenericTemplateDependency]] = field(default_factory=dict)
+    generic_method_callable_dependencies: dict[tuple[str, str], list[GenericTemplateDependency]] = field(
+        default_factory=dict
+    )
     generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = field(default_factory=dict)
     generic_method_call_args: dict[int, tuple] = field(default_factory=dict)
     function_table: dict[str, FunctionDecl] = field(default_factory=dict)
     global_var_types: dict[str, TypeExpr] = field(default_factory=dict)
+    defined_global_names: frozenset[str] = frozenset()
     hosted_call_ids: set[int] = field(default_factory=set)
     typedef_table: dict[str, TypeExpr] = field(default_factory=dict)
     struct_table: dict[str, StructDecl] = field(default_factory=dict)
@@ -256,6 +325,10 @@ class AnalysisSession(AnalysisContext):
     def __init__(self) -> None:
         super().__init__()
         self.generic_instances: dict[str, list[tuple[TypeExpr, ...]]] = {}
+        self.generic_class_callable_instances: dict[ClassCallableIdentity, list[tuple[TypeExpr, ...]]] = {}
+        self.generic_class_callable_dependencies: dict[ClassCallableIdentity, list[GenericTemplateDependency]] = {}
+        self.generic_class_lifecycle_dependencies: dict[str, list[GenericTemplateDependency]] = {}
+        self.generic_method_callable_dependencies: dict[tuple[str, str], list[GenericTemplateDependency]] = {}
         self.generic_method_instances: dict[tuple[str, str], list[tuple[tuple, tuple]]] = {}
         self.generic_method_call_args: dict[int, tuple] = {}
         self.generic_resolved_type_facts: list[tuple[TypeExpr, int, int]] = []
@@ -264,6 +337,7 @@ class AnalysisSession(AnalysisContext):
         self.global_scope: Scope = self.scope
         self.current_class: ClassInfo | None = None
         self.current_method: MethodDecl | None = None
+        self.current_class_callable: ClassCallableIdentity | None = None
         self.current_callable = None
         self._analyzing_parameter_default = False
         self._analyzing_constructor_default = False
@@ -514,9 +588,14 @@ __all__ = [
     "AnalysisSession",
     "AnalyzedProgram",
     "AnalyzerError",
+    "ClassCallableIdentity",
+    "ClassCallableKind",
     "ClassInfo",
     "DeclarationIndex",
     "Diag",
+    "GenericClassCallableDependency",
+    "GenericMethodInstanceDependency",
+    "GenericTemplateDependency",
     "InterfaceInfo",
     "LambdaBodyFacts",
     "Occurrence",

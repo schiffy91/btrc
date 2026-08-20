@@ -4,14 +4,19 @@ empty/None result), which exercises the early-return guards in each module."""
 
 from lsprotocol import types as lsp
 
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_references, get_rename_edits, prepare_rename
-from src.tests.lsp.lsphelp import get_semantic_tokens
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import get_document_symbols
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import (
+    analyze,
+    get_completions,
+    get_definition,
+    get_document_symbols,
+    get_hover_info,
+    get_references,
+    get_rename_edits,
+    get_semantic_tokens,
+    get_signature_help,
+    pos_of,
+    prepare_rename,
+)
 
 ORIGIN = lsp.Position(line=0, character=0)
 

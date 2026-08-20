@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalyzedProgram
 
     from .calls import CallableFlowSnapshot, CallableLoopFlow, CallableProvenance
+    from .expressions import PreparedProjectionStorage, StabilizedProjectionStorage
     from .ownership import (
         CleanupScopeState,
         ManagedLifetimeLowerer,
@@ -127,21 +128,30 @@ class IterationLowerer:
         array_type: TypeExpr,
         lowered_iterable: IRExpr,
         provenance: CallableProvenance,
+        projection_storage: PreparedProjectionStorage | None = None,
     ) -> IterationPlan:
         """Plan a fixed-array loop without traversing its source body."""
         prefix: list[IRStmt] = []
         owners: list[ManagedLocal] = []
+        if projection_storage is not None:
+            prefix.extend(projection_storage.declarations)
+            prefix.extend(IRExprStmt(expr=assignment) for assignment in projection_storage.assignments)
+            lowered_iterable = projection_storage.value
+            for storage in projection_storage.storage:
+                owner = self.begin_projection_storage_owner(storage, prefix, provenance)
+                if owner is not None:
+                    owners.append(owner)
         iterable = self._session.fresh_temp("__iter")
         length = self._session.fresh_temp("__n")
         index = self._session.fresh_temp("__i")
         prefix.extend(
             [
-                IRVarDecl(c_type=CType(text=self._types.render(array_type)), name=iterable, init=lowered_iterable),
                 IRVarDecl(
                     c_type=CType(text="size_t"),
                     name=length,
                     init=self.fixed_array_iteration_length(node.iterable, lowered_iterable),
                 ),
+                IRVarDecl(c_type=CType(text=self._types.render(array_type)), name=iterable, init=lowered_iterable),
             ]
         )
         owner = self.begin_owned_iterable(node.iterable, array_type, iterable, prefix, provenance)
@@ -181,6 +191,10 @@ class IterationLowerer:
                 return logical
         return self.fixed_array_capacity(array)
 
+    def is_fixed_array_iterable(self, expression) -> bool:
+        """Whether analyzer facts require a physical fixed-array extent."""
+        return id(expression) in self._analyzed.array_iteration_capacity_ids
+
     def emit_iteration_bindings(self, bindings, provenance: CallableProvenance) -> list[IRStmt]:
         """Declare bindings inside the body scope and register owned results."""
         result: list[IRStmt] = []
@@ -198,6 +212,7 @@ class IterationLowerer:
                 self._ownership.register_managed_var(
                     binding.name,
                     runtime_type,
+                    type_expr,
                     provenance,
                     cycle_seed=not self._values.is_string(type_expr),
                 )
@@ -341,7 +356,7 @@ class IterationLowerer:
         """Whether the loop receives a fresh managed iterable reference."""
         if not self._values.is_managed(type_expr):
             return False
-        return self._ownership.owns_result(expression, provenance=provenance)
+        return self._ownership.lowered_result_is_owned(expression, provenance=provenance)
 
     def begin_owned_iterable(
         self,
@@ -360,12 +375,58 @@ class IterationLowerer:
         """
         if not self._values.is_managed(type_expr):
             return None
-        if not self.iterable_result_is_owned(expression, type_expr, provenance):
+        return self._begin_managed_iteration_owner(
+            name,
+            type_expr,
+            prefix,
+            provenance,
+            retain=not self.iterable_result_is_owned(expression, type_expr, provenance),
+        )
+
+    def begin_projection_storage_owner(
+        self,
+        storage: StabilizedProjectionStorage,
+        prefix: list[IRStmt],
+        provenance: CallableProvenance,
+    ) -> ManagedLocal | None:
+        """Adopt or keep one stabilized backing root for the complete loop."""
+        if not self._values.is_managed(storage.type_expr):
+            return None
+        if not (storage.operand.owned or storage.operand.keep):
+            raise CodegenError("managed projection storage has no ownership contract")
+        return self._begin_managed_iteration_owner(
+            storage.value.name,
+            storage.type_expr,
+            prefix,
+            provenance,
+            retain=storage.operand.keep,
+        )
+
+    def _begin_managed_iteration_owner(
+        self,
+        name: str,
+        type_expr: TypeExpr,
+        prefix: list[IRStmt],
+        provenance: CallableProvenance,
+        *,
+        retain: bool,
+    ) -> ManagedLocal:
+        """Register one stabilized managed value across loop control exits."""
+        if retain:
             prefix.append(IRExprStmt(expr=self._lifetime.retain_value(IRVar(name=name), type_expr)))
         owner = ManagedLocal(
-            name=name, type_name=self._values.runtime_name(type_expr), cycle_seed=not self._values.is_string(type_expr)
+            name=name,
+            type_name=self._values.runtime_name(type_expr),
+            cycle_seed=not self._values.is_string(type_expr),
+            value_type=type_expr,
         )
-        self._ownership.register_managed_var(owner.name, owner.type_name, provenance, cycle_seed=owner.cycle_seed)
+        self._ownership.register_managed_var(
+            owner.name,
+            owner.type_name,
+            type_expr,
+            provenance,
+            cycle_seed=owner.cycle_seed,
+        )
         self._lifetime.register_named_cleanup(owner.name, owner.type_name, prefix)
         return owner
 
@@ -390,7 +451,7 @@ class IterationLowerer:
         temp = self._session.fresh_temp("__iter")
         iter_var = IRVar(name=temp)
         prefix = [IRVarDecl(c_type=CType(text="char*"), name=temp, init=iterable)]
-        iterable_type = self._analyzed.node_types.get(id(node.iterable))
+        iterable_type = self._session.type_of(node.iterable)
         owner = self.begin_owned_iterable(node.iterable, iterable_type, temp, prefix, provenance)
         return IterationPlan(
             source_body=node.body,
@@ -431,6 +492,8 @@ class IterationLowerer:
         lowered_iterable: IRExpr | None,
         lowered_range_arguments: list[IRExpr],
         provenance: CallableProvenance,
+        *,
+        projection_storage: PreparedProjectionStorage | None = None,
     ):
         """Build one loop shell while retaining only its bounded lexical scope."""
         iterable = node.iterable
@@ -447,11 +510,17 @@ class IterationLowerer:
             return
         if lowered_iterable is None:
             raise CodegenError("for-in iterable was not materialized")
-        iter_type = self._analyzed.node_types.get(id(iterable))
-        if id(iterable) in self._analyzed.array_iteration_capacity_ids:
+        iter_type = self._session.type_of(iterable)
+        if self.is_fixed_array_iterable(iterable):
             if iter_type is None:
                 raise CodegenError("fixed-array iteration has no concrete type")
-            yield self.plan_fixed_array_for_in(node, iter_type, lowered_iterable, provenance)
+            yield self.plan_fixed_array_for_in(
+                node,
+                iter_type,
+                lowered_iterable,
+                provenance,
+                projection_storage,
+            )
             return
         if iter_type:
             cls_info = self._analyzed.class_table.get(iter_type.base)

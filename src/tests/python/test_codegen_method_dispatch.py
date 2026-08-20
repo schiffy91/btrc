@@ -28,6 +28,28 @@ def test_tostring_on_class_without_method_is_rejected():
     assert any("toString" in e for e in res.errors)
 
 
+def test_local_string_declaration_uses_target_directed_class_conversion():
+    c = emit_c(
+        """
+        class Command {
+            public string text;
+            public Command(string text) { self.text = text; }
+            public string toString() { return self.text; }
+        }
+        int main() {
+            string direct = Command("direct");
+            Command command = Command("held");
+            string borrowed = command;
+            return direct.equals("direct") && borrowed.equals("held") ? 0 : 1;
+        }
+        """
+    )
+
+    assert c.count("Command_toString(") >= 2
+    assert "char* volatile direct = Command_new" not in c
+    assert "char* volatile borrowed = command" not in c
+
+
 def test_builtin_tostring_on_primitives():
     c = emit_c(
         "int main() { int i = 42; double d = 3.5; bool b = true;\n"

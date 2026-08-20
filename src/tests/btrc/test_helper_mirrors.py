@@ -78,6 +78,27 @@ def _emit(btrcc_driver: Path, tmp_path: Path, source: str) -> str:
     return emitted.stdout
 
 
+def _reference_emit(tmp_path: Path, source: str) -> str:
+    program = tmp_path / "reference.btrc"
+    output = tmp_path / "reference.c"
+    program.write_text(source)
+    emitted = _run(
+        [
+            "python3",
+            "-m",
+            "src.compiler.python.main",
+            "--no-stdlib",
+            "--no-cache",
+            str(program),
+            "-o",
+            str(output),
+        ],
+        timeout=120,
+    )
+    assert emitted.returncode == 0 and emitted.stderr == "" and output.exists()
+    return output.read_text()
+
+
 def _compile(tmp_path: Path, source_text: str) -> Path:
     source = tmp_path / "helper_mirror.c"
     binary = tmp_path / "helper_mirror"
@@ -181,6 +202,34 @@ def test_nested_function_pointer_typedefs_are_dependency_ordered(
         "    return 0;\n"
         "}\n",
     )
+
+    binary = _compile(tmp_path, generated)
+    executed = _run([str(binary)], timeout=15)
+    assert executed.returncode == 0
+
+
+def test_selfhost_binary_inference_small_shapes_match_reference(
+    btrcc_driver: Path,
+    tmp_path: Path,
+) -> None:
+    source = (
+        "int main() {\n"
+        "    var integer = 1 + 2 + 3;\n"
+        "    var floating = 1 + 2.0 + 3;\n"
+        "    var rightNested = 1 + (2.0 + 3);\n"
+        "    var comparison = 1 + 2 < 4;\n"
+        "    return integer == 6 && floating == 6.0\n"
+        "        && rightNested == 6.0 && comparison ? 0 : 1;\n"
+        "}\n"
+    )
+    generated = _emit(btrcc_driver, tmp_path, source)
+    reference = _reference_emit(tmp_path, source)
+
+    assert generated == reference
+    assert "int integer = ((1 + 2) + 3);" in generated
+    assert "double floating = ((1 + 2.0) + 3);" in generated
+    assert "double rightNested = (1 + (2.0 + 3));" in generated
+    assert "bool comparison = ((1 + 2) < 4);" in generated
 
     binary = _compile(tmp_path, generated)
     executed = _run([str(binary)], timeout=15)

@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from types import MappingProxyType
-from typing import Mapping, Sequence
 
 from src.compiler.python.syntax.ast.generated import CallExpr, CastExpr, Identifier, NullLiteral, TypeExpr
+
 from .declarations import (
     CONSUME,
     MUTATE,
@@ -32,8 +33,8 @@ from .generated import (
     HOSTED_PLATFORM_TYPEDEF_NAMES,
     HOSTED_RUNTIME_ADOPTING_HELPERS,
     HOSTED_STDLIB_SOURCE_MARKER,
-    HOSTED_TYPEDEF_NAMES,
     HOSTED_TYPE_NAMES,
+    HOSTED_TYPEDEF_NAMES,
     HOSTED_USER_SOURCE_MARKER,
 )
 
@@ -42,9 +43,7 @@ class HostedAbiRepository:
     """Own exact declarations, hosted namespaces, and all ABI queries."""
 
     def __init__(self) -> None:
-        functions = {
-            row.name: HostedFunction.from_generated(row) for row in HOSTED_FUNCTION_ROWS
-        }
+        functions = {row.name: HostedFunction.from_generated(row) for row in HOSTED_FUNCTION_ROWS}
         if len(functions) != len(HOSTED_FUNCTION_ROWS):
             raise ValueError("generated hosted ABI contains duplicate exact functions")
         self._functions = MappingProxyType(functions)
@@ -181,9 +180,7 @@ class HostedAbiRepository:
         if spec is None or spec.parameters is None or not 0 <= index < len(spec.parameters):
             return False
         effect = self.parameter_effect(name, index)
-        return effect == READ or (
-            effect == VALUE and spec.parameters[index].pointer_depth == 0
-        )
+        return effect == READ or (effect == VALUE and spec.parameters[index].pointer_depth == 0)
 
     def return_alias_parameter(self, name: str) -> int | None:
         spec = self.function(name)
@@ -199,9 +196,7 @@ class HostedAbiRepository:
             return spec.return_alias_null_effect
         return spec.return_effect
 
-    def return_deallocator(
-        self, name: str, *, alias_argument_is_null: bool = False
-    ) -> str | None:
+    def return_deallocator(self, name: str, *, alias_argument_is_null: bool = False) -> str | None:
         spec = self.function(name)
         if spec is None:
             return None
@@ -218,15 +213,9 @@ class HostedAbiRepository:
         return spec.consume_deallocator if spec is not None else None
 
     def source_helper_adopts_raw_string(self, name: str, index: int) -> bool:
-        return (
-            name in self._runtime_adopting
-            and index == 0
-            and self.parameter_effect(name, index) == CONSUME
-        )
+        return name in self._runtime_adopting and index == 0 and self.parameter_effect(name, index) == CONSUME
 
-    def alias_argument_is_provably_null(
-        self, name: str, arguments: Sequence[object]
-    ) -> bool:
+    def alias_argument_is_provably_null(self, name: str, arguments: Sequence[object]) -> bool:
         spec = self.function(name)
         if spec is None or spec.return_alias_parameter is None:
             return False
@@ -236,16 +225,12 @@ class HostedAbiRepository:
         expression = arguments[index]
         while isinstance(expression, CastExpr):
             expression = expression.expr
-        return isinstance(expression, NullLiteral) or (
-            isinstance(expression, Identifier) and expression.name == "NULL"
-        )
+        return isinstance(expression, NullLiteral) or (isinstance(expression, Identifier) and expression.name == "NULL")
 
     def source_function_symbol(self, name: str) -> str:
         return f"__btrc_source_{name}" if self.owned_name(name) else name
 
-    def resolved_alias_argument(
-        self, expression: object, hosted_call_ids: set[int]
-    ) -> object | None:
+    def resolved_alias_argument(self, expression: object, hosted_call_ids: set[int]) -> object | None:
         """Return the aliased operand only for an analyzer-resolved hosted call."""
 
         if (

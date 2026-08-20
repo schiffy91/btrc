@@ -6,20 +6,21 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
     IRCall,
     IRExprStmt,
     IRFunctionDef,
+    IRHelperDecl,
     IRIf,
     IRInclude,
     IRLiteral,
     IRModule,
     IRReturn,
 )
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -27,7 +28,9 @@ COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(nam
 
 def _edge_only_module() -> IRModule:
     helper = "__btrc_arc_release_edge"
-    declarations = RuntimeHelperCatalog().definitions_for({helper})
+    declarations = [
+        IRHelperDecl.from_runtime(definition) for definition in RuntimeHelperCatalog().definitions_for({helper})
+    ]
     headers = sorted({header for declaration in declarations for header in declaration.required_headers})
     return IRModule(
         preprocessor_decls=[IRInclude(header) for header in headers],
@@ -70,8 +73,10 @@ def test_optimizer_added_flush_helper_is_dependency_safe_strict_c(
     tmp_path: Path,
     c_compiler: str,
 ) -> None:
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(_edge_only_module(), CompilerOptions())
     generated = tmp_path / "cycle-boundary.c"
-    generated.write_text(CEmitter().emit(IROptimizer(_edge_only_module()).optimize()))
+    generated.write_text(pipeline.emit(module))
     executable = tmp_path / f"cycle-boundary-{Path(c_compiler).name}"
 
     build = subprocess.run(

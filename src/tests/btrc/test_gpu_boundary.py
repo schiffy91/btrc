@@ -42,6 +42,22 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
     )
 
 
+GPU_RUN = r"\b[A-Za-z_][A-Za-z0-9_]*_run"
+
+
+def _gpu_dispatch_index(
+    generated: str,
+    start: int = 0,
+    arguments: str | None = None,
+) -> int:
+    pattern = rf"{GPU_RUN}\("
+    if arguments is not None:
+        pattern += rf"{arguments}\)"
+    matches = list(re.finditer(pattern, generated[start:]))
+    assert len(matches) == 1
+    return start + matches[0].start()
+
+
 @pytest.fixture(scope="module")
 def btrcc_driver(tmp_path_factory) -> Path:
     """Build the real production self-host driver from the current sources."""
@@ -185,6 +201,95 @@ def _lower_source(btrcc_driver: Path, tmp_path: Path, source: str) -> str:
     return result.stdout
 
 
+def test_selfhost_gpu_input_projection_root_is_a_typed_slot_transaction() -> None:
+    pipeline = (REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc").read_text()
+    expressions = (REPO / "src/compiler/btrc/ir/lowering/expressions.btrc").read_text()
+
+    projection_record = pipeline[
+        pipeline.index("class GpuArgumentProjectionRoot {") : pipeline.index("class GpuArgumentLedger {")
+    ]
+    assert "public RawProjectionStorageRoot storage;" in projection_record
+    assert "public Node type;" in projection_record
+    assert "public bool owned;" in projection_record
+    assert all(f"public Vector<IRNode> {name};" in projection_record for name in ("declarations", "prefix", "cleanup"))
+
+    ledger_record = pipeline[
+        pipeline.index("class GpuArgumentLedger {") : pipeline.index("class GpuProjectionReceiver {")
+    ]
+    assert "Map<string, GpuArgumentProjectionRoot> sourceProjectionRoots" in ledger_record
+
+    lowering = expressions[
+        expressions.index("public GpuArgumentLedger lowerGpuArguments(") : expressions.index(
+            "public GpuProjectionReceiver lowerGpuProjectionReceiver("
+        )
+    ]
+    assert "projectionStorageRoot(" in lowering
+    assert "if (storage != null)" in lowering
+    assert "if (storage != null && storage.managed)" not in lowering
+    assert "self.callOwnership.boundary()" in lowering
+    assert "boundary.addLoweredOperand(" in lowering
+    assert "projection.storage.managed" in lowering
+    assert "projection.cleanup = boundary.suffix;" in lowering
+
+    materialization = pipeline[
+        pipeline.index("public GpuCallInputs loweredCallInputs(") : pipeline.index(
+            "public GpuStatementResult materializeStatement("
+        )
+    ]
+    assert "ledger.binding.evaluations" in materialization
+    assert "projection.prefix" in materialization
+    assert "inputs.cleanup.push(" in materialization
+
+
+def test_selfhost_gpu_property_output_is_a_typed_managed_transaction() -> None:
+    storage = (REPO / "src/compiler/btrc/analyzer/validation/storage.btrc").read_text()
+    pipeline = (REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc").read_text()
+    expressions = (REPO / "src/compiler/btrc/ir/lowering/expressions.btrc").read_text()
+    statements = (REPO / "src/compiler/btrc/ir/lowering/statements.btrc").read_text()
+
+    admission = storage[
+        storage.index("public bool gpuOutputCollectionTarget(") : storage.index("public Node? gpuBufferElementType(")
+    ]
+    assert "member.kind == NK_PROPERTY_DECL" in admission
+    assert 'member.access != "class"' in admission
+    assert "member.has_getter" in admission
+
+    target_record = pipeline[
+        pipeline.index("class GpuCollectionOutputTarget {") : pipeline.index("class GpuStatementPlan {")
+    ]
+    assert "public IRNode value;" in target_record
+    assert "public Node type;" in target_record
+    assert "public bool owned;" in target_record
+    assert "public bool outputProperty;" in pipeline
+    assert "self.semantics.outputCollectionType(" in pipeline
+
+    lowering = expressions[
+        expressions.index("public GpuCollectionOutputTarget lowerGpuCollectionOutputTarget(") : expressions.index(
+            "/* Lower an f-string"
+        )
+    ]
+    assert "unconsumedOwnedResult(" in lowering
+    assert "self.lowerExpr(expression" in lowering
+    assert "lowerGpuCollectionOutputTarget(" in statements
+    assert "if (!collection.owned)" in pipeline
+    assert 'IRNode.binary(stable, "=", IRNode.literal("NULL"))' in pipeline
+
+
+def test_selfhost_gpu_physical_collection_output_requires_managed_storage() -> None:
+    storage = (REPO / "src/compiler/btrc/analyzer/validation/storage.btrc").read_text()
+    pipeline = (REPO / "src/compiler/btrc/ir/gpu/pipeline.btrc").read_text()
+
+    admission = storage[
+        storage.index("public bool gpuOutputCollectionTarget(") : storage.index("public Node? gpuBufferElementType(")
+    ]
+    assert "self.types.managedOwnershipType(receiverType)" in admission
+    assert "member.kind == NK_FIELD_DECL" in admission
+    assert 'member.access != "class"' in admission
+    assert "public bool outputPhysicalCollection;" in pipeline
+    assert "physicalCollection = managedProjection" in pipeline
+    assert "plan.outputPhysicalCollection = physicalCollection;" in pipeline
+
+
 def test_reachable_void_kernel_lowers_and_uses_checked_cpu_fallback(
     btrcc_driver: Path,
     tmp_path: Path,
@@ -206,6 +311,17 @@ def test_array_kernel_lowers_with_capacity_guard_and_cpu_fallback(
 ) -> None:
     generated = _lower_fixture(btrcc_driver, "array")
     assert "__gpu_output_capacity < __gpu_n" in generated
+    declaration = re.search(
+        r"int (__gpu_output_len_\d+) = .*?;\n"
+        r"\s*int output\[\(\(\1 > 0\) \? \1 : 1\)\];",
+        generated,
+    )
+    assert declaration is not None
+    _gpu_dispatch_index(
+        generated,
+        arguments=(rf"__gpu_arg_\d+, __gpu_len_\d+, output, {declaration.group(1)}"),
+    )
+    assert "int output[] = doubleValues(values)" not in generated
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
@@ -224,6 +340,15 @@ def test_array_kernel_may_write_a_fixed_output_buffer(
         "int output[2]; output = doubled(values); "
         "return output[0] == 2 && output[1] == 4 ? 0 : 1; }",
     )
+    assert generated.count("int output[2];") == 1
+    _gpu_dispatch_index(
+        generated,
+        arguments=(
+            r"__gpu_arg_\d+, __gpu_len_\d+, output, "
+            r"\(sizeof\(output\) / sizeof\(output\[0\]\)\)"
+        ),
+    )
+    assert "output = doubled(values)" not in generated
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
@@ -330,6 +455,7 @@ def test_array_kernel_may_write_a_fixed_struct_field(
         rf"_run\([^;]*{data.group(1)}, {length.group(1)}\)",
         generated,
     )
+    assert "output.values = doubled(input)" not in generated
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
@@ -352,7 +478,7 @@ def test_array_kernel_may_write_a_heap_collection_through_one_stable_target(
         "return outputData[0] == 2 && outputData[1] == 4 ? 0 : 1; }",
     )
     match = re.search(
-        r"btrc_Vector_int\* (\w+);.*?\(\1 = output\)",
+        r"btrc_Vector_int\* (\w+)(?: = NULL)?;.*?\(\1 = output\)",
         generated,
         re.DOTALL,
     )
@@ -361,10 +487,38 @@ def test_array_kernel_may_write_a_heap_collection_through_one_stable_target(
     assert generated.count(f"{stable} = output") == 1
     assert f"{stable}->data" in generated
     assert f"{stable}->len" in generated
+    assert re.search(rf"__btrc_arc_retain\({stable}\)", generated)
+    released = re.search(rf"\((__gpu_output_target_released_\d+) = {stable}\)", generated)
+    assert released is not None
+    target_at = generated.index(f"{stable} = output")
+    data_at = generated.index(f"{stable}->data", target_at)
+    length_at = generated.index(f"{stable}->len", data_at)
+    dispatch_at = _gpu_dispatch_index(generated, length_at)
+    save_at = released.start()
+    clear_at = generated.index(f"{stable} = NULL", save_at)
+    release_at = generated.index("__btrc_arc_release", clear_at)
+    assert released.group(1) in generated[release_at:]
+    assert target_at < data_at < length_at < dispatch_at < save_at < clear_at < release_at
+    assert "output = doubled(input)" not in generated
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
     assert result.stderr == ""
+
+    ordinary = tmp_path / "ordinary_array_assignment.btrc"
+    ordinary.write_text(
+        "class Vector<T> { public T* data; public int len; "
+        "public Vector(T* data, int len) { self.data = data; self.len = len; } } "
+        "int main() { int[] input = {1, 2}; int outputData[2]; "
+        "Vector<int> output = new Vector<int>(outputData, 2); "
+        "output = input; return 0; }"
+    )
+    rejected = _run(
+        [str(semantic_btrcc), "--no-stdlib", str(ordinary)],
+        timeout=120,
+    )
+    assert rejected.returncode != 0
+    assert "expects 'Vector<int>' but got 'int[]'" in rejected.stderr
 
 
 @pytest.mark.parametrize("frontend", ["python", "btrc"])
@@ -386,6 +540,44 @@ def test_array_kernel_may_write_inferred_global_and_static_backing(
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
     assert "sizeof(global_values)" in generated
     assert "sizeof(Outputs_values)" in generated
+    input_capacity = re.escape("(sizeof(input) / sizeof(input[0]))")
+    for output in ("global_values", "Outputs_values"):
+        output_name = re.escape(output)
+        output_capacity = re.escape(f"(sizeof({output}) / sizeof({output}[0]))")
+        direct = list(
+            re.finditer(
+                rf"{GPU_RUN}\((__gpu_arg_\d+), (__gpu_len_\d+), "
+                rf"{output_name}, {output_capacity}\)",
+                generated,
+            )
+        )
+        staged = list(
+            re.finditer(
+                rf"{GPU_RUN}\((__gpu_arg_\d+), (__gpu_len_\d+), "
+                r"(__gpu_output_data_\d+), (__gpu_output_len_\d+)\)",
+                generated,
+            )
+        )
+        staged = [
+            match
+            for match in staged
+            if re.search(
+                rf"\({re.escape(match.group(3))} = {output_name}\)",
+                generated[: match.start()],
+            )
+            and re.search(
+                rf"\({re.escape(match.group(4))} = {output_capacity}\)",
+                generated[: match.start()],
+            )
+        ]
+        dispatches = direct + staged
+        assert len(dispatches) == 1
+        dispatch = dispatches[0]
+        prefix = generated[: dispatch.start()]
+        assert re.search(rf"\({re.escape(dispatch.group(1))} = input\)", prefix)
+        assert re.search(rf"\({re.escape(dispatch.group(2))} = {input_capacity}\)", prefix)
+    assert "global_values = doubled(input)" not in generated
+    assert "Outputs.values = doubled(input)" not in generated
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
@@ -480,6 +672,25 @@ def test_gpu_heap_collection_input_is_evaluated_once_and_passes_data_length(
     assert generated.count("acquire(value)") == 1
     assert f"{stable}->data" in generated
     assert f"{stable}->len" in generated
+    stable_at = generated.index(f"{stable} = acquire(value)")
+    data_at = generated.index(f"{stable}->data", stable_at)
+    length_at = generated.index(f"{stable}->len", data_at)
+    data = re.search(
+        rf"\(([A-Za-z_][A-Za-z0-9_]*) = {re.escape(stable)}->data\)",
+        generated[stable_at:],
+    )
+    length = re.search(
+        rf"\(([A-Za-z_][A-Za-z0-9_]*) = {re.escape(stable)}->len\)",
+        generated[stable_at:],
+    )
+    assert data is not None and length is not None
+    dispatch_at = _gpu_dispatch_index(
+        generated,
+        length_at,
+        rf"{re.escape(data.group(1))}, {re.escape(length.group(1))}",
+    )
+    release_at = generated.index("__btrc_arc_release", dispatch_at)
+    assert stable_at < data_at < length_at < dispatch_at < release_at
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
@@ -668,6 +879,23 @@ def test_hosted_macro_parameter_names_cross_gpu_host_and_cpu_paths(
     assert "__btrc_source_stdin" in generated
     assert "__btrc_source_stdout" in generated
     assert "__btrc_source_stderr" in generated
+    stderr_assignment = re.search(r"\((__gpu_arg_\d+) = 3\)", generated)
+    input_assignment = re.search(r"\((__gpu_arg_\d+) = values\)", generated)
+    stdout_assignment = re.search(r"\((__gpu_arg_\d+) = 2\)", generated)
+    length_assignment = re.search(r"\((__gpu_len_\d+) = [^)]+\)", generated)
+    assert stderr_assignment is not None
+    assert input_assignment is not None
+    assert stdout_assignment is not None
+    assert length_assignment is not None
+    stderr_value = stderr_assignment.group(1)
+    input_value = input_assignment.group(1)
+    stdout_value = stdout_assignment.group(1)
+    input_length = length_assignment.group(1)
+    dispatch = _gpu_dispatch_index(
+        generated,
+        arguments=(rf"{input_value}, {input_length}, {stdout_value}, {stderr_value}"),
+    )
+    assert stderr_assignment.start() < input_assignment.start() < stdout_assignment.start() < dispatch
     binary = _compile_with_stub(
         generated,
         tmp_path,
@@ -761,17 +989,29 @@ def test_contextual_float_rejects_f32_overflow_and_underflow(
 
 
 def test_named_and_default_gpu_arguments_preserve_declared_parameter_order(
-    btrcc_driver: Path,
+    semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
     generated = _lower_source(
-        btrcc_driver,
+        semantic_btrcc,
         tmp_path,
-        "@gpu void affine(int[] xs, int scale = 2, int bias = 1) { "
-        "int i = gpu_id(); xs[i] = xs[i] * scale + bias; } "
-        "int main() { int[] xs = {4}; affine(xs, bias=3); "
-        "return xs[0] == 11 ? 0 : 1; }",
+        "int trace = 0; int defaultCalls = 0; "
+        "int mark(int value) { trace = trace * 10 + value; return value; } "
+        "int defaultScale() { defaultCalls++; trace = trace * 10 + 8; return 2; } "
+        "@gpu void affine(int[] xs, int scale = defaultScale(), "
+        "int bias = 1, int extra = 0) { int i = gpu_id(); "
+        "xs[i] = xs[i] * scale + bias + extra; } "
+        "int main() { int[] xs = {4}; "
+        "affine(xs, extra=mark(4), bias=mark(3)); "
+        "return xs[0] == 15 && trace == 438 && defaultCalls == 1 ? 0 : 1; }",
     )
+    assert generated.count("mark(4)") == 1
+    assert generated.count("mark(3)") == 1
+    explicit_extra = generated.index("= mark(4)")
+    explicit_bias = generated.index("= mark(3)", explicit_extra)
+    default_call = generated.index("__btrc_default_affine_2", explicit_bias)
+    dispatch = _gpu_dispatch_index(generated, default_call)
+    assert explicit_extra < explicit_bias < default_call < dispatch
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0
@@ -898,11 +1138,34 @@ def test_owned_gpu_output_receiver_lives_through_dispatch(
         "public void __del__() { assert(self.values[0] == 7); drops++; } } "
         "Holder makeHolder() { return new Holder(); } "
         "@gpu int[] copy(int[] input) { int i = gpu_id(); return input[i]; } "
-        "int main() { int[] input = {7}; makeHolder().values = copy(input); "
+        "int main() { int[] input = {7}; try { "
+        "makeHolder().values = copy(input); "
+        "} catch (string error) { return 2; } "
         "assert(drops == 1); return 0; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
     assert generated.count("makeHolder()") == 1
+    main = generated[generated.index("int main(") :]
+    producer = re.search(
+        r"\(([A-Za-z_][A-Za-z0-9_]*) = makeHolder\(\)\)",
+        main,
+    )
+    assert producer is not None
+    stable = producer.group(1)
+    assignment = producer.start()
+    data = main.index(f"{stable}->values", producer.end())
+    dispatch = _gpu_dispatch_index(main, data)
+    clear = main.index(f"{stable} = NULL", data)
+    release = main.index("__btrc_arc_release", clear)
+    assert f"__btrc_arc_retain({stable})" not in main
+    cleanup_match = re.search(
+        rf"__btrc_register_cleanup\([^;]*{re.escape(stable)}",
+        main,
+    )
+    assert cleanup_match is not None
+    cleanup = cleanup_match.start()
+    assert main.count(f"{stable} = makeHolder()") == 1
+    assert max(assignment, cleanup) < data < dispatch < clear < release
     binary = _compile_with_stub(
         generated,
         tmp_path,
@@ -940,6 +1203,127 @@ def test_borrowed_fixed_array_gpu_input_is_pinned_and_snapshotted(
         "delete holder; assert(drops == 2); return 0; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
+    if frontend == "btrc":
+        run_start = generated.index("int Holder_run(Holder* self) {")
+        run_end = generated.index("\nint main(", run_start)
+        run_body = generated[run_start:run_end]
+        root_match = re.search(r"Owner\* (__btrc_operand_\d+);", run_body)
+        kept_match = re.search(r"Owner\* (__btrc_kept_operand_\d+);", run_body)
+        assert root_match is not None and kept_match is not None
+        root = root_match.group(1)
+        kept = kept_match.group(1)
+        root_assignment = run_body.index(f"{root} = self->owner")
+        retain = run_body.index(f"__btrc_arc_retain({root})", root_assignment)
+        projection = run_body.index(f"{root}->a", retain)
+        later_effect = run_body.index("Holder_replace(self)", projection)
+        dispatch = _gpu_dispatch_index(run_body, later_effect)
+        clear = run_body.index(f"{kept} = NULL", dispatch)
+        release = run_body.index("__btrc_arc_release", clear)
+        assert run_body.count("self->owner") == 1
+        assert run_body.count("Holder_replace(self)") == 1
+        assert root_assignment < retain < projection < later_effect < dispatch < clear < release
+    binary = _compile_with_stub(
+        generated,
+        tmp_path,
+        "gpu_unavailable_stub.c",
+        sanitize=True,
+    )
+    result = _run(
+        [str(binary)],
+        env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_borrowed_fixed_array_gpu_input_projection_is_exception_safe(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = (
+        "#include <assert.h>\n"
+        "int drops = 0; class Owner { public int values[1]; "
+        "public Owner(int value) { self.values[0] = value; } "
+        "public void __del__() { drops++; } } "
+        "class Holder { public Owner owner; "
+        "public Holder() { self.owner = new Owner(7); } "
+        "public int replace() { self.owner = new Owner(9); return 0; } "
+        "public int run() { try { int[] result = "
+        "copy(self.owner.values, self.replace()); return result[0]; "
+        "} catch (string error) { return -1; } } } "
+        "@gpu int[] copy(int[] values, int ignored) { "
+        "int i = gpu_id(); return values[i]; } "
+        "int main() { Holder holder = new Holder(); int result = holder.run(); "
+        "assert(result == 7); assert(drops == 1); delete holder; "
+        "assert(drops == 2); return 0; }"
+    )
+    generated = _lower_source(semantic_btrcc, tmp_path, source)
+    run_start = generated.index("int Holder_run(Holder* self) {")
+    run_end = generated.index("\nint main(", run_start)
+    run_body = generated[run_start:run_end]
+    kept_match = re.search(r"Owner\*(?: volatile)? (__btrc_kept_operand_\d+);", run_body)
+    assert kept_match is not None
+    kept = kept_match.group(1)
+    registration = run_body.index("__btrc_register_cleanup")
+    projection = run_body.index("->values", registration)
+    later_effect = run_body.index("Holder_replace(self)", projection)
+    dispatch = _gpu_dispatch_index(run_body, later_effect)
+    clear = run_body.index(f"{kept} = NULL", dispatch)
+    release = run_body.index("__btrc_arc_release", clear)
+    assert run_body.count("self->owner") == 1
+    assert registration < projection < later_effect < dispatch < clear < release
+    binary = _compile_with_stub(
+        generated,
+        tmp_path,
+        "gpu_unavailable_stub.c",
+        sanitize=True,
+    )
+    result = _run(
+        [str(binary)],
+        env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_owned_fixed_array_gpu_input_projection_lives_through_dispatch(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = (
+        "#include <assert.h>\n"
+        "int drops = 0; int makes = 0; int effects = 0; "
+        "class Owner { public int values[1]; "
+        "public Owner(int value) { self.values[0] = value; } "
+        "public void __del__() { drops++; } } "
+        "Owner makeOwner() { makes++; return new Owner(7); } "
+        "int laterEffect() { effects++; return 0; } "
+        "@gpu int[] copy(int[] values, int ignored) { "
+        "int i = gpu_id(); return values[i]; } "
+        "int main() { try { int[] result = "
+        "copy(makeOwner().values, laterEffect()); "
+        "assert(result[0] == 7); "
+        "} catch (string error) { return 2; } "
+        "assert(makes == 1); assert(effects == 1); assert(drops == 1); "
+        "return 0; }"
+    )
+    generated = _lower_source(semantic_btrcc, tmp_path, source)
+    main_start = generated.index("int main(")
+    main_body = generated[main_start:]
+    root_match = re.search(r"Owner\*(?: volatile)? (__btrc_operand_\d+);", main_body)
+    assert root_match is not None
+    root = root_match.group(1)
+    make = main_body.index("makeOwner()")
+    projection = main_body.index(f"{root}->values", make)
+    later_effect = main_body.index("laterEffect()", projection)
+    dispatch = _gpu_dispatch_index(main_body, later_effect)
+    clear = main_body.index(f"{root} = NULL", dispatch)
+    release = main_body.index("__btrc_arc_release", clear)
+    assert main_body.count("makeOwner()") == 1
+    assert main_body.count("laterEffect()") == 1
+    assert f"__btrc_arc_retain({root})" not in main_body
+    assert "__btrc_register_cleanup" in main_body
+    assert make < projection < later_effect < dispatch < clear < release
     binary = _compile_with_stub(
         generated,
         tmp_path,
@@ -1008,6 +1392,27 @@ def test_borrowed_gpu_output_receiver_uses_a_void_result_boundary(
         "delete holder; return 0; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
+    main = generated[generated.index("int main(") :]
+    receivers = re.findall(
+        r"\(([A-Za-z_][A-Za-z0-9_]*) = holder\)",
+        main,
+    )
+    receivers = [receiver for receiver in receivers if f"{receiver}->values" in main]
+    assert len(receivers) == 1
+    stable = receivers[0]
+    assignment = main.index(f"({stable} = holder)")
+    retain = main.index(f"__btrc_arc_retain({stable})", assignment)
+    data = main.index(f"{stable}->values", retain)
+    kept_match = re.search(
+        rf"\(([A-Za-z_][A-Za-z0-9_]*) = {re.escape(stable)}\)",
+        main[retain:data],
+    )
+    cleanup_owner = kept_match.group(1) if kept_match is not None else stable
+    dispatch = _gpu_dispatch_index(main, data)
+    clear = main.index(f"{cleanup_owner} = NULL", dispatch)
+    release = main.index("__btrc_arc_release", clear)
+    assert main.count(f"{stable} = holder") == 1
+    assert assignment < retain < data < dispatch < clear < release
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
     assert result.returncode == 0, result.stderr
@@ -1065,20 +1470,154 @@ def test_owned_custom_property_gpu_output_is_consumed_without_a_leak(
 ) -> None:
     source = (
         "#include <assert.h>\n"
-        "int drops = 0; int raw[1] = {0}; "
+        "int drops = 0; int getterCalls = 0; int raw[1] = {0}; "
         "class Vector<T> { public T* data; public int len; "
         "public Vector(T* data, int len) { self.data = data; self.len = len; } "
         "public void __del__() { drops++; } } "
         "class Holder { public Vector<int> output { get { "
-        "return new Vector<int>(raw, 1); } } } "
+        "getterCalls++; return new Vector<int>(raw, 1); } } } "
         "@gpu int[] copy(int[] input) { int i = gpu_id(); return input[i]; } "
         "int main() { int[] input = {7}; Holder holder = new Holder(); "
         "holder.output = copy(input); assert(raw[0] == 7); "
-        "assert(drops == 1); delete holder; return 0; }"
+        "assert(getterCalls == 1); assert(drops == 1); delete holder; return 0; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
+    if frontend == "btrc":
+        main_start = generated.index("int main(")
+        main_body = generated[main_start:]
+        target_match = re.search(
+            r"Vector_int\*(?: volatile)? (__gpu_output_target_\d+) = NULL;",
+            main_body,
+        )
+        assert target_match is not None
+        target = target_match.group(1)
+        getter = main_body.index("Holder_get_output(")
+        data = main_body.index(f"{target}->data", getter)
+        length = main_body.index(f"{target}->len", data)
+        dispatch = _gpu_dispatch_index(main_body, length)
+        clear = main_body.index(f"{target} = NULL", dispatch)
+        release = main_body.index("__btrc_arc_release", clear)
+        assert main_body.count("Holder_get_output(") == 1
+        assert f"__btrc_arc_retain({target})" not in main_body
+        assert getter < data < length < dispatch < clear < release
     binary = _compile_with_stub(generated, tmp_path, "gpu_unavailable_stub.c")
     result = _run([str(binary)], timeout=15)
+    assert result.returncode == 0, result.stderr
+
+
+def test_borrowed_auto_property_gpu_output_is_pinned_before_rhs_effect(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = (
+        "#include <assert.h>\n"
+        "int drops = 0; int oldRaw[1] = {0}; int newRaw[1] = {0}; "
+        "int inputRaw[1] = {7}; "
+        "class Vector<T> { public T* data; public int len; "
+        "public Vector(T* data, int len) { self.data = data; self.len = len; } "
+        "public void __del__() { drops++; } } "
+        "class Holder { public Vector<int> output { get; set; } "
+        "public Vector<int> input; "
+        "public Holder() { self.output = new Vector<int>(oldRaw, 1); "
+        "self.input = new Vector<int>(inputRaw, 1); } "
+        "public Vector<int> mutate() { "
+        "self.output = new Vector<int>(newRaw, 1); return self.input; } "
+        "public int run() { try { self.output = copy(self.mutate()); "
+        "return oldRaw[0] == 7 && newRaw[0] == 0 ? 0 : 1; "
+        "} catch (string error) { return 2; } } } "
+        "@gpu int[] copy(int[] values) { int i = gpu_id(); return values[i]; } "
+        "int main() { Holder holder = new Holder(); int result = holder.run(); "
+        "assert(result == 0); assert(drops == 1); delete holder; "
+        "assert(drops == 3); return 0; }"
+    )
+    generated = _lower_source(semantic_btrcc, tmp_path, source)
+    run_start = generated.index("int Holder_run(Holder* self) {")
+    run_end = generated.index("\nint main(", run_start)
+    run_body = generated[run_start:run_end]
+    target_match = re.search(
+        r"Vector_int\*(?: volatile)? (__gpu_output_target_\d+) = NULL;",
+        run_body,
+    )
+    assert target_match is not None
+    target = target_match.group(1)
+    getter = run_body.index("Holder_get_output(self)")
+    retain = run_body.index(f"__btrc_arc_retain({target})", getter)
+    data = run_body.index(f"{target}->data", retain)
+    length = run_body.index(f"{target}->len", data)
+    later_effect = run_body.index("Holder_mutate(self)", length)
+    dispatch = _gpu_dispatch_index(run_body, later_effect)
+    clear = run_body.index(f"{target} = NULL", dispatch)
+    release = run_body.index("__btrc_arc_release", clear)
+    assert run_body.count("Holder_get_output(self)") == 1
+    assert run_body.count("Holder_mutate(self)") == 1
+    assert "__btrc_register_cleanup" in run_body
+    assert getter < retain < data < length < later_effect < dispatch < clear < release
+    binary = _compile_with_stub(
+        generated,
+        tmp_path,
+        "gpu_unavailable_stub.c",
+        sanitize=True,
+    )
+    result = _run(
+        [str(binary)],
+        env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_owned_receiver_custom_property_gpu_output_is_single_evaluation(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = (
+        "#include <assert.h>\n"
+        "int holderMakes = 0; int holderDrops = 0; "
+        "int getterCalls = 0; int vectorDrops = 0; int raw[1] = {0}; "
+        "class Vector<T> { public T* data; public int len; "
+        "public Vector(T* data, int len) { self.data = data; self.len = len; } "
+        "public void __del__() { vectorDrops++; } } "
+        "class Holder { public void __del__() { holderDrops++; } "
+        "public Vector<int> output { get { getterCalls++; "
+        "return new Vector<int>(raw, 1); } } } "
+        "Holder makeHolder() { holderMakes++; return new Holder(); } "
+        "@gpu int[] copy(int[] input) { int i = gpu_id(); return input[i]; } "
+        "int main() { int[] input = {7}; try { "
+        "makeHolder().output = copy(input); assert(raw[0] == 7); "
+        "} catch (string error) { return 2; } "
+        "assert(holderMakes == 1); assert(holderDrops == 1); "
+        "assert(getterCalls == 1); assert(vectorDrops == 1); return 0; }"
+    )
+    generated = _lower_source(semantic_btrcc, tmp_path, source)
+    main_start = generated.index("int main(")
+    main_body = generated[main_start:]
+    target_match = re.search(
+        r"Vector_int\*(?: volatile)? (__gpu_output_target_\d+) = NULL;",
+        main_body,
+    )
+    assert target_match is not None
+    target = target_match.group(1)
+    make = main_body.index("makeHolder()")
+    getter = main_body.index("Holder_get_output", make)
+    dispatch = _gpu_dispatch_index(main_body, getter)
+    clear = main_body.index(f"{target} = NULL", dispatch)
+    release = main_body.index("__btrc_arc_release", clear)
+    assert main_body.count("makeHolder()") == 1
+    assert main_body.count("Holder_get_output") == 1
+    assert f"__btrc_arc_retain({target})" not in main_body
+    assert "__btrc_register_cleanup" in main_body
+    assert make < getter < dispatch < clear < release
+    binary = _compile_with_stub(
+        generated,
+        tmp_path,
+        "gpu_unavailable_stub.c",
+        sanitize=True,
+    )
+    result = _run(
+        [str(binary)],
+        env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
+        timeout=15,
+    )
     assert result.returncode == 0, result.stderr
 
 
@@ -1226,6 +1765,22 @@ def test_temporary_fixed_array_gpu_projections_have_stable_storage(
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
     assert generated.count("makeBox()") == 1
+    if frontend == "btrc":
+        root_match = re.search(
+            r"(?:struct )?ValueBox (__btrc_operand_\d+);",
+            generated,
+        )
+        assert root_match is not None
+        root = root_match.group(1)
+        assignment = generated.index(f"{root} = makeBox()")
+        data = generated.index(f"{root}.values", assignment)
+        length = generated.index(f"sizeof({root}.values)", data)
+        dispatch = _gpu_dispatch_index(generated, length)
+        assert generated.count(f"{root} = makeBox()") == 1
+        assert f"__btrc_arc_retain({root})" not in generated
+        assert f"__btrc_arc_release({root}" not in generated
+        assert f"__btrc_arc_release_acyclic({root}" not in generated
+        assert assignment < data < length < dispatch
     binary = _compile_with_stub(
         generated,
         tmp_path,
@@ -1262,6 +1817,81 @@ def test_gpu_collection_output_target_is_snapshotted_before_rhs_mutation(
         "delete holder; return result; }"
     )
     generated = emit_c(source) if frontend == "python" else _lower_source(semantic_btrcc, tmp_path, source)
+    if frontend == "btrc":
+        run_start = generated.index("int Holder_run(Holder* self) {")
+        run_end = generated.index("\nint main(", run_start)
+        run_body = generated[run_start:run_end]
+        target_match = re.search(
+            r"Vector_int\*(?: volatile)? (__gpu_output_target_\d+) = NULL;",
+            run_body,
+        )
+        assert target_match is not None
+        target = target_match.group(1)
+        assignment = run_body.index(f"{target} = self->output")
+        retain = run_body.index(f"__btrc_arc_retain({target})", assignment)
+        data = run_body.index(f"{target}->data", retain)
+        length = run_body.index(f"{target}->len", data)
+        mutation = run_body.index("Holder_mutate(self)", length)
+        dispatch = _gpu_dispatch_index(run_body, mutation)
+        clear = run_body.index(f"{target} = NULL", dispatch)
+        release = run_body.index("__btrc_arc_release", clear)
+        assert run_body.count("self->output") == 1
+        assert run_body.count("Holder_mutate(self)") == 1
+        assert assignment < retain < data < length < mutation < dispatch < clear < release
+    binary = _compile_with_stub(
+        generated,
+        tmp_path,
+        "gpu_unavailable_stub.c",
+        sanitize=True,
+    )
+    result = _run(
+        [str(binary)],
+        env={**os.environ, "ASAN_OPTIONS": "detect_leaks=0"},
+        timeout=15,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+def test_owned_receiver_collection_field_gpu_output_is_single_evaluation(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = (
+        "#include <assert.h>\n"
+        "int holderMakes = 0; int holderDrops = 0; "
+        "int vectorDrops = 0; int raw[1] = {0}; "
+        "class Vector<T> { public T* data; public int len; "
+        "public Vector(T* data, int len) { self.data = data; self.len = len; } "
+        "public void __del__() { vectorDrops++; } } "
+        "class Holder { public Vector<int> output; "
+        "public Holder() { self.output = new Vector<int>(raw, 1); } "
+        "public void __del__() { holderDrops++; } } "
+        "Holder makeHolder() { holderMakes++; return new Holder(); } "
+        "@gpu int[] copy(int[] input) { int i = gpu_id(); return input[i]; } "
+        "int main() { int[] input = {7}; try { "
+        "makeHolder().output = copy(input); assert(raw[0] == 7); "
+        "} catch (string error) { return 2; } "
+        "assert(holderMakes == 1); assert(holderDrops == 1); "
+        "assert(vectorDrops == 1); return 0; }"
+    )
+    generated = _lower_source(semantic_btrcc, tmp_path, source)
+    main_start = generated.index("int main(")
+    main_body = generated[main_start:]
+    target_match = re.search(
+        r"Vector_int\*(?: volatile)? (__gpu_output_target_\d+) = NULL;",
+        main_body,
+    )
+    assert target_match is not None
+    target = target_match.group(1)
+    make = main_body.index("makeHolder()")
+    data = main_body.index(f"{target}->data", make)
+    dispatch = _gpu_dispatch_index(main_body, data)
+    clear = main_body.index(f"{target} = NULL", dispatch)
+    release = main_body.index("__btrc_arc_release", clear)
+    assert main_body.count("makeHolder()") == 1
+    assert f"__btrc_arc_retain({target})" not in main_body
+    assert "__btrc_register_cleanup" in main_body
+    assert make < data < dispatch < clear < release
     binary = _compile_with_stub(
         generated,
         tmp_path,

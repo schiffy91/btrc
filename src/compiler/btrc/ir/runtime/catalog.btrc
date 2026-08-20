@@ -8,18 +8,57 @@ import ../model.btrc;
 class RuntimeHelperCatalog {
     private Vector<GeneratedRuntimeHelperRow> rows;
     private Map<string, int> indices;
+    private Map<string, string> typeProviders;
+    private Map<string, string> objectProviders;
     private Map<string, string> materializedSources;
 
     public RuntimeHelperCatalog(
             Vector<GeneratedRuntimeHelperRow> rows) {
         self.rows = rows;
         self.indices = {};
+        self.typeProviders = {};
+        self.objectProviders = {};
         self.materializedSources = {};
 
         int index = 0;
         while (index < self.rows.len) {
             GeneratedRuntimeHelperRow row = self.rows.get(index);
+            if (self.indices.has(row.name)) {
+                fprintf(stderr,
+                    "internal compiler error: duplicate runtime helper '%s'\n",
+                    row.name);
+                exit(1);
+            }
             self.indices.put(row.name, index);
+
+            int typeIndex = 0;
+            while (typeIndex < row.provided_types.len) {
+                string providedType = row.provided_types.get(typeIndex);
+                if (self.typeProviders.has(providedType)) {
+                    fprintf(stderr,
+                        "internal compiler error: runtime type '%s' is provided by both '%s' and '%s'\n",
+                        providedType, self.typeProviders.get(providedType),
+                        row.name);
+                    exit(1);
+                }
+                self.typeProviders.put(providedType, row.name);
+                typeIndex = typeIndex + 1;
+            }
+
+            int objectIndex = 0;
+            while (objectIndex < row.provided_objects.len) {
+                string providedObject =
+                    row.provided_objects.get(objectIndex);
+                if (self.objectProviders.has(providedObject)) {
+                    fprintf(stderr,
+                        "internal compiler error: runtime object '%s' is provided by both '%s' and '%s'\n",
+                        providedObject,
+                        self.objectProviders.get(providedObject), row.name);
+                    exit(1);
+                }
+                self.objectProviders.put(providedObject, row.name);
+                objectIndex = objectIndex + 1;
+            }
             index = index + 1;
         }
     }
@@ -31,6 +70,16 @@ class RuntimeHelperCatalog {
     public bool sourceVisible(string name) {
         if (!self.indices.has(name)) { return false; }
         return self.rows.get(self.indices.get(name)).source_visible;
+    }
+
+    public string helperProvidingType(string typeName) {
+        if (!self.typeProviders.has(typeName)) { return ""; }
+        return self.typeProviders.get(typeName);
+    }
+
+    public string helperProvidingObject(string objectName) {
+        if (!self.objectProviders.has(objectName)) { return ""; }
+        return self.objectProviders.get(objectName);
     }
 
     private Vector<string> copyStrings(Vector<string> values) {

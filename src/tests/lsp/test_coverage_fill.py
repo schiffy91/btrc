@@ -2,12 +2,18 @@
 symbols + semantic tokens, include-error diagnostics, static-method and
 class-name completion, builtin-member hover, and references edge cases."""
 
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_references, prepare_rename
-from src.tests.lsp.lsphelp import get_semantic_tokens
-from src.tests.lsp.lsphelp import get_document_symbols
-from src.tests.lsp.lsphelp import analyze, decoded_semantic_tokens, hover_text, pos_of
+from src.tests.lsp.lsphelp import (
+    analyze,
+    decoded_semantic_tokens,
+    get_completions,
+    get_document_symbols,
+    get_hover_info,
+    get_references,
+    get_semantic_tokens,
+    hover_text,
+    pos_of,
+    prepare_rename,
+)
 
 # Source exercising struct / typedef / generic class / inheritance.
 TYPES = """\

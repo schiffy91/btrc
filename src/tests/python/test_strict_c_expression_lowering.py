@@ -100,10 +100,7 @@ def test_all_string_comparisons_are_structured_strcmp_operations():
             and node.op in {"==", "!=", "<", ">", "<=", ">="}
             and isinstance(node.right, IRLiteral)
             and node.right.text == "0"
-            and any(
-                isinstance(inner, IRCall) and inner.callee == "strcmp"
-                for inner in IRNode.walk_value(node.left)
-            )
+            and any(isinstance(inner, IRCall) and inner.callee == "strcmp" for inner in IRNode.walk_value(node.left))
         )
     ]
 
@@ -130,9 +127,7 @@ def test_string_comparison_evaluates_each_operand_once():
     """
     module = _generate(source)
     strcmp_call = next(
-        node
-        for node in IRNode.walk_value(module)
-        if isinstance(node, IRCall) and node.callee == "strcmp"
+        node for node in IRNode.walk_value(module) if isinstance(node, IRCall) and node.callee == "strcmp"
     )
 
     assert all(isinstance(argument, IRVar) for argument in strcmp_call.args)
@@ -180,6 +175,146 @@ def test_long_string_concat_has_bounded_c_expression_depth(tmp_path: Path):
         timeout=120,
     )
     assert compiled.returncode == 0, compiled.stderr
+    subprocess.run([str(executable)], check=True, timeout=15)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_fstring_pins_borrowed_value_across_later_introduced_conversion(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    emitted = emit_c("""
+        string globalValue;
+
+        class Mutator {
+            public Mutator() {}
+            public string toString() {
+                globalValue = f"new={2}";
+                return "mutated";
+            }
+        }
+
+        int main() {
+            globalValue = f"old={1}";
+            Mutator mutator = new Mutator();
+            string result = f"{globalValue}:{mutator}";
+            assert(result[0] == 'o');
+            assert(globalValue[0] == 'n');
+            return 0;
+        }
+    """)
+    main_c = emitted[emitted.index("int main(void) {") :]
+    borrowed = re.search(r"char\* (__btrc_call_operand_\d+);", main_c)
+    assert borrowed is not None
+    value = borrowed.group(1)
+
+    capture = main_c.index(f"{value} = globalValue")
+    retain = main_c.index(f"__btrc_string_retain({value})", capture)
+    conversion = main_c.index("Mutator_toString", retain)
+    formatting = main_c.index("snprintf", conversion)
+    release = main_c.index("__btrc_string_release", formatting)
+    assert capture < retain < conversion < formatting < release
+
+    source = tmp_path / "fstring_conversion_pin.c"
+    executable = tmp_path / "fstring_conversion_pin"
+    source.write_text(emitted)
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    subprocess.run([str(executable)], check=True, timeout=15)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_call_boundaries_pin_borrowed_values_across_later_introduced_conversion(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    emitted = emit_c("""
+        #include <assert.h>
+
+        string globalValue;
+
+        class Mutator {
+            public Mutator() {}
+            public string toString() {
+                globalValue = f"new={2}";
+                return "mutated";
+            }
+        }
+
+        void consume(string before, string converted) {
+            assert(before[0] == 'o');
+            assert(converted[0] == 'm');
+        }
+
+        class Consumer<T> {
+            public Consumer() {}
+            public void consume(string before, string converted) {
+                assert(before[0] == 'o');
+                assert(converted[0] == 'm');
+            }
+        }
+
+        int main() {
+            globalValue = f"old={1}";
+            Mutator mutator = new Mutator();
+            consume(globalValue, mutator);
+
+            globalValue = f"old={1}";
+            ((string before, string converted) => {
+                assert(before[0] == 'o');
+                assert(converted[0] == 'm');
+            })(globalValue, mutator);
+
+            globalValue = f"old={1}";
+            Consumer<int> consumer = new Consumer<int>();
+            consumer.consume(globalValue, mutator);
+            return 0;
+        }
+    """)
+    main_c = emitted[emitted.index("int main(void) {") :]
+    assert main_c.count("__btrc_string_retain") == 3
+
+    source = tmp_path / "call_conversion_pin.c"
+    executable = tmp_path / "call_conversion_pin"
+    source.write_text(emitted)
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
     subprocess.run([str(executable)], check=True, timeout=15)
 
 
@@ -234,3 +369,98 @@ def test_optional_scalar_coalesce_is_single_evaluation_and_strict_c11(
         text=True,
     )
     subprocess.run([str(executable)], check=True, timeout=10)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_optional_generic_method_coalesce_is_lazy_and_preserves_protected_results(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    source = """
+        int receiverCalls = 0;
+        int argumentCalls = 0;
+        int methodCalls = 0;
+        int scalarFallbackCalls = 0;
+        int managedArgumentCalls = 0;
+        int managedFallbackCalls = 0;
+
+        class Item {
+            public int value;
+            public Item(int value) { self.value = value; }
+        }
+
+        class Box<T> {
+            public T stored;
+            public Box(T stored) { self.stored = stored; }
+            public int read(int delta) {
+                methodCalls += 1;
+                return 40 + delta;
+            }
+            public Item makeItem(int value) {
+                return new Item(value);
+            }
+        }
+
+        Box<int>? select(bool present) {
+            receiverCalls += 1;
+            if (present) { return new Box<int>(7); }
+            return null;
+        }
+
+        int argument() { argumentCalls += 1; return 2; }
+        int scalarFallback() { scalarFallbackCalls += 1; return 17; }
+        int managedArgument() { managedArgumentCalls += 1; return 31; }
+        Item managedFallback() {
+            managedFallbackCalls += 1;
+            return new Item(99);
+        }
+
+        int main() {
+            int present = select(true)?.read(argument()) ?? scalarFallback();
+            int absent = select(false)?.read(argument()) ?? scalarFallback();
+            try {
+                Item presentItem = select(true)?.makeItem(managedArgument())
+                    ?? managedFallback();
+                Item absentItem = select(false)?.makeItem(managedArgument())
+                    ?? managedFallback();
+                if (presentItem.value != 31 || absentItem.value != 99) {
+                    return 2;
+                }
+            } catch (string error) {
+                return 3;
+            }
+            return receiverCalls == 4 && argumentCalls == 1
+                && methodCalls == 1 && scalarFallbackCalls == 1
+                && managedArgumentCalls == 1 && managedFallbackCalls == 1
+                && present == 42 && absent == 17 ? 0 : 1;
+        }
+    """
+    emitted = emit_c(source)
+    main_c = emitted.split("int main(void)", 1)[1]
+    assert main_c.count(": scalarFallback()") == 2
+    assert "__btrc_call_result_handoff" in main_c
+
+    c_path = tmp_path / "optional_generic_method.c"
+    executable = tmp_path / "optional_generic_method"
+    c_path.write_text(emitted)
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(c_path),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    subprocess.run([str(executable)], check=True, timeout=15)

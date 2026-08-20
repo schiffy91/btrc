@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 from src.compiler.python.ir.nodes import (
@@ -36,11 +37,13 @@ from src.compiler.python.syntax.ast.generated import (
     ForInStmt,
     Identifier,
     IfStmt,
+    IndexExpr,
     KeepStmt,
     NullLiteral,
     ParallelForStmt,
     ReleaseStmt,
     ReturnStmt,
+    SelfExpr,
     SpawnExpr,
     SwitchStmt,
     TernaryExpr,
@@ -56,7 +59,7 @@ from .types import CodegenError, CTypeLowerer
 if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalyzedProgram
 
-    from .calls import CallableProvenance
+    from .calls import CallableProvenance, CallableStorageBoundary
     from .control_flow import ControlFlowLowerer
     from .exceptions import ExceptionLowerer
     from .expressions import ExpressionLowerer
@@ -83,6 +86,7 @@ class StatementLowerer:
         expressions: ExpressionLowerer,
         storage: StorageLowerer,
         ownership: OwnershipLowerer,
+        callable_boundaries: CallableStorageBoundary,
         values: ManagedValueSemantics,
         lifetime: ManagedLifetimeLowerer,
         cleanup_scope: CleanupScopeState,
@@ -97,6 +101,7 @@ class StatementLowerer:
         self._expressions = expressions
         self._storage = storage
         self._ownership = ownership
+        self._callable_boundaries = callable_boundaries
         self._values = values
         self._lifetime = lifetime
         self._cleanup_scope = cleanup_scope
@@ -231,6 +236,12 @@ class StatementLowerer:
         provenance: CallableProvenance,
     ) -> list[IRStmt]:
         """Lower the source value, then materialize its ownership return plan."""
+        self._callable_boundaries.reject_persistent_escape(
+            self._session.current_return_type,
+            node.value,
+            "a function return",
+            provenance,
+        )
         plan = self._ownership.plan_return(node, provenance)
         if node.value is None:
             return self._ownership.materialize_return(plan, None, provenance)
@@ -262,53 +273,103 @@ class StatementLowerer:
             isinstance(plan.initializer, CallExpr)
             and self._gpu.output_gpu_call_name(plan.initializer, provenance) is not None
         ):
+            size_setup: list[IRStmt] = []
+            explicit_size = None
+            if plan.array_size is not None:
+                size_declaration = IRVarDecl(
+                    c_type=CType(text="int"),
+                    name=self._session.fresh_temp("__gpu_output_size"),
+                    init=self._expressions.lower_expr(
+                        plan.array_size,
+                        provenance,
+                    ),
+                )
+                self._session.record_declaration(size_declaration)
+                size_setup.append(size_declaration)
+                explicit_size = IRVar(name=size_declaration.name)
             output = self._gpu.lower_gpu_output_declaration(
                 plan.initializer,
                 IRVar(name=plan.c_name),
-                [
-                    self._expressions.lower_expr(
-                        argument,
-                        provenance,
-                    )
-                    for argument in plan.initializer.args
-                ],
+                self._expressions.lower_gpu_arguments(plan.initializer, provenance),
                 provenance,
             )
             declaration = self._storage.materialize_declaration(
                 plan,
                 provenance,
                 initializer=None,
-                array_size=self._storage.safe_array_size(output.array_length or IRLiteral(text="0")),
+                array_size=(
+                    self._storage.materialize_array_size(plan, explicit_size)
+                    if explicit_size is not None
+                    else self._storage.safe_array_size(output.array_length or IRLiteral(text="0"))
+                ),
             )
             return [
+                *size_setup,
                 *output.setup,
                 *declaration,
                 IRExprStmt(expr=output.call),
             ]
-        initializer = (
-            self._expressions.lower_expr(
+        self._storage.validate_declaration_initializer(plan)
+        if plan.initializer is not None:
+            self._callable_boundaries.reject_local_declaration(
+                node.type,
                 plan.initializer,
                 provenance,
             )
-            if plan.initializer is not None
-            else None
-        )
+        initializer = None
+        initializer_type = None
+        initializer_owned = None
+        initializer_before: tuple[IRStmt, ...] = ()
+        initializer_after: tuple[IRStmt, ...] = ()
+        if plan.initializer is not None:
+            source_type = plan.source.type
+            if source_type is not None and source_type.is_array:
+                prepared_initializer = self._expressions.prepare_static_initializer(
+                    plan.initializer,
+                    source_type,
+                    provenance,
+                )
+                initializer_before = prepared_initializer.before
+                initializer = prepared_initializer.value
+                initializer_after = prepared_initializer.after
+            elif source_type is not None and source_type.is_static:
+                initializer = self._expressions.lower_static_initializer(
+                    plan.initializer,
+                    provenance,
+                )
+            else:
+                prepared = self._expressions.prepare_value(
+                    plan.initializer,
+                    plan.source.type,
+                    provenance,
+                )
+                initializer_type = prepared.effective_type
+                initializer_owned = prepared.owned
+                initializer = self._types.upcast_class_pointer(
+                    plan.source.type,
+                    initializer_type,
+                    prepared.value,
+                )
         array_size = (
-            self._storage.safe_array_size(
+            self._storage.materialize_array_size(
+                plan,
                 self._expressions.lower_expr(
                     plan.array_size,
                     provenance,
-                )
+                ),
             )
             if plan.array_size is not None
             else None
         )
-        return self._storage.materialize_declaration(
+        declaration = self._storage.materialize_declaration(
             plan,
             provenance,
             initializer=initializer,
+            initializer_type=initializer_type,
+            initializer_owned=initializer_owned,
             array_size=array_size,
         )
+        return [*initializer_before, *declaration, *initializer_after]
 
     def lower_expression_statement(
         self,
@@ -324,13 +385,8 @@ class StatementLowerer:
             return assertion
         destroy_receiver = self._mutex_destroy_receiver(node.expr)
         if destroy_receiver is not None:
-            plan = self._ownership.plan_release(destroy_receiver)
-            return self._ownership.materialize_release(
-                plan,
-                self._expressions.lower_expr(
-                    destroy_receiver,
-                    provenance,
-                ),
+            return self._ownership.materialize_release_target(
+                self._expressions.lower_managed_slot_target(destroy_receiver, provenance)
             )
         result_type = self._session.type_of(node.expr)
         lowered = self._expressions.lower_expr(
@@ -355,7 +411,10 @@ class StatementLowerer:
                     )
                 ),
             ]
-        if self._values.is_managed(result_type) and self._ownership.owns_result(node.expr, provenance=provenance):
+        if self._values.is_managed(result_type) and self._ownership.lowered_result_is_owned(
+            node.expr,
+            provenance=provenance,
+        ):
             return self._ownership.materialize_discarded_value(
                 lowered,
                 result_type,
@@ -463,33 +522,7 @@ class StatementLowerer:
                 )
             return [IRDoWhile(body=body, condition=condition)]
         if isinstance(node, ForInStmt):
-            is_range = self._iteration.is_range_loop(node)
-            range_arguments = (
-                [
-                    self._expressions.lower_expr(
-                        argument,
-                        provenance,
-                    )
-                    for argument in node.iterable.args
-                ]
-                if is_range
-                else []
-            )
-            iterable = (
-                None
-                if is_range
-                else self._expressions.lower_expr(
-                    node.iterable,
-                    provenance,
-                )
-            )
-            with self._iteration.for_in_scope(node, iterable, range_arguments, provenance) as plan:
-                body, loop_flow = self._lower_loop_body(
-                    plan.source_body,
-                    provenance,
-                    iteration_bindings=plan.bindings,
-                )
-                return self._iteration.materialize_for_in(plan, body, loop_flow, provenance)
+            return self._lower_for_in(node, provenance)
         if isinstance(node, CForStmt):
             with self._iteration.c_for_scope(node, provenance) as plan:
                 if plan.initializer is not None:
@@ -527,17 +560,7 @@ class StatementLowerer:
                         )
                 return [self._iteration.materialize_c_for(plan, body, loop_flow, provenance)]
         if isinstance(node, ParallelForStmt):
-            iterable = self._expressions.lower_expr(
-                node.iterable,
-                provenance,
-            )
-            with self._iteration.for_in_scope(node, iterable, [], provenance) as plan:
-                body, loop_flow = self._lower_loop_body(
-                    plan.source_body,
-                    provenance,
-                    iteration_bindings=plan.bindings,
-                )
-                return self._iteration.materialize_for_in(plan, body, loop_flow, provenance)
+            return self._lower_for_in(node, provenance)
         if isinstance(node, SwitchStmt):
             return [
                 self._lower_switch(
@@ -586,19 +609,38 @@ class StatementLowerer:
         if isinstance(node, Block):
             return [self.lower_block(node, provenance)]
         if isinstance(node, KeepStmt):
+            expr_type = self._session.type_of(node.expr)
+            if not self._values.is_managed(expr_type) and self._session.type_of_is_specialized(node.expr):
+                return []
             expr = self._expressions.lower_expr(
                 node.expr,
                 provenance,
             )
-            expr_type = self._analyzed.node_types.get(id(node.expr))
-            return [IRExprStmt(expr=self._lifetime.retain_value(expr, expr_type))]
-        if isinstance(node, ReleaseStmt):
-            plan = self._ownership.plan_release(node.expr)
-            return self._ownership.materialize_release(
-                plan,
-                self._expressions.lower_expression(node.expr, provenance),
+            edge_owner = self._session.persistent_edge_owner_c_name
+            retained = (
+                self._lifetime.retain_edge_value(expr, expr_type, IRVar(name=edge_owner))
+                if edge_owner is not None
+                else self._lifetime.retain_value(expr, expr_type)
             )
+            return [IRExprStmt(expr=retained)]
+        if isinstance(node, ReleaseStmt):
+            target = self._expressions.lower_managed_slot_target(node.expr, provenance)
+            edge_owner = self._persistent_collection_edge_owner(node.expr)
+            if edge_owner is not None and target.edge_owner is None:
+                target = replace(target, edge_owner=edge_owner)
+            return self._ownership.materialize_release_target(target)
         raise self._expressions.unsupported_node("statement", node)
+
+    def _persistent_collection_edge_owner(self, source) -> IRVar | None:
+        owner = self._session.persistent_edge_owner_c_name
+        if (
+            owner is None
+            or not isinstance(source, IndexExpr)
+            or not isinstance(source.obj, FieldAccessExpr)
+            or not isinstance(source.obj.obj, SelfExpr)
+        ):
+            return None
+        return IRVar(name=owner)
 
     def _lower_try_catch(
         self,
@@ -726,3 +768,37 @@ class StatementLowerer:
             lowered,
             CallableLoopFlow(head=incoming, break_states=tuple(break_flows), backedge_states=tuple(backedge_flows)),
         )
+
+    def _lower_for_in(self, node, provenance: CallableProvenance) -> list[IRStmt]:
+        """Lower one sequential or parallel for-in through a shared source plan."""
+        is_range = self._iteration.is_range_loop(node)
+        range_arguments = (
+            [self._expressions.lower_expr(argument, provenance) for argument in node.iterable.args] if is_range else []
+        )
+        projection_storage = (
+            self._expressions.prepare_projection_storage(node.iterable, provenance)
+            if not is_range and self._iteration.is_fixed_array_iterable(node.iterable)
+            else None
+        )
+        iterable = (
+            None
+            if is_range
+            else (
+                projection_storage.value
+                if projection_storage is not None
+                else self._expressions.lower_expr(node.iterable, provenance)
+            )
+        )
+        with self._iteration.for_in_scope(
+            node,
+            iterable,
+            range_arguments,
+            provenance,
+            projection_storage=projection_storage,
+        ) as plan:
+            body, loop_flow = self._lower_loop_body(
+                plan.source_body,
+                provenance,
+                iteration_bindings=plan.bindings,
+            )
+            return self._iteration.materialize_for_in(plan, body, loop_flow, provenance)

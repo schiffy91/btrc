@@ -1,8 +1,7 @@
 """Shared reference-compatibility edge cases."""
 
+from src.compiler.python.analyzer.types import OperatorSemantics, TypeIdentity
 from src.compiler.python.syntax.ast.generated import TypeExpr
-from src.compiler.python.analyzer.types import OperatorSemantics
-from src.compiler.python.analyzer.types import TypeIdentity
 
 IDENTITY = TypeIdentity()
 OPERATORS = OperatorSemantics(IDENTITY)

@@ -2,17 +2,21 @@
 find-references, rename, document symbols, signature help, semantic tokens.
 All drive the real feature functions over SAMPLE through the shared compiler."""
 
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_hover_info
 from src.tests.lsp.lsphelp import (
+    SAMPLE,
+    analyze,
+    decoded_semantic_tokens,
+    get_completions,
+    get_document_symbols,
+    get_hover_info,
     get_references,
     get_rename_edits,
+    get_semantic_tokens,
+    get_signature_help,
+    hover_text,
+    pos_of,
     prepare_rename,
 )
-from src.tests.lsp.lsphelp import get_semantic_tokens
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import get_document_symbols
-from src.tests.lsp.lsphelp import SAMPLE, analyze, decoded_semantic_tokens, hover_text, pos_of
 
 # ----------------------------------------------------------------- hover
 

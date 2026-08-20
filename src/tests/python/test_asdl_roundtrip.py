@@ -1,7 +1,6 @@
 """Round-trip guards for the unified ASDL-derived AST catalog."""
 
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from tools.compiler_codegen.ast import AstCatalogGenerator
 
@@ -12,10 +11,7 @@ _BTRC_AST = PurePosixPath("src/compiler/btrc/generated/ast/node.btrc")
 
 
 def _artifacts() -> dict[PurePosixPath, bytes]:
-    return {
-        artifact.path: artifact.content
-        for artifact in AstCatalogGenerator(_REPO_ROOT).artifacts()
-    }
+    return {artifact.path: artifact.content for artifact in AstCatalogGenerator(_REPO_ROOT).artifacts()}
 
 
 def test_python_ast_matches_fresh_generation():

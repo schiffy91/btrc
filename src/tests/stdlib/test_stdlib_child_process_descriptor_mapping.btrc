@@ -75,6 +75,11 @@ int childProbe(int argc, char** argv) {
         fputs("descriptor stream evidence\n", stderr);
         return 0;
     }
+    if (argc >= 2 && Strings.copy(argv[1]).equals("--plain-stream-probe")) {
+        if (argc != 2) { return 64; }
+        fputs("descriptor stream evidence\n", stderr);
+        return 0;
+    }
     if (argc >= 2 && Strings.copy(argv[1]).equals("--timeout-probe")) {
         if (argc != 3) { return 64; }
         int reportDescriptor = atoi(argv[2]);
@@ -175,6 +180,15 @@ int main(int argc, char** argv) {
         assert(working.code == 127);
         assert(working.stderr().contains("require native Linux"));
         assert(close(directoryDescriptor) == 0);
+
+        ExecResult streamed = ChildProcess.run(
+            executable,
+            ["--plain-stream-probe"],
+            stdout=CommandOutput.suppress(),
+            stderr=CommandOutput.stream());
+        assert(streamed.ok());
+        assert(streamed.stdout().isEmpty());
+        assert(streamed.stderr().isEmpty());
     } else {
         ExecResult exact = mappedRun(
             executable,

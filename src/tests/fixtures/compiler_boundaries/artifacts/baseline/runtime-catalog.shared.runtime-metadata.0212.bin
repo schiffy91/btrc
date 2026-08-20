@@ -1,0 +1,1 @@
+{"asset":"strings.c","btrc_order":30,"category":"string","dependencies":["__btrc_string_length","__btrc_string_alloc","__btrc_ascii_upper"],"headers":[],"name":"__btrc_toUpper","provided_objects":[],"provided_types":[],"python_order":31,"source_sha256":"18b118c776d1a322e758ae84c9c9a2a592c6fdc0483129c49c66bc6a03feb533","source_size":271,"source_visible":false}

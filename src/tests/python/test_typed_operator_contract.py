@@ -7,13 +7,12 @@ import shutil
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.syntax.ast.generated import TypeExpr
-from src.compiler.python.ir.lowering.types import CodegenError
+from src.compiler.python.analyzer.types import OperatorSemantics, OperatorTypeError, TypeIdentity
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.lexer.lexer import Lexer
-from src.compiler.python.analyzer.types import OperatorSemantics, OperatorTypeError
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.analyzer.types import TypeIdentity
+from src.compiler.python.syntax.ast.generated import TypeExpr
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))

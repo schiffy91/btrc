@@ -1,0 +1,3 @@
+BoundaryOwner makeOwner() {
+    return new BoundaryOwner();
+}

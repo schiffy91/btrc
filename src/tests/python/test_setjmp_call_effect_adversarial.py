@@ -2,7 +2,7 @@
 
 import pytest
 
-from src.compiler.python.ir.lowering.exceptions import ExceptionLowerer
+from src.compiler.python.ir.lowering.exceptions import ExceptionLowerer, ParameterEffect
 from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import (
     CType,
@@ -289,7 +289,7 @@ def test_custom_extern_and_trusted_hosted_reads_have_distinct_effects():
         function_defs=[probe],
     )
 
-    effects = ExceptionLowerer.build_setjmp_call_effects(module)["probe"]
+    catalog = ExceptionLowerer.build_setjmp_call_effects(module)["probe"].catalog
 
-    assert effects.written_arguments("custom_read", 1) == frozenset({0})
-    assert effects.written_arguments("memcmp", 3) == frozenset()
+    assert catalog.resolve("custom_read", 1).writes == frozenset({ParameterEffect(0)})
+    assert catalog.resolve("memcmp", 3).writes == frozenset()

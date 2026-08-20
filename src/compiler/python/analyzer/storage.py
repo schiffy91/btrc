@@ -133,7 +133,10 @@ class StorageModel:
             return self.volatile_qualifier_depths(self.declared_projection_type(expression), self.index.typedef_table)
         if isinstance(expression, IndexExpr):
             if not self._raw_index_removes_storage_layer(expression):
-                return self.volatile_qualifier_depths(self.types.infer_index_type(expression), self.index.typedef_table)
+                return self.volatile_qualifier_depths(
+                    self.declared_projection_type(expression),
+                    self.index.typedef_table,
+                )
             return self._remove_volatile_storage_layer(self._expression_volatile_depths(expression.obj))
         if isinstance(expression, UnaryExpr):
             overloaded = self.types.operator_return_type(self.type_of(expression.operand), expression.op, unary=True)

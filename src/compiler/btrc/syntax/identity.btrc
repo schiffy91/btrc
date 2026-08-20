@@ -859,6 +859,198 @@ class TypeIdentity {
         return sequence;
     }
 
+    class bool legacyComponentSpelling(string value) {
+        int length = value.length();
+        if (length == 0 || !TypeIdentity.asciiLetter(value[0])) {
+            return false;
+        }
+        int index = 1;
+        while (index < length
+                && (TypeIdentity.asciiLetter(value[index])
+                    || TypeIdentity.asciiDigit(value[index]))) {
+            index = index + 1;
+        }
+        string base = value.substring(0, index);
+        if (!TypeIdentity.safeBase(base)) { return false; }
+        if (index + 2 <= length
+                && value.substring(index, 2) == "_p") {
+            index = index + 2;
+            int digitStart = index;
+            while (index < length
+                    && TypeIdentity.asciiDigit(value[index])) {
+                index = index + 1;
+            }
+            if (digitStart == index || value[digitStart] == '0') {
+                return false;
+            }
+        }
+        if (index + 2 <= length
+                && value.substring(index, 2) == "_n") {
+            index = index + 2;
+        }
+        if (index + 2 <= length
+                && value.substring(index, 2) == "_a") {
+            index = index + 2;
+        }
+        return index == length;
+    }
+
+    class bool legacySequenceSpelling(string value, int arity) {
+        if (arity <= 0 || value == "") { return false; }
+        if (arity == 1) {
+            return TypeIdentity.legacyComponentSpelling(value);
+        }
+        Vector<string> components = Strings.split(value, "_");
+        if (components.len != arity) { return false; }
+        int index = 0;
+        while (index < components.len) {
+            if (!TypeIdentity.safeBase(components.get(index))) {
+                return false;
+            }
+            index = index + 1;
+        }
+        return true;
+    }
+
+    class int encodedFieldEnd(string value, int start, char tag) {
+        int length = value.length();
+        if (start < 0 || start >= length || value[start] != tag) {
+            return -1;
+        }
+        int index = start + 1;
+        int digitStart = index;
+        long long payloadLength = 0LL;
+        while (index < length && TypeIdentity.asciiDigit(value[index])) {
+            long long digit = (long long)(value[index] - '0');
+            if (payloadLength > (2147483647LL - digit) / 10LL) {
+                return -1;
+            }
+            payloadLength = payloadLength * 10LL + digit;
+            index = index + 1;
+        }
+        if (digitStart == index || index >= length || value[index] != '_'
+                || (index - digitStart > 1 && value[digitStart] == '0')) {
+            return -1;
+        }
+        index = index + 1;
+        if (payloadLength <= 0LL
+                || payloadLength > (long long)(length - index)) {
+            return -1;
+        }
+        return index + (int)payloadLength;
+    }
+
+    class int encodedTypesEnd(string value, int start, int arity) {
+        if (arity < 0) { return -1; }
+        string prefix = "k" + Strings.fromInt(arity);
+        if (start < 0 || start + prefix.length() > value.length()
+                || value.substring(start, prefix.length()) != prefix) {
+            return -1;
+        }
+        int index = start + prefix.length();
+        int argument = 0;
+        while (argument < arity) {
+            index = TypeIdentity.encodedFieldEnd(value, index, 't');
+            if (index < 0) { return -1; }
+            argument = argument + 1;
+        }
+        return index;
+    }
+
+    class bool possibleLegacyMangledGenericType(
+            string symbol, string base, int arity) {
+        if (arity <= 0 || !TypeIdentity.safeBase(base)) { return false; }
+        string prefix = "btrc_" + base + "_";
+        if (!symbol.startsWith(prefix)) { return false; }
+        string arguments = symbol.substring(
+            prefix.length(), symbol.length() - prefix.length());
+        return TypeIdentity.legacySequenceSpelling(arguments, arity);
+    }
+
+    /* Recognize one possible generic-type spelling using only its declared
+     * base and arity.  This is intentionally structural: before generic graph
+     * closure, semantic analysis does not yet own the concrete TypeExpr rows,
+     * but it can still distinguish the canonical legacy/encoded grammars from
+     * arbitrary lookalikes. */
+    class bool possibleMangledGenericType(
+            string symbol, string base, int arity) {
+        if (TypeIdentity.possibleLegacyMangledGenericType(
+                symbol, base, arity)) {
+            return true;
+        }
+        if (arity <= 0) { return false; }
+        string prefix = "btrc_ZQg"
+            + TypeIdentity.field("b", TypeIdentity.utf8Hex(base));
+        if (!symbol.startsWith(prefix)) { return false; }
+        return TypeIdentity.encodedTypesEnd(
+            symbol, prefix.length(), arity) == symbol.length();
+    }
+
+    class bool possibleGenericInstanceSymbol(string symbol,
+            string base, int arity, string suffix) {
+        if (!symbol.endsWith(suffix)
+                || symbol.length() <= suffix.length()) {
+            return false;
+        }
+        string emitted = symbol.substring(
+            0, symbol.length() - suffix.length());
+        return TypeIdentity.possibleMangledGenericType(
+            emitted, base, arity);
+    }
+
+    /* Generic-method symbols use the same legacy type sequences, or the
+     * collision-safe Qm envelope with independently framed class/method type
+     * lists.  Match declared owner/method names and both exact arities. */
+    class bool possibleMethodInstanceSymbol(string symbol,
+            string classBase, int classArity,
+            string methodName, int methodArity) {
+        if (methodArity <= 0) { return false; }
+        if (TypeIdentity.safeBase(classBase)
+                && TypeIdentity.safeBase(methodName)) {
+            string marker = "_" + methodName + "_";
+            int position = 0;
+            while (position + marker.length() < symbol.length()) {
+                if (symbol.substring(position, marker.length()) == marker) {
+                    string owner = symbol.substring(0, position);
+                    bool ownerMatches = false;
+                    if (classArity == 0) {
+                        ownerMatches = owner == classBase;
+                    } else {
+                        ownerMatches =
+                            TypeIdentity.possibleLegacyMangledGenericType(
+                                owner, classBase, classArity);
+                    }
+                    int argumentStart = position + marker.length();
+                    string arguments = symbol.substring(
+                        argumentStart, symbol.length() - argumentStart);
+                    if (ownerMatches
+                            && TypeIdentity.legacySequenceSpelling(
+                                arguments, methodArity)) {
+                        return true;
+                    }
+                }
+                position = position + 1;
+            }
+        }
+
+        string prefix = "btrc_ZQm"
+            + TypeIdentity.field("b", TypeIdentity.utf8Hex(classBase));
+        if (!symbol.startsWith(prefix)) { return false; }
+        int index = TypeIdentity.encodedTypesEnd(
+            symbol, prefix.length(), classArity);
+        if (index < 0) { return false; }
+        string methodField = TypeIdentity.field(
+            "m", TypeIdentity.utf8Hex(methodName));
+        if (index + methodField.length() > symbol.length()
+                || symbol.substring(index, methodField.length())
+                    != methodField) {
+            return false;
+        }
+        index = TypeIdentity.encodedTypesEnd(
+            symbol, index + methodField.length(), methodArity);
+        return index == symbol.length();
+    }
+
 
     /* Structural primitive: unlike writable class specializations, Tuple and
      * __fn_ptr are allowed to carry qualified component types. */

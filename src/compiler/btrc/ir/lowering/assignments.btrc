@@ -47,8 +47,11 @@ class AssignmentLowerer {
             assignment.target, variableTypes);
         plan.valueType = self.expressionTypes.inferSpecialization(
             assignment.value_node, variableTypes);
+        bool unsafe = callableFlow.assignmentStorageUnsafe(
+            assignment, plan.targetType,
+            self.callableValues, callableContext);
         self.callableBoundaries.rejectAssignment(
-            assignment, plan.targetType, callableContext);
+            assignment, plan.targetType, callableContext, unsafe);
         plan.callableTarget = assignment.target != null
             && assignment.target.kind == NK_IDENTIFIER
             && self.callableValues.lexicalIdentifier(

@@ -11,9 +11,7 @@ def _call_targets(src: str) -> set[str]:
     analyzed = SemanticAnalyzer().analyze(Parser(Lexer(src, "<t>").tokenize()).parse())
     module = IRLowerer(analyzed).lower()
     return {
-        node.callee
-        for node in IRNode.walk_value(module)
-        if isinstance(node, IRCall) and isinstance(node.callee, str)
+        node.callee for node in IRNode.walk_value(module) if isinstance(node, IRCall) and isinstance(node.callee, str)
     }
 
 
@@ -35,3 +33,8 @@ def test_lower_nonempty_map_literal_infers_map():
 def test_lower_empty_map_literal_falls_back():
     targets = _call_targets("int main() { Map<string, int> m = {}; return 0; }")
     assert any("Map" in target for target in targets)
+
+
+def test_empty_collection_call_argument_uses_the_parameter_type():
+    targets = _call_targets("void consume(Map<string, int> values) {} int main() { consume({}); return 0; }")
+    assert any(target.startswith("btrc_Map_string_int_new") for target in targets)

@@ -199,6 +199,56 @@ def test_selfhost_callable_fail_closed_contracts(
     assert diagnostic.lower() in (result.stdout + result.stderr).lower()
 
 
+@pytest.mark.parametrize(
+    ("source", "diagnostic"),
+    (
+        (
+            """
+            extern string foreignString();
+            string make() { return f"owned={1}"; }
+            struct Slot {
+                bool changed;
+                __fn_ptr<string> callback;
+            };
+            int main() {
+                __fn_ptr<string> callback = foreignString;
+                Slot slot = {
+                    (bool)(callback = make),
+                    callback
+                };
+                return slot.changed ? 0 : 1;
+            }
+            """,
+            "aggregate storage",
+        ),
+        (
+            """
+            extern string foreignString();
+            string make() { return f"owned={1}"; }
+            int main() {
+                __fn_ptr<string> values[1] = [foreignString];
+                __fn_ptr<string> callback = foreignString;
+                values[(bool)(callback = make) ? 0 : 0] = callback;
+                return 0;
+            }
+            """,
+            "indexed storage",
+        ),
+    ),
+    ids=("aggregate-slots", "assignment-target-before-rhs"),
+)
+def test_selfhost_persistent_callable_checks_follow_source_order(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    source: str,
+    diagnostic: str,
+) -> None:
+    result, _ = _compile_source(semantic_btrcc, tmp_path, source)
+
+    assert result.returncode != 0
+    assert diagnostic.lower() in (result.stdout + result.stderr).lower()
+
+
 def test_pointer_to_callable_slot_remains_an_object_pointer_cast(
     semantic_btrcc: Path,
     tmp_path: Path,

@@ -437,9 +437,7 @@ def test_shared_capacity_growth_and_reset_cross_archive_boundary(
     c_compiler: str,
 ):
     output = tmp_path / "stdlib"
-    compiler = Compiler(
-        CompilationPipeline(archive_repository=archive.StdlibArtifactRepository())
-    )
+    compiler = Compiler(CompilationPipeline(archive_repository=archive.StdlibArtifactRepository()))
     assert compiler.build_stdlib_archive(str(output)).successful
 
     archive_probe = output / "archive_probe.c"

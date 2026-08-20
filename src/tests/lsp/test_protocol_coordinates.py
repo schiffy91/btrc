@@ -2,13 +2,16 @@
 
 from lsprotocol import types as lsp
 
-from src.tests.lsp.lsphelp import get_code_actions
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import get_rename_edits
-from src.tests.lsp.lsphelp import get_semantic_tokens
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, utf16_length
+from src.tests.lsp.lsphelp import (
+    analyze,
+    get_code_actions,
+    get_completions,
+    get_definition,
+    get_rename_edits,
+    get_semantic_tokens,
+    get_signature_help,
+    utf16_length,
+)
 
 
 def _position(source: str, needle: str, offset: int = 0, *, last: bool = False):

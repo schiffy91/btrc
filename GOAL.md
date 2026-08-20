@@ -27,6 +27,118 @@ This goal is not complete until the destination trees exist, obsolete paths are
 gone, both compilers are behaviorally and byte-for-byte verified, the complete
 test matrix passes, and the devex artifacts build successfully.
 
+## Active Handoff (2026-08-19)
+
+### Repository state
+
+- Continue from branch `codex/compiler-refactor-handoff`. The checkpoint is a
+  single intentional architecture-and-correctness campaign; do not discard or
+  split the large compiler, runtime, devex, test, golden, or frozen-boundary
+  diff merely because it spans hundreds of files.
+- The architecture destination, exact production inventories, runtime/hosted
+  specifications, generated catalogs, compiler-boundary snapshot harness,
+  portable Makefile boundary gate, LSP/debugger/VS Code ownership moves, and
+  corpus golden completion are implemented.
+- Correctness is still in the self-host hill-climb. The final serial self-host
+  suite, `make test`, `make test-c11`, and the actual bootstrap fixed point have
+  **not** passed on this final checkpoint. Do not mark this goal complete.
+- All worker processes were stopped for this handoff. No build or test is
+  intentionally running in the background.
+
+### Last immutable self-host artifact
+
+The latest current-tree strict artifact was generated before the handoff stop:
+
+```text
+C:      /tmp/btrc-current-joint-stage1.N37NYk/btrcc.c
+SHA256: e03fdbd26f913fab61033299416329ab06f11347a4df8898037aea6346ad744d
+binary: /tmp/btrc-current-joint-stage1.N37NYk/btrcc
+SHA256: 3432ef09bb04eeebce72ad7e0bf09ba59895d557ad5363225a99dc6b8aa6f5d2
+inputs: 99b1ae9626de6064cb0745072162e68c8cc4ac87a72d76308eb87278249c2a26
+```
+
+It was produced by a clean Python-to-C transpile (164.31 s) and strict C11
+`-pedantic-errors -Wall -Wextra -Werror -O2` native build (80.14 s). The input
+fingerprint was unchanged before and after the build. `/tmp` is not durable:
+verify the hash before reuse and rebuild after any self-host production edit or
+when the path is absent.
+
+### Immediate next steps
+
+1. **Fix Python VLA bound single evaluation.** The exact failing node is
+   `src/tests/btrc/test_gpu_boundary.py::test_gpu_vla_capacity_does_not_replay_the_declared_bound[python]`.
+   Python currently emits `int values[((size() > 0) ? size() : 1)]`, evaluating
+   the effectful bound twice. The owner seam is
+   `StatementLowerer.lower_declaration` ->
+   `StorageLowerer.materialize_array_size`/`safe_array_size`. Preserve one
+   logical bound value, materialize a typed local temp once for a runtime VLA,
+   use its clamped physical extent for C storage, and record the unclamped
+   logical extent in `CArrayBinding` for GPU/iteration consumers. Constant and
+   static bounds must stay direct; initialized VLAs remain rejected. Re-audit
+   the exact API shape before editing because the independent VLA audit was
+   interrupted by this handoff.
+2. **Rerun the optional/coalesce self-host regression.** The new node is
+   `src/tests/btrc/test_semantic_validation.py::test_optional_generic_method_coalesce_keeps_result_and_cleanup_paths_separate`.
+   The compiler output strict-builds and runs successfully. Its structural
+   assertion was updated to recognize the intentional lazy false branch
+   `: (__btrc_optional_result_N = scalarFallback())`; rerun the exact node with
+   the artifact above to close the gate.
+3. **Finish `test_gpu_boundary.py`.** After the VLA fix, rerun the full file
+   against the Python compiler and the immutable self-host artifact. Sixty-one
+   tests passed before the VLA node stopped the last run. The GPU helper-name
+   assertions were deliberately rewritten around dispatch dataflow/order rather
+   than unstable temp prefixes.
+4. **Resume self-host discovery suffixes.** The private continuation manifests
+   from this machine are under `/tmp/btrc-selfhost-continuations.RrvVIO/` if
+   still present. They restart shard 1 at `test_generic_instance_closure.py`,
+   shard 2 at `test_generic_array_assignment_contract.py`, and shard 3 at
+   `test_helper_mirrors.py`. Several boundaries found after those restart
+   points have already been fixed, so focused files should be rerun before
+   continuing past the last stopped modules (`test_lexical_call_resolution_contract.py`,
+   `test_gpu_boundary.py`, and `test_property_layout_contracts.py`). These
+   shards are discovery only; they never replace the final serial run.
+5. **Run one authoritative final matrix only after discovery is green:**
+   portable and observed frozen boundaries, the full no-cache Python suite,
+   both language corpora, complete non-bootstrap self-host suite from zero,
+   strict GCC/Clang C11 matrix, LSP, debugger, extension packaging, lint,
+   format, generated checks, `make test`, and finally `make bootstrap`.
+6. Remove only ignored caches/build products after all gates pass. Do not remove
+   committed boundary fixtures or newly added exact stdout/stderr goldens.
+
+Suggested first commands:
+
+```bash
+export BTRC_TEST_BTRCC=/tmp/btrc-current-joint-stage1.N37NYk/btrcc
+shasum -a 256 "$BTRC_TEST_BTRCC"
+
+PYTHONDONTWRITEBYTECODE=1 uv run pytest -q -p no:cacheprovider \
+  'src/tests/btrc/test_gpu_boundary.py::test_gpu_vla_capacity_does_not_replay_the_declared_bound[python]'
+
+PYTHONDONTWRITEBYTECODE=1 uv run pytest -q -p no:cacheprovider \
+  src/tests/btrc/test_semantic_validation.py::test_optional_generic_method_coalesce_keeps_result_and_cleanup_paths_separate
+
+PYTHONDONTWRITEBYTECODE=1 uv run pytest -q -p no:cacheprovider \
+  src/tests/btrc/test_gpu_boundary.py
+```
+
+### Verified evidence to preserve
+
+- Frozen boundary harness: 301 records, 69 intentional accepted deltas, 34
+  current parity equalities; the portable Makefile gate previously checked 277
+  records and skipped only four explicitly observed host-dependent GPU cases.
+- Earlier full Python checkpoint: 3270 passed, 26 skipped; earlier Python
+  language corpus checkpoint: 930 passed, 3 skipped. These predate the latest
+  fixes and therefore must be rerun; they are breadcrumbs, not final proof.
+- Latest focused slices include: immediate captured-lambda 4/4 plus 96 adjacent;
+  generated-symbol boundaries 56/56; array/GPU capacity 35/35; managed property
+  lifetime exact nodes green; 500-term binary inference/validation in 17.17 s
+  under the unchanged 30 s contract; GPU output receiver 4/4 plus strict
+  GCC/Clang and sanitizer coverage; optional Python focused 7/7 and architecture
+  67/67.
+- The last static snapshot before the latest correctness batch passed lint,
+  format, generated checks, diff checks, lock validation, and portable boundary
+  verification. Rerun every static gate on the committed handoff tree.
+
 ## Objective
 
 Refactor the Python reference compiler, the self-hosted BTRC compiler, the LSP,
@@ -827,7 +939,7 @@ dist/btrc.vsix
       `build/` and `dist/`.
 - [x] Delete every obsolete production path and update build, CI, docs,
       generators, source fingerprints, and structure tests.
-- [ ] Establish frozen compiler outputs for tokens, AST, IR, optimized IR, C,
+- [x] Establish frozen compiler outputs for tokens, AST, IR, optimized IR, C,
       diagnostics, and runtime helper specifications from the completed
       destination architecture.
 - [ ] Complete all bit-perfect comparisons and the full verification matrix.

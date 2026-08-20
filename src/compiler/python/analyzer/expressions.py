@@ -243,6 +243,9 @@ class ExpressionAnalyzer:
             )
         if setter is None or (require_getter and getter is None):
             return
+        self.generics.record_class_method_use(receiver_type, setter.name)
+        if require_getter:
+            self.generics.record_class_method_use(receiver_type, getter.name)
         self._validate_indexed_method_access(protocol, setter, line, col)
         if require_getter:
             self._validate_indexed_method_access(protocol, getter, line, col)
@@ -641,13 +644,23 @@ class ExpressionAnalyzer:
         operator = expression.op[:-1]
         if target.base == source.base and self.types.is_active_type_parameter(target):
             return
-        if self.types.operator_method(target, operator) is not None:
-            self.types.validate_operator_access(target, operator, expression)
+        overload = self.types.operator_method(target, operator)
+        if overload is not None:
+            self.validate_operator_argument(expression, operator, expression.value, source, overload)
+            self.validate_compound_operator_result(expression, operator, target, overload)
+            self.validate_operator_access(target, operator, expression)
             return
+        canonical_source = self.types.canonical_type(source) or source
         if (
             operator == "+"
-            and target.base == "string"
-            and (source.base == "string" or (source.base == "char" and (source.pointer_depth > 0 or source.is_array)))
+            and self.types.is_scalar_string_value(target)
+            and (
+                self.types.is_scalar_string_value(source)
+                or (
+                    canonical_source.base == "char"
+                    and (canonical_source.pointer_depth > 0 or canonical_source.is_array)
+                )
+            )
         ):
             return
         if not self._validate_portable_numeric_mix(
@@ -673,13 +686,14 @@ class ExpressionAnalyzer:
         if operand_type is None:
             return
         if self.types.operator_method(operand_type, expression.op, unary=True) is not None:
-            self.types.validate_operator_access(operand_type, expression.op, expression, unary=True)
+            self.validate_operator_access(operand_type, expression.op, expression, unary=True)
             return
+        value_type = self.types.canonical_type(operand_type) or operand_type
         if expression.op == "*":
-            valid = operand_type.pointer_depth > 0 or operand_type.is_array
+            valid = value_type.pointer_depth > 0 or value_type.is_array
         elif expression.op in ("++", "--"):
             valid = self.is_lvalue(expression.operand) and (
-                self.types.is_numeric_value(operand_type) or operand_type.pointer_depth > 0
+                self.types.is_numeric_value(value_type) or value_type.pointer_depth > 0
             )
             if valid:
                 if not self.validate_mutable_target(expression.operand, expression.line, expression.col):
@@ -691,15 +705,11 @@ class ExpressionAnalyzer:
                     expression.operand, require_getter=True, value=None, line=expression.line, col=expression.col
                 )
         elif expression.op in ("+", "-"):
-            valid = self.types.is_numeric_value(operand_type)
+            valid = self.types.is_numeric_value(value_type)
         elif expression.op == "~":
-            valid = self.types.is_integral_value(operand_type)
+            valid = self.types.is_integral_value(value_type)
         elif expression.op == "!":
-            valid = (
-                operand_type.base == "bool"
-                or self.types.is_numeric_value(operand_type)
-                or operand_type.pointer_depth > 0
-            )
+            valid = value_type.base == "bool" or self.types.is_numeric_value(value_type) or value_type.pointer_depth > 0
         else:
             return
         if not valid:
@@ -717,6 +727,10 @@ class ExpressionAnalyzer:
         prop = class_info.properties.get(target.field) if class_info else None
         if prop is None:
             return
+        if prop.has_setter:
+            self.generics.record_class_callable_use(receiver_type, "set", target.field)
+        if require_getter and prop.has_getter:
+            self.generics.record_class_callable_use(receiver_type, "get", target.field)
         if not prop.has_setter and (not (allow_getter_storage and prop.has_getter)):
             self.session.error(f"Property '{target.field}' has no setter", line, col)
         if require_getter and (not prop.has_getter):
@@ -940,7 +954,7 @@ class ExpressionAnalyzer:
             or self.types.is_native_enum_scalar(type_expr)
         )
 
-    def validate_operator_argument(self, expression, operator, right_type, overload) -> None:
+    def validate_operator_argument(self, expression, operator, right_expression, right_type, overload) -> None:
         """Validate an overloaded binary operator's declared RHS contract."""
         method, substitutions = overload
         if not method.params:
@@ -948,8 +962,10 @@ class ExpressionAnalyzer:
         expected = method.params[0].type
         if substitutions:
             expected = self.types.substitute_type(expected, substitutions)
+        if self.types.requires_string_conversion(expected, right_type):
+            self.generics.record_class_method_use(right_type, "toString")
         self.storage.validate_volatile_reference_conversion(
-            expected, expression.right, f"Operator '{operator}' argument", expression.line, expression.col
+            expected, right_expression, f"Operator '{operator}' argument", expression.line, expression.col
         )
         if not self.types.types_compatible(expected, right_type):
             self.session.error(
@@ -958,12 +974,33 @@ class ExpressionAnalyzer:
                 expression.col,
             )
 
+    def validate_compound_operator_result(self, expression, operator, target_type, overload) -> None:
+        """Require a compound overload result that can be committed to its slot."""
+        method, substitutions = overload
+        result_type = method.return_type
+        if substitutions:
+            result_type = self.types.substitute_type(result_type, substitutions)
+        if not self.types.types_compatible(target_type, result_type):
+            self.session.error(
+                f"Operator '{operator}' returns '{self.types.format_type(result_type)}', which cannot be stored in compound target '{self.types.format_type(target_type)}'",
+                expression.line,
+                expression.col,
+            )
+
     def infer_index_type(self, expression):
         object_type = self._infer_type(expression.obj)
         canonical = self.types.canonical_type(object_type)
         if canonical and canonical.base in {"Vector", "List", "Array", "Set"} and (len(canonical.generic_args) == 1):
+            self.generics.record_class_method_use(
+                canonical,
+                "set" if self.session.analyzing_assignment_target else "get",
+            )
             return canonical.generic_args[0]
         if canonical and canonical.base == "Map" and (len(canonical.generic_args) == 2):
+            self.generics.record_class_method_use(
+                canonical,
+                "set" if self.session.analyzing_assignment_target else "get",
+            )
             return canonical.generic_args[1]
         if self.types.is_scalar_string_value(canonical):
             return TypeExpr(base="char", is_const=canonical.is_const)
@@ -988,6 +1025,9 @@ class ExpressionAnalyzer:
             return None
         getter = protocol.getter
         setter = protocol.setter
+        selected = setter if self.session.analyzing_assignment_target else getter
+        if selected is not None:
+            self.generics.record_class_method_use(canonical, selected.name)
         value_type = getter.return_type if getter is not None else None
         if value_type is None and setter is not None:
             value_type = setter.params[1].type
@@ -996,10 +1036,12 @@ class ExpressionAnalyzer:
         return value_type
 
     def validate_operator_access(self, receiver_type, operator, expression, *, unary=False):
+        receiver_type = self.types.canonical_type(receiver_type) or receiver_type
         resolved = self.types.operator_method(receiver_type, operator, unary=unary)
         if resolved is None:
             return
         method, _ = resolved
+        self.generics.record_class_method_use(receiver_type, method.name)
         cls = self.index.class_table.get(receiver_type.base)
         owner = cls.method_owners.get(method.name, cls.name) if cls else ""
         if method.access == "private" and (
@@ -1074,6 +1116,8 @@ class ExpressionAnalyzer:
         if cached is not None:
             return self.session.record_node_type(expr, cached)
         result = self._infer_type_uncached(expr)
+        if result is None:
+            return None
         return self.session.record_node_type(expr, result)
 
     def _infer_type_uncached(self, expr) -> TypeExpr | None:
@@ -1098,7 +1142,7 @@ class ExpressionAnalyzer:
                 return TypeExpr(base="void", pointer_depth=1, is_nullable=True)
             sym = self.session.scope.lookup(expr.name)
             if sym:
-                return sym.type
+                return self.types.canonical_type(sym.type) or sym.type
             function = self.index.function_table.get(expr.name)
             if function:
                 return self.types.function_value_type(function)
@@ -1433,6 +1477,16 @@ class ExpressionAnalyzer:
         except (KeyError, OverflowError):
             return (False, None)
 
+    @staticmethod
+    def _is_optional_value_expression(expression) -> bool:
+        if isinstance(expression, FieldAccessExpr):
+            return expression.optional
+        return (
+            isinstance(expression, CallExpr)
+            and isinstance(expression.callee, FieldAccessExpr)
+            and expression.callee.optional
+        )
+
     def _validate_binary_expr(self, expression):
         left = self._infer_type(expression.left)
         right = self._infer_type(expression.right)
@@ -1445,8 +1499,8 @@ class ExpressionAnalyzer:
             return
         overload = self.types.operator_method(left, operator)
         if overload is not None:
-            self.types.validate_operator_argument(expression, operator, right, overload)
-            self.types.validate_operator_access(left, operator, expression)
+            self.validate_operator_argument(expression, operator, expression.right, right, overload)
+            self.validate_operator_access(left, operator, expression)
             return
         if operator == "+" and self.types.is_scalar_string_value(left) and self.types.is_scalar_string_value(right):
             return
@@ -1459,7 +1513,7 @@ class ExpressionAnalyzer:
                 self.types.coalesce_domain(
                     self.types.canonical_type(left),
                     self.types.canonical_type(right),
-                    left_is_optional_value=isinstance(expression.left, FieldAccessExpr) and expression.left.optional,
+                    left_is_optional_value=self._is_optional_value_expression(expression.left),
                 )
             except OperatorTypeError as error:
                 self.session.error(str(error), expression.line, expression.col)
@@ -1597,6 +1651,7 @@ class ExpressionAnalyzer:
                 self._analyze_field_access(expr.callee, call_target=True)
             else:
                 self._analyze_expr(expr.callee)
+            self._infer_type(expr.callee)
             for argument in expr.args:
                 self._analyze_expr(argument)
             self._validate_mutex_destroy_receiver(expr)
@@ -1678,17 +1733,25 @@ class ExpressionAnalyzer:
                                 getattr(el, "line", 0),
                                 getattr(el, "col", 0),
                             )
+            inferred_literal = self._infer_type(expr)
+            if expr.elements:
+                self.generics.record_class_method_use(inferred_literal, "push")
         elif isinstance(expr, MapLiteral):
             for entry in expr.entries:
                 self._analyze_expr(entry.key)
                 self._analyze_expr(entry.value)
                 self.aggregates.reject_thread_value_escape(entry.key, "embedded in aggregate values")
                 self.aggregates.reject_thread_value_escape(entry.value, "embedded in aggregate values")
+            if expr.entries:
+                self.generics.record_class_method_use(self._infer_type(expr), "put")
         elif isinstance(expr, FStringLiteral):
             for part in expr.parts:
                 if isinstance(part, FStringExpr):
                     self._analyze_expr(part.expression)
                     self.aggregates.reject_thread_value_escape(part.expression, "formatted as values")
+                    part_type = self._infer_type(part.expression)
+                    if self.types.has_scalar_to_string(part_type):
+                        self.generics.record_class_method_use(part_type, "toString")
         elif isinstance(expr, TupleLiteral):
             for el in expr.elements:
                 self._analyze_expr(el)
@@ -1956,6 +2019,8 @@ class ExpressionAnalyzer:
             cls = self.index.class_table[obj_type.base]
             if expr.field in cls.properties:
                 prop = cls.properties[expr.field]
+                accessor = "set" if self.session.analyzing_assignment_target else "get"
+                self.generics.record_class_callable_use(obj_type, accessor, expr.field)
                 if prop.access == "private":
                     owner = cls.property_owners.get(expr.field, cls.name)
                     if self.session.current_class is None or self.session.current_class.name != owner:

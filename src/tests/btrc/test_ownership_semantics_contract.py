@@ -42,6 +42,104 @@ def _compile_reference_source(tmp_path: Path, source: str):
     return result, generated
 
 
+def test_generic_method_receiver_cleanup_uses_expression_ir(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Bag<T> {
+            public void discard() {}
+        }
+
+        int main() {
+            Bag<int> bag = new Bag<int>();
+            bag.discard();
+            delete bag;
+            return 0;
+        }
+    """
+    result, generated = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_generated = _compile_reference_source(tmp_path, source)
+    assert result.returncode == 0, result.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(generated, tmp_path / "generic-method-receiver-cleanup")
+    _strict_build_and_run(
+        reference_generated,
+        tmp_path / "reference-generic-method-receiver-cleanup",
+    )
+
+
+@pytest.mark.parametrize(
+    ("box_declaration", "box_type", "box_new"),
+    [
+        (
+            "class Box {",
+            "Box",
+            "new Box(new Item(1))",
+        ),
+        (
+            "class Box<T> {",
+            "Box<int>",
+            "new Box<int>(new Item(1))",
+        ),
+    ],
+    ids=("ordinary", "generic"),
+)
+def test_managed_instance_field_stores_have_runtime_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    box_declaration: str,
+    box_type: str,
+    box_new: str,
+) -> None:
+    source = f"""
+        #include <assert.h>
+
+        int alive = 0;
+
+        class Item {{
+            public int id;
+            public Item(int id) {{ self.id = id; alive++; }}
+            public void __del__() {{ alive--; }}
+        }}
+
+        {box_declaration}
+            public Item saved;
+            public Box(Item saved) {{ self.saved = saved; }}
+            public void preserve() {{ self.saved = self.saved; }}
+            public void replace(Item replacement) {{
+                self.saved = replacement;
+            }}
+            public void adoptFresh(int id) {{
+                self.saved = new Item(id);
+            }}
+        }}
+
+        int main() {{
+            {box_type} box = {box_new};
+            assert(alive == 1);
+            assert(box.saved.id == 1);
+            box.preserve();
+            assert(alive == 1);
+            box.replace(new Item(2));
+            assert(alive == 1);
+            assert(box.saved.id == 2);
+            box.adoptFresh(3);
+            assert(alive == 1);
+            assert(box.saved.id == 3);
+            delete box;
+            assert(alive == 0);
+            return 0;
+        }}
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-managed-instance-field")
+    _strict_build_and_run(reference_source, tmp_path / "reference-managed-instance-field")
+
+
 def test_delete_of_parameterized_generic_class_runs_strictly(semantic_btrcc: Path, tmp_path: Path) -> None:
     source = """
         #include <assert.h>
@@ -74,6 +172,32 @@ def test_delete_of_parameterized_generic_class_runs_strictly(semantic_btrcc: Pat
         reference_generated,
         tmp_path / "reference-generic-delete",
     )
+
+
+def test_bare_generic_constructor_transfers_fresh_result_to_local(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        class Box<T> {
+            public Box(T value) { (void)value; }
+        }
+
+        int main() {
+            Box<int> value = Box(1);
+            delete value;
+            return 0;
+        }
+    """
+    selfhost, selfhost_source = _compile_source(semantic_btrcc, tmp_path, source)
+    reference, reference_source = _compile_reference_source(tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    emitted = selfhost_source.read_text()
+    assert "btrc_Box_int_new(1)" in emitted
+    assert "__btrc_arc_retain(value)" not in emitted
+    _strict_build_and_run(selfhost_source, tmp_path / "selfhost-bare-generic-constructor")
+    _strict_build_and_run(reference_source, tmp_path / "reference-bare-generic-constructor")
 
 
 def test_delete_of_bare_type_parameter_stays_rejected(semantic_btrcc: Path, tmp_path: Path) -> None:
@@ -154,6 +278,10 @@ def test_generic_scalar_result_is_not_misclassified_as_owned(
             "slot.value = new Item(); return 0; }",
             "shallow aggregate",
         ),
+        (
+            "class Item { public Item() {} } int main() { Item slots[1]; slots[0] = new Item(); return 0; }",
+            "shallow aggregate",
+        ),
     ],
 )
 def test_shallow_aggregate_temporaries_fail_with_compiler_parity(
@@ -186,9 +314,12 @@ def test_shallow_aggregates_accept_prebound_borrowed_references(semantic_btrcc: 
             (int, (Item, int)) nestedTuple = (2, (owner, 3));
             Slot slot = {owner};
             Payload payload = Payload.Some(owner);
+            Item slots[1];
+            slots[0] = owner;
             assert(tupleValue._1 == owner);
             assert(nestedTuple._1._0 == owner);
             assert(slot.value == owner);
+            assert(slots[0] == owner);
             assert(payload.data.Some.value == owner);
             return 0;
         }
@@ -242,6 +373,11 @@ def test_borrowed_rich_enum_default_remains_valid_with_compiler_parity(
 
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
+    emitted = selfhost_source.read_text()
+    helper = "__btrc_default_Payload_Some_1"
+    assert f"static char* {helper}(void);" in emitted
+    assert f"static char* {helper}(void) {{" in emitted
+    assert emitted.count(f"{helper}(") == 3
     _strict_build_and_run(selfhost_source, tmp_path / "selfhost-borrowed-default")
     _strict_build_and_run(reference_source, tmp_path / "reference-borrowed-default")
 

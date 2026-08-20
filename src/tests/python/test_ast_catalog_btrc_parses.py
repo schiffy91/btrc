@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import ParseError, Parser
@@ -14,11 +13,7 @@ _BTRC_AST = PurePosixPath("src/compiler/btrc/generated/ast/node.btrc")
 
 
 def _generate_btrc() -> str:
-    artifact = next(
-        artifact
-        for artifact in AstCatalogGenerator(_ROOT).artifacts()
-        if artifact.path == _BTRC_AST
-    )
+    artifact = next(artifact for artifact in AstCatalogGenerator(_ROOT).artifacts() if artifact.path == _BTRC_AST)
     return artifact.content.decode("utf-8")
 
 
@@ -63,8 +58,6 @@ def test_node_typed_fields_use_the_fat_node_owner():
         for declaration in program.declarations
         if isinstance(declaration, ClassDecl) and declaration.name == "Node"
     )
-    field_types = {
-        member.type.base for member in node.members if isinstance(member, FieldDecl)
-    }
+    field_types = {member.type.base for member in node.members if isinstance(member, FieldDecl)}
     assert "Node" in field_types
     assert "expr" not in field_types

@@ -674,7 +674,7 @@ class SemanticTypeSystem {
     class Node? genericMember(
             Analyzed analyzed, string base, string member) {
         analyzed.requireMemberIndex();
-        string key = base + "." + member;
+        string key = Analyzed.memberKey(base, member);
         if (analyzed.genericMemberIndex.has(key)) {
             return analyzed.genericMemberIndex.get(key);
         }

@@ -467,7 +467,6 @@ class PackageUniverse:
         )
 
 
-
 class GitDependencyCache:
     """Own Git execution, ref pinning, and immutable checkout publication."""
 

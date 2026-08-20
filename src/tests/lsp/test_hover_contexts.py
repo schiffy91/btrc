@@ -2,8 +2,7 @@
 loop var, parallel-for var, catch var, else-if block, switch case — plus type
 inference from constructor and `new` initializers."""
 
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import analyze, get_hover_info, hover_text, pos_of
 
 SRC = """\
 import std.vector;

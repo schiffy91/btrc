@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 3
 marker_version = 1
 freestanding_header = "btrc_rt.h"
 
@@ -1304,6 +1304,20 @@ category = "cycles"
 asset = "cycles.c"
 dependencies = []
 headers = []
+provided_types = [
+  "__btrc_arc_count",
+  "__btrc_arc_type",
+  "__btrc_arc_incoming",
+  "__btrc_arc_state",
+  "__btrc_arc_header",
+  "__btrc_destroy_fn",
+  "__btrc_arc_slot_access_fn",
+  "__btrc_field_visit_fn",
+  "__btrc_visit_fn",
+  "__btrc_hook_fn",
+  "__btrc_hook_guard_fn",
+  "__btrc_raise_fn",
+]
 source_visible = false
 order = { python = 127, btrc = 98 }
 
@@ -2158,20 +2172,34 @@ source_visible = true
 order = { python = 201, btrc = 186 }
 
 [[helpers]]
+name = "__btrc_thread_types"
+category = "threads"
+asset = "threads.c"
+dependencies = ["__btrc_arc_callback_types"]
+headers = ["pthread.h"]
+provided_types = [
+  "__btrc_thread_result_dispose",
+  "__btrc_thread_arg_dispose",
+  "__btrc_thread_t",
+]
+source_visible = false
+order = { python = 202, btrc = 187 }
+
+[[helpers]]
 name = "__btrc_thread_spawn"
 category = "threads"
 asset = "threads.c"
 dependencies = [
+  "__btrc_thread_types",
   "__btrc_safe_realloc",
   "__btrc_try_state_cleanup",
   "__btrc_arc_thread_state_cleanup",
-  "__btrc_arc_callback_types",
   "__btrc_arc_guard_hook",
   "__btrc_throw",
 ]
 headers = ["pthread.h", "string.h"]
 source_visible = false
-order = { python = 202, btrc = 187 }
+order = { python = 203, btrc = 188 }
 
 [[helpers]]
 name = "__btrc_thread_finish"
@@ -2180,7 +2208,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn"]
 headers = []
 source_visible = false
-order = { python = 203, btrc = 188 }
+order = { python = 204, btrc = 189 }
 
 [[helpers]]
 name = "__btrc_thread_destroy_handle"
@@ -2189,7 +2217,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn"]
 headers = []
 source_visible = false
-order = { python = 204, btrc = 189 }
+order = { python = 205, btrc = 190 }
 
 [[helpers]]
 name = "__btrc_thread_box_dispose"
@@ -2198,7 +2226,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn"]
 headers = []
 source_visible = false
-order = { python = 205, btrc = 190 }
+order = { python = 206, btrc = 191 }
 
 [[helpers]]
 name = "__btrc_thread_arc_dispose"
@@ -2207,7 +2235,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn", "__btrc_arc_release", "__btrc_flush_cycles"]
 headers = []
 source_visible = false
-order = { python = 206, btrc = 191 }
+order = { python = 207, btrc = 192 }
 
 [[helpers]]
 name = "__btrc_thread_string_dispose"
@@ -2216,7 +2244,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn", "__btrc_string_release"]
 headers = []
 source_visible = false
-order = { python = 207, btrc = 192 }
+order = { python = 208, btrc = 193 }
 
 [[helpers]]
 name = "__btrc_thread_dispose_guarded"
@@ -2225,7 +2253,7 @@ asset = "threads.c"
 dependencies = ["__btrc_thread_spawn", "__btrc_arc_guard_hook"]
 headers = []
 source_visible = false
-order = { python = 208, btrc = 193 }
+order = { python = 209, btrc = 194 }
 
 [[helpers]]
 name = "__btrc_thread_join"
@@ -2239,7 +2267,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 209, btrc = 194 }
+order = { python = 210, btrc = 195 }
 
 [[helpers]]
 name = "__btrc_thread_free"
@@ -2253,7 +2281,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 210, btrc = 195 }
+order = { python = 211, btrc = 196 }
 
 [[helpers]]
 name = "__btrc_mutex_val_types"
@@ -2261,8 +2289,14 @@ category = "threads"
 asset = "mutex.c"
 dependencies = ["__btrc_arc_callback_types"]
 headers = ["pthread.h"]
+provided_types = [
+  "__btrc_mutex_value_access",
+  "__btrc_mutex_value_callback",
+  "__btrc_mutex_finalize_callback",
+  "__btrc_mutex_val_t",
+]
 source_visible = false
-order = { python = 211, btrc = 196 }
+order = { python = 212, btrc = 197 }
 
 [[helpers]]
 name = "__btrc_mutex_value_callback_guard"
@@ -2271,7 +2305,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_arc_guard_hook"]
 headers = []
 source_visible = false
-order = { python = 212, btrc = 197 }
+order = { python = 213, btrc = 198 }
 
 [[helpers]]
 name = "__btrc_mutex_finalize_callback_guard"
@@ -2280,7 +2314,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_arc_guard_hook"]
 headers = []
 source_visible = false
-order = { python = 213, btrc = 198 }
+order = { python = 214, btrc = 199 }
 
 [[helpers]]
 name = "__btrc_mutex_val_create"
@@ -2294,7 +2328,7 @@ dependencies = [
 ]
 headers = ["string.h"]
 source_visible = false
-order = { python = 214, btrc = 205 }
+order = { python = 215, btrc = 206 }
 
 [[helpers]]
 name = "__btrc_mutex_arc_retain"
@@ -2303,7 +2337,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_arc_retain", "__btrc_arc_retain_edge"]
 headers = []
 source_visible = false
-order = { python = 215, btrc = 199 }
+order = { python = 216, btrc = 200 }
 
 [[helpers]]
 name = "__btrc_mutex_arc_release"
@@ -2317,7 +2351,7 @@ dependencies = [
 ]
 headers = []
 source_visible = false
-order = { python = 216, btrc = 200 }
+order = { python = 217, btrc = 201 }
 
 [[helpers]]
 name = "__btrc_mutex_arc_finalize"
@@ -2326,7 +2360,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_flush_cycles"]
 headers = []
 source_visible = false
-order = { python = 217, btrc = 201 }
+order = { python = 218, btrc = 202 }
 
 [[helpers]]
 name = "__btrc_mutex_string_retain"
@@ -2335,7 +2369,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_string_retain"]
 headers = []
 source_visible = false
-order = { python = 218, btrc = 202 }
+order = { python = 219, btrc = 203 }
 
 [[helpers]]
 name = "__btrc_mutex_string_release"
@@ -2344,7 +2378,7 @@ asset = "mutex.c"
 dependencies = ["__btrc_mutex_val_types", "__btrc_string_release"]
 headers = []
 source_visible = false
-order = { python = 219, btrc = 203 }
+order = { python = 220, btrc = 204 }
 
 [[helpers]]
 name = "__btrc_mutex_arc_type"
@@ -2358,8 +2392,9 @@ dependencies = [
   "__btrc_throw",
 ]
 headers = ["stdio.h", "stdlib.h"]
+provided_objects = ["__btrc_mutex_arc_descriptor"]
 source_visible = false
-order = { python = 220, btrc = 204 }
+order = { python = 221, btrc = 205 }
 
 [[helpers]]
 name = "__btrc_mutex_val_get"
@@ -2375,7 +2410,7 @@ dependencies = [
 ]
 headers = ["string.h"]
 source_visible = false
-order = { python = 221, btrc = 206 }
+order = { python = 222, btrc = 207 }
 
 [[helpers]]
 name = "__btrc_mutex_val_set"
@@ -2390,4 +2425,4 @@ dependencies = [
 ]
 headers = ["string.h"]
 source_visible = false
-order = { python = 222, btrc = 207 }
+order = { python = 223, btrc = 208 }

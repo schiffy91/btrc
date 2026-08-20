@@ -1,4 +1,6 @@
+import std.map;
 import std.vector;
+import ../../../analyzer/declarations.btrc;
 import ../../../analyzer/generics.btrc;
 import ../../../analyzer/models.btrc;
 import ../../../analyzer/ownership/cycles.btrc;
@@ -12,6 +14,119 @@ import ./lifetime.btrc;
 import ./operands.btrc;
 
 /* ARC representation metadata and typed managed-slot planning. */
+
+class ManagedInstanceFieldStorePlan {
+    public Node receiverType;
+    public string receiverCType;
+    public Node fieldType;
+    public string storageCType;
+    public string storageName;
+
+    public ManagedInstanceFieldStorePlan(
+            Node receiverType, string receiverCType,
+            Node fieldType, string storageCType,
+            string storageName) {
+        self.receiverType = receiverType;
+        self.receiverCType = receiverCType;
+        self.fieldType = fieldType;
+        self.storageCType = storageCType;
+        self.storageName = storageName;
+    }
+}
+
+class ManagedStaticFieldStorePlan {
+    public Node fieldType;
+    public string storageCType;
+    public string storageName;
+
+    public ManagedStaticFieldStorePlan(
+            Node fieldType, string storageCType,
+            string storageName) {
+        self.fieldType = fieldType;
+        self.storageCType = storageCType;
+        self.storageName = storageName;
+    }
+}
+
+class ManagedIdentifierStorePlan {
+    public Node valueType;
+    public string storageCType;
+    public string storageName;
+
+    public ManagedIdentifierStorePlan(
+            Node valueType, string storageCType,
+            string storageName) {
+        self.valueType = valueType;
+        self.storageCType = storageCType;
+        self.storageName = storageName;
+    }
+}
+
+/* One semantic classification for the managed physical storage kinds that can
+ * participate in a compound update. Virtual properties/indexers never produce
+ * this plan: the analyzer rejects managed compound updates through them. */
+enum ManagedCompoundStoreKind {
+    MANAGED_COMPOUND_OWNED_SLOT = 1,
+    MANAGED_COMPOUND_STATIC_FIELD = 2,
+    MANAGED_COMPOUND_INSTANCE_FIELD = 3,
+};
+
+class ManagedCompoundStorePlan {
+    public int kind;
+    public Node valueType;
+    public string storageCType;
+    public string storageName;
+    public Node? receiverType;
+    public string receiverCType;
+
+    public ManagedCompoundStorePlan(
+            int kind, Node valueType, string storageCType,
+            string storageName, Node? receiverType,
+            string receiverCType) {
+        self.kind = kind;
+        self.valueType = valueType;
+        self.storageCType = storageCType;
+        self.storageName = storageName;
+        self.receiverType = receiverType;
+        self.receiverCType = receiverCType;
+    }
+}
+
+/* A source-ordered managed update after its physical target, old value, and
+ * right-hand value have been stabilized. Expression lowering computes the
+ * typed operator exactly once; this owner performs the only storage commit. */
+class ManagedCompoundStore {
+    public ManagedCompoundStorePlan plan;
+    public Vector<IRNode> declarations;
+    public Vector<IRNode> sequence;
+    public IRNode slot;
+    public IRNode owner;
+    public IRNode oldValue;
+    public IRNode rightValue;
+    public IRNode replacement;
+    public IRNode? replacementDeclaration;
+    public Node rightType;
+    public string rightCType;
+    public bool rightOwned;
+    public bool rightKeep;
+
+    public ManagedCompoundStore(
+            ManagedCompoundStorePlan plan, Node rightType) {
+        self.plan = plan;
+        self.declarations = [];
+        self.sequence = [];
+        self.slot = IRNode.literal("NULL");
+        self.owner = IRNode.literal("NULL");
+        self.oldValue = IRNode.literal("NULL");
+        self.rightValue = IRNode.literal("NULL");
+        self.replacement = IRNode.literal("NULL");
+        self.replacementDeclaration = null;
+        self.rightType = rightType;
+        self.rightCType = "";
+        self.rightOwned = false;
+        self.rightKeep = false;
+    }
+}
 
 class ManagedReleaseSlotPlan {
     public Node expression;
@@ -160,6 +275,595 @@ class ManagedTypeLowerer {
     public ManagedReleaseSlotPlan planRelease(Node expression,
             OwnershipOperandEnvironment environment) {
         return self.releaseSlots.plan(expression, environment);
+    }
+
+    private Node bodyStorageType(Node typeExpr) {
+        return self.cTypes.resolveBodyType(
+            typeExpr, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0);
+    }
+
+    /* Semantic dispatch and runtime ownership always consume a canonical
+     * typedef-free type.  Physical storage retains the exact post-generic C
+     * declarator spelling independently via the plan's storageCType. */
+    private Node canonicalStorageType(Node typeExpr) {
+        Node bodyType = self.bodyStorageType(typeExpr);
+        Node? canonical = SemanticTypeSystem.resolveTypedefType(
+            bodyType, self.analyzed.typedefTable);
+        if (canonical == null) {
+            print("internal compiler error: managed storage has no canonical semantic type");
+            exit(1);
+        }
+        Node concrete = canonical;
+        return concrete;
+    }
+
+    /* Class-access managed fields are translation-unit strong roots, not
+     * object-owned ARC edges. Classify them separately so a store can replace
+     * the root's exact +1 without inventing an edge owner. */
+    private ManagedStaticFieldStorePlan? staticFieldStorePlan(
+            Node? target, Map<string, Node> variableTypes) {
+        if (target == null
+                || target.kind != NK_FIELD_ACCESS_EXPR
+                || target.obj == null
+                || target.obj.kind != NK_IDENTIFIER
+                || variableTypes.has(target.obj.name)
+                || !self.analyzed.isClass(target.obj.name)) {
+            return null;
+        }
+        Node? member = self.analyzed.classMember(
+            target.obj.name, target.field);
+        if (member == null || member.kind != NK_FIELD_DECL
+                || member.access != "class") {
+            return null;
+        }
+        Node physicalField = self.bodyStorageType(member.type);
+        Node concreteField = self.canonicalStorageType(
+            physicalField);
+        if (!self.managedValues.isManaged(concreteField)) {
+            return null;
+        }
+        return ManagedStaticFieldStorePlan(
+            concreteField, self.cTypes.lower(physicalField),
+            target.obj.name + "_" + member.name);
+    }
+
+    public ManagedStaticFieldStorePlan? planStaticFieldStore(
+            Node assignment, Map<string, Node> variableTypes) {
+        if (assignment.op != "=") { return null; }
+        return self.staticFieldStorePlan(
+            assignment.target, variableTypes);
+    }
+
+    /* A managed identifier is a persistent strong slot only when it names the
+     * exact registered local storage or a defined top-level global. Parameters,
+     * borrowed loop bindings, lexical externs, and extern-only globals have an
+     * active lexical identity but no registered owned local and therefore never
+     * fall through to the global case. */
+    private ManagedIdentifierStorePlan? identifierStorePlan(
+            Node? target, Node? targetType) {
+        if (target == null || target.kind != NK_IDENTIFIER) {
+            return null;
+        }
+        string sourceName = target.name;
+        string storageName = self.context.sourceCName(sourceName);
+        Node? registeredType =
+            self.lifetime.managedLocalValueType(storageName);
+        if (registeredType != null) {
+            Node concreteRegistered = self.canonicalStorageType(
+                registeredType);
+            if (!self.managedValues.isManaged(concreteRegistered)) {
+                print("internal compiler error: registered managed slot has an unmanaged semantic type");
+                exit(1);
+            }
+            string storageCType =
+                self.lifetime.managedLocalStorageCType(storageName);
+            if (storageCType == "") {
+                print("internal compiler error: registered managed slot has no physical C type");
+                exit(1);
+            }
+            return ManagedIdentifierStorePlan(
+                concreteRegistered, storageCType, storageName);
+        }
+        if (targetType == null) { return null; }
+        bool definedGlobal = !self.context.sourceCNameActive(storageName)
+            && self.analyzed.globalVarTypes.has(sourceName)
+            && self.analyzed.globalHasDefinition.has(sourceName);
+        if (!definedGlobal) { return null; }
+        Node physicalType = self.bodyStorageType(
+            self.analyzed.globalVarTypes.get(sourceName));
+        Node concreteType = self.canonicalStorageType(physicalType);
+        if (!self.managedValues.isManaged(concreteType)) { return null; }
+        return ManagedIdentifierStorePlan(
+            concreteType, self.cTypes.lower(physicalType), storageName);
+    }
+
+    public ManagedIdentifierStorePlan? planIdentifierStore(
+            Node assignment, Node? targetType) {
+        if (assignment.op != "=") { return null; }
+        return self.identifierStorePlan(
+            assignment.target, targetType);
+    }
+
+    /* Commit one already-owned replacement into a persistent strong root. The
+     * current slot value is loaded at commit time because the RHS of a compound
+     * update may itself mutate the same storage after the old operand snapshot. */
+    private void appendStrongSlotCommit(
+            Vector<IRNode> declarations,
+            Vector<IRNode> sequence,
+            IRNode slot, IRNode value, Node valueType,
+            string storageCType) {
+        string currentName =
+            self.context.freshTemporary("__btrc_store_current");
+        IRNode currentDeclaration = IRNode.variableDeclaration(
+            storageCType, currentName,
+            IRNode.literal("NULL"));
+        self.context.recordLocal(currentDeclaration);
+        declarations.push(currentDeclaration);
+        IRNode currentValue = IRNode.variable(currentName);
+        sequence.push(IRNode.binary(currentValue, "=", slot));
+        sequence.push(IRNode.binary(slot, "=", value));
+        sequence.push(IRNode.binary(
+            value, "=", IRNode.literal("NULL")));
+        sequence.push(self.lifetime.releaseValue(
+            currentValue, valueType));
+        string runtimeType = self.managedValues.runtimeType(valueType);
+        if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
+            sequence.push(self.lifetime.pollCycles());
+        }
+    }
+
+    /* Replace one strong managed slot after its replacement has been
+     * stabilized and protected for exception unwinding. Retaining a borrow
+     * before loading/releasing the current value makes self-assignment safe;
+     * an owned replacement transfers directly. */
+    private void appendStrongSlotReplacement(
+            Vector<IRNode> declarations,
+            Vector<IRNode> sequence,
+            IRNode valueDeclaration, IRNode slot, IRNode value,
+            Node valueType, string storageCType,
+            bool valueOwned) {
+        if (!valueOwned) {
+            sequence.push(self.lifetime.retainValue(
+                value, valueType));
+        }
+        IRNode? protection = self.lifetime.cleanupRegistration(
+            valueDeclaration,
+            self.managedValues.runtimeType(valueType));
+        if (protection != null) { sequence.push(protection); }
+        self.appendStrongSlotCommit(
+            declarations, sequence, slot, value,
+            valueType, storageCType);
+    }
+
+    private IRNode materializeStrongSlotStore(
+            Node valueType, string storageCType,
+            string storageName,
+            IRNode loweredValue, bool valueOwned) {
+        string valueName =
+            self.context.freshTemporary("__btrc_store_value");
+        IRNode valueDeclaration = IRNode.variableDeclaration(
+            storageCType, valueName,
+            IRNode.literal("NULL"));
+        self.context.recordLocal(valueDeclaration);
+        Vector<IRNode> declarations = [];
+        declarations.push(valueDeclaration);
+        IRNode value = IRNode.variable(valueName);
+        IRNode slot = IRNode.variable(storageName);
+        Vector<IRNode> sequence = [];
+        sequence.push(IRNode.binary(value, "=", loweredValue));
+        self.appendStrongSlotReplacement(
+            declarations, sequence, valueDeclaration, slot, value,
+            valueType, storageCType, valueOwned);
+        sequence.push(slot);
+        return IRNode.statementExpression(
+            declarations, IRNode.commaExpression(sequence));
+    }
+
+    public IRNode materializeIdentifierStore(
+            ManagedIdentifierStorePlan plan,
+            IRNode loweredValue, bool valueOwned) {
+        return self.materializeStrongSlotStore(
+            plan.valueType, plan.storageCType,
+            plan.storageName,
+            loweredValue, valueOwned);
+    }
+
+    public IRNode materializeStaticFieldStore(
+            ManagedStaticFieldStorePlan plan,
+            IRNode loweredValue, bool valueOwned) {
+        return self.materializeStrongSlotStore(
+            plan.fieldType, plan.storageCType,
+            plan.storageName,
+            loweredValue, valueOwned);
+    }
+
+    /* Classify the one physical storage shape whose assignment mutates ARC
+     * topology. Virtual properties remain calls; only the active accessor may
+     * address its compiler-owned backing as an instance field. Class-access
+     * fields use the strong-root plan above, and struct/shallow projections
+     * remain plain C stores. */
+    private ManagedInstanceFieldStorePlan? instanceFieldStorePlan(
+            Node? target, Node? receiverType) {
+        if (target == null
+                || target.kind != NK_FIELD_ACCESS_EXPR
+                || target.obj == null
+                || receiverType == null) {
+            return null;
+        }
+        Node physicalReceiver = self.bodyStorageType(receiverType);
+        Node concreteReceiver = self.canonicalStorageType(
+            physicalReceiver);
+        if (!self.managedValues.isClass(concreteReceiver)) {
+            return null;
+        }
+        Node? member = DeclarationRegistry.instanceMemberForType(
+            self.analyzed, concreteReceiver, target.field);
+        if (member == null) { return null; }
+        bool backingProperty = member.kind == NK_PROPERTY_DECL
+            && DeclarationRegistry.propertyNeedsBacking(member)
+            && DeclarationRegistry.propertyTargetUsesBacking(
+                target.obj, target.field,
+                self.context.currentPropertyBacking);
+        if ((member.kind != NK_FIELD_DECL && !backingProperty)
+                || member.access == "class") {
+            return null;
+        }
+        string storageName =
+            DeclarationRegistry.instanceStorageName(member);
+        if (storageName == "") { return null; }
+        Node? memberType = DeclarationRegistry.resolvedInstanceMemberType(
+            self.analyzed, concreteReceiver, member);
+        if (memberType == null) { return null; }
+        Node physicalField = self.bodyStorageType(memberType);
+        Node concreteField = self.canonicalStorageType(
+            physicalField);
+        if (!self.managedValues.isManaged(concreteField)) {
+            return null;
+        }
+        return ManagedInstanceFieldStorePlan(
+            concreteReceiver, self.cTypes.lower(physicalReceiver),
+            concreteField, self.cTypes.lower(physicalField),
+            storageName);
+    }
+
+    public ManagedInstanceFieldStorePlan? planInstanceFieldStore(
+            Node assignment, Node? receiverType) {
+        if (assignment.op != "=") { return null; }
+        return self.instanceFieldStorePlan(
+            assignment.target, receiverType);
+    }
+
+    /* Managed compound updates are legal only for owned physical storage.
+     * Classify the exact same local/global, class-static, and object-field
+     * domains used by simple stores; virtual properties and indexed setters
+     * cannot enter this transaction. */
+    public ManagedCompoundStorePlan? planCompoundStore(
+            Node assignment, Node? targetType, Node? receiverType,
+            Map<string, Node> variableTypes) {
+        if (assignment.op == "=" || assignment.op.length() <= 1) {
+            return null;
+        }
+        ManagedIdentifierStorePlan? identifier =
+            self.identifierStorePlan(
+                assignment.target, targetType);
+        if (identifier != null) {
+            ManagedIdentifierStorePlan concreteIdentifier = identifier;
+            return ManagedCompoundStorePlan(
+                MANAGED_COMPOUND_OWNED_SLOT,
+                concreteIdentifier.valueType,
+                concreteIdentifier.storageCType,
+                concreteIdentifier.storageName, null, "");
+        }
+        ManagedStaticFieldStorePlan? staticField =
+            self.staticFieldStorePlan(
+                assignment.target, variableTypes);
+        if (staticField != null) {
+            ManagedStaticFieldStorePlan concreteStatic = staticField;
+            return ManagedCompoundStorePlan(
+                MANAGED_COMPOUND_STATIC_FIELD,
+                concreteStatic.fieldType,
+                concreteStatic.storageCType,
+                concreteStatic.storageName, null, "");
+        }
+        ManagedInstanceFieldStorePlan? instanceField =
+            self.instanceFieldStorePlan(
+                assignment.target, receiverType);
+        if (instanceField != null) {
+            ManagedInstanceFieldStorePlan concreteInstance =
+                instanceField;
+            return ManagedCompoundStorePlan(
+                MANAGED_COMPOUND_INSTANCE_FIELD,
+                concreteInstance.fieldType,
+                concreteInstance.storageCType,
+                concreteInstance.storageName,
+                concreteInstance.receiverType,
+                concreteInstance.receiverCType);
+        }
+        return null;
+    }
+
+    /* A managed compound result may only commit through one of the physical
+     * plans above.  This catches specialized properties/indexers, parameters,
+     * and shallow aggregate projections that would otherwise fall through to
+     * a raw C compound assignment after resolving to a managed value. */
+    public bool requiresManagedCompoundStore(
+            Node assignment, Node? targetType) {
+        if (assignment.op == "=" || assignment.op.length() <= 1
+                || targetType == null) {
+            return false;
+        }
+        return self.managedValues.isManaged(
+            self.canonicalStorageType(targetType));
+    }
+
+    /* Evaluate receiver and replacement once, then commit exactly one
+     * persistent ownership unit. ARC fields use the topology transaction;
+     * managed strings use the equivalent retain/store/release slot atom. The
+     * final slot load preserves source assignment-value semantics. */
+    public IRNode materializeInstanceFieldStore(
+            ManagedInstanceFieldStorePlan plan,
+            IRNode loweredReceiver, IRNode loweredValue,
+            bool valueOwned) {
+        string receiverName =
+            self.context.freshTemporary("__btrc_storage_receiver");
+        string valueName =
+            self.context.freshTemporary("__btrc_store_value");
+        IRNode receiverDeclaration = IRNode.variableDeclaration(
+            plan.receiverCType, receiverName,
+            IRNode.literal("NULL"));
+        IRNode valueDeclaration = IRNode.variableDeclaration(
+            plan.storageCType, valueName,
+            IRNode.literal("NULL"));
+        self.context.recordLocal(receiverDeclaration);
+        self.context.recordLocal(valueDeclaration);
+        Vector<IRNode> declarations = [];
+        declarations.push(receiverDeclaration);
+        declarations.push(valueDeclaration);
+        IRNode receiver = IRNode.variable(receiverName);
+        IRNode value = IRNode.variable(valueName);
+        IRNode slot = IRNode.fieldAccess(
+            receiver, plan.storageName, true);
+        Vector<IRNode> sequence = [];
+        sequence.push(IRNode.binary(
+            receiver, "=", loweredReceiver));
+        sequence.push(IRNode.binary(value, "=", loweredValue));
+        if (self.managedValues.isArc(plan.fieldType)) {
+            self.appendArcFieldPublication(
+                declarations, sequence, valueDeclaration,
+                slot, value, plan.fieldType,
+                plan.storageCType, receiver, valueOwned);
+        } else {
+            self.appendStrongSlotReplacement(
+                declarations, sequence, valueDeclaration, slot, value,
+                plan.fieldType, plan.storageCType,
+                valueOwned);
+        }
+        sequence.push(slot);
+        return IRNode.statementExpression(
+            declarations, IRNode.commaExpression(sequence));
+    }
+
+    private void appendCleanupProtection(
+            Vector<IRNode> sequence, IRNode declaration,
+            Node valueType) {
+        IRNode? protection = self.lifetime.cleanupRegistration(
+            declaration,
+            self.managedValues.runtimeType(valueType));
+        if (protection != null) { sequence.push(protection); }
+    }
+
+    private void appendReleaseAndClear(
+            Vector<IRNode> declarations,
+            Vector<IRNode> sequence, IRNode value,
+            Node valueType, string valueCType,
+            string prefix) {
+        string handoffName = self.context.freshTemporary(prefix);
+        IRNode handoffDeclaration = IRNode.variableDeclaration(
+            valueCType, handoffName,
+            IRNode.literal("NULL"));
+        self.context.recordLocal(handoffDeclaration);
+        declarations.push(handoffDeclaration);
+        IRNode handoff = IRNode.variable(handoffName);
+        sequence.push(IRNode.binary(handoff, "=", value));
+        sequence.push(IRNode.binary(
+            value, "=", IRNode.literal("NULL")));
+        sequence.push(self.lifetime.releaseValue(
+            handoff, valueType));
+    }
+
+    /* Publish an ARC field through one exception-safe atom.  An owned caller
+     * unit remains cleanup-protected while replaceEdge retains the edge with
+     * adopt=false.  Only a successful return permits clear-before-release of
+     * that caller unit, so both pre-commit validation throws and post-commit
+     * deferred-destructor throws have exactly one live cleanup path. */
+    private void appendArcFieldPublication(
+            Vector<IRNode> declarations,
+            Vector<IRNode> sequence,
+            IRNode valueDeclaration,
+            IRNode slot, IRNode value,
+            Node valueType, string storageCType,
+            IRNode owner, bool valueOwned) {
+        if (valueOwned) {
+            self.appendCleanupProtection(
+                sequence, valueDeclaration, valueType);
+        }
+        sequence.push(self.lifetime.replaceTypedEdge(
+            slot, value, valueType, storageCType,
+            owner, false));
+        if (valueOwned) {
+            self.appendReleaseAndClear(
+                declarations, sequence, value,
+                valueType, storageCType,
+                "__btrc_store_value_handoff");
+            string runtimeType = self.managedValues.runtimeType(
+                valueType);
+            if (self.cycles.runtimeTypeMayCycle(runtimeType)) {
+                sequence.push(self.lifetime.pollCycles());
+            }
+        }
+    }
+
+    /* Stabilize the physical target and pin its loaded value before any RHS
+     * effect. Every temporary that owns a +1 is cleanup-registered before the
+     * next throwing operation. */
+    public ManagedCompoundStore prepareCompoundStore(
+            ManagedCompoundStorePlan plan,
+            IRNode? loweredReceiver, IRNode loweredRight,
+            Node rightType, bool rightOwned, bool rightKeep) {
+        ManagedCompoundStore update =
+            ManagedCompoundStore(plan, rightType);
+
+        if (plan.kind == MANAGED_COMPOUND_INSTANCE_FIELD) {
+            if (plan.receiverType == null || loweredReceiver == null) {
+                print("internal compiler error: managed instance update has no receiver");
+                exit(1);
+            }
+            Node concreteReceiverType = plan.receiverType;
+            IRNode concreteReceiver = loweredReceiver;
+            string receiverName = self.context.freshTemporary(
+                "__btrc_storage_receiver");
+            IRNode receiverDeclaration = IRNode.variableDeclaration(
+                plan.receiverCType, receiverName,
+                IRNode.literal("NULL"));
+            self.context.recordLocal(receiverDeclaration);
+            update.declarations.push(receiverDeclaration);
+            update.owner = IRNode.variable(receiverName);
+            update.sequence.push(IRNode.binary(
+                update.owner, "=", concreteReceiver));
+            update.slot = IRNode.fieldAccess(
+                update.owner, plan.storageName, true);
+        } else {
+            update.slot = IRNode.variable(plan.storageName);
+        }
+
+        string oldName = self.context.freshTemporary(
+            "__btrc_update_old");
+        string rightName = self.context.freshTemporary(
+            "__btrc_update_rhs");
+        string replacementName = self.context.freshTemporary(
+            "__btrc_update_new");
+        IRNode oldDeclaration = IRNode.variableDeclaration(
+            plan.storageCType, oldName,
+            IRNode.literal("NULL"));
+        Node physicalRightType = self.bodyStorageType(rightType);
+        Node concreteRightType = self.canonicalStorageType(
+            physicalRightType);
+        bool rightManaged = self.managedValues.isManaged(
+            concreteRightType);
+        IRNode? rightInitializer = null;
+        if (rightManaged) { rightInitializer = IRNode.literal("NULL"); }
+        IRNode rightDeclaration = IRNode.variableDeclaration(
+            self.cTypes.lower(physicalRightType), rightName,
+            rightInitializer);
+        IRNode replacementDeclaration = IRNode.variableDeclaration(
+            plan.storageCType, replacementName,
+            IRNode.literal("NULL"));
+        self.context.recordLocal(oldDeclaration);
+        self.context.recordLocal(rightDeclaration);
+        self.context.recordLocal(replacementDeclaration);
+        update.declarations.push(oldDeclaration);
+        update.declarations.push(rightDeclaration);
+        update.declarations.push(replacementDeclaration);
+        update.oldValue = IRNode.variable(oldName);
+        update.rightValue = IRNode.variable(rightName);
+        update.replacement = IRNode.variable(replacementName);
+        update.replacementDeclaration = replacementDeclaration;
+        update.rightType = concreteRightType;
+        update.rightCType = self.cTypes.lower(physicalRightType);
+        update.rightOwned = rightManaged && rightOwned;
+        update.rightKeep = rightManaged && rightKeep;
+
+        update.sequence.push(IRNode.binary(
+            update.oldValue, "=", update.slot));
+        update.sequence.push(self.lifetime.retainValue(
+            update.oldValue, plan.valueType));
+        self.appendCleanupProtection(
+            update.sequence, oldDeclaration, plan.valueType);
+        update.sequence.push(IRNode.binary(
+            update.rightValue, "=", loweredRight));
+        if (update.rightKeep && !update.rightOwned) {
+            update.sequence.push(self.lifetime.retainValue(
+                update.rightValue, concreteRightType));
+        }
+        if (update.rightOwned || update.rightKeep) {
+            self.appendCleanupProtection(
+                update.sequence, rightDeclaration,
+                concreteRightType);
+        }
+        return update;
+    }
+
+    /* Adopt one computed replacement, then release every temporary +1 and
+     * yield the committed slot. ARC handoff clears the registered replacement
+     * before replaceEdge: deferred user destructors may throw after the runtime
+     * has already adopted the new edge. */
+    public IRNode materializeCompoundStore(
+            ManagedCompoundStore update, IRNode computed,
+            bool computedOwned) {
+        if (update.replacementDeclaration == null) {
+            print("internal compiler error: incomplete managed update transaction");
+            exit(1);
+        }
+        IRNode concreteReplacementDeclaration =
+            update.replacementDeclaration;
+        update.sequence.push(IRNode.binary(
+            update.replacement, "=", computed));
+        if (!computedOwned) {
+            update.sequence.push(self.lifetime.retainValue(
+                update.replacement, update.plan.valueType));
+        }
+        if (update.plan.kind == MANAGED_COMPOUND_INSTANCE_FIELD
+                && self.managedValues.isArc(
+                    update.plan.valueType)) {
+            self.appendArcFieldPublication(
+                update.declarations, update.sequence,
+                concreteReplacementDeclaration,
+                update.slot, update.replacement,
+                update.plan.valueType,
+                update.plan.storageCType,
+                update.owner, true);
+        } else {
+            self.appendCleanupProtection(
+                update.sequence, concreteReplacementDeclaration,
+                update.plan.valueType);
+            self.appendStrongSlotCommit(
+                update.declarations, update.sequence,
+                update.slot, update.replacement,
+                update.plan.valueType,
+                update.plan.storageCType);
+        }
+
+        if (update.rightOwned || update.rightKeep) {
+            self.appendReleaseAndClear(
+                update.declarations, update.sequence,
+                update.rightValue, update.rightType,
+                update.rightCType,
+                "__btrc_update_rhs_handoff");
+        }
+        self.appendReleaseAndClear(
+            update.declarations, update.sequence,
+            update.oldValue, update.plan.valueType,
+            update.plan.storageCType,
+            "__btrc_update_old_handoff");
+        string valueRuntime = self.managedValues.runtimeType(
+            update.plan.valueType);
+        bool cleanupMayCycle =
+            self.cycles.runtimeTypeMayCycle(valueRuntime);
+        if (update.rightOwned || update.rightKeep) {
+            cleanupMayCycle = cleanupMayCycle
+                || self.cycles.runtimeTypeMayCycle(
+                    self.managedValues.runtimeType(
+                        update.rightType));
+        }
+        if (cleanupMayCycle) {
+            update.sequence.push(self.lifetime.pollCycles());
+        }
+        update.sequence.push(update.slot);
+        return IRNode.statementExpression(
+            update.declarations,
+            IRNode.commaExpression(update.sequence));
     }
 
     public IRNode releaseField(string field, Node typeExpr) {

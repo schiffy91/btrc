@@ -11,10 +11,10 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.backend.c_emitter import CEmitter
-from src.compiler.python.ir.lowering.types import CodegenError
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -293,6 +293,96 @@ OWNERSHIP_SOURCE = r"""
 """
 
 
+MANAGED_REPLACEMENT_SOURCE = r"""
+    #include <assert.h>
+
+    int itemsAlive = 0;
+    int commandLinesAlive = 0;
+    int policiesAlive = 0;
+
+    class Item {
+        public Item() { itemsAlive++; }
+        public void __del__() { itemsAlive--; }
+    }
+
+    class Reassigner<T> {
+        public void run(T first, T second) {
+            T local = first;
+            local = second;
+            local = local;
+        }
+    }
+
+    class CommandLine {
+        public CommandLine() { commandLinesAlive++; }
+        public void __del__() { commandLinesAlive--; }
+    }
+
+    class ResolutionPolicy {
+        public ResolutionPolicy() { policiesAlive++; }
+        public void __del__() { policiesAlive--; }
+    }
+
+    class Vector<T> {
+        public T* data;
+        public int len;
+        public Vector() {
+            self.data = (T*)calloc(4, sizeof(T));
+            self.len = 0;
+        }
+        public T get(int index) { return self.data[index]; }
+        public void set(int index, T value) { self.data[index] = value; }
+        public void push(T value) { self.data[self.len] = value; self.len++; }
+    }
+
+    class Driver {
+        public CommandLine commandLine;
+        public string output;
+        public ResolutionPolicy? resolutionPolicy;
+        public Vector<string> sourceFiles;
+
+        public Driver() {
+            self.commandLine = new CommandLine();
+            self.output = "first";
+            self.resolutionPolicy = new ResolutionPolicy();
+            self.sourceFiles = [];
+        }
+
+        public void reset(CommandLine borrowed) {
+            self.commandLine = borrowed;
+            self.commandLine = self.commandLine;
+            self.output = "second";
+            self.resolutionPolicy = null;
+            self.sourceFiles = [];
+        }
+    }
+
+    int main() {
+        {
+            Item first = new Item();
+            Item second = new Item();
+            Item? nullable = first;
+            nullable = second;
+            nullable = nullable;
+            nullable = null;
+            Reassigner<Item> reassigner = new Reassigner<Item>();
+            reassigner.run(first, second);
+        }
+        assert(itemsAlive == 0);
+
+        {
+            CommandLine borrowed = new CommandLine();
+            Driver driver = new Driver();
+            assert(commandLinesAlive == 2 && policiesAlive == 1);
+            driver.reset(borrowed);
+            assert(commandLinesAlive == 1 && policiesAlive == 0);
+        }
+        assert(commandLinesAlive == 0 && policiesAlive == 0);
+        return 0;
+    }
+"""
+
+
 RETURN_PROJECTION_SOURCE = r"""
     #include <assert.h>
 
@@ -476,7 +566,9 @@ def _emit(source: str) -> str:
     program = Parser(Lexer(source, "<arc-ownership>").tokenize()).parse()
     analyzed = SemanticAnalyzer().analyze(program)
     assert analyzed.errors == []
-    return CEmitter().emit(IROptimizer(IRLowerer(analyzed).lower()).optimize())
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
+    return pipeline.emit(module)
 
 
 def _asan_environment(compiler: str) -> dict[str, str] | None:
@@ -561,6 +653,41 @@ def test_arc_ownership_is_balanced_at_runtime(tmp_path: Path, c_compiler: str):
     source = tmp_path / f"ownership-{Path(c_compiler).name}.c"
     executable = source.with_suffix("")
     source.write_text(_emit(OWNERSHIP_SOURCE))
+    compiled = subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            str(source),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(executable),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert compiled.returncode == 0, compiled.stderr
+    subprocess.run([str(executable)], check=True, timeout=15)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_managed_local_and_instance_field_replacement_is_balanced(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    source = tmp_path / f"managed-replacement-{Path(c_compiler).name}.c"
+    executable = source.with_suffix("")
+    emitted = _emit(MANAGED_REPLACEMENT_SOURCE)
+    source.write_text(emitted)
+    assert "__btrc_slot_new_" in emitted
+    assert "__btrc_arc_replace_edge" in emitted
     compiled = subprocess.run(
         [
             c_compiler,
@@ -737,14 +864,49 @@ def test_shallow_aggregates_accept_explicit_borrowed_elements():
             (int, Item) tupleValue = (1, owner);
             Slot slot = {owner};
             Payload payload = Payload.Some(owner);
+            Item slots[1];
+            slot.value = owner;
+            slots[0] = owner;
             assert(tupleValue._1 == owner);
             assert(slot.value == owner);
+            assert(slots[0] == owner);
             assert(payload.data.Some.value == owner);
             return 0;
         }
         """
     )
     assert "Payload_Some(owner)" in emitted
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        """
+        class Item { public Item() {} }
+        Item makeItem() { return new Item(); }
+        enum class Payload { Some(Item value) }
+        int main() {
+            Payload payload = Payload.Some(makeItem());
+            return 0;
+        }
+        """,
+        """
+        class Item {
+            public Item() {}
+            public string toString() { return "item"; }
+        }
+        enum class Payload { Some(string value) }
+        int main() {
+            Item owner = new Item();
+            Payload payload = Payload.Some(owner);
+            return 0;
+        }
+        """,
+    ],
+)
+def test_rich_enum_payload_rejects_owned_calls_and_conversions(source: str):
+    with pytest.raises(CodegenError, match=r"rich-enum payload 'Payload\.Some'"):
+        _emit(source)
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires an AddressSanitizer compiler")

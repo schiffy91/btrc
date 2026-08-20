@@ -3,8 +3,7 @@
 from lsprotocol import types as lsp
 
 from src.devex.lsp.protocol.server import BtrcLanguageServer
-from src.tests.lsp.lsphelp import get_document_highlights
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import analyze, get_document_highlights, pos_of
 
 srv = BtrcLanguageServer(debounce_seconds=0)
 

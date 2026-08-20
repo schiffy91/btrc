@@ -1,0 +1,1 @@
+{"asset":"process.c","btrc_order":180,"category":"process","dependencies":[],"headers":["errno.h","sys/stat.h","unistd.h"],"name":"__btrc_validate_executable_descriptor","provided_objects":[],"provided_types":[],"python_order":195,"source_sha256":"4beedd8e05881b26be036213e63585b3df2669ae62896d3a4843f17b17ed5ce4","source_size":371,"source_visible":true}

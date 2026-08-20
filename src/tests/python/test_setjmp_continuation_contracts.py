@@ -234,11 +234,11 @@ def test_call_effect_summary_resolves_pointer_typedefs():
         body=IRBlock(),
     )
 
-    effects = ExceptionLowerer.build_setjmp_call_effects(
+    catalog = ExceptionLowerer.build_setjmp_call_effects(
         IRModule(typedef_defs=[pointer], function_defs=[mutate, probe])
-    )["probe"]
+    )["probe"].catalog
 
-    assert effects.written_arguments("mutate", 1) == frozenset({0})
+    assert catalog.resolve("mutate", 1).writes == frozenset({ParameterEffect(0)})
 
 
 def test_custom_external_const_pointer_is_not_a_read_only_contract():
@@ -262,17 +262,17 @@ def test_custom_external_const_pointer_is_not_a_read_only_contract():
         body=IRBlock(),
     )
 
-    effects = ExceptionLowerer.build_setjmp_call_effects(
+    catalog = ExceptionLowerer.build_setjmp_call_effects(
         IRModule(
             typedef_defs=[mutable, read_only],
             function_decls=declarations,
             function_defs=[probe],
         )
-    )["probe"]
+    )["probe"].catalog
 
-    assert effects.written_arguments("mutate", 1) == frozenset({0})
-    assert effects.written_arguments("custom_read", 1) == frozenset({0})
-    assert effects.effect_for("custom_read", 1).captures == frozenset({ParameterEffect(0)})
+    assert catalog.resolve("mutate", 1).writes == frozenset({ParameterEffect(0)})
+    assert catalog.resolve("custom_read", 1).writes == frozenset({ParameterEffect(0)})
+    assert catalog.resolve("custom_read", 1).captures == frozenset({ParameterEffect(0)})
 
 
 def test_static_shadow_blocks_outer_automatic_qualification():

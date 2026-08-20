@@ -1,0 +1,5 @@
+error: Unterminated string literal
+  --> build/verification/compiler-boundaries/workspace/sources/lexical-error/lexical_error.btrc:2:20
+   |
+ 2 |     string value = "unterminated;
+   |                    ^

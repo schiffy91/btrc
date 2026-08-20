@@ -2,17 +2,16 @@
 
 from __future__ import annotations
 
+import ast as python_ast
 import stat
 import subprocess
 import sys
-from pathlib import Path
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 
 import pytest
 
+from tools.compiler_codegen import GeneratedArtifact, GeneratedSourceError
 from tools.compiler_codegen.verification import (
-    GeneratedArtifact,
-    GeneratedSourceError,
     GeneratedSourceSet,
 )
 
@@ -23,6 +22,45 @@ GENERATED_PATHS = (
     REPO / "src/devex/lsp/catalog/generated.py",
 )
 HOSTED_ABI = REPO / "src/compiler/btrc/generated/hosted_abi"
+CODEGEN_ROOT = REPO / "tools/compiler_codegen"
+CODEGEN_IMPORT_GRAPH = {
+    "__init__": frozenset(),
+    "asdl": frozenset(),
+    "ast": frozenset({"__init__", "asdl"}),
+    "builtins": frozenset({"__init__"}),
+    "hosted_abi": frozenset({"__init__", "runtime"}),
+    "main": frozenset({"__init__", "ast", "builtins", "hosted_abi", "runtime", "verification"}),
+    "runtime": frozenset({"__init__"}),
+    "verification": frozenset({"__init__", "runtime"}),
+}
+
+
+def _codegen_imports(path: Path) -> frozenset[str]:
+    imports: set[str] = set()
+    for node in python_ast.walk(python_ast.parse(path.read_text(encoding="utf-8"), filename=str(path))):
+        if isinstance(node, python_ast.ImportFrom):
+            if node.level == 1:
+                imports.add(node.module.split(".", maxsplit=1)[0] if node.module else "__init__")
+            elif node.module and node.module.startswith("tools.compiler_codegen."):
+                imports.add(node.module.split(".")[2])
+        elif isinstance(node, python_ast.Import):
+            for alias in node.names:
+                if alias.name.startswith("tools.compiler_codegen."):
+                    imports.add(alias.name.split(".")[2])
+    return frozenset(imports & CODEGEN_IMPORT_GRAPH.keys())
+
+
+def test_codegen_inventory_and_import_graph_are_exact_and_acyclic() -> None:
+    modules = {path.stem: path for path in CODEGEN_ROOT.glob("*.py")}
+    assert set(modules) == set(CODEGEN_IMPORT_GRAPH)
+
+    graph = {module: _codegen_imports(path) for module, path in modules.items()}
+    assert graph == CODEGEN_IMPORT_GRAPH
+
+    residue = {module: set(dependencies) for module, dependencies in graph.items()}
+    while leaves := {module for module, dependencies in residue.items() if not dependencies}:
+        residue = {module: dependencies - leaves for module, dependencies in residue.items() if module not in leaves}
+    assert residue == {}
 
 
 def _snapshot() -> dict[Path, tuple[bytes, int, int]]:
@@ -62,9 +100,7 @@ def test_generated_checker_is_non_mutating() -> None:
 def test_generated_checker_reports_drift_without_rewriting(tmp_path: Path) -> None:
     generated = tmp_path / "generated.py"
     generated.write_bytes(b"old\n")
-    publication = GeneratedSourceSet(
-        (GeneratedArtifact(PurePosixPath("generated.py"), b"new\n"),)
-    )
+    publication = GeneratedSourceSet((GeneratedArtifact(PurePosixPath("generated.py"), b"new\n"),))
 
     with pytest.raises(GeneratedSourceError, match="generated sources are stale"):
         publication.check(tmp_path)
@@ -74,9 +110,7 @@ def test_generated_checker_reports_drift_without_rewriting(tmp_path: Path) -> No
 def test_generated_checker_requires_canonical_lf_bytes(tmp_path: Path) -> None:
     generated = tmp_path / "generated.py"
     generated.write_bytes(b"first\r\nsecond\r\n")
-    publication = GeneratedSourceSet(
-        (GeneratedArtifact(PurePosixPath("generated.py"), b"first\nsecond\n"),)
-    )
+    publication = GeneratedSourceSet((GeneratedArtifact(PurePosixPath("generated.py"), b"first\nsecond\n"),))
 
     with pytest.raises(GeneratedSourceError, match="generated sources are stale"):
         publication.check(tmp_path)

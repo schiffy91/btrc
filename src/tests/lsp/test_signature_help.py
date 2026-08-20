@@ -1,8 +1,7 @@
 """Signature help: function calls (with active-parameter tracking), constructor
 calls, member-method calls, and `new` expressions."""
 
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import SAMPLE, analyze, pos_of
+from src.tests.lsp.lsphelp import SAMPLE, analyze, get_signature_help, pos_of
 
 
 def _sig(source, needle, occurrence=1, offset=0):

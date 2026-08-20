@@ -1,0 +1,6 @@
+import ./owner.btrc;
+import ./consumer.btrc;
+
+int main() {
+    return 0;
+}

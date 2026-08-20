@@ -55,6 +55,9 @@ _MUTATING_CALL_SLOT = {
     "qsort": 0,
     "realloc": 0,
 }
+_GPU_RUNTIME_FEATURE = "BTRC_RT_NEEDS_GPU"
+_GPU_RUNTIME_HEADER = "btrc_gpu.h"
+_SETJMP_RUNTIME_HEADER = "setjmp.h"
 _DECLARATION_GROUPS = (
     ("enum", "enum_defs"),
     ("forward", "struct_forwards"),
@@ -92,12 +95,23 @@ class IROptimizer:
 
         if self._dce:
             self._prune_program_reachability()
-        if self._install_program_cycle_boundary():
-            self._materialize_cycle_boundary_helpers()
+        self._install_program_cycle_boundary()
+        self._rematerialize_runtime_helpers()
         if self._dce:
             self._prune_runtime_support()
             self._prune_declarations()
+            # Type declarations participate in helper reachability too.  The
+            # first pass preserves providers for every candidate declaration;
+            # after type DCE, this pass removes providers owned only by dead
+            # structs/typedefs while retaining providers used by live CTypes.
+            self._prune_runtime_support()
         self._normalize_unused_parameters()
+        if not self._module.freestanding:
+            # Keep the standalone Stage-5 API complete; the application
+            # finalizer repeats this idempotently while deriving the remaining
+            # hosted/freestanding runtime state.
+            self._remove_generated_preprocessor()
+            self._refresh_hosted_runtime_headers()
         return self._module
 
     @staticmethod
@@ -460,6 +474,9 @@ class IROptimizer:
         used = set(self._module.runtime_roots) & names
         for root in (*self._module.function_defs, *self._module.global_decls):
             self._collect_helper_references(root, names, used)
+        provider_helpers: set[str] = set()
+        self._collect_runtime_provider_references(self._module, provider_helpers)
+        used.update(provider_helpers & names)
         self._scan_macro_replacements(pattern, self._module.preprocessor_decls, used)
         keep = self._helper_dependency_closure(used, helpers_by_name, pattern)
         self._module.helper_decls = [helper for helper in self._module.helper_decls if helper.name in keep]
@@ -474,6 +491,18 @@ class IROptimizer:
                     used.add(node.callee)
             elif isinstance(node, IRFunctionRef) and node.name in names:
                 used.add(node.name)
+
+    def _collect_runtime_provider_references(self, root: object, used: set[str]) -> None:
+        """Root catalog providers named by structured C declarations."""
+        type_names = {
+            identifier
+            for node in IRNode.walk_value(root)
+            if isinstance(node, CType)
+            for identifier in self._C_IDENTIFIER.findall(node.text)
+        }
+        object_names = {node.name for node in IRNode.walk_value(root) if isinstance(node, IRVar)}
+        used.update(self._runtime_catalog.helper_names_providing_types(type_names))
+        used.update(self._runtime_catalog.helper_names_providing_objects(object_names))
 
     @classmethod
     def _helper_dependency_closure(
@@ -632,6 +661,7 @@ class IROptimizer:
             self._module.runtime_roots or self._module.helper_decls or self._has_structured_runtime_use()
         )
         if not self._module.freestanding:
+            self._refresh_hosted_runtime_headers()
             return
         generated_features: list[IRMacroDef] = []
         required_headers = {header for helper in self._module.helper_decls for header in helper.required_headers}
@@ -666,14 +696,37 @@ class IROptimizer:
             self._module.preprocessor_decls.extend(generated)
         self._module.record_generated_runtime_preprocessor(generated)
 
-    def _remove_generated_preprocessor(self) -> None:
+    def _refresh_hosted_runtime_headers(self) -> None:
+        """Rematerialize native headers from the surviving typed dependencies."""
+        required_headers = {header for helper in self._module.helper_decls for header in helper.required_headers}
+        required_headers.update(self._structured_runtime_headers())
+        generated: list[IRInclude] = []
+        for header in sorted(required_headers):
+            declaration = IRInclude(header=header)
+            if declaration in self._module.preprocessor_decls:
+                continue
+            self._module.preprocessor_decls.append(declaration)
+            generated.append(declaration)
+        self._module.record_generated_runtime_preprocessor(generated)
+
+    def _structured_runtime_headers(self) -> set[str]:
+        """Return hosted headers required directly by live structured IR."""
+        headers = set()
+        if _GPU_RUNTIME_FEATURE in self._structured_runtime_features():
+            headers.add(_GPU_RUNTIME_HEADER)
+        if any(isinstance(node, IRCall) and node.callee == "setjmp" for node in IRNode.walk_value(self._module)):
+            headers.add(_SETJMP_RUNTIME_HEADER)
+        return headers
+
+    def _remove_generated_preprocessor(self) -> tuple[IRInclude | IRMacroDef, ...]:
         generated = self._module.take_generated_runtime_preprocessor()
         if not generated:
-            return
+            return ()
         generated_ids = {id(declaration) for declaration in generated}
         self._module.preprocessor_decls = [
             declaration for declaration in self._module.preprocessor_decls if id(declaration) not in generated_ids
         ]
+        return generated
 
     def _lower_freestanding_system_includes(self) -> None:
         if not self._module.needs_freestanding_system_include_lowering():
@@ -845,21 +898,31 @@ class IROptimizer:
                 installed = self.install_function_cycle_boundary(function, force=True) or installed
         return installed
 
-    def _materialize_cycle_boundary_helpers(self) -> None:
-        existing = {helper.name for helper in self._module.helper_decls}
-        boundary = [
-            IRHelperDecl.from_runtime(definition)
-            for definition in self._runtime_catalog.definitions_for({"__btrc_flush_cycles"})
+    def _rematerialize_runtime_helpers(self) -> None:
+        """Close catalog helpers over every structured live reference."""
+
+        known_names = {definition.name for definition in self._runtime_catalog.definitions}
+        roots = {helper.name for helper in self._module.helper_decls if helper.name in known_names}
+        roots.update(self._module.runtime_roots & known_names)
+        for root in (*self._module.function_defs, *self._module.global_decls):
+            self._collect_helper_references(root, known_names, roots)
+        self._collect_runtime_provider_references(self._module, roots)
+        self._scan_macro_replacements(
+            self._identifier_pattern(known_names),
+            self._module.preprocessor_decls,
+            roots,
+        )
+
+        existing = {helper.name: helper for helper in self._module.helper_decls}
+        materialized = [
+            existing[definition.name] if definition.name in existing else IRHelperDecl.from_runtime(definition)
+            for definition in self._runtime_catalog.definitions_for(roots)
         ]
-        missing = [helper for helper in boundary if helper.name not in existing]
-        self._module.helper_decls.extend(missing)
-        if self._module.freestanding:
-            return
-        for helper in missing:
-            for header in helper.required_headers:
-                include = IRInclude(header=header)
-                if include not in self._module.preprocessor_decls:
-                    self._module.preprocessor_decls.append(include)
+        materialized_names = {helper.name for helper in materialized}
+        self._module.helper_decls = [
+            *materialized,
+            *(helper for helper in self._module.helper_decls if helper.name not in materialized_names),
+        ]
 
 
 __all__ = ("PUBLIC_COLLECTION_BASES", "IROptimizer")

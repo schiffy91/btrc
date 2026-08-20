@@ -1,0 +1,1 @@
+{"asset":"strings.c","btrc_order":44,"category":"string","dependencies":["__btrc_string_length","__btrc_string_alloc","__btrc_ascii_space"],"headers":[],"name":"__btrc_lstrip","provided_objects":[],"provided_types":[],"python_order":45,"source_sha256":"8f975ca668019973f085e394cdc596b5e8c290ef253c238aadcb2a957cb4ee28","source_size":374,"source_visible":false}

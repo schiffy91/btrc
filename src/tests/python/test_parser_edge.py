@@ -3,15 +3,14 @@ disambiguation."""
 
 import pytest
 
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import ParseError, Parser
 from src.compiler.python.syntax.ast.generated import (
     BraceInitializer,
     FunctionDecl,
     MapLiteral,
     TernaryExpr,
 )
-from src.compiler.python.lexer.lexer import Lexer
-from src.compiler.python.parser.parser import ParseError
-from src.compiler.python.parser.parser import Parser
 
 
 def parse(src):

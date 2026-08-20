@@ -254,7 +254,9 @@ def test_outer_storage_add_and_remove_preserve_nullable_boundary() -> None:
         {"T": nullable_int},
     )
 
-    assert TypeSystem.strip_outer_storage(TypeExpr(base="int", pointer_depth=2, is_nullable=True)) == TypeExpr(base="int")
+    assert TypeSystem.strip_outer_storage(TypeExpr(base="int", pointer_depth=2, is_nullable=True)) == TypeExpr(
+        base="int"
+    )
     assert TypeSystem.strip_outer_storage(transitive_pointer) == nullable_int
     nullable_raw_pointer = IDENTITY.substitute(
         TypeExpr(base="T", pointer_depth=2, is_nullable=True),

@@ -4,12 +4,16 @@ completion, and an unlocated analyzer diagnostic."""
 
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.lsp.lsphelp import get_completions
 from src.devex.lsp.analysis.document import DocumentAnalysis as AnalysisResult
-from src.tests.lsp.lsphelp import compute_diagnostics
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import (
+    analyze,
+    compute_diagnostics,
+    get_completions,
+    get_hover_info,
+    get_signature_help,
+    hover_text,
+    pos_of,
+)
 
 
 def _degraded(src, uri="file:///x.btrc"):
@@ -58,8 +62,8 @@ def test_completion_stdlib_class_static_methods_offered():
 
 def test_unlocated_analyzer_error_becomes_diagnostic(monkeypatch):
     # an analyzer diag without a position (line/col 0) maps to a 1:1 diagnostic
-    from src.compiler.python.analyzer.program import Diag
     from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+    from src.compiler.python.analyzer.program import Diag
 
     real = SemanticAnalyzer.analyze
 

@@ -1,9 +1,7 @@
 """More reachable edge paths: unresolved member receivers, constructors,
 and builtin signatures."""
 
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import analyze, get_definition, get_signature_help, pos_of
 
 # `x` is undefined, so its type can't be resolved. Cmd-click should not guess
 # that Point.getX is the target just because the member name matches.

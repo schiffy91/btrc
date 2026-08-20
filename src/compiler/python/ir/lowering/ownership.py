@@ -6,6 +6,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
+from src.compiler.python.abi.hosted import HOSTED_ABI
 from src.compiler.python.analyzer.program import AnalyzedProgram
 from src.compiler.python.analyzer.storage import StorageModel
 from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeShapeError, TypeSystem
@@ -93,12 +94,24 @@ MUTEX_RUNTIME_NAME = "__btrc_managed_mutex"
 
 
 @dataclass(frozen=True, slots=True)
-class ManagedReleasePlan:
-    """Analyzed release operation awaiting operand materialization."""
+class ManagedSlotTarget:
+    """One typed physical ownership slot after single-evaluation stabilization."""
 
     source: object
     type_expr: TypeExpr | None
-    managed: bool
+    slot: IRExpr
+    edge_owner: IRExpr | None
+    declarations: tuple[IRVarDecl, ...]
+    setup: tuple[IRExpr, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectionStorageOperand:
+    """One backing expression stabilized before deriving a raw projection."""
+
+    expression: object
+    owned: bool
+    keep: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,6 +122,14 @@ class ReturnPlan:
     return_type: TypeExpr | None
     return_c_type: str
     returned_local: str | None
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalOperand:
+    """A terminal-call value whose owned lifetime remains unwind-visible."""
+
+    statements: tuple[IRStmt, ...]
+    value: IRExpr
 
 
 class CleanupSlotRegistry:
@@ -540,6 +561,7 @@ class ManagedLocal:
     name: str
     type_name: str
     cycle_seed: bool
+    value_type: TypeExpr | None = None
     c_name: str | None = None
     cleanup_kind: str = "arc"
 
@@ -840,6 +862,20 @@ class ManagedLifetimeLowerer:
             ],
         )
 
+    def destroy_slot(self, slot, type_expr, *, edge_owner=None):
+        """Exclusively destroy the value still held by one exact-typed slot."""
+        access = self._cleanup_slots.ensure_arc_slot_adapter(CType(text=self._types.render(type_expr)))
+        helper = "__btrc_arc_destroy_edge" if edge_owner is not None else "__btrc_arc_destroy_slot"
+        self._session.require_helper(helper)
+        args = [
+            IRCast(target_type=CType(text="volatile void*"), expr=slot),
+            IRFunctionRef(name=access),
+        ]
+        if edge_owner is not None:
+            args.append(edge_owner)
+        args.append(self.arc_type_descriptor(type_expr))
+        return IRCall(callee=helper, args=args, helper_ref=helper)
+
     def release_value(self, value, type_expr):
         if self._values.is_string(type_expr):
             helper = "__btrc_string_release"
@@ -848,6 +884,53 @@ class ManagedLifetimeLowerer:
         helper = "__btrc_arc_release" if self._cycles.type_may_cycle(type_expr) else "__btrc_arc_release_acyclic"
         self._session.require_helper(helper)
         return IRCall(callee=helper, args=[value, self.arc_type_descriptor(type_expr)], helper_ref=helper)
+
+    def replace_managed_slot(
+        self,
+        target: IRExpr,
+        target_type: TypeExpr,
+        value: IRExpr,
+        *,
+        value_owned: bool,
+    ) -> IRExpr:
+        """Commit one new persistent +1 before releasing a slot's old value."""
+        replacement_decl = self._managed_temporary(target_type, "__btrc_slot_new")
+        old_decl = self._managed_temporary(target_type, "__btrc_slot_old")
+        declarations = [replacement_decl, old_decl]
+        replacement = IRVar(name=replacement_decl.name)
+        old = IRVar(name=old_decl.name)
+        sequence = [IRBinOp(left=replacement, op="=", right=value)]
+        if not value_owned:
+            sequence.append(self.retain_value(replacement, target_type))
+        self.protect_temporary(
+            replacement_decl,
+            target_type,
+            declarations,
+            sequence,
+            "__btrc_slot_cleanup",
+        )
+        sequence.extend(
+            [
+                IRBinOp(left=old, op="=", right=target),
+                IRBinOp(left=target, op="=", right=replacement),
+                IRBinOp(left=replacement, op="=", right=IRLiteral(text="NULL")),
+                self.release_value(old, target_type),
+            ]
+        )
+        poll = self.poll_released_values(target_type)
+        if poll is not None:
+            sequence.append(poll)
+        sequence.append(target)
+        return IRStmtExpr(stmts=declarations, result=IRCommaExpr(expressions=sequence))
+
+    def _managed_temporary(self, type_expr: TypeExpr, prefix: str) -> IRVarDecl:
+        declaration = IRVarDecl(
+            c_type=CType(text=self._types.render(type_expr)),
+            name=self._session.fresh_temp(prefix),
+            init=IRLiteral(text="NULL"),
+        )
+        self._session.record_declaration(declaration)
+        return declaration
 
     def release_edge_value(self, value, type_expr, replacement=None):
         if self._values.is_string(type_expr):
@@ -1144,8 +1227,11 @@ class OwnershipOperandOrder:
                     return True
         return False
 
-    def source_order_pin_flags(self, nodes, type_exprs, owned) -> list[bool]:
-        effects = [self.has_effect(node) for node in nodes]
+    def source_order_pin_flags(self, nodes, type_exprs, owned, *, effects=None) -> list[bool]:
+        if effects is None:
+            effects = [self.has_effect(node) for node in nodes]
+        elif len(effects) != len(nodes):
+            raise ValueError("operand effect facts do not match source operands")
         return [
             bool(
                 OwnershipLowerer.borrowed_value_can_be_pinned(nodes[index])
@@ -1190,26 +1276,121 @@ class OwnershipLowerer:
         self._normalizing_void_main = False
         self._init_ownership_state()
 
-    def plan_release(self, source: object) -> ManagedReleasePlan:
-        type_expr = self._session.type_of(source)
-        return ManagedReleasePlan(
-            source=source,
-            type_expr=type_expr,
-            managed=self._values.is_managed(type_expr),
-        )
+    def materialize_release_target(self, target: ManagedSlotTarget) -> list[IRStmt]:
+        """Take and clear one owned alias before its ordinary release."""
+        resolved = self._types.canonical_type(target.type_expr)
+        managed = self._values.is_managed(resolved)
+        if not managed and self._session.type_of_is_specialized(target.source):
+            return []
 
-    def materialize_release(
-        self,
-        plan: ManagedReleasePlan,
-        lowered: IRExpr,
-    ) -> list[IRStmt]:
-        if not plan.managed:
-            return [IRExprStmt(expr=IRCall(callee="free", args=[lowered]))]
-        result = [IRExprStmt(expr=self._lifetime.release_value(lowered, plan.type_expr))]
-        flush = self._lifetime.flush_released_values(plan.type_expr)
+        statements, slot = self._materialize_slot(target, resolved, "__btrc_release_slot")
+        if managed and self._values.is_arc(resolved) and target.edge_owner is not None:
+            statements.append(
+                IRExprStmt(
+                    expr=self._lifetime.replace_edge_value(
+                        slot,
+                        IRLiteral(text="NULL"),
+                        resolved,
+                        target.edge_owner,
+                        adopt=False,
+                    )
+                )
+            )
+        else:
+            statements.extend(self._take_clear_release(slot, resolved, managed=managed))
+
+        flush = self._lifetime.flush_released_values(resolved) if managed else None
         if flush is not None:
-            result.append(IRExprStmt(expr=flush))
-        return result
+            statements.append(IRExprStmt(expr=flush))
+        return statements
+
+    def materialize_delete_target(self, target: ManagedSlotTarget) -> list[IRStmt]:
+        """Clear one slot while enforcing exclusive ARC terminal destruction."""
+        resolved = self._types.canonical_type(target.type_expr)
+        if resolved is None:
+            raise CodegenError("delete requires a resolved physical slot type")
+        managed = self._values.is_managed(resolved)
+        statements, slot = self._materialize_slot(target, resolved, "__btrc_delete_slot")
+        if managed and self._values.is_arc(resolved):
+            statements.append(
+                IRExprStmt(
+                    expr=self._lifetime.destroy_slot(
+                        slot.expr,
+                        resolved,
+                        edge_owner=target.edge_owner,
+                    )
+                )
+            )
+            return statements
+        statements.extend(self._take_clear_destroy(slot, resolved, managed=managed))
+        return statements
+
+    def _materialize_slot(
+        self,
+        target: ManagedSlotTarget,
+        type_expr: TypeExpr | None,
+        prefix: str,
+    ) -> tuple[list[IRStmt], IRDeref]:
+        if type_expr is None:
+            raise CodegenError("ownership operation requires a resolved physical slot type")
+        value_c_type = self._types.render(type_expr)
+        slot_declaration = IRVarDecl(
+            c_type=CType(text=f"{CType.qualify_volatile_object(value_c_type, True)}*"),
+            name=self._session.fresh_temp(prefix),
+            init=IRAddressOf(expr=target.slot),
+        )
+        self._session.record_declaration(slot_declaration)
+        statements: list[IRStmt] = [
+            *target.declarations,
+            *(IRExprStmt(expr=expression) for expression in target.setup),
+            slot_declaration,
+        ]
+        return statements, IRDeref(expr=IRVar(name=slot_declaration.name))
+
+    def _take_clear_release(
+        self,
+        slot: IRDeref,
+        type_expr: TypeExpr,
+        *,
+        managed: bool,
+    ) -> list[IRStmt]:
+        value_declaration = IRVarDecl(
+            c_type=CType(text=self._types.render(type_expr)),
+            name=self._session.fresh_temp("__btrc_release_value"),
+            init=slot,
+        )
+        self._session.record_declaration(value_declaration)
+        value = IRVar(name=value_declaration.name)
+        release = self._lifetime.release_value(value, type_expr) if managed else IRCall(callee="free", args=[value])
+        return [
+            value_declaration,
+            IRAssign(target=slot, value=IRLiteral(text="NULL")),
+            IRExprStmt(expr=release),
+        ]
+
+    def _take_clear_destroy(
+        self,
+        slot: IRDeref,
+        type_expr: TypeExpr,
+        *,
+        managed: bool,
+    ) -> list[IRStmt]:
+        value_declaration = IRVarDecl(
+            c_type=CType(text=self._types.render(type_expr)),
+            name=self._session.fresh_temp("__btrc_delete_value"),
+            init=slot,
+        )
+        self._session.record_declaration(value_declaration)
+        value = IRVar(name=value_declaration.name)
+        destroy = self._lifetime.release_value(value, type_expr) if managed else IRCall(callee="free", args=[value])
+        return [
+            value_declaration,
+            IRAssign(target=slot, value=IRLiteral(text="NULL")),
+            IRIf(
+                condition=IRBinOp(left=value, op="!=", right=IRLiteral(text="NULL")),
+                then_block=IRBlock(stmts=[IRExprStmt(expr=destroy)]),
+            ),
+        ]
 
     def materialize(self, plan, lowered):
         return lowered
@@ -1261,6 +1442,30 @@ class OwnershipLowerer:
             return self._overloaded_result_is_owned(expression, expression.operand, expression.op, unary=True)
         if not isinstance(expression, CallExpr):
             return False
+        return self.source_call_owns_result(expression, provenance, call_effect)
+
+    def lowered_result_is_owned(
+        self,
+        expression,
+        *,
+        provenance: CallableBodyFacts,
+    ) -> bool:
+        """Whether ordinary expression lowering returns caller-owned +1 IR."""
+        key = id(expression)
+        if key in self._session.owning_overrides:
+            return self._session.ownership_overrides.get(key, False)
+        result_type = self._session.type_of(expression)
+        if self._values.is_managed(result_type) and isinstance(expression, CallExpr):
+            return True
+        return self.owns_result(expression, provenance=provenance)
+
+    def source_call_owns_result(
+        self,
+        expression: CallExpr,
+        provenance: CallableBodyFacts,
+        call_effect: object | None = None,
+    ) -> bool:
+        """Whether the callee ABI supplies +1 before call-result normalization."""
         result_type = self._session.type_of(expression)
         if not self._values.is_managed(result_type):
             return False
@@ -1268,9 +1473,18 @@ class OwnershipLowerer:
             return self._string_call_owns_result(expression, provenance, call_effect)
         return provenance.call_returns_owned(expression, call_effect)
 
-    def normalize_branch(self, expression, lowered, provenance: CallableBodyFacts):
+    def normalize_branch(
+        self,
+        expression,
+        lowered,
+        provenance: CallableBodyFacts,
+        *,
+        source_owned: bool | None = None,
+    ):
         """Promote a selected borrowed branch when its conditional yields +1."""
-        if isinstance(expression, NullLiteral) or self.owns_result(expression, provenance=provenance):
+        if source_owned is None:
+            source_owned = self.owns_result(expression, provenance=provenance)
+        if isinstance(expression, NullLiteral) or source_owned:
             return lowered
         type_expr = self._session.type_of(expression)
         if not self._values.is_managed(type_expr):
@@ -1324,10 +1538,20 @@ class OwnershipLowerer:
         operands = self.assignment_target_operands(target, provenance)
         return bool(self.kept_target_operands(target, operands, provenance))
 
+    def assignment_rhs_supplies_owned_result(
+        self,
+        expression: AssignExpr,
+        provenance: CallableBodyFacts,
+    ) -> bool:
+        """Whether a virtual store's RHS already supplies the assignment result +1."""
+        return bool(
+            expression.op == "=" and self._virtual_assignment_owns(expression.target, expression.value, provenance)
+        )
+
     def _virtual_assignment_owns(self, target, value, provenance: CallableBodyFacts) -> bool:
         if not self._virtual_assignment_target(target):
             return False
-        if self._values.is_managed(self._session.type_of(target)) or self.owns_result(value, provenance=provenance):
+        if self.owns_result(value, provenance=provenance):
             return True
         target_type = self._types.canonical_type(self._session.type_of(target))
         source_type = self._types.canonical_type(self._session.type_of(value))
@@ -1351,10 +1575,7 @@ class OwnershipLowerer:
 
     def _conditional_result_is_owned(self, expression, branches, provenance: CallableBodyFacts) -> bool:
         result_type = self._session.type_of(expression)
-        branch_ownership = []
-        for branch, entry in provenance.conditional_branch_entries(expression):
-            with provenance.at_flow(entry):
-                branch_ownership.append(self.owns_result(branch, provenance=provenance))
+        branch_ownership = self.conditional_branch_ownership(expression, provenance)
         return bool(
             self._values.is_managed(result_type)
             and any(branch_ownership)
@@ -1365,6 +1586,14 @@ class OwnershipLowerer:
                 )
             )
         )
+
+    def conditional_branch_ownership(self, expression, provenance: CallableBodyFacts) -> tuple[bool, ...]:
+        """Classify each selected value at that branch's semantic entry."""
+        branch_ownership = []
+        for branch, entry in provenance.conditional_branch_entries(expression):
+            with provenance.at_flow(entry):
+                branch_ownership.append(self.owns_result(branch, provenance=provenance))
+        return tuple(branch_ownership)
 
     def _is_string_concat(self, expression: BinaryExpr, result_type) -> bool:
         if expression.op != "+" or not self._values.is_string(result_type):
@@ -1455,6 +1684,7 @@ class OwnershipLowerer:
             self._session.current_return_type,
             self._session.current_return_owned,
             self._session.owning_overrides,
+            self._session.ownership_overrides,
             self._session.type_overrides,
             self._session.c_array_scopes,
         )
@@ -1471,6 +1701,7 @@ class OwnershipLowerer:
         self._session.current_return_type = return_type
         self._session.current_return_owned = True
         self._session.owning_overrides = {}
+        self._session.ownership_overrides = {}
         self._session.type_overrides = {}
         self._session.c_array_scopes = []
         try:
@@ -1493,6 +1724,7 @@ class OwnershipLowerer:
                 self._session.current_return_type,
                 self._session.current_return_owned,
                 self._session.owning_overrides,
+                self._session.ownership_overrides,
                 self._session.type_overrides,
                 self._session.c_array_scopes,
             ) = session_state
@@ -1542,16 +1774,21 @@ class OwnershipLowerer:
         self,
         var_name: str,
         class_type: str,
+        value_type: TypeExpr,
         provenance: CallableBodyFacts,
         *,
         cycle_seed: bool,
     ) -> None:
+        resolved = self._types.resolve_active_type(value_type)
+        if not self._values.is_managed(resolved):
+            raise CodegenError("registered managed local has an unmanaged semantic type")
         if self._managed_vars_stack:
             self._managed_vars_stack[-1].append(
                 ManagedLocal(
                     var_name,
                     class_type,
                     cycle_seed,
+                    value_type=value_type,
                     c_name=self.source_binding_c_name(var_name, provenance),
                 )
             )
@@ -1625,6 +1862,19 @@ class OwnershipLowerer:
                 return scope[var_name]
         return None
 
+    def managed_local_value_type(
+        self,
+        var_name: str,
+        provenance: CallableBodyFacts,
+    ) -> TypeExpr | None:
+        """Return the exact semantic type of the active physical owned slot."""
+        c_name = self.source_binding_c_name(var_name, provenance)
+        for scope in reversed(self._managed_vars_stack):
+            for local in reversed(scope):
+                if (local.c_name or local.name) == c_name:
+                    return local.value_type
+        return None
+
     def unregister_managed_var(self, var_name: str, provenance: CallableBodyFacts) -> None:
         """Stop automatic destruction after an explicit free/delete."""
         c_name = self.source_binding_c_name(var_name, provenance)
@@ -1662,7 +1912,6 @@ class OwnershipLowerer:
     def arc_header_field(self) -> IRStructField:
         """Return the mandatory first field for a managed representation."""
         self._session.require_helper("__btrc_arc_callback_types")
-        self._session.module.runtime_roots.add("__btrc_arc_callback_types")
         return IRStructField(c_type=CType(text="__btrc_arc_header"), name=ARC_HEADER_FIELD)
 
     @staticmethod
@@ -1706,7 +1955,6 @@ class OwnershipLowerer:
             return
         emitted.add(emitted_name)
         self._session.require_helper("__btrc_arc_callback_types")
-        self._session.module.runtime_roots.add("__btrc_arc_callback_types")
         raise_name = None
         guard_name = None
         if hook_name is not None:
@@ -1739,6 +1987,40 @@ class OwnershipLowerer:
                     ]
                 ),
             )
+        )
+
+    def materialize_terminal_operand(
+        self,
+        value: IRExpr,
+        value_type: TypeExpr | None,
+        *,
+        owned: bool,
+    ) -> TerminalOperand:
+        """Keep an owned value registered until a non-returning call unwinds it."""
+        if not owned:
+            return TerminalOperand(statements=(), value=value)
+        resolved = self._types.canonical_type(value_type)
+        if resolved is None or not self._values.is_managed(resolved):
+            raise CodegenError("owned terminal operand requires a resolved managed type")
+        declaration = IRVarDecl(
+            c_type=CType(text=self._types.render(resolved)),
+            name=self._session.fresh_temp("__btrc_terminal_operand"),
+            init=value,
+        )
+        self._session.record_declaration(declaration)
+        declarations = [declaration]
+        registrations: list[IRExpr] = []
+        self._lifetime.protect_temporary(
+            declaration,
+            resolved,
+            declarations,
+            registrations,
+            "__btrc_terminal_operand_cleanup",
+            active=True,
+        )
+        return TerminalOperand(
+            statements=tuple([*declarations, *(IRExprStmt(expr=item) for item in registrations)]),
+            value=IRVar(name=declaration.name),
         )
 
     def plan_return(self, node: ReturnStmt, provenance: CallableBodyFacts) -> ReturnPlan:
@@ -1897,6 +2179,152 @@ class OwnershipLowerer:
             return [receiver]
         return self.borrowed_projection_owner_operands(receiver, provenance, overridden_ids=overridden_ids)
 
+    def projection_storage_operands(
+        self,
+        expression,
+        provenance: CallableBodyFacts,
+        *,
+        call: CallExpr | None = None,
+        parameter_index: int | None = None,
+        has_later_effects: bool = True,
+    ) -> tuple[ProjectionStorageOperand, ...]:
+        """Return storage requiring explicit call-scoped stabilization."""
+        if self._overridden(expression, frozenset()):
+            return ()
+        leaf = self._raw_projection_leaf(expression, addressed=False)
+        if leaf is None:
+            return ()
+        projection, direct = leaf
+        root = self._projection_storage_root(projection, direct=direct)
+        if root is None:
+            return ()
+        root_expression, managed = root
+        owned = bool(managed and self.owns_result(root_expression, provenance=provenance))
+        operand = ProjectionStorageOperand(
+            expression=root_expression,
+            owned=owned,
+            keep=bool(managed and not owned),
+        )
+        if not owned and self._readonly_hosted_borrow_needs_no_guard(
+            call,
+            parameter_index,
+            has_later_effects=has_later_effects,
+        ):
+            return ()
+        return (operand,)
+
+    def _readonly_hosted_borrow_needs_no_guard(
+        self,
+        call: CallExpr | None,
+        parameter_index: int | None,
+        *,
+        has_later_effects: bool,
+    ) -> bool:
+        """Recognize an ephemeral FFI read whose owner cannot be invalidated."""
+        if has_later_effects or call is None or parameter_index is None:
+            return False
+        if id(call) not in self._analyzed.hosted_call_ids or not isinstance(call.callee, Identifier):
+            return False
+        return HOSTED_ABI.parameter_is_read_only_borrow(call.callee.name, parameter_index)
+
+    def _raw_projection_leaf(self, expression, *, addressed: bool):
+        """Resolve only unconditional raw-carrier leaves; choices stay lazy."""
+        alias_argument = HOSTED_ABI.resolved_alias_argument(expression, self._analyzed.hosted_call_ids)
+        if alias_argument is not None:
+            nested = self._raw_projection_leaf(alias_argument, addressed=False)
+            if nested is not None:
+                return nested
+            if self._values.is_managed(self._session.type_of(alias_argument)):
+                return (alias_argument, True)
+            return None
+        if isinstance(expression, CastExpr):
+            if not self._is_raw_projection_carrier(self._session.type_of(expression)):
+                return None
+            nested = self._raw_projection_leaf(expression.expr, addressed=False)
+            if nested is not None:
+                return nested
+            if self._values.is_managed(self._session.type_of(expression.expr)):
+                return (expression.expr, True)
+            return None
+        if isinstance(expression, UnaryExpr) and expression.op == "&":
+            return self._raw_projection_leaf(expression.operand, addressed=True)
+        if (
+            isinstance(expression, UnaryExpr)
+            and expression.op == "*"
+            and (addressed or self._is_raw_projection_carrier(self._session.type_of(expression)))
+        ):
+            return self._raw_projection_leaf(expression.operand, addressed=False)
+        if isinstance(expression, TernaryExpr) or (isinstance(expression, BinaryExpr) and expression.op == "??"):
+            return None
+        if isinstance(expression, BinaryExpr) and expression.op in {"+", "-"}:
+            if not self._is_raw_projection_carrier(self._session.type_of(expression)):
+                return None
+            candidates = (expression.left, expression.right) if expression.op == "+" else (expression.left,)
+            for candidate in candidates:
+                if self._is_raw_projection_carrier(self._session.type_of(candidate)):
+                    nested = self._raw_projection_leaf(candidate, addressed=False)
+                    if nested is not None:
+                        return nested
+            return None
+        if isinstance(expression, (FieldAccessExpr, IndexExpr)) and (
+            addressed or self._is_raw_projection_carrier(self._session.type_of(expression))
+        ):
+            nested = self._raw_projection_leaf(expression.obj, addressed=False)
+            return nested if nested is not None else (expression, False)
+        return None
+
+    def _projection_storage_root(self, projection, *, direct: bool = False):
+        """Find the nearest managed or temporary-struct projection owner."""
+        if direct:
+            projection_type = self._session.type_of(projection)
+            if (
+                projection_type is not None
+                and self._values.is_managed(projection_type)
+                and not isinstance(projection, (SelfExpr, SuperExpr))
+            ):
+                return (projection, True)
+            return None
+        if isinstance(projection, CastExpr):
+            return self._projection_storage_root(projection.expr)
+        if isinstance(projection, UnaryExpr) and projection.op == "*":
+            return self._projection_storage_root(projection.operand)
+        if isinstance(projection, BinaryExpr) and projection.op in {"+", "-"}:
+            candidates = (projection.left, projection.right) if projection.op == "+" else (projection.left,)
+            for candidate in candidates:
+                if self._is_raw_projection_carrier(self._session.type_of(candidate)):
+                    return self._projection_storage_root(candidate)
+            return None
+        if not isinstance(projection, (FieldAccessExpr, IndexExpr)):
+            return None
+        receiver = projection.obj
+        if self._overridden(receiver, frozenset()):
+            return None
+        receiver_type = self._session.type_of(receiver)
+        if (
+            receiver_type is not None
+            and self._values.is_managed(receiver_type)
+            and not isinstance(receiver, (SelfExpr, SuperExpr))
+        ):
+            return (receiver, True)
+        canonical_receiver = self._types.canonical_type(receiver_type)
+        if (
+            isinstance(receiver, CallExpr)
+            and canonical_receiver is not None
+            and canonical_receiver.pointer_depth == 0
+            and not canonical_receiver.is_array
+            and canonical_receiver.base.removeprefix("struct ") in self._analyzed.struct_table
+        ):
+            return (receiver, False)
+        return self._projection_storage_root(receiver)
+
+    def _is_raw_projection_carrier(self, type_expr) -> bool:
+        canonical = self._types.canonical_type(type_expr)
+        return bool(
+            canonical
+            and not self._values.is_managed(canonical)
+            and (canonical.is_array or canonical.pointer_depth > 0 or canonical.base in {"intptr_t", "uintptr_t"})
+        )
+
     def kept_target_operands(self, target, operands, provenance: CallableBodyFacts) -> tuple:
         """Return borrowed managed operands that must outlive target evaluation."""
         if not isinstance(target, (FieldAccessExpr, IndexExpr)):
@@ -1920,6 +2348,18 @@ class OwnershipLowerer:
         return bool(class_info is not None and target.field in class_info.properties)
 
     def _receiver_operands(self, receiver, provenance: CallableBodyFacts) -> list:
+        receiver_type = self._canonical_receiver_type(self._session.type_of(receiver))
+        if receiver_type is not None and receiver_type.is_array:
+            return [receiver]
+        if (
+            isinstance(receiver, Identifier)
+            and receiver_type is not None
+            and receiver_type.pointer_depth == 0
+            and not self._values.is_managed(receiver_type)
+        ):
+            # A direct value aggregate names the storage itself.  Stabilizing
+            # its value would redirect a later field store into a copy.
+            return []
         if (
             self.owns_result(receiver, provenance=provenance)
             or self._values.is_managed(self._session.type_of(receiver))
@@ -2003,7 +2443,7 @@ class OwnershipLowerer:
 
     def _enum_constant_identifier(self, node) -> bool:
         enum_table = self._analyzed.enum_table
-        return any(node.name in values for values in enum_table.values())
+        return node.name in HOSTED_ABI.macros or any(node.name in values for values in enum_table.values())
 
     @staticmethod
     def reject_opaque_ordering(node, context: str, *, typed_declaration: bool = False) -> None:

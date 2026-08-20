@@ -92,7 +92,7 @@ def test_bodyless_static_method_callback_keeps_borrowed_return_abi(
         assert result.returncode == 0, result.stdout + result.stderr
         emitted = generated.read_text()
         main = emitted.split("int main(void) {", 1)[1]
-        assert "__btrc_string_retain(value)" in main
+        assert main.count("__btrc_string_retain(") == 1
         assert emitted.count("Foreign_make(void) {") == 0
         _instrument_live_strings(generated, definition)
         _strict_build_and_run(generated, tmp_path / f"static-borrowed-{index}")

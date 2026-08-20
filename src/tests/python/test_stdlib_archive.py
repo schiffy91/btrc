@@ -21,7 +21,7 @@ from src.compiler.python.application.pipeline import CompilationPipeline, Stdlib
 from src.compiler.python.artifacts.publication import ArtifactPublisher, ArtifactStorage
 from src.compiler.python.artifacts.stdlib import StdlibArchivePublisher
 from src.compiler.python.cli.compiler import CompilerCommand
-from src.compiler.python.frontend.sources import StdlibRepository
+from src.compiler.python.frontend.sources import CompilerStdlibSource, StdlibRepository
 
 
 def _archive_publisher() -> StdlibArchivePublisher:
@@ -293,16 +293,18 @@ def test_archive_override_check_distinguishes_imports_from_user_code(tmp_path):
         "functions": [],
         "global_decl_names": [],
     }
+    stdlib_root = Path(StdlibRepository().directory())
     stdlib_decl = SimpleNamespace(
         name="CliArgs",
-        source_file=str(Path(sa.__file__).parents[2] / "stdlib" / "cli.btrc"),
+        source_file=CompilerStdlibSource(str(stdlib_root / "cli.btrc")),
     )
     archive = _archive_adapter()
     archive.reject_user_overrides(SimpleNamespace(declarations=[stdlib_decl]), manifest)
 
-    user_decl = SimpleNamespace(name="CliArgs", source_file=str(tmp_path / "program.btrc"))
-    with pytest.raises(StdlibArchiveError, match=r"overrides.*CliArgs"):
-        archive.reject_user_overrides(SimpleNamespace(declarations=[user_decl]), manifest)
+    for user_path in (tmp_path / "program.btrc", stdlib_root / "program.btrc"):
+        user_decl = SimpleNamespace(name="CliArgs", source_file=str(user_path))
+        with pytest.raises(StdlibArchiveError, match=r"overrides.*CliArgs"):
+            archive.reject_user_overrides(SimpleNamespace(declarations=[user_decl]), manifest)
 
 
 # --------------------------------------------------------------------------

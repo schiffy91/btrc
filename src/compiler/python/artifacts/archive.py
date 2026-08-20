@@ -38,11 +38,13 @@ _PE_MAX_SECTIONS = 96
 _UINT32_MAX = (1 << 32) - 1
 _UINT64_MAX = (1 << 64) - 1
 
+
 @dataclass(frozen=True)
 class GzipLayout:
     uncompressed_size: int
     tail: bytes
     modified_time: int
+
 
 ContentSnapshot = tuple[bytes, int]
 FileIdentity = tuple[int, int, int]
@@ -350,6 +352,7 @@ class ArchiveSource:
                     f"archive source tree changed before validation: {directory}",
                 )
 
+
 class ArchiveCodec:
     """Own deterministic archive encoding and its canonical physical layout."""
 
@@ -358,7 +361,6 @@ class ArchiveCodec:
 
     def _invalid(self) -> ValueError:
         return ValueError("bundle archive is not a valid tar or ZIP file: noncanonical physical layout")
-
 
     def _read_exact(self, stream: BinaryIO, size: int) -> bytes:
         payload = bytearray()
@@ -409,11 +411,12 @@ class ArchiveCodec:
             raise self._invalid()
         return GzipLayout(total, tail, modified_time)
 
-
     def validate_tar_end(self, layout: GzipLayout, logical_end: int, modified_time: int) -> None:
         """Require two end blocks and only writer-added record padding."""
 
-        padded_end = ((logical_end + 2 * tarfile.BLOCKSIZE + _TAR_RECORD_SIZE - 1) // _TAR_RECORD_SIZE) * _TAR_RECORD_SIZE
+        padded_end = (
+            (logical_end + 2 * tarfile.BLOCKSIZE + _TAR_RECORD_SIZE - 1) // _TAR_RECORD_SIZE
+        ) * _TAR_RECORD_SIZE
         tail_start = layout.uncompressed_size - len(layout.tail)
         if (
             padded_end != layout.uncompressed_size
@@ -422,7 +425,6 @@ class ArchiveCodec:
             or any(layout.tail[logical_end - tail_start :])
         ):
             raise self._invalid()
-
 
     def validate_tar_member_padding(
         self,
@@ -435,7 +437,6 @@ class ArchiveCodec:
             stream.seek(offset)
             if any(self._read_exact(stream, size)):
                 raise self._invalid()
-
 
     def validate_tar_headers(
         self,
@@ -451,7 +452,6 @@ class ArchiveCodec:
             if self._read_exact(stream, len(expected)) != expected:
                 raise self._invalid()
 
-
     def _encoded_name(self, entry: zipfile.ZipInfo) -> bytes:
         encoding = "utf-8" if entry.flag_bits & 0x800 else "cp437"
         try:
@@ -459,7 +459,6 @@ class ArchiveCodec:
         except UnicodeError as error:
             raise self._invalid() from error
         return encoded
-
 
     def validate_zip_layout(
         self,
@@ -562,7 +561,6 @@ class ArchiveCodec:
             raise ValueError("bundle artifacts have noncanonical timestamps")
         return modified_time_ns // 1_000_000_000
 
-
     def canonical_tar_info(
         self,
         name: str,
@@ -588,7 +586,6 @@ class ArchiveCodec:
             info.size = size
         return info
 
-
     def canonical_zip_timestamp(self, modified_time: int) -> tuple[int, int, int, int, int, int]:
         """Convert an epoch to the canonical even-second UTC ZIP timestamp."""
 
@@ -608,7 +605,6 @@ class ArchiveCodec:
         if inside:
             raise ValueError(f"archive destination must be outside its source bundle: {destination}")
 
-
     def _portable_mode(self, entry: ArchiveEntry, bundle: Path) -> int:
         if entry.is_directory:
             return 0o755
@@ -616,7 +612,6 @@ class ArchiveCodec:
         if len(relative.parts) == 2 and relative.parts[0] == "bin" and relative.name in {"btrcc", "btrcc.exe"}:
             return 0o755
         return 0o644
-
 
     def _tar_info(self, entry: ArchiveEntry, bundle: Path, epoch: int) -> tarfile.TarInfo:
         relative = entry.path.relative_to(bundle.parent).as_posix()
@@ -628,7 +623,6 @@ class ArchiveCodec:
             size=entry.size,
             modified_time=epoch,
         )
-
 
     def write_tar_gz(self, bundle: Path, destination: Path, epoch: int) -> None:
         """Write a byte-reproducible gzip-compressed POSIX tar archive."""
@@ -667,7 +661,6 @@ class ArchiveCodec:
         finally:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
-
 
     def write_zip(self, bundle: Path, destination: Path, epoch: int) -> None:
         """Write a deterministic ZIP archive with portable Unix mode metadata."""
@@ -716,7 +709,6 @@ class ArchiveCodec:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
 
-
     def write_checksum(self, archive: Path) -> Path:
         """Write the conventional SHA-256 sidecar for ``archive``."""
 
@@ -740,6 +732,7 @@ class ArchiveCodec:
             if temporary is not None:
                 temporary.unlink(missing_ok=True)
         return destination
+
 
 class ArchiveValidator:
     """Validate one release archive against its immutable bundle contract."""
@@ -974,6 +967,7 @@ class ArchiveValidator:
             raise ValueError(
                 "bundle archive member set does not match the manifest",
             )
+
 
 class InvalidBinary(ValueError):
     """The stream is not a structurally complete supported executable."""
@@ -1299,6 +1293,7 @@ class ExecutableFormatInspector:
         ):
             raise InvalidBinary
         return machine
+
 
 @dataclass(frozen=True)
 class TargetSpec:

@@ -1,13 +1,16 @@
 import std.map;
 import std.strings;
 import std.vector;
+import ../../analyzer/declarations.btrc;
 import ../../analyzer/gpu.btrc;
 import ../../analyzer/hosted_abi.btrc;
 import ../../analyzer/models.btrc;
 import ../../analyzer/ownership/values.btrc;
 import ../../analyzer/types.btrc;
 import ../../generated/ast/node.btrc;
+import ../lowering/calls.btrc;
 import ../lowering/ownership/operands.btrc;
+import ../lowering/ownership/lifetime.btrc;
 import ../lowering/types.btrc;
 import ../model.btrc;
 import ./wgsl.btrc;
@@ -68,21 +71,112 @@ class GpuCallInputs {
     }
 }
 
+class GpuArgumentProjectionRoot {
+    public RawProjectionStorageRoot storage;
+    public Node type;
+    public bool owned;
+    public Vector<IRNode> declarations;
+    public Vector<IRNode> prefix;
+    public Vector<IRNode> cleanup;
+
+    public GpuArgumentProjectionRoot(
+            RawProjectionStorageRoot storage, Node type, bool owned) {
+        self.storage = storage;
+        self.type = type;
+        self.owned = owned;
+        self.declarations = [];
+        self.prefix = [];
+        self.cleanup = [];
+    }
+}
+
+class GpuArgumentLedger {
+    public CallArgumentPlan binding;
+    public Vector<IRNode> explicitValues;
+    public Map<string, Node> sourceTypes;
+    public Map<string, bool> sourceOwned;
+    public Map<string, GpuArgumentProjectionRoot> sourceProjectionRoots;
+
+    public GpuArgumentLedger(CallArgumentPlan binding) {
+        self.binding = binding;
+        self.explicitValues = [];
+        self.sourceTypes = {};
+        self.sourceOwned = {};
+        self.sourceProjectionRoots = {};
+    }
+}
+
+class GpuProjectionReceiver {
+    public IRNode value;
+    public Node type;
+    public bool owned;
+
+    public GpuProjectionReceiver(
+            IRNode value, Node type, bool owned) {
+        self.value = value;
+        self.type = type;
+        self.owned = owned;
+    }
+}
+
+class GpuCollectionOutputTarget {
+    public IRNode value;
+    public Node type;
+    public bool owned;
+
+    public GpuCollectionOutputTarget(
+            IRNode value, Node type, bool owned) {
+        self.value = value;
+        self.type = type;
+        self.owned = owned;
+    }
+}
+
 
 class GpuStatementPlan {
     public bool handled;
     public bool cpuReturn;
+    public bool outputDeclaration;
+    public bool outputAssignment;
+    public bool outputProjection;
+    public bool outputManagedProjection;
+    public bool outputCollection;
+    public bool outputProperty;
+    public bool outputPhysicalCollection;
+    public bool outputTranslationUnit;
     public Node statement;
     public Node? call;
     public Node? value;
+    public Node? outputTarget;
+    public Node? outputReceiver;
+    public Node? outputReceiverType;
+    public Node? outputType;
+    public Node? outputSize;
+    public string outputName;
+    public string outputField;
     public string kernelName;
 
     public GpuStatementPlan(Node statement) {
         self.handled = false;
         self.cpuReturn = false;
+        self.outputDeclaration = false;
+        self.outputAssignment = false;
+        self.outputProjection = false;
+        self.outputManagedProjection = false;
+        self.outputCollection = false;
+        self.outputProperty = false;
+        self.outputPhysicalCollection = false;
+        self.outputTranslationUnit = false;
         self.statement = statement;
         self.call = null;
         self.value = null;
+        self.outputTarget = null;
+        self.outputReceiver = null;
+        self.outputReceiverType = null;
+        self.outputType = null;
+        self.outputSize = null;
+        self.outputName = "";
+        self.outputField = "";
         self.kernelName = "";
     }
 }
@@ -90,10 +184,18 @@ class GpuStatementPlan {
 class GpuStatementOperands {
     public GpuCallInputs callInputs;
     public IRNode? cpuReturnValue;
+    public IRNode? outputTarget;
+    public IRNode? outputSize;
+    public GpuProjectionReceiver? outputReceiver;
+    public GpuCollectionOutputTarget? collectionOutput;
 
     public GpuStatementOperands() {
         self.callInputs = GpuCallInputs();
         self.cpuReturnValue = null;
+        self.outputTarget = null;
+        self.outputSize = null;
+        self.outputReceiver = null;
+        self.collectionOutput = null;
     }
 }
 
@@ -118,6 +220,8 @@ class GpuPipeline {
     private GpuSemantics semantics;
     private ManagedValueSemantics managedValues;
     private OwnershipOperandPlanner operandPlanner;
+    private ManagedLifetimeLowerer managedLifetime;
+    private CallLowerer calls;
     private CTypeLowerer cTypes;
     private Map<string, IRGpuKernel> kernels;
     private bool cpuActiveState;
@@ -126,18 +230,25 @@ class GpuPipeline {
     private Map<string, string> cpuArrayLengths;
     private Map<string, IRNode> hostArrayLengths;
     private Map<string, bool> unknownHostArrayLengths;
+    private Map<string, Node> translationUnitOutputTypes;
     private int helperCounter;
+    private int outputCounter;
+    private int inputCounter;
 
     public GpuPipeline(Analyzed analyzed,
             HostedAbiRepository hostedAbi, GpuSemantics semantics,
             ManagedValueSemantics managedValues,
             OwnershipOperandPlanner operandPlanner,
+            ManagedLifetimeLowerer managedLifetime,
+            CallLowerer calls,
             CTypeLowerer cTypes) {
         self.analyzed = analyzed;
         self.hostedAbi = hostedAbi;
         self.semantics = semantics;
         self.managedValues = managedValues;
         self.operandPlanner = operandPlanner;
+        self.managedLifetime = managedLifetime;
+        self.calls = calls;
         self.cTypes = cTypes;
         self.kernels = {};
         self.cpuActiveState = false;
@@ -146,7 +257,10 @@ class GpuPipeline {
         self.cpuArrayLengths = {};
         self.hostArrayLengths = {};
         self.unknownHostArrayLengths = {};
+        self.translationUnitOutputTypes = {};
         self.helperCounter = 0;
+        self.outputCounter = 0;
+        self.inputCounter = 0;
     }
 
     private string lexicalBindingCName(string name) {
@@ -197,12 +311,15 @@ class GpuPipeline {
             return plan;
         }
         Node? expression = null;
+        Node? assignmentTarget = null;
         if (statement.kind == NK_EXPR_STMT) {
             expression = statement.expr;
         } else if (statement.kind == NK_VAR_DECL_STMT) {
             expression = statement.initializer;
         }
-        if (expression != null && expression.kind == NK_ASSIGN_EXPR) {
+        if (expression != null && expression.kind == NK_ASSIGN_EXPR
+                && expression.op == "=") {
+            assignmentTarget = expression.target;
             expression = expression.value_node;
         }
         if (expression == null || expression.kind != NK_CALL_EXPR
@@ -215,33 +332,345 @@ class GpuPipeline {
         plan.handled = true;
         plan.call = expression;
         plan.kernelName = expression.callee.name;
+        IRGpuKernel target = self.kernel(plan.kernelName);
+        if (target.output_buffer != null
+                && statement.kind == NK_VAR_DECL_STMT) {
+            Node? outputType = statement.type;
+            if (outputType == null) {
+                outputType = target.declaration.return_type;
+            }
+            if (outputType == null || !outputType.is_array) {
+                self.reject(statement,
+                    "array-returning GPU declaration requires an array type");
+            }
+            Node concreteOutputType = outputType;
+            plan.outputDeclaration = true;
+            plan.outputType = concreteOutputType;
+            plan.outputSize = concreteOutputType.array_size;
+            plan.outputName = statement.name;
+        } else if (target.output_buffer != null
+                && assignmentTarget != null
+                && assignmentTarget.kind == NK_IDENTIFIER
+                && variableTypes.has(assignmentTarget.name)) {
+            Node assignmentType = variableTypes.get(
+                assignmentTarget.name);
+            if (assignmentType.is_array
+                    && self.hasHostCapacity(assignmentTarget.name)) {
+                plan.outputAssignment = true;
+                plan.outputTarget = assignmentTarget;
+                plan.outputName = assignmentTarget.name;
+            } else if (self.semantics.outputCollectionType(
+                    assignmentType)) {
+                plan.outputAssignment = true;
+                plan.outputCollection = true;
+                plan.outputTarget = assignmentTarget;
+                plan.outputType = assignmentType;
+            } else if (assignmentType.is_array
+                    && !self.unknownHostArrayLengths.has(
+                        assignmentTarget.name)
+                    && self.translationUnitOutputTypes.has(
+                        assignmentTarget.name)) {
+                plan.outputAssignment = true;
+                plan.outputTranslationUnit = true;
+                plan.outputTarget = assignmentTarget;
+                plan.outputType = self.translationUnitOutputTypes.get(
+                    assignmentTarget.name);
+            }
+        } else if (target.output_buffer != null
+                && assignmentTarget != null
+                && assignmentTarget.kind == NK_FIELD_ACCESS_EXPR
+                && assignmentTarget.obj != null) {
+            Node projectionObject = assignmentTarget.obj;
+            string translationUnitKey = "";
+            if (projectionObject.kind == NK_IDENTIFIER
+                    && !variableTypes.has(projectionObject.name)) {
+                translationUnitKey = projectionObject.name + "."
+                    + assignmentTarget.field;
+            }
+            if (translationUnitKey != ""
+                    && self.translationUnitOutputTypes.has(
+                        translationUnitKey)) {
+                plan.outputAssignment = true;
+                plan.outputTranslationUnit = true;
+                plan.outputTarget = assignmentTarget;
+                plan.outputType = self.translationUnitOutputTypes.get(
+                    translationUnitKey);
+            } else {
+                Node? receiverType = self.semantics.contextualExprType(
+                    projectionObject, variableTypes);
+                Node? projectionType = self.semantics.contextualExprType(
+                    assignmentTarget, variableTypes);
+                bool structProjection =
+                    SemanticTypeSystem.resolvedStructName(
+                        receiverType, self.analyzed) != "";
+                Node? receiverMember =
+                    DeclarationRegistry.instanceMemberForType(
+                        self.analyzed, receiverType,
+                        assignmentTarget.field);
+                bool propertyCollection = receiverMember != null
+                    && receiverMember.kind == NK_PROPERTY_DECL
+                    && receiverMember.access != "class"
+                    && receiverMember.has_getter
+                    && projectionType != null
+                    && self.semantics.outputCollectionType(
+                        projectionType);
+                bool managedProjection = receiverType != null
+                    && self.managedValues.isManaged(receiverType)
+                    && receiverMember != null
+                    && receiverMember.kind == NK_FIELD_DECL
+                    && receiverMember.access != "class";
+                bool physicalCollection = managedProjection
+                    && projectionType != null
+                    && self.semantics.outputCollectionType(
+                        projectionType);
+                if ((propertyCollection || physicalCollection)
+                        && projectionType != null) {
+                    Node concreteProjectionType = projectionType;
+                    plan.outputAssignment = true;
+                    plan.outputCollection = true;
+                    plan.outputProperty = propertyCollection;
+                    plan.outputPhysicalCollection = physicalCollection;
+                    plan.outputTarget = assignmentTarget;
+                    plan.outputType = concreteProjectionType;
+                } else if ((structProjection || managedProjection)
+                        && projectionType != null
+                        && projectionType.is_array
+                        && projectionType.array_size != null) {
+                    Node concreteProjectionType = projectionType;
+                    plan.outputAssignment = true;
+                    plan.outputProjection = true;
+                    plan.outputTarget = assignmentTarget;
+                    plan.outputType = concreteProjectionType;
+                    plan.outputSize = concreteProjectionType.array_size;
+                    if (managedProjection) {
+                        Node concreteReceiverType = receiverType;
+                        plan.outputManagedProjection = true;
+                        plan.outputReceiver = projectionObject;
+                        plan.outputReceiverType = concreteReceiverType;
+                        plan.outputField = assignmentTarget.field;
+                    }
+                }
+            }
+        }
         return plan;
     }
 
+    private int inheritedDefaultArrayParameter(
+            CallArgumentPlan binding, CallArgumentSlot slot) {
+        if (!slot.usesDefault
+                || slot.expression.kind != NK_IDENTIFIER) {
+            return -1;
+        }
+        int index = 0;
+        while (index < slot.parameterIndex) {
+            Node parameter = binding.target.signature.parameters.get(index);
+            if (parameter.name == slot.expression.name
+                    && parameter.type != null
+                    && parameter.type.is_array) {
+                return index;
+            }
+            index = index + 1;
+        }
+        return -1;
+    }
+
+    private IRNode inputArrayCapacity(
+            GpuArgumentLedger ledger, CallArgumentSlot slot,
+            IRNode loweredValue, GpuCallInputs inputs) {
+        int inherited = self.inheritedDefaultArrayParameter(
+            ledger.binding, slot);
+        if (inherited >= 0) {
+            string inheritedKey = Strings.fromInt(inherited);
+            if (!inputs.lengths.has(inheritedKey)) {
+                self.reject(slot.expression,
+                    "default GPU array dependency has no stable capacity");
+            }
+            return inputs.lengths.get(inheritedKey);
+        }
+        if (slot.expression.kind == NK_IDENTIFIER) {
+            string name = slot.expression.name;
+            if (self.hasHostCapacity(name)) {
+                return self.hostCapacity(name);
+            }
+            if (self.translationUnitOutputTypes.has(name)) {
+                return self.bareArrayCapacity(IRNode.variable(
+                    self.lexicalBindingCName(name)));
+            }
+        }
+        return self.bareArrayCapacity(loweredValue);
+    }
+
     public GpuCallInputs loweredCallInputs(
-            GpuStatementPlan plan, Vector<IRNode> arguments) {
+            GpuStatementPlan plan, GpuArgumentLedger ledger) {
         GpuCallInputs inputs = GpuCallInputs();
         if (plan.call == null || plan.kernelName == "") {
             return inputs;
         }
+        Node call = plan.call;
         IRGpuKernel target = self.kernel(plan.kernelName);
-        int index = 0;
-        while (index < arguments.len
-                && index < target.declaration.params.len) {
-            string key = Strings.fromInt(index);
-            IRNode value = arguments.get(index);
-            inputs.values.put(key, value);
-            if (target.declaration.params.get(index).type.is_array) {
-                inputs.lengths.put(key, self.bareArrayCapacity(value));
+        if (ledger.explicitValues.len != call.args.len) {
+            self.reject(call,
+                "GPU explicit arguments were not evaluated exactly once");
+        }
+        int evaluationIndex = 0;
+        while (evaluationIndex < ledger.binding.evaluations.len) {
+            CallArgumentSlot slot =
+                ledger.binding.evaluations.get(evaluationIndex);
+            if (slot.parameterIndex < 0
+                    || slot.parameterIndex
+                        >= target.declaration.params.len) {
+                self.reject(slot.expression,
+                    "GPU argument binding has no declaration parameter");
             }
-            index = index + 1;
+            string key = Strings.fromInt(slot.parameterIndex);
+            IRNode value = IRNode.literal("0");
+            Node? argumentType = slot.parameter.type;
+            bool argumentOwned = false;
+            if (slot.usesDefault) {
+                value = self.calls.materializeDefaultArgument(
+                    ledger.binding, slot, null, inputs.values);
+                argumentOwned = argumentType != null
+                    && self.managedValues.isManaged(argumentType);
+            } else {
+                string sourceKey = Strings.fromInt(slot.sourceIndex);
+                if (slot.sourceIndex < 0
+                        || slot.sourceIndex
+                            >= ledger.explicitValues.len) {
+                    self.reject(slot.expression,
+                        "GPU explicit argument binding is out of range");
+                }
+                value = ledger.explicitValues.get(slot.sourceIndex);
+                if (ledger.sourceTypes.has(sourceKey)) {
+                    argumentType = ledger.sourceTypes.get(sourceKey);
+                }
+                argumentOwned = ledger.sourceOwned.has(sourceKey)
+                    && ledger.sourceOwned.get(sourceKey);
+                if (ledger.sourceProjectionRoots.has(sourceKey)) {
+                    GpuArgumentProjectionRoot projection =
+                        ledger.sourceProjectionRoots.get(sourceKey);
+                    int declarationIndex = 0;
+                    while (declarationIndex < projection.declarations.len) {
+                        inputs.declarations.push(
+                            projection.declarations.get(declarationIndex));
+                        declarationIndex = declarationIndex + 1;
+                    }
+                    int prefixIndex = 0;
+                    while (prefixIndex < projection.prefix.len) {
+                        inputs.sequence.push(
+                            projection.prefix.get(prefixIndex));
+                        prefixIndex = prefixIndex + 1;
+                    }
+                }
+            }
+            if (argumentType == null) {
+                self.reject(slot.expression,
+                    "GPU argument has no resolved source type");
+            }
+            Node concreteArgumentType = argumentType;
+            Node parameter = target.declaration.params.get(
+                slot.parameterIndex);
+            if (parameter.type.is_array
+                    && self.semantics.outputCollectionType(
+                        concreteArgumentType)) {
+                Node collectionType = concreteArgumentType;
+                string suffix = Strings.fromInt(self.inputCounter);
+                self.inputCounter = self.inputCounter + 1;
+                string stableName = "__gpu_arg_" + suffix;
+                string releasedName = "__gpu_arg_released_" + suffix;
+                string dataName = "__gpu_data_" + suffix;
+                string lengthName = "__gpu_len_" + suffix;
+                string stableType = self.operandPlanner.operandCType(
+                    slot.expression, collectionType);
+                IRNode stableDeclaration = IRNode.variableDeclaration(
+                    stableType, stableName, IRNode.literal("NULL"));
+                inputs.declarations.push(stableDeclaration);
+                inputs.declarations.push(IRNode.variableDeclaration(
+                    stableType, releasedName, null));
+                Node elementType = TypeShape.withoutOuterArray(
+                    parameter.type);
+                inputs.declarations.push(IRNode.variableDeclaration(
+                    self.cTypes.lower(elementType) + "*",
+                    dataName, null));
+                inputs.declarations.push(IRNode.variableDeclaration(
+                    "int", lengthName, null));
+                string runtimeType = self.managedValues.runtimeType(
+                    collectionType);
+                IRNode? registration =
+                    self.managedLifetime.cleanupRegistration(
+                        stableDeclaration, runtimeType);
+                if (registration != null) {
+                    IRNode concreteRegistration = registration;
+                    inputs.sequence.push(concreteRegistration);
+                }
+                IRNode stable = IRNode.variable(stableName);
+                inputs.sequence.push(IRNode.binary(
+                    stable, "=", value));
+                if (!argumentOwned) {
+                    inputs.sequence.push(
+                        self.managedLifetime.retainValue(
+                            stable, collectionType));
+                }
+                inputs.sequence.push(IRNode.binary(
+                    IRNode.variable(dataName), "=",
+                    IRNode.fieldAccess(stable, "data", true)));
+                inputs.sequence.push(IRNode.binary(
+                    IRNode.variable(lengthName), "=",
+                    IRNode.fieldAccess(stable, "len", true)));
+                inputs.values.put(key, IRNode.variable(dataName));
+                inputs.lengths.put(key, IRNode.variable(lengthName));
+                IRNode released = IRNode.variable(releasedName);
+                inputs.cleanup.push(IRNode.binary(
+                    released, "=", stable));
+                inputs.cleanup.push(IRNode.binary(
+                    stable, "=", IRNode.literal("NULL")));
+                inputs.cleanup.push(
+                    self.managedLifetime.releaseValue(
+                        released, collectionType));
+            } else {
+                string suffix = Strings.fromInt(self.inputCounter);
+                self.inputCounter = self.inputCounter + 1;
+                string stableName = "__gpu_arg_" + suffix;
+                inputs.declarations.push(IRNode.variableDeclaration(
+                    self.operandPlanner.operandCType(
+                        slot.expression, concreteArgumentType),
+                    stableName, null));
+                IRNode stable = IRNode.variable(stableName);
+                inputs.sequence.push(IRNode.binary(
+                    stable, "=", value));
+                inputs.values.put(key, stable);
+                if (parameter.type.is_array) {
+                    string lengthName = "__gpu_len_" + suffix;
+                    inputs.declarations.push(IRNode.variableDeclaration(
+                        "int", lengthName, null));
+                    inputs.sequence.push(IRNode.binary(
+                        IRNode.variable(lengthName), "=",
+                        self.inputArrayCapacity(
+                            ledger, slot, value, inputs)));
+                    inputs.lengths.put(
+                        key, IRNode.variable(lengthName));
+                }
+            }
+            if (!slot.usesDefault) {
+                string sourceKey = Strings.fromInt(slot.sourceIndex);
+                if (ledger.sourceProjectionRoots.has(sourceKey)) {
+                    GpuArgumentProjectionRoot projection =
+                        ledger.sourceProjectionRoots.get(sourceKey);
+                    int cleanupIndex = 0;
+                    while (cleanupIndex < projection.cleanup.len) {
+                        inputs.cleanup.push(
+                            projection.cleanup.get(cleanupIndex));
+                        cleanupIndex = cleanupIndex + 1;
+                    }
+                }
+            }
+            evaluationIndex = evaluationIndex + 1;
         }
         return inputs;
     }
 
     public GpuStatementResult materializeStatement(
             GpuStatementPlan plan, GpuStatementOperands operands,
-            IRModule module) {
+            IRModule module, Map<string, Node> variableTypes) {
         GpuStatementResult result = GpuStatementResult();
         if (!plan.handled) { return result; }
         result.handled = true;
@@ -273,13 +702,275 @@ class GpuPipeline {
         IRGpuKernel target = self.kernel(plan.kernelName);
         GpuPreparedCall prepared = self.prepareCall(
             target, plan.call, operands.callInputs);
+        if (target.output_buffer != null) {
+            if (!plan.outputDeclaration && !plan.outputAssignment) {
+                self.reject(plan.call,
+                    "GPU array result requires a declaration output target");
+            }
+            if (plan.outputTranslationUnit) {
+                if (operands.outputTarget == null) {
+                    self.reject(plan.outputTarget,
+                        "GPU translation-unit output target is incomplete");
+                }
+                IRNode concreteTranslationUnitTarget =
+                    operands.outputTarget;
+                self.appendPreparedPrefix(result, prepared);
+                self.appendOutputDispatch(result, target, prepared,
+                    concreteTranslationUnitTarget,
+                    self.bareArrayCapacity(
+                        concreteTranslationUnitTarget), module);
+                self.appendPreparedCleanup(result, prepared);
+                return result;
+            }
+            if (plan.outputCollection) {
+                if (operands.collectionOutput == null
+                        || plan.outputTarget == null
+                        || plan.outputType == null) {
+                    self.reject(plan.outputTarget,
+                        "GPU collection output target is incomplete");
+                }
+                GpuCollectionOutputTarget collection =
+                    operands.collectionOutput;
+                IRNode concreteCollection = collection.value;
+                Node collectionTarget = plan.outputTarget;
+                Node collectionType = collection.type;
+                string suffix = Strings.fromInt(self.outputCounter);
+                self.outputCounter = self.outputCounter + 1;
+                string targetName = "__gpu_output_target_" + suffix;
+                string releasedName =
+                    "__gpu_output_target_released_" + suffix;
+                string dataName = "__gpu_output_data_" + suffix;
+                string lengthName = "__gpu_output_len_" + suffix;
+                result.statements.push(IRNode.variableDeclaration(
+                    self.operandPlanner.operandCType(
+                        collectionTarget, collectionType),
+                    targetName, IRNode.literal("NULL")));
+                result.statements.push(IRNode.variableDeclaration(
+                    self.operandPlanner.operandCType(
+                        collectionTarget, collectionType),
+                    releasedName, null));
+                result.statements.push(IRNode.variableDeclaration(
+                    self.outputElementCType(target) + "*",
+                    dataName, null));
+                result.statements.push(IRNode.variableDeclaration(
+                    "int", lengthName, null));
+                string runtimeType = self.managedValues.runtimeType(
+                    collectionType);
+                self.managedLifetime.maybeRegisterCleanup(
+                    targetName, runtimeType, result.statements);
+                IRNode stable = IRNode.variable(targetName);
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(stable, "=", concreteCollection)));
+                if (!collection.owned) {
+                    result.statements.push(IRNode.expressionStatement(
+                        self.managedLifetime.retainValue(
+                            stable, collectionType)));
+                }
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(IRNode.variable(dataName), "=",
+                        IRNode.fieldAccess(stable, "data", true))));
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(IRNode.variable(lengthName), "=",
+                        IRNode.fieldAccess(stable, "len", true))));
+                self.appendPreparedPrefix(result, prepared);
+                self.appendOutputDispatch(result, target, prepared,
+                    IRNode.variable(dataName),
+                    IRNode.variable(lengthName), module);
+                self.appendPreparedCleanup(result, prepared);
+                IRNode released = IRNode.variable(releasedName);
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(released, "=", stable)));
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(stable, "=", IRNode.literal("NULL"))));
+                result.statements.push(IRNode.expressionStatement(
+                    self.managedLifetime.releaseValue(
+                        released, collectionType)));
+                return result;
+            }
+            if (plan.outputManagedProjection) {
+                if (operands.outputReceiver == null
+                        || operands.outputSize == null
+                        || plan.outputReceiver == null
+                        || plan.outputReceiverType == null
+                        || plan.outputField == "") {
+                    self.reject(plan.outputTarget,
+                        "GPU managed array projection is incomplete");
+                }
+                GpuProjectionReceiver receiver =
+                    operands.outputReceiver;
+                IRNode concreteProjectionSize = operands.outputSize;
+                Node receiverExpression = plan.outputReceiver;
+                Node receiverType = plan.outputReceiverType;
+                string suffix = Strings.fromInt(self.outputCounter);
+                self.outputCounter = self.outputCounter + 1;
+                string receiverName =
+                    "__gpu_output_receiver_" + suffix;
+                string releasedName =
+                    "__gpu_output_receiver_released_" + suffix;
+                string dataName = "__gpu_output_data_" + suffix;
+                string lengthName = "__gpu_output_len_" + suffix;
+                string receiverCType =
+                    self.operandPlanner.operandCType(
+                        receiverExpression, receiverType);
+                result.statements.push(IRNode.variableDeclaration(
+                    receiverCType, receiverName,
+                    IRNode.literal("NULL")));
+                result.statements.push(IRNode.variableDeclaration(
+                    receiverCType, releasedName, null));
+                result.statements.push(IRNode.variableDeclaration(
+                    self.outputElementCType(target) + "*",
+                    dataName, null));
+                result.statements.push(IRNode.variableDeclaration(
+                    "int", lengthName, null));
+                string runtimeType = self.managedValues.runtimeType(
+                    receiverType);
+                self.managedLifetime.maybeRegisterCleanup(
+                    receiverName, runtimeType, result.statements);
+                IRNode stable = IRNode.variable(receiverName);
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(stable, "=", receiver.value)));
+                if (!receiver.owned) {
+                    result.statements.push(IRNode.expressionStatement(
+                        self.managedLifetime.retainValue(
+                            stable, receiverType)));
+                }
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(IRNode.variable(dataName), "=",
+                        IRNode.fieldAccess(
+                            stable, plan.outputField, true))));
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(IRNode.variable(lengthName), "=",
+                        concreteProjectionSize)));
+                self.appendPreparedPrefix(result, prepared);
+                self.appendOutputDispatch(result, target, prepared,
+                    IRNode.variable(dataName),
+                    IRNode.variable(lengthName), module);
+                self.appendPreparedCleanup(result, prepared);
+                IRNode released = IRNode.variable(releasedName);
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(released, "=", stable)));
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(stable, "=",
+                        IRNode.literal("NULL"))));
+                result.statements.push(IRNode.expressionStatement(
+                    self.managedLifetime.releaseValue(
+                        released, receiverType)));
+                return result;
+            }
+            if (plan.outputProjection) {
+                if (operands.outputTarget == null
+                        || operands.outputSize == null) {
+                    self.reject(plan.outputTarget,
+                        "GPU array projection has no proven capacity");
+                }
+                IRNode concreteProjection = operands.outputTarget;
+                IRNode concreteProjectionSize = operands.outputSize;
+                string suffix = Strings.fromInt(self.outputCounter);
+                self.outputCounter = self.outputCounter + 1;
+                string dataName = "__gpu_output_data_" + suffix;
+                string lengthName = "__gpu_output_len_" + suffix;
+                result.statements.push(IRNode.variableDeclaration(
+                    self.outputElementCType(target) + "*",
+                    dataName, null));
+                result.statements.push(IRNode.variableDeclaration(
+                    "int", lengthName, null));
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(IRNode.variable(dataName), "=",
+                        concreteProjection)));
+                result.statements.push(IRNode.expressionStatement(
+                    IRNode.binary(IRNode.variable(lengthName), "=",
+                        concreteProjectionSize)));
+                self.appendPreparedPrefix(result, prepared);
+                self.appendOutputDispatch(result, target, prepared,
+                    IRNode.variable(dataName),
+                    IRNode.variable(lengthName), module);
+                self.appendPreparedCleanup(result, prepared);
+                return result;
+            }
+            self.appendPreparedPrefix(result, prepared);
+            if (plan.outputAssignment) {
+                if (operands.outputTarget == null
+                        || !self.hasHostCapacity(plan.outputName)) {
+                    self.reject(plan.outputTarget,
+                        "GPU array assignment target has no proven capacity");
+                }
+                IRNode concreteOutputTarget = operands.outputTarget;
+                self.appendOutputDispatch(result, target, prepared,
+                    concreteOutputTarget,
+                    self.hostCapacity(plan.outputName), module);
+                self.appendPreparedCleanup(result, prepared);
+                return result;
+            }
+            string outputName = self.lexicalBindingCName(
+                plan.outputName);
+            string lengthName = "__gpu_output_len_"
+                + Strings.fromInt(self.outputCounter);
+            self.outputCounter = self.outputCounter + 1;
+            IRNode logicalLength = prepared.dispatch_length;
+            if (operands.outputSize != null) {
+                logicalLength = operands.outputSize;
+            }
+            result.statements.push(IRNode.variableDeclaration(
+                "int", lengthName, logicalLength));
+            IRNode length = IRNode.variable(lengthName);
+            IRNode physicalLength = IRNode.ternary(
+                IRNode.binary(length, ">", IRNode.literal("0")),
+                length, IRNode.literal("1"));
+            result.statements.push(IRNode.arrayDeclaration(
+                self.outputElementCType(target), outputName,
+                physicalLength, null));
+            self.appendOutputDispatch(result, target, prepared,
+                IRNode.variable(outputName), length, module);
+            self.appendPreparedCleanup(result, prepared);
+            Node outputType = plan.outputType;
+            variableTypes.put(plan.outputName, outputType);
+            self.recordHostCapacity(plan.outputName, length);
+            return result;
+        }
         result.statements.push(IRNode.expressionStatement(
             self.voidDispatch(target, prepared, module)));
         return result;
     }
 
+    private void appendPreparedPrefix(
+            GpuStatementResult result, GpuPreparedCall prepared) {
+        int declarationIndex = 0;
+        while (declarationIndex < prepared.declarations.len) {
+            result.statements.push(
+                prepared.declarations.get(declarationIndex));
+            declarationIndex = declarationIndex + 1;
+        }
+        int setupIndex = 0;
+        while (setupIndex < prepared.sequence.len) {
+            result.statements.push(IRNode.expressionStatement(
+                prepared.sequence.get(setupIndex)));
+            setupIndex = setupIndex + 1;
+        }
+    }
+
+    private void appendOutputDispatch(
+            GpuStatementResult result, IRGpuKernel target,
+            GpuPreparedCall prepared, IRNode output,
+            IRNode capacity, IRModule module) {
+        prepared.helper_args.push(output);
+        prepared.helper_args.push(capacity);
+        string helper = self.ensureDispatchHelper(target, module);
+        result.statements.push(IRNode.expressionStatement(
+            IRNode.call(helper, prepared.helper_args)));
+    }
+
+    private void appendPreparedCleanup(
+            GpuStatementResult result, GpuPreparedCall prepared) {
+        int cleanupIndex = 0;
+        while (cleanupIndex < prepared.cleanup.len) {
+            result.statements.push(IRNode.expressionStatement(
+                prepared.cleanup.get(cleanupIndex)));
+            cleanupIndex = cleanupIndex + 1;
+        }
+    }
+
     public IRNode dispatchExpression(
-            string name, Node call, Vector<IRNode> arguments,
+            string name, Node call, GpuArgumentLedger ledger,
             IRModule module) {
         IRGpuKernel target = self.kernel(name);
         if (target.output_buffer != null) {
@@ -290,7 +981,7 @@ class GpuPipeline {
         plan.handled = true;
         plan.call = call;
         plan.kernelName = name;
-        GpuCallInputs inputs = self.loweredCallInputs(plan, arguments);
+        GpuCallInputs inputs = self.loweredCallInputs(plan, ledger);
         GpuPreparedCall prepared = self.prepareCall(
             target, call, inputs);
         return self.voidDispatch(target, prepared, module);
@@ -344,6 +1035,7 @@ class GpuPipeline {
     }
 
     public void registerKernels(Node program, IRModule module) {
+        self.indexTranslationUnitOutputs(program);
         int declarationIndex = 0;
         while (declarationIndex < program.declarations.len) {
             Node owner = program.declarations.get(declarationIndex);
@@ -383,6 +1075,46 @@ class GpuPipeline {
                 kernel.wgsl_source = emitter.emit();
                 self.kernels.put(declaration.name, kernel);
                 module.gpu_kernels.push(kernel);
+            }
+            declarationIndex = declarationIndex + 1;
+        }
+    }
+
+    private bool physicalArrayBacking(Node? typeExpr,
+            Node? initializer) {
+        return typeExpr != null && typeExpr.is_array
+            && (typeExpr.array_size != null
+                || (initializer != null
+                    && (initializer.kind == NK_LIST_LITERAL
+                        || initializer.kind == NK_BRACE_INITIALIZER)));
+    }
+
+    private void indexTranslationUnitOutputs(Node program) {
+        self.translationUnitOutputTypes = {};
+        int declarationIndex = 0;
+        while (declarationIndex < program.declarations.len) {
+            Node declaration = program.declarations.get(
+                declarationIndex);
+            if (declaration.kind == NK_VAR_DECL_STMT
+                    && self.physicalArrayBacking(
+                        declaration.type, declaration.initializer)) {
+                self.translationUnitOutputTypes.put(
+                    declaration.name, declaration.type);
+            } else if (declaration.kind == NK_CLASS_DECL
+                    && declaration.generic_params.len == 0) {
+                int memberIndex = 0;
+                while (memberIndex < declaration.members.len) {
+                    Node member = declaration.members.get(memberIndex);
+                    if (member.kind == NK_FIELD_DECL
+                            && member.access == "class"
+                            && self.physicalArrayBacking(
+                                member.type, member.initializer)) {
+                        self.translationUnitOutputTypes.put(
+                            declaration.name + "." + member.name,
+                            member.type);
+                    }
+                    memberIndex = memberIndex + 1;
+                }
             }
             declarationIndex = declarationIndex + 1;
         }

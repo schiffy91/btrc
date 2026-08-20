@@ -254,6 +254,16 @@ def test_gpu_outputs_accept_exact_element_storage_with_provable_capacity(
             "output element type",
         ),
         (
+            "class Vector<T> { public T* storage; public int count; "
+            "public Vector(T* storage, int count) { "
+            "self.storage = storage; self.count = count; } } "
+            "@gpu int[] copy(int[] values) { int i = gpu_id(); return values[i]; } "
+            "int main() { int data[1] = {1}; "
+            "Vector<int> output = new Vector<int>(data, 1); "
+            "output = copy(data); return 0; }",
+            "no provable writable capacity",
+        ),
+        (
             "class Vector<T> { public T* data; public int len; "
             "public Vector(T* data, int len) { self.data = data; self.len = len; } } "
             "@gpu int[] copy(int[] values) { int i = gpu_id(); return values[i]; } "
@@ -261,6 +271,16 @@ def test_gpu_outputs_accept_exact_element_storage_with_provable_capacity(
             "Vector<float> input = new Vector<float>(data, 2); int output[2]; "
             "output = copy(input); return 0; }",
             "abi-compatible gpu buffer element",
+        ),
+        (
+            "class Vector<T> { public T* storage; public int count; "
+            "public Vector(T* storage, int count) { "
+            "self.storage = storage; self.count = count; } } "
+            "@gpu int[] copy(int[] values) { int i = gpu_id(); return values[i]; } "
+            "int main() { int data[1] = {1}; int output[1]; "
+            "Vector<int> input = new Vector<int>(data, 1); "
+            "output = copy(input); return 0; }",
+            "no provable readable gpu buffer capacity",
         ),
         (
             "typedef int[] Values; int backing[2] = {1, 2}; Values view = backing; "
@@ -352,7 +372,9 @@ def test_gpu_outputs_accept_exact_element_storage_with_provable_capacity(
         "gpu-pointer-target",
         "gpu-property-target",
         "gpu-vector-wrong-element",
+        "gpu-vector-missing-storage-output",
         "gpu-vector-input-wrong-element",
+        "gpu-vector-missing-storage-input",
         "gpu-typedef-pointer-input",
         "gpu-fixed-bound-parameter-input",
         "gpu-incomplete-extern-input",

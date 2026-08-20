@@ -40,6 +40,30 @@ def test_default_helper_upcasts_prior_derived_arguments():
     )
 
 
+def test_generic_default_helpers_resolve_concrete_body_types():
+    c = emit_c(
+        "class Seed<T> {\n"
+        "    public T value;\n"
+        "    public Seed(T value = (T)0) { self.value = value; }\n"
+        "}\n"
+        "class Holder<T> {\n"
+        "    public Seed<T> seed;\n"
+        "    public size_t width;\n"
+        "    public Holder(Seed<T> seed = Seed(), size_t width = sizeof(T)) {\n"
+        "        self.seed = seed; self.width = width;\n"
+        "    }\n"
+        "}\n"
+        "int main() { Holder<int> holder = new Holder<int>(); return 0; }"
+    )
+
+    assert "return ((int)0);" in c
+    assert "btrc_Seed_int_new(__btrc_call_operand_" in c
+    assert "return sizeof(int);" in c
+    assert "btrc_Seed_T" not in c
+    assert "sizeof(T)" not in c
+    assert "((T)" not in c
+
+
 def test_print_formats_by_argument_type():
     c = emit_c(
         "int main() {\n"

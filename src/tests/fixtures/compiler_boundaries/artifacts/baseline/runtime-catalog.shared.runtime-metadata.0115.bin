@@ -1,0 +1,1 @@
+{"asset":"cycles.c","btrc_order":113,"category":"cycles","dependencies":["__btrc_destroyed_tracking","__btrc_arc_mutation_lock"],"headers":[],"name":"__btrc_is_destroyed","provided_objects":[],"provided_types":[],"python_order":133,"source_sha256":"90a1eb91f9772e0a9f701c5e38474ab852d72dcf60ecd44865cfa289a87cd0ff","source_size":316,"source_visible":false}

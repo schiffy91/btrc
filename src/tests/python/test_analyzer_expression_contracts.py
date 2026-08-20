@@ -96,3 +96,8 @@ def test_spawn_requires_a_callable():
 def test_ownership_operations_reject_primitives():
     errors = _errors("void run() { int value = 1; keep value; release value; delete value; }")
     assert sum("ownership operation is not valid" in error.lower() for error in errors) == 3
+
+
+def test_consuming_ownership_operations_require_physical_lvalues():
+    errors = _errors("class Item {} void run() { delete new Item(); release new Item(); }")
+    assert sum("requires an assignable value" in error.lower() for error in errors) == 2

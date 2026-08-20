@@ -9,12 +9,12 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.program import AnalyzedProgram
-from src.compiler.python.syntax.ast.generated import IntLiteral, Program, TypeExpr
+from src.compiler.python.analyzer.types import TypeIdentity
 from src.compiler.python.ir.lowering.generics import TypeSubstitution
 from src.compiler.python.ir.lowering.session import LoweringSession
 from src.compiler.python.ir.lowering.types import CTypeLowerer
 from src.compiler.python.ir.nodes import IRModule
-from src.compiler.python.analyzer.types import TypeIdentity
+from src.compiler.python.syntax.ast.generated import IntLiteral, Program, TypeExpr
 from src.tests.python.test_codegen import emit_c
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
@@ -107,12 +107,28 @@ def test_substitution_falls_back_to_mapped_bounds_and_preserves_owner_metadata()
         col=17,
     )
 
-    direct = _resolve(TypeExpr(base="T"), {"T": mapped})
+    substitution = TypeSubstitution(
+        arguments={"T": mapped},
+        typedefs={},
+        identity=IDENTITY,
+    )
+    direct = substitution.resolve(TypeExpr(base="T"))
+    assert direct is not None
     nested = _resolve(owner, {"T": TypeExpr(base="string")})
 
     assert direct.is_array is True
-    assert direct.array_size is mapped_size
+    assert direct.array_size == IntLiteral(value=8, raw="8")
+    assert direct.array_size is not mapped_size
     assert direct.is_volatile is True
+
+    mapped_size.value = 13
+    assert isinstance(direct.array_size, IntLiteral)
+    direct.array_size.value = 21
+    resolved_again = substitution.resolve(TypeExpr(base="T"))
+    assert resolved_again is not None
+    assert resolved_again.array_size == IntLiteral(value=8, raw="8")
+    assert resolved_again.array_size is not direct.array_size
+
     assert nested.generic_args == [TypeExpr(base="string")]
     assert nested.pointer_depth == 1
     assert nested.is_array is True

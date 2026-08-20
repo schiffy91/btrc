@@ -1,0 +1,9 @@
+#include <assert.h>
+
+int main() {
+    string text = "hello";
+    string result = text.substring(1, 2).toUpper();
+    assert(result.equals("EL"));
+    print("PASS");
+    return 0;
+}

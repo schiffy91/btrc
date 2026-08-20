@@ -34,3 +34,24 @@ def test_delete_takes_and_clears_before_throwing_destructor(
         assert "__btrc_arc_slot_access_" in main[destroy : destroy + 300]
         assert "__btrc_arc_destroy(" not in generated
         _strict_matrix(artifact, tmp_path)
+
+
+def test_raw_pointer_delete_compiles_without_releasing_uninitialized_ir(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        int main() {
+            int* raw = null;
+            delete raw;
+            return 0;
+        }
+    """
+    compiled = _compile_pair(
+        semantic_btrcc,
+        tmp_path,
+        source,
+        "delete-null-raw-pointer",
+    )
+    for artifact in compiled:
+        _strict_matrix(artifact, tmp_path)

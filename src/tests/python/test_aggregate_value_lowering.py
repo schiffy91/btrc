@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.tests.python.test_analyzer import analyze
 
 
@@ -29,6 +29,32 @@ class TestArrayInitializerLowering:
                 r"Variable 'values' is a variable-length array and "
                 r"cannot have an initializer"
             ),
+        ):
+            IRLowerer(analyzed).lower()
+
+    def test_nested_shallow_child_uses_its_outer_source_flow_entry(self) -> None:
+        analyzed = analyze(
+            """
+            extern string foreignString();
+            string makeOwnedString() { return f"owned={1}"; }
+            struct Slot { bool marker; string value; };
+
+            int main() {
+                __fn_ptr<string> callback = foreignString;
+                Slot slots[2] = {
+                    {(bool)(callback = makeOwnedString), "borrowed"},
+                    {true, (true ? callback() : foreignString())}
+                };
+                (void)slots;
+                return 0;
+            }
+            """
+        )
+
+        assert analyzed.errors == []
+        with pytest.raises(
+            CodegenError,
+            match="caller-owned temporary cannot be embedded in a shallow aggregate",
         ):
             IRLowerer(analyzed).lower()
 

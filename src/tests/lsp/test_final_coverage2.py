@@ -2,12 +2,16 @@
 resolution, heuristic type inference when the analyzer can't help, property
 definitions, static-method completion, and parent-chain references."""
 
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_definition
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_references
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, hover_text, pos_of
+from src.tests.lsp.lsphelp import (
+    analyze,
+    get_completions,
+    get_definition,
+    get_hover_info,
+    get_references,
+    get_signature_help,
+    hover_text,
+    pos_of,
+)
 
 # ---- signature resolution branches -----------------------------------------
 

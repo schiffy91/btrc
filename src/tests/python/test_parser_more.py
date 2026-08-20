@@ -4,8 +4,7 @@ sizeof-of-expression."""
 import pytest
 
 from src.compiler.python.lexer.lexer import Lexer
-from src.compiler.python.parser.parser import ParseError
-from src.compiler.python.parser.parser import Parser
+from src.compiler.python.parser.parser import ParseError, Parser
 
 
 def parse(src):

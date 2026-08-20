@@ -457,10 +457,7 @@ class BtrcDebugAdapter:
             raise ValueError("setBreakpoints: source path is required")
         path = self.coordinates.client_path_to_native(path)
         specs = self._breakpoint_specs(arguments, minimum_line=self.coordinates.minimum_line)
-        debugger_specs = [
-            {**spec, "line": self.coordinates.client_line_to_debugger(spec["line"])}
-            for spec in specs
-        ]
+        debugger_specs = [{**spec, "line": self.coordinates.client_line_to_debugger(spec["line"])} for spec in specs]
         verified = self.session.set_breakpoints(path, debugger_specs) if self.session.target else []
         for breakpoint in verified:
             if "line" in breakpoint:

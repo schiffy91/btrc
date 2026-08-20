@@ -4,10 +4,9 @@ enum/union/tuple type spellings, array-sized parameters, `keep` params, and the
 
 import pytest
 
-from src.compiler.python.syntax.ast.generated import CastExpr, FunctionDecl, LambdaExpr
 from src.compiler.python.lexer.lexer import Lexer
-from src.compiler.python.parser.parser import ParseError
-from src.compiler.python.parser.parser import Parser
+from src.compiler.python.parser.parser import ParseError, Parser
+from src.compiler.python.syntax.ast.generated import CastExpr, FunctionDecl, LambdaExpr
 
 
 def parse(src):

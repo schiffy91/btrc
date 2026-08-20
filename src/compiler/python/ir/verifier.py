@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 from .nodes import (
     IRAddressOf,
     IRCall,
@@ -31,22 +33,21 @@ from .nodes import (
 class IRVerifier:
     """Validate translation-unit schema and typed cleanup metadata."""
 
-    _REGISTER_ARITY = {
+    _REGISTER_ARITY: ClassVar[dict[str, int]] = {
         "__btrc_register_cleanup": 4,
         "__btrc_register_direct_cleanup": 3,
     }
 
     def __init__(self, module: IRModule) -> None:
         self.module = module
-        self._functions: dict[str, IRFunctionDef] = {
-            function.name: function for function in module.function_defs
-        }
+        self._functions: dict[str, IRFunctionDef] = {}
         self._attached_cleanup_sites: dict[int, str] = {}
 
     def validate(self) -> None:
         """Reject every malformed translation-unit invariant owned here."""
 
         self.validate_schema()
+        self._functions = {function.name: function for function in self.module.function_defs}
         self._validate_cleanup_slots()
         self.validate_type_declarations()
 
@@ -82,8 +83,7 @@ class IRVerifier:
             for declaration in declarations:
                 if not isinstance(declaration, expected_type):
                     raise TypeError(
-                        f"IRModule.{field_name} requires {expected_type.__name__}, "
-                        f"got {type(declaration).__name__}"
+                        f"IRModule.{field_name} requires {expected_type.__name__}, got {type(declaration).__name__}"
                     )
 
         if not isinstance(self.module.preprocessor_decls, list):
@@ -91,8 +91,7 @@ class IRVerifier:
         for declaration in self.module.preprocessor_decls:
             if not isinstance(declaration, (IRInclude, IRMacroDef)):
                 raise TypeError(
-                    "IRModule.preprocessor_decls requires IRInclude or IRMacroDef, "
-                    f"got {type(declaration).__name__}"
+                    f"IRModule.preprocessor_decls requires IRInclude or IRMacroDef, got {type(declaration).__name__}"
                 )
             if isinstance(declaration, IRMacroDef):
                 declaration.validate()
@@ -122,9 +121,7 @@ class IRVerifier:
                     self._validate_cleanup_declaration(node, metadata)
                     site = id(metadata)
                     if site in self._attached_cleanup_sites:
-                        raise ValueError(
-                            f"cleanup metadata for {metadata.name!r} is attached more than once"
-                        )
+                        raise ValueError(f"cleanup metadata for {metadata.name!r} is attached more than once")
                     self._attached_cleanup_sites[site] = function.name
                     declarations[site] = metadata
                 if isinstance(node, IRCall):
@@ -159,14 +156,11 @@ class IRVerifier:
             metadata = self._validate_registration(call)
             if id(metadata) not in declarations:
                 raise ValueError(
-                    f"cleanup registration for {metadata.name!r} has no typed "
-                    f"declaration in function {function_name!r}"
+                    f"cleanup registration for {metadata.name!r} has no typed declaration in function {function_name!r}"
                 )
             adapter = self._functions.get(metadata.take_function)
             if adapter is None or not adapter.is_static:
-                raise ValueError(
-                    f"cleanup take adapter {metadata.take_function!r} is missing or non-static"
-                )
+                raise ValueError(f"cleanup take adapter {metadata.take_function!r} is missing or non-static")
             used_slots.add(id(metadata))
 
         unused = declarations.keys() - used_slots
@@ -190,9 +184,7 @@ class IRVerifier:
             or not isinstance(address.expr.expr, IRVar)
             or address.expr.expr.name != metadata.name
         ):
-            raise ValueError(
-                f"cleanup slot {metadata.name!r} must use an opaque void* address"
-            )
+            raise ValueError(f"cleanup slot {metadata.name!r} must use an opaque void* address")
         take = call.args[1]
         if not isinstance(take, IRFunctionRef) or take.name != metadata.take_function:
             raise ValueError(f"cleanup slot {metadata.name!r} has the wrong take adapter")

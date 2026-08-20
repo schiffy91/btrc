@@ -8,7 +8,8 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.nodes import (
     CType,
     IRAddressOf,
@@ -182,9 +183,10 @@ def test_pruned_internal_global_is_strict_c11(
             IRGlobalDecl(CType("int"), "dead_state", IRLiteral("41")),
         ],
     )
-    IROptimizer(module).optimize()
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(module, CompilerOptions())
     source = tmp_path / "global_dce.c"
-    source.write_text(CEmitter().emit(module))
+    source.write_text(pipeline.emit(module))
 
     result = subprocess.run(
         [

@@ -197,11 +197,7 @@ class CEmitter:
         self._line(self._include_text(IRInclude(header=header_include, is_system=False)))
         self._line("")
 
-        private_declarations = [
-            declaration
-            for declaration in module.function_decls
-            if declaration.is_static
-        ]
+        private_declarations = [declaration for declaration in module.function_decls if declaration.is_static]
         for declaration in private_declarations:
             self._emit_function_decl(declaration)
         if private_declarations:
@@ -451,11 +447,7 @@ class CEmitter:
                 [self._expr(argument) for argument in expression.args],
                 ")",
             )
-            callee = (
-                expression.callee
-                if isinstance(expression.callee, str)
-                else self._expr(expression.callee)
-            )
+            callee = expression.callee if isinstance(expression.callee, str) else self._expr(expression.callee)
             return self._compound("", [callee, arguments], "")
         if isinstance(expression, IRFieldAccess):
             operator = "->" if expression.arrow else "."
@@ -485,9 +477,7 @@ class CEmitter:
             )
         if isinstance(expression, IRSizeof):
             operand = (
-                self._expr(expression.operand)
-                if isinstance(expression.operand, IRExpr)
-                else str(expression.operand)
+                self._expr(expression.operand) if isinstance(expression.operand, IRExpr) else str(expression.operand)
             )
             return self._compound("sizeof(", [operand], ")")
         if isinstance(expression, IRInitializerList):
@@ -518,10 +508,7 @@ class CEmitter:
             for statement in expression.stmts:
                 safe_initializer = isinstance(statement, IRVarDecl) and (
                     statement.init is None
-                    or (
-                        isinstance(statement.init, IRLiteral)
-                        and statement.init.text in {"0", "NULL", "false"}
-                    )
+                    or (isinstance(statement.init, IRLiteral) and statement.init.text in {"0", "NULL", "false"})
                 )
                 if not safe_initializer:
                     raise ValueError(
@@ -537,16 +524,8 @@ class CEmitter:
         """Format a local declaration's storage and volatile qualifiers."""
 
         if declaration.is_static and declaration.is_extern:
-            raise ValueError(
-                f"IR variable {declaration.name!r} is both static and extern"
-            )
-        storage = (
-            "static "
-            if declaration.is_static
-            else "extern "
-            if declaration.is_extern
-            else ""
-        )
+            raise ValueError(f"IR variable {declaration.name!r} is both static and extern")
+        storage = "static " if declaration.is_static else "extern " if declaration.is_extern else ""
         return storage + CType.qualify_volatile_object(
             str(declaration.c_type),
             declaration.is_volatile,
@@ -555,16 +534,8 @@ class CEmitter:
     @staticmethod
     def _qualified_global_type(declaration: IRGlobalDecl) -> str:
         if declaration.is_static and declaration.is_extern:
-            raise ValueError(
-                f"IR global {declaration.name!r} is both static and extern"
-            )
-        storage = (
-            "static "
-            if declaration.is_static
-            else "extern "
-            if declaration.is_extern
-            else ""
-        )
+            raise ValueError(f"IR global {declaration.name!r} is both static and extern")
+        storage = "static " if declaration.is_static else "extern " if declaration.is_extern else ""
         return storage + CType.qualify_volatile_object(
             str(declaration.c_type),
             declaration.is_volatile,
@@ -578,13 +549,8 @@ class CEmitter:
             if declaration.is_unsized_array
             else ""
         )
-        initializer = (
-            f" = {self._expr(declaration.init)}" if declaration.init else ""
-        )
-        self._line(
-            f"{self._qualified_global_type(declaration)} "
-            f"{declaration.name}{suffix}{initializer};"
-        )
+        initializer = f" = {self._expr(declaration.init)}" if declaration.init else ""
+        self._line(f"{self._qualified_global_type(declaration)} {declaration.name}{suffix}{initializer};")
 
     def _emit_block_contents(self, block):
         for statement in block.stmts:
@@ -603,17 +569,10 @@ class CEmitter:
                 if statement.is_unsized_array
                 else ""
             )
-            initializer = (
-                f" = {self._expr(statement.init)}" if statement.init else ""
-            )
-            self._line(
-                f"{c_type} {statement.name}{array}{initializer};"
-            )
+            initializer = f" = {self._expr(statement.init)}" if statement.init else ""
+            self._line(f"{c_type} {statement.name}{array}{initializer};")
         elif isinstance(statement, IRAssign):
-            self._line(
-                f"{self._expr(statement.target)} = "
-                f"{self._expr(statement.value)};"
-            )
+            self._line(f"{self._expr(statement.target)} = {self._expr(statement.value)};")
         elif isinstance(statement, IRReturn):
             value = f" {self._expr(statement.value)}" if statement.value else ""
             self._line(f"return{value};")
@@ -659,11 +618,7 @@ class CEmitter:
             self._line(f"switch ({self._expr(statement.value)}) {{")
             self._indent += 1
             for index, case in enumerate(statement.cases):
-                label = (
-                    f"case {self._expr(case.value)}:"
-                    if case.value
-                    else "default:"
-                )
+                label = f"case {self._expr(case.value)}:" if case.value else "default:"
                 self._line(label)
                 self._line("{")
                 self._indent += 1
@@ -684,9 +639,7 @@ class CEmitter:
         elif isinstance(statement, IRGpuKernel):
             self._emit_gpu_kernel(statement)
         else:
-            raise TypeError(
-                f"unsupported IR statement: {type(statement).__name__}"
-            )
+            raise TypeError(f"unsupported IR statement: {type(statement).__name__}")
 
     def _for_init_text(self, initialization) -> str:
         if isinstance(initialization, IRVarDecl):
@@ -698,25 +651,15 @@ class CEmitter:
                 if initialization.is_unsized_array
                 else ""
             )
-            initializer = (
-                f" = {self._expr(initialization.init)}"
-                if initialization.init
-                else ""
-            )
+            initializer = f" = {self._expr(initialization.init)}" if initialization.init else ""
             return f"{c_type} {initialization.name}{array}{initializer}"
         if isinstance(initialization, IRAssign):
-            return (
-                f"{self._expr(initialization.target)} = "
-                f"{self._expr(initialization.value)}"
-            )
+            return f"{self._expr(initialization.target)} = {self._expr(initialization.value)}"
         if isinstance(initialization, IRExprStmt):
             return self._discarded_expr(initialization.expr)
         if initialization is None:
             return ""
-        raise TypeError(
-            "unsupported IR for-loop initializer: "
-            f"{type(initialization).__name__}"
-        )
+        raise TypeError(f"unsupported IR for-loop initializer: {type(initialization).__name__}")
 
     def _emit_else_tail(self, statement: IRIf):
         if not statement.else_block or not statement.else_block.stmts:
@@ -743,55 +686,40 @@ class CEmitter:
         elif isinstance(declaration, IRStructDef):
             self._emit_struct(declaration)
         else:
-            raise TypeError(
-                f"unsupported typed declaration {type(declaration).__name__}"
-            )
+            raise TypeError(f"unsupported typed declaration {type(declaration).__name__}")
 
     def _emit_enum_def(self, enum: IREnumDef):
         self._line("typedef enum {" if enum.name is not None else "enum {")
         self._indent += 1
         for index, value in enumerate(enum.values):
             comma = "," if index < len(enum.values) - 1 else ""
-            suffix = (
-                f" = {self._expr(value.value)}"
-                if value.value is not None
-                else ""
-            )
+            suffix = f" = {self._expr(value.value)}" if value.value is not None else ""
             self._line(f"{value.name}{suffix}{comma}")
         self._indent -= 1
         self._line(f"}} {enum.name};" if enum.name is not None else "};")
         self._line("")
 
     def _emit_struct_forward(self, declaration: IRStructForward):
-        self._line(
-            f"typedef struct {declaration.name} {declaration.name};"
-        )
+        self._line(f"typedef struct {declaration.name} {declaration.name};")
 
     def _emit_function_pointer_typedef(
         self,
         declaration: IRFunctionPointerTypedef,
     ):
         parameters = ", ".join(map(str, declaration.param_types)) or "void"
-        self._line(
-            f"typedef {declaration.return_type} "
-            f"(*{declaration.name})({parameters});"
-        )
+        self._line(f"typedef {declaration.return_type} (*{declaration.name})({parameters});")
 
     @staticmethod
     def _function_signature(declaration: IRFunctionDecl) -> str:
         parameters = (
             ", ".join(
-                f"{CType.qualify_volatile_object(str(parameter.c_type), parameter.is_volatile)} "
-                f"{parameter.name}"
+                f"{CType.qualify_volatile_object(str(parameter.c_type), parameter.is_volatile)} {parameter.name}"
                 for parameter in declaration.params
             )
             or "void"
         )
         storage = "static " if declaration.is_static else ""
-        return (
-            f"{storage}{declaration.return_type} "
-            f"{declaration.name}({parameters})"
-        )
+        return f"{storage}{declaration.return_type} {declaration.name}({parameters})"
 
     def _emit_function_decl(self, declaration: IRFunctionDecl):
         self._line(f"{self._function_signature(declaration)};")
@@ -805,9 +733,7 @@ class CEmitter:
         self._line("")
 
     def _emit_tagged_union(self, tagged: IRTaggedUnionDef):
-        payload_variants = [
-            variant for variant in tagged.variants if variant.fields
-        ]
+        payload_variants = [variant for variant in tagged.variants if variant.fields]
         for variant in payload_variants:
             data_name = f"{tagged.name}_{variant.name}_Data"
             self._line(f"typedef struct {data_name} {{")
@@ -843,11 +769,7 @@ class CEmitter:
         self._line(f"struct {struct.name} {{")
         self._indent += 1
         for field in struct.fields:
-            suffix = (
-                f"[{self._expr(field.array_size)}]"
-                if field.array_size is not None
-                else ""
-            )
+            suffix = f"[{self._expr(field.array_size)}]" if field.array_size is not None else ""
             c_type = CType.qualify_volatile_object(
                 str(field.c_type),
                 field.is_volatile,
@@ -887,12 +809,6 @@ class CEmitter:
 
     def _emit_gpu_kernel(self, kernel: IRGpuKernel):
         source = WgslEmitter.emit_ir_kernel(kernel)
-        escaped = (
-            source.replace("\\", "\\\\")
-            .replace('"', '\\"')
-            .replace("\n", "\\n")
-        )
-        self._line(
-            f'static const char* {kernel.name}_wgsl = "{escaped}";'
-        )
+        escaped = source.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n")
+        self._line(f'static const char* {kernel.name}_wgsl = "{escaped}";')
         self._line("")

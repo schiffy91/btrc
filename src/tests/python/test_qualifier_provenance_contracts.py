@@ -7,13 +7,13 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.syntax.ast.generated import TypeExpr
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.analyzer.storage import StorageModel
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.compiler.python.analyzer.storage import StorageModel
+from src.compiler.python.syntax.ast.generated import TypeExpr
 
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
 
@@ -27,7 +27,9 @@ def _emit(source):
     analyzed = _analyze(source)
     assert analyzed.errors == []
     module = IRLowerer(analyzed).lower()
-    return module, CEmitter().emit(IROptimizer(module).optimize())
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(module, CompilerOptions())
+    return module, pipeline.emit(module)
 
 
 def test_effective_storage_and_decay_provenance_are_distinct():
@@ -41,6 +43,22 @@ def test_effective_storage_and_decay_provenance_are_distinct():
     assert StorageModel.effective_outer_volatile(array, typedefs)
     assert StorageModel.volatile_qualifier_depths(pointer, typedefs) == frozenset({1})
     assert StorageModel.volatile_qualifier_depths(array, typedefs) == frozenset({1})
+
+
+def test_typedef_qualifier_depths_preserve_hidden_declarator_layers():
+    typedefs = {
+        "C": TypeExpr(base="int", is_const=True),
+        "CP": TypeExpr(base="C", pointer_depth=1),
+        "V": TypeExpr(base="int", is_volatile=True),
+        "VP": TypeExpr(base="V", pointer_depth=1),
+    }
+
+    assert StorageModel.const_qualifier_depths(TypeExpr(base="C"), typedefs) == frozenset({0})
+    assert StorageModel.const_qualifier_depths(TypeExpr(base="C", pointer_depth=1), typedefs) == frozenset({1})
+    assert StorageModel.const_qualifier_depths(TypeExpr(base="CP"), typedefs) == frozenset({1})
+    assert StorageModel.const_qualifier_depths(TypeExpr(base="CP", is_const=True), typedefs) == frozenset({0, 1})
+    assert StorageModel.volatile_qualifier_depths(TypeExpr(base="VP"), typedefs) == frozenset({1})
+    assert StorageModel.volatile_qualifier_depths(TypeExpr(base="VP", is_volatile=True), typedefs) == frozenset({0, 1})
 
 
 @pytest.mark.parametrize(
@@ -156,6 +174,34 @@ def test_nested_volatile_loss_is_rejected_before_ir(source):
 def test_callable_outer_cv_results_are_rejected(source, subject):
     errors = _analyze(source).errors
     assert any(subject in error and "C discards qualifiers" in error for error in errors)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "const char* f(const char* value){ return value; } int main(){ return 0; }",
+        "typedef const int C; C* f(){ return null; } int main(){ return 0; }",
+        "typedef const int* CP; CP f(){ return null; } int main(){ return 0; }",
+        "typedef volatile int V; V* f(){ return null; } int main(){ return 0; }",
+        "typedef volatile int V; typedef V* VP; VP f(){ return null; } int main(){ return 0; }",
+    ],
+)
+def test_callable_pointee_cv_results_are_accepted(source):
+    assert _analyze(source).errors == []
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "typedef const int C; C f(){ return 1; } int main(){ return 0; }",
+        "typedef int* P; const P f(){ return null; } int main(){ return 0; }",
+        "typedef int* P; volatile P f(){ return null; } int main(){ return 0; }",
+        "typedef volatile int* VP; VP f(){ return null; } int main(){ return 0; }",
+    ],
+)
+def test_callable_outer_cv_results_hidden_by_typedef_are_rejected(source):
+    errors = _analyze(source).errors
+    assert any("C discards qualifiers" in error for error in errors)
 
 
 def test_const_rich_enum_payload_is_rejected_but_const_pointee_is_valid():

@@ -77,8 +77,29 @@ class TestCallBoundaryEvaluation:
         assert lifetime.protected == evaluation.declarations
         assert session.function_declarations == evaluation.declarations
         assert evaluation.values[id(node)].name.startswith("__btrc_call_operand_")
+        assert evaluation.ownership[id(node)] is False
         assert len(evaluation.declarations) == 1
         assert len(evaluation.prefix) == 1
+
+    def test_transferred_operand_exposes_its_owned_handoff_fact(self) -> None:
+        _session, _lifetime, boundary = _boundary()
+        node = object()
+
+        evaluation = boundary.evaluate(
+            [
+                CallOperand(
+                    node=node,
+                    type_expr=object(),
+                    c_type="char *",
+                    owned=True,
+                    transferred=True,
+                    lowered=IRLiteral(text='"value"'),
+                )
+            ]
+        )
+
+        assert evaluation.values[id(node)].name.startswith("__btrc_transferred_operand_")
+        assert evaluation.ownership[id(node)] is True
 
     def test_array_operand_temporary_keeps_original_struct_storage_root(self) -> None:
         _session, _lifetime, boundary = _boundary()

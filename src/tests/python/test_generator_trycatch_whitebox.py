@@ -1,9 +1,9 @@
 """Focused contracts for TranslationUnitLowerer's exception feature scan."""
 
-from src.compiler.python.syntax.ast.generated import FunctionDecl
 from src.compiler.python.ir.lowering.translation_unit import TranslationUnitLowerer
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import FunctionDecl
 
 
 def _body(src):
@@ -17,11 +17,15 @@ def _first_stmt(src):
 
 
 def test_detects_trycatch_in_then_block():
-    assert TranslationUnitLowerer.uses_trycatch(_body('void f() { if (1 == 1) { try { throw "x"; } catch (string e) {} } }'))
+    assert TranslationUnitLowerer.uses_trycatch(
+        _body('void f() { if (1 == 1) { try { throw "x"; } catch (string e) {} } }')
+    )
 
 
 def test_detects_trycatch_in_else_block():
-    assert TranslationUnitLowerer.uses_trycatch(_body('void f() { if (1 == 1) {} else { try { throw "x"; } catch (string e) {} } }'))
+    assert TranslationUnitLowerer.uses_trycatch(
+        _body('void f() { if (1 == 1) {} else { try { throw "x"; } catch (string e) {} } }')
+    )
 
 
 def test_detects_trycatch_in_else_if():
@@ -31,11 +35,15 @@ def test_detects_trycatch_in_else_if():
 
 
 def test_detects_trycatch_in_while_for_dowhile():
-    assert TranslationUnitLowerer.uses_trycatch(_body('void f() { while (1 == 0) { try { throw "x"; } catch (string e) {} } }'))
+    assert TranslationUnitLowerer.uses_trycatch(
+        _body('void f() { while (1 == 0) { try { throw "x"; } catch (string e) {} } }')
+    )
     assert TranslationUnitLowerer.uses_trycatch(
         _body('void f() { for (int i = 0; i < 0; i = i + 1) { try { throw "x"; } catch (string e) {} } }')
     )
-    assert TranslationUnitLowerer.uses_trycatch(_body('void f() { do { try { throw "x"; } catch (string e) {} } while (1 == 0); }'))
+    assert TranslationUnitLowerer.uses_trycatch(
+        _body('void f() { do { try { throw "x"; } catch (string e) {} } while (1 == 0); }')
+    )
 
 
 def test_detects_trycatch_in_switch_case_directly():
@@ -63,7 +71,9 @@ def test_stmt_detector_directly_on_each_structure():
     assert TranslationUnitLowerer.uses_trycatch(
         _first_stmt('void f() { if (1 == 1) {} else if (2 == 2) { try { throw "x"; } catch (string e) {} } }')
     )
-    assert TranslationUnitLowerer.uses_trycatch(_first_stmt('void f() { while (1 == 0) { try { throw "x"; } catch (string e) {} } }'))
+    assert TranslationUnitLowerer.uses_trycatch(
+        _first_stmt('void f() { while (1 == 0) { try { throw "x"; } catch (string e) {} } }')
+    )
     assert TranslationUnitLowerer.uses_trycatch(
         _first_stmt(
             'void f() { switch (1) { case 1: while (1 == 0) { try { throw "y"; } catch (string e) {} } default: {} } }'
@@ -72,6 +82,8 @@ def test_stmt_detector_directly_on_each_structure():
 
 
 def test_no_trycatch_returns_false():
-    assert not TranslationUnitLowerer.uses_trycatch(_body("void f() { int x = 0; if (x > 0) { x = 1; } while (x < 5) { x = x + 1; } }"))
+    assert not TranslationUnitLowerer.uses_trycatch(
+        _body("void f() { int x = 0; if (x > 0) { x = 1; } while (x < 5) { x = x + 1; } }")
+    )
     assert not TranslationUnitLowerer.uses_trycatch(_first_stmt("void f() { int x = 0; }"))
     assert not TranslationUnitLowerer.uses_trycatch(None)

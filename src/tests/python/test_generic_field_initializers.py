@@ -198,6 +198,29 @@ NORMAL_ARRAY_FIELD_SOURCE = r"""
     }
 """
 
+GENERIC_FIELD_NAMES_SOURCE = r"""
+    class NamedFields<T> {
+        public int len;
+        public int length;
+        public int size;
+
+        public NamedFields(int len, int length, int size) {
+            self.len = len;
+            self.length = length;
+            self.size = size;
+        }
+
+        public int encoded() {
+            return self.len * 100 + self.length * 10 + self.size;
+        }
+    }
+
+    int main() {
+        NamedFields<int> fields = new NamedFields<int>(1, 2, 3);
+        return fields.encoded() == 123 ? 0 : 1;
+    }
+"""
+
 
 def _compile_and_run(
     tmp_path: Path,
@@ -262,6 +285,20 @@ def test_throwing_generic_default_abandons_initialized_cycle(
         c_compiler,
         FAILURE_SOURCE,
         "generic-field-default-failure",
+    )
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a strict C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_user_generic_collection_like_field_names_remain_distinct(
+    tmp_path: Path,
+    c_compiler: str,
+) -> None:
+    _compile_and_run(
+        tmp_path,
+        c_compiler,
+        GENERIC_FIELD_NAMES_SOURCE,
+        "generic-field-names",
     )
 
 

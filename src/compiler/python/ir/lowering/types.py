@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from src.compiler.python.analyzer.types import OperatorSemantics, OperatorTypeError, TypeIdentity, TypeSystem
+from src.compiler.python.analyzer.types import (
+    GENERIC_COMPARISON_INTRINSICS,
+    GENERIC_INTRINSICS,
+    OperatorSemantics,
+    OperatorTypeError,
+    TypeIdentity,
+    TypeSystem,
+)
 from src.compiler.python.ir.nodes import (
     CType,
     IRBinOp,
@@ -44,6 +54,10 @@ _PRIMITIVE_MAP = {
     "uint": "unsigned int",
     "size_t": "size_t",
 }
+_RUNTIME_GENERIC_TYPES = {
+    "Thread": ("__btrc_thread_t*", "__btrc_thread_types"),
+    "Mutex": ("__btrc_mutex_val_t*", "__btrc_mutex_val_types"),
+}
 _FnPtrSignature = tuple[str, tuple[str, ...]]
 
 
@@ -53,6 +67,37 @@ class CodegenError(RuntimeError):
 
 class TypedOperatorError(CodegenError):
     """A concrete operator specialization has no portable lowering."""
+
+
+@dataclass(slots=True)
+class DefaultArgumentTypeState:
+    """Task-local concrete substitutions active while lowering one default."""
+
+    identity: TypeIdentity
+    _state: ContextVar[Mapping[str, TypeExpr] | None] = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._state = ContextVar(
+            f"btrc_default_argument_types_{id(self)}",
+            default=None,
+        )
+
+    @contextmanager
+    def scope(self, substitutions: Mapping[str, TypeExpr] | None) -> Iterator[None]:
+        active = self._state.get()
+        if substitutions:
+            active = MappingProxyType(dict(substitutions))
+        token = self._state.set(active)
+        try:
+            yield
+        finally:
+            self._state.reset(token)
+
+    def resolve(self, type_expr: TypeExpr | None) -> TypeExpr | None:
+        substitutions = self._state.get()
+        if not substitutions or type_expr is None:
+            return type_expr
+        return self.identity.substitute(type_expr, substitutions)
 
 
 class FunctionPointerTypedefRegistry:
@@ -90,10 +135,12 @@ class CTypeLowerer:
         session: LoweringSession,
         analyzed: AnalyzedProgram,
         type_identity: TypeIdentity | None = None,
+        default_type_state: DefaultArgumentTypeState | None = None,
     ) -> None:
         self._session = session
         self._analyzed = analyzed
         self._identity = type_identity if type_identity is not None else TypeIdentity()
+        self._default_type_state = default_type_state
         self._typedefs = MappingProxyType(dict(analyzed.typedef_table))
         self._operator_types = OperatorSemantics(
             self._identity,
@@ -115,19 +162,17 @@ class CTypeLowerer:
 
     def render(self, type_expr: TypeExpr | None) -> str:
         """Convert one btrc type to its source-preserving C spelling."""
-        specialization = self._session.active_specialization
-        if specialization is not None:
-            type_expr = specialization.substitution.resolve(type_expr)
+        type_expr = self.resolve_active_type(type_expr)
         if type_expr is None:
             return "void"
+
         base = type_expr.base
         prefix = "const " if getattr(type_expr, "is_const", False) else ""
         if base == "__fn_ptr" and type_expr.generic_args:
             c_type = self._function_pointer_name(type_expr)
-        elif base == "Thread" and type_expr.generic_args:
-            c_type = "__btrc_thread_t*"
-        elif base == "Mutex" and type_expr.generic_args:
-            c_type = "__btrc_mutex_val_t*"
+        elif base in _RUNTIME_GENERIC_TYPES and type_expr.generic_args:
+            c_type, provider = _RUNTIME_GENERIC_TYPES[base]
+            self._session.require_helper(provider)
         elif base in _PRIMITIVE_MAP and (not type_expr.generic_args):
             c_type = _PRIMITIVE_MAP[base]
         elif base == "Tuple" or base.startswith("("):
@@ -149,6 +194,15 @@ class CTypeLowerer:
         if type_expr.is_array:
             c_type += "*"
         return prefix + c_type
+
+    def resolve_active_type(self, type_expr: TypeExpr | None) -> TypeExpr | None:
+        """Apply every active lowering substitution to one semantic type."""
+        specialization = self._session.active_specialization
+        if specialization is not None:
+            type_expr = specialization.substitution.resolve(type_expr)
+        if self._default_type_state is not None:
+            type_expr = self._default_type_state.resolve(type_expr)
+        return type_expr
 
     def element_type(self, type_expr: TypeExpr) -> str:
         """Render a collection's element C type."""
@@ -277,7 +331,39 @@ class CTypeLowerer:
         type_expr: TypeExpr | None,
     ) -> TypeExpr | None:
         """Resolve typedef aliases while composing every use-site modifier."""
-        return self._resolve_typedef(type_expr, frozenset())
+        return self._resolve_typedef(self.resolve_active_type(type_expr), frozenset())
+
+    def concrete_value_compatible(
+        self,
+        target_type: TypeExpr | None,
+        source_type: TypeExpr | None,
+    ) -> bool:
+        """Whether one fully specialized value has a portable implicit C conversion."""
+        target = self.canonical_type(target_type)
+        source = self.canonical_type(source_type)
+        if target is None or source is None:
+            return False
+        if self.render(target) == self.render(source):
+            return True
+        if TypeSystem.is_numeric_type(target, self._analyzed.enum_table) and TypeSystem.is_numeric_type(
+            source,
+            self._analyzed.enum_table,
+        ):
+            return True
+
+        classes = self._analyzed.class_table
+        interfaces = self._analyzed.interface_table
+        target_is_reference = self._identity.is_reference(target, classes, interfaces)
+        source_is_reference = self._identity.is_reference(source, classes, interfaces)
+        if source_is_reference and target_is_reference and source.is_const and (not target.is_const):
+            return False
+        if not self._identity.references_compatible(target, source, classes, interfaces):
+            return False
+
+        nominal_types = {*classes, *interfaces}
+        if target.base in nominal_types and source.base in nominal_types:
+            return self._identity.specialization_is_subtype(source, target, classes, interfaces)
+        return True
 
     def _resolve_typedef(
         self,
@@ -433,6 +519,52 @@ class CTypeLowerer:
         if domain == "reference":
             return self._lower_reference_equality(operator, left, right, left_type, right_type)
         return self.lower_numeric_comparison(operator, left, right, left_type, right_type)
+
+    def lower_generic_intrinsic(
+        self,
+        name: str,
+        operands: list[IRExpr],
+        operand_types: list[TypeExpr | None],
+    ) -> IRExpr | None:
+        """Lower one compiler-owned generic operation through concrete type policy."""
+        if name not in GENERIC_INTRINSICS:
+            return None
+        expected = 1 if name == "__btrc_hash" else 2
+        if len(operands) != expected:
+            raise CodegenError(f"{name} expects {expected} operand(s), got {len(operands)}")
+        if len(operand_types) != expected or any(type_expr is None for type_expr in operand_types):
+            raise CodegenError(f"cannot resolve all operand types for {name}")
+        if name in GENERIC_COMPARISON_INTRINSICS:
+            return self.lower_typed_comparison(
+                GENERIC_COMPARISON_INTRINSICS[name],
+                operands[0],
+                operands[1],
+                operand_types[0],
+                operand_types[1],
+            )
+        return self.lower_typed_hash(operands[0], operand_types[0])
+
+    def lower_typed_hash(self, operand: IRExpr, operand_type: TypeExpr | None) -> IRExpr:
+        """Lower portable hashing for one concrete analyzed operand type."""
+        operand_type = self.canonical_type(operand_type)
+        try:
+            domain = self._operator_types.hash_domain(operand_type)
+        except OperatorTypeError as error:
+            raise TypedOperatorError(str(error)) from error
+        if domain == "string":
+            helper = "__btrc_hash_str"
+            self._session.require_helper(helper)
+            return IRCall(callee=helper, args=[operand], helper_ref=helper)
+        if domain == "integral":
+            return IRCast(target_type=CType(text="unsigned int"), expr=operand)
+        if domain == "floating":
+            helper = "__btrc_hash_real"
+            self._session.require_helper(helper)
+            return IRCall(callee=helper, args=[operand], helper_ref=helper)
+        return IRCast(
+            target_type=CType(text="unsigned int"),
+            expr=IRCast(target_type=CType(text="uintptr_t"), expr=operand),
+        )
 
     def _lower_string_comparison(self, operator: str, left: IRExpr, right: IRExpr) -> IRExpr:
         left_name = self._session.fresh_temp("__btrc_cmp_left")

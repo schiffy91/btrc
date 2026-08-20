@@ -9,9 +9,11 @@ import pytest
 
 import src.compiler.python.ir.nodes as ir_nodes
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.backend.c_emitter import CEmitter
-from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
+from src.compiler.python.ir.lowering.types import CodegenError
 from src.compiler.python.ir.nodes import (
     CType,
     IRBlock,
@@ -47,6 +49,12 @@ def _generate(source: str, *, freestanding: bool = False):
     analyzed = SemanticAnalyzer().analyze(program)
     assert not analyzed.errors
     return IRLowerer(analyzed, freestanding=freestanding).lower()
+
+
+def _emit_finalized(module: IRModule) -> str:
+    pipeline = CompilationPipeline()
+    optimized = pipeline.optimize(module, CompilerOptions(dce=False))
+    return pipeline.emit(optimized)
 
 
 def test_ir_schema_has_no_raw_c_escape_nodes():
@@ -297,7 +305,7 @@ def test_local_include_keeps_quotes_and_compiles(
         """,
         freestanding=freestanding,
     )
-    emitted = CEmitter().emit(module)
+    emitted = _emit_finalized(module)
     assert '#include "local_contract.h"' in emitted
     assert "#include <local_contract.h>" not in emitted
     assert emitted.index("#define CONFIG_VALUE 37") < emitted.index('#include "local_contract.h"')
@@ -535,7 +543,7 @@ def test_unused_local_extern_has_portable_unevaluated_use(tmp_path, c_compiler):
             return 0;
         }
     """)
-    emitted = CEmitter().emit(module)
+    emitted = _emit_finalized(module)
     assert "extern int external_only_declaration;" in emitted
     assert "sizeof((&external_only_declaration))" in emitted
 
@@ -586,7 +594,7 @@ def test_fixed_array_struct_field_has_structured_declarator():
     field = module.struct_defs[0].fields[0]
     assert field.name == "values"
     assert isinstance(field.array_size, IRLiteral)
-    assert CEmitter().emit(module).count("int values[8];") == 1
+    assert _emit_finalized(module).count("int values[8];") == 1
 
 
 def test_pragma_pack_is_struct_metadata_and_wraps_its_declaration():
@@ -603,9 +611,28 @@ def test_pragma_pack_is_struct_metadata_and_wraps_its_declaration():
         "_DEFAULT_SOURCE",
         "_DARWIN_C_SOURCE",
     }
-    emitted = CEmitter().emit(module)
+    emitted = _emit_finalized(module)
     assert emitted.index("#pragma pack(push, 1)") < emitted.index("struct Packed {")
     assert emitted.index("struct Packed {") < emitted.index("#pragma pack(pop)")
+
+
+def test_generic_class_specialization_preserves_source_pack_metadata():
+    module = _generate("""
+        #pragma pack(push, 1)
+        class Packed<T> {
+            public char tag;
+            public T value;
+            public Packed(T value) { self.value = value; }
+        }
+        #pragma pack(pop)
+        int main() {
+            Packed<int> packed = new Packed<int>(1);
+            return packed.value;
+        }
+    """)
+
+    packed = next(declaration for declaration in module.struct_defs if declaration.name == "btrc_Packed_int")
+    assert packed.pack_alignment == 1
 
 
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
@@ -627,7 +654,7 @@ def test_macros_and_pack_execute_under_strict_c11(
     """)
     source = tmp_path / "macros_and_pack.c"
     executable = tmp_path / "macros_and_pack"
-    source.write_text(CEmitter().emit(module))
+    source.write_text(_emit_finalized(module))
 
     subprocess.run(
         [
@@ -667,3 +694,38 @@ def test_initializers_and_compound_literals_remain_structured():
     declarations = [statement for statement in module.function_defs[-1].body.stmts if isinstance(statement, IRVarDecl)]
     assert isinstance(declarations[0].init, IRInitializerList)
     assert isinstance(declarations[1].init, IRCompoundLiteral)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_local_array_initializer_executes_under_strict_c11(
+    tmp_path: Path,
+    c_compiler: str,
+):
+    module = _generate("""
+        int main() {
+            int values[] = [1, 2];
+            return values[0] == 1 && values[1] == 2 ? 0 : 1;
+        }
+    """)
+    source = tmp_path / "local_array_initializer.c"
+    executable = tmp_path / "local_array_initializer"
+    source.write_text(_emit_finalized(module))
+
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            str(source),
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run([str(executable)], check=True)

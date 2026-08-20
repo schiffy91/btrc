@@ -4,6 +4,7 @@ import io
 import json
 
 import pytest
+
 from src.devex.debug.protocol.transport import DapProtocolError, DapReader, DapWriter
 
 

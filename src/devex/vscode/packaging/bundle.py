@@ -11,7 +11,6 @@ import stat
 import tempfile
 from pathlib import Path
 
-
 _VENDORED_DISTRIBUTIONS = (
     "pygls",
     "lsprotocol",
@@ -33,18 +32,14 @@ class ExtensionBundler:
         self.repository_root = repository_root.resolve()
         self.source_root = self.repository_root / "src" / "devex" / "vscode"
         self.output_root = (
-            output_root.resolve()
-            if output_root is not None
-            else self.repository_root / "build" / "devex" / "vscode"
+            output_root.resolve() if output_root is not None else self.repository_root / "build" / "devex" / "vscode"
         )
 
     def bundle(self) -> Path:
         self._validate_layout()
         staging_parent = self.output_root.parent
         staging_parent.mkdir(parents=True, exist_ok=True)
-        transaction_root = Path(
-            tempfile.mkdtemp(prefix=".vscode-bundle-", dir=staging_parent)
-        )
+        transaction_root = Path(tempfile.mkdtemp(prefix=".vscode-bundle-", dir=staging_parent))
         staged_extension = transaction_root / "vscode"
         try:
             self._copy_tree(self.source_root, staged_extension)
@@ -157,24 +152,15 @@ class ExtensionBundler:
             try:
                 distribution = importlib.metadata.distribution(distribution_name)
             except importlib.metadata.PackageNotFoundError as error:
-                raise RuntimeError(
-                    "extension packaging requires Python distribution "
-                    f"{distribution_name!r}"
-                ) from error
+                raise RuntimeError(f"extension packaging requires Python distribution {distribution_name!r}") from error
 
-            roots = sorted(
-                {str(item).split("/", 1)[0] for item in distribution.files or ()}
-            )
+            roots = sorted({str(item).split("/", 1)[0] for item in distribution.files or ()})
             if not roots:
-                raise RuntimeError(
-                    f"cannot enumerate files for Python distribution {distribution_name!r}"
-                )
+                raise RuntimeError(f"cannot enumerate files for Python distribution {distribution_name!r}")
             for root in roots:
                 relative = Path(root)
                 if root in {"", "."} or relative.is_absolute() or ".." in relative.parts:
-                    raise RuntimeError(
-                        f"unsafe path in Python distribution {distribution_name!r}: {root!r}"
-                    )
+                    raise RuntimeError(f"unsafe path in Python distribution {distribution_name!r}: {root!r}")
                 if root in copied_roots:
                     continue
                 source = Path(distribution.locate_file(root))
@@ -190,10 +176,7 @@ class ExtensionBundler:
                     destination.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copy2(source, destination)
                 else:
-                    raise RuntimeError(
-                        "missing Python distribution payload for "
-                        f"{distribution_name!r}: {source}"
-                    )
+                    raise RuntimeError(f"missing Python distribution payload for {distribution_name!r}: {source}")
                 copied_roots.add(root)
         self._make_tree_owner_writable(target)
 
@@ -216,9 +199,7 @@ class ExtensionBundler:
             for filename in files:
                 file_path = path / filename
                 if not file_path.is_symlink():
-                    file_path.chmod(
-                        stat.S_IMODE(file_path.stat().st_mode) | stat.S_IWUSR
-                    )
+                    file_path.chmod(stat.S_IMODE(file_path.stat().st_mode) | stat.S_IWUSR)
 
     def _write_server_flake(self, target: Path) -> None:
         target.write_text(
@@ -246,9 +227,7 @@ class ExtensionBundler:
 
     @classmethod
     def main(cls) -> int:
-        parser = argparse.ArgumentParser(
-            description="stage the btrc VS Code extension under build/devex/vscode"
-        )
+        parser = argparse.ArgumentParser(description="stage the btrc VS Code extension under build/devex/vscode")
         parser.add_argument(
             "--repository-root",
             type=Path,

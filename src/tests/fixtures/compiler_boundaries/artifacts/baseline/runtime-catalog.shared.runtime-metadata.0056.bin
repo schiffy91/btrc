@@ -1,0 +1,1 @@
+{"asset":"cycles.c","btrc_order":100,"category":"cycles","dependencies":["__btrc_arc_header_of"],"headers":[],"name":"__btrc_arc_type_of","provided_objects":[],"provided_types":[],"python_order":129,"source_sha256":"4ca4a8fa1bd2051ccd64ed7b1c8c0fef0f180f1e6e54e3b5b94f73d1df75ff73","source_size":241,"source_visible":false}

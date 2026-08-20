@@ -8,6 +8,8 @@ class GeneratedRuntimeHelperRow {
     public Vector<string> source_chunks;
     public Vector<string> dependencies;
     public Vector<string> headers;
+    public Vector<string> provided_types;
+    public Vector<string> provided_objects;
     public bool source_visible;
 
     public GeneratedRuntimeHelperRow(
@@ -16,12 +18,16 @@ class GeneratedRuntimeHelperRow {
             Vector<string> source_chunks,
             Vector<string> dependencies,
             Vector<string> headers,
+            Vector<string> provided_types,
+            Vector<string> provided_objects,
             bool source_visible) {
         self.category = category;
         self.name = name;
         self.source_chunks = source_chunks;
         self.dependencies = dependencies;
         self.headers = headers;
+        self.provided_types = provided_types;
+        self.provided_objects = provided_objects;
         self.source_visible = source_visible;
     }
 }
@@ -44,6 +50,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "alloc",
@@ -53,6 +61,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "alloc",
@@ -60,6 +70,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline void* __btrc_safe_calloc(size_t count, size_t size) {\n    if (size != 0 && count > SIZE_MAX / size) { fprintf(stderr, \"btrc: calloc size overflow\\n\"); exit(1); }\n    void* result = calloc(count, size);\n    if (!result && count != 0 && size != 0) { fprintf(stderr, \"btrc: out of memory (calloc %zu bytes)\\n\", count * size); exit(1); }\n    return result;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             true));
@@ -73,6 +85,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "divmod",
@@ -84,6 +98,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "divmod",
@@ -91,6 +107,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline int __btrc_div_int(int a, int b) {\n    if (b == 0) { fprintf(stderr, \"Division by zero\\n\"); exit(1); }\n    if (a == INT_MIN && b == -1) { fprintf(stderr, \"Integer division overflow\\n\"); exit(1); }\n    return a / b;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -102,6 +120,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "divmod",
@@ -109,6 +129,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline int __btrc_mod_int(int a, int b) {\n    if (b == 0) { fprintf(stderr, \"Modulo by zero\\n\"); exit(1); }\n    if (a == INT_MIN && b == -1) return 0;\n    return a % b;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -120,6 +142,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
@@ -129,6 +153,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["stdatomic.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
@@ -138,6 +164,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_registry_lock_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
@@ -145,6 +173,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline size_t __btrc_string_hash(const char* value, size_t buckets) {\n    uintptr_t bits = (uintptr_t)(const void*)value;\n    bits ^= bits >> 17;\n    bits *= (uintptr_t)0xed5ad4bbU;\n    bits ^= bits >> 11;\n    return (size_t)(bits % (uintptr_t)buckets);\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -156,6 +186,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_registry", "__btrc_string_registry_hash"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
@@ -163,6 +195,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static size_t __btrc_string_entry_count = 0;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -174,6 +208,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_registry", "__btrc_string_registry_hash", "__btrc_safe_calloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
@@ -184,6 +220,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_registry_resize", "__btrc_string_registry_slot", "__btrc_string_registry_lock", "__btrc_string_registry_count", "__btrc_safe_realloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
@@ -192,6 +230,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_string_retain(const char* value) {\n    if (!value) return NULL;\n    __btrc_string_registry_lock();\n    if (__btrc_string_bucket_count != 0) {\n        __btrc_string_entry* entry = *__btrc_string_slot(value);\n        if (entry) {\n            if (entry->references == SIZE_MAX) {\n                __btrc_string_registry_unlock();\n                fprintf(stderr, \"btrc: string reference overflow\\n\");\n                exit(1);\n            }\n            entry->references++;\n        }\n    }\n    __btrc_string_registry_unlock();\n    return (char*)value;\n}",
             ],
             ["__btrc_string_registry_slot", "__btrc_string_registry_lock"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -203,6 +243,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_registry_slot", "__btrc_string_registry_lock", "__btrc_string_registry_count"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
@@ -211,6 +253,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline void __btrc_string_release_cleanup(void* value) {\n    __btrc_string_release((const char*)value);\n}",
             ],
             ["__btrc_string_release"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -221,6 +265,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_registry_lock", "__btrc_string_registry_count"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_pool",
@@ -230,6 +276,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_adopt"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_pool",
@@ -237,6 +285,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline void __btrc_str_flush(void) {\n    /* Retained for source compatibility; ownership is explicit. */\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -248,6 +298,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -255,6 +307,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline int __btrc_string_length(const char* s) {\n    if (!s) return 0;\n    size_t length = strlen(s);\n    if (length > (size_t)INT_MAX) {\n        fprintf(stderr, \"btrc: string length overflow\\n\"); exit(1);\n    }\n    return (int)length;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             true));
@@ -266,6 +320,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_safe_realloc", "__btrc_string_adopt"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -273,6 +329,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline char __btrc_ascii_upper(char value) {\n    unsigned char byte = (unsigned char)value;\n    return (byte >= 'a' && byte <= 'z') ? (char)(byte - 'a' + 'A') : value;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -284,6 +342,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -291,6 +351,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline bool __btrc_ascii_space(char value) {\n    unsigned char byte = (unsigned char)value;\n    return byte == ' ' || (byte >= '\\t' && byte <= '\\r');\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -302,6 +364,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -310,6 +374,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_trim(const char* s) {\n    if (!s) return __btrc_string_alloc(0);\n    int slen = __btrc_string_length(s);\n    int start = 0;\n    while (start < slen && __btrc_ascii_space(s[start])) start++;\n    int end = slen;\n    while (end > start && __btrc_ascii_space(s[end - 1])) end--;\n    int length = end - start;\n    char* result = __btrc_string_alloc(length);\n    memcpy(result, s + start, (size_t)length);\n    return result;\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -320,6 +386,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_upper"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -328,6 +396,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_toLower(const char* s) {\n    if (!s) return __btrc_string_alloc(0);\n    int len = __btrc_string_length(s);\n    char* result = __btrc_string_alloc(len);\n    for (int i = 0; i < len; i++) result[i] = __btrc_ascii_lower(s[i]);\n    return result;\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_lower"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -339,6 +409,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -349,6 +421,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_safe_realloc", "__btrc_string_length", "__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -357,6 +431,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_repeat(const char* s, int count) {\n    if (!s) return __btrc_string_alloc(0);\n    if (count <= 0) return __btrc_string_alloc(0);\n    int slen = __btrc_string_length(s);\n    if (slen == 0) return __btrc_string_alloc(0);\n    if (slen > 0 && count > INT_MAX / slen) {\n        fprintf(stderr, \"btrc: string repeat overflow\\n\"); exit(1);\n    }\n    int total = slen * count;\n    char* result = __btrc_string_alloc(total);\n    for (int i = 0; i < count; i++)\n        memcpy(result + (size_t)i * (size_t)slen, s, (size_t)slen);\n    return result;\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -367,6 +443,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -375,6 +453,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_removePrefix(const char* s, const char* prefix) {\n    if (!s) return __btrc_string_alloc(0);\n    if (!prefix) return __btrc_strdup(s);\n    int slen = __btrc_string_length(s);\n    int plen = __btrc_string_length(prefix);\n    if (plen <= slen && memcmp(s, prefix, (size_t)plen) == 0) {\n        int length = slen - plen;\n        char* result = __btrc_string_alloc(length);\n        memcpy(result, s + plen, (size_t)length);\n        return result;\n    }\n    return __btrc_strdup(s);\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -385,6 +465,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -393,6 +475,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_capitalize(const char* s) {\n    if (!s) return __btrc_string_alloc(0);\n    int len = __btrc_string_length(s);\n    char* result = __btrc_string_alloc(len);\n    for (int i = 0; i < len; i++) result[i] = __btrc_ascii_lower(s[i]);\n    if (len > 0) result[0] = __btrc_ascii_upper(result[0]);\n    return result;\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_lower", "__btrc_ascii_upper"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -403,6 +487,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_lower", "__btrc_ascii_space", "__btrc_ascii_upper"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -411,6 +497,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_swapCase(const char* s) {\n    if (!s) return __btrc_string_alloc(0);\n    int len = __btrc_string_length(s);\n    char* result = __btrc_string_alloc(len);\n    for (int i = 0; i < len; i++) {\n        unsigned char byte = (unsigned char)s[i];\n        if (byte >= 'A' && byte <= 'Z') result[i] = __btrc_ascii_lower(s[i]);\n        else if (byte >= 'a' && byte <= 'z') result[i] = __btrc_ascii_upper(s[i]);\n        else result[i] = s[i];\n    }\n    return result;\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_lower", "__btrc_ascii_upper"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -421,6 +509,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -429,6 +519,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_padRight(const char* s, int width, char fill) {\n    if (!s) return __btrc_string_alloc(0);\n    int len = __btrc_string_length(s);\n    int result_len = len >= width ? len : width;\n    char* result = __btrc_string_alloc(result_len);\n    memcpy(result, s, (size_t)len);\n    memset(result + len, (unsigned char)fill, (size_t)(result_len - len));\n    return result;\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -439,6 +531,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -447,6 +541,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_lstrip(const char* s) {\n    if (!s) return __btrc_string_alloc(0);\n    int len = __btrc_string_length(s);\n    int start = 0;\n    while (start < len && __btrc_ascii_space(s[start])) start++;\n    int result_len = len - start;\n    char* result = __btrc_string_alloc(result_len);\n    memcpy(result, s + start, (size_t)result_len);\n    return result;\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -457,6 +553,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_ascii_space"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -466,6 +564,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -474,6 +574,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_strcat(const char* a, const char* b) {\n    if (!a && !b) return __btrc_string_alloc(0);\n    if (!a) return __btrc_strdup(b);\n    if (!b) return __btrc_strdup(a);\n    int left_len = __btrc_string_length(a);\n    int right_len = __btrc_string_length(b);\n    if (right_len > INT_MAX - left_len) {\n        fprintf(stderr, \"btrc: string concatenation overflow\\n\"); exit(1);\n    }\n    int total = left_len + right_len;\n    char* result = __btrc_string_alloc(total);\n    memcpy(result, a, (size_t)left_len);\n    memcpy(result + left_len, b, (size_t)right_len);\n    return result;\n}",
             ],
             ["__btrc_string_length", "__btrc_string_alloc", "__btrc_strdup"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -485,6 +587,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length", "__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -493,6 +597,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char __btrc_charAt(const char* s, int idx) {\n    if (!s) { fprintf(stderr, \"String index on NULL\\n\"); exit(1); }\n    int len = __btrc_string_length(s);\n    if (idx < 0 || idx >= len) { fprintf(stderr, \"String index out of bounds: %d (length %d)\\n\", idx, len); exit(1); }\n    return s[idx];\n}",
             ],
             ["__btrc_string_length"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -503,6 +609,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -512,6 +620,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -519,6 +629,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline bool __btrc_isEmpty(const char* s) {\n    return !s || s[0] == '\\0';\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -530,6 +642,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -538,6 +652,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline bool __btrc_endsWith(const char* s, const char* suffix) {\n    if (!s || !suffix) return false;\n    int slen = __btrc_string_length(s);\n    int suffix_len = __btrc_string_length(suffix);\n    return suffix_len <= slen\n        && memcmp(s + slen - suffix_len, suffix, (size_t)suffix_len) == 0;\n}",
             ],
             ["__btrc_string_length"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -548,6 +664,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -556,6 +674,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline int __btrc_count(const char* s, const char* sub) {\n    if (!s || !sub) return 0;\n    (void)__btrc_string_length(s);\n    int sublen = __btrc_string_length(sub);\n    if (sublen == 0) return 0;\n    int count = 0;\n    const char* cursor = s;\n    while ((cursor = strstr(cursor, sub)) != NULL) {\n        count++; cursor += sublen;\n    }\n    return count;\n}",
             ],
             ["__btrc_string_length"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -566,6 +686,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -573,6 +695,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline bool __btrc_isDigitStr(const char* s) {\n    if (!s || !*s) return false;\n    for (; *s; s++) if (*s < '0' || *s > '9') return false;\n    return true;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -584,6 +708,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -592,6 +718,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline bool __btrc_isBlank(const char* s) {\n    if (!s) return true;\n    for (; *s; s++) if (!__btrc_ascii_space(*s)) return false;\n    return true;\n}",
             ],
             ["__btrc_ascii_space"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -602,6 +730,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_ascii_space"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -611,6 +741,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_ascii_space"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -618,6 +750,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline bool __btrc_isAlnumStr(const char* s) {\n    if (!s || *s == '\\0') return false;\n    for (; *s; s++) {\n        unsigned char byte = (unsigned char)*s;\n        if (!((byte >= '0' && byte <= '9')\n                || (byte >= 'A' && byte <= 'Z')\n                || (byte >= 'a' && byte <= 'z'))) return false;\n    }\n    return true;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -630,6 +764,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_length"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -639,6 +775,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_utf8_charlen"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -646,6 +784,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline long __btrc_parseLong(const char* s) {\n    if (!s) return 0;\n    while (*s == ' ' || *s == '\\t' || *s == '\\n'\n            || *s == '\\r' || *s == '\\v' || *s == '\\f') ++s;\n    bool negative = false;\n    if (*s == '-' || *s == '+') { negative = *s == '-'; ++s; }\n    unsigned long limit = negative\n        ? (unsigned long)LONG_MAX + 1UL : (unsigned long)LONG_MAX;\n    unsigned long value = 0UL;\n    bool any = false;\n    while (*s >= '0' && *s <= '9') {\n        unsigned long digit = (unsigned long)(*s - '0');\n        any = true;\n        if (value > (limit - digit) / 10UL)\n            return negative ? LONG_MIN : LONG_MAX;\n        value = value * 10UL + digit;\n        ++s;\n    }\n    if (!any) return 0L;\n    if (!negative) return (long)value;\n    if (value == (unsigned long)LONG_MAX + 1UL) return LONG_MIN;\n    return -(long)value;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -657,6 +797,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_parseLong"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -664,6 +806,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline bool __btrc_parseBool(const char* s) {\n    return s && *s != '\\0' && strcmp(s, \"false\") != 0\n        && strcmp(s, \"0\") != 0;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -675,6 +819,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -683,6 +829,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_longToString(long n) {\n    char* buf = __btrc_string_alloc(31);\n    snprintf(buf, 32, \"%ld\", n);\n    return buf;\n}",
             ],
             ["__btrc_string_alloc"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -693,6 +841,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -701,6 +851,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_uintToString(unsigned int n) {\n    char* buf = __btrc_string_alloc(31);\n    snprintf(buf, 32, \"%u\", n);\n    return buf;\n}",
             ],
             ["__btrc_string_alloc"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -711,6 +863,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -719,6 +873,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_ulongLongToString(unsigned long long n) {\n    char* buf = __btrc_string_alloc(31);\n    snprintf(buf, 32, \"%llu\", n);\n    return buf;\n}",
             ],
             ["__btrc_string_alloc"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -729,6 +885,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -737,6 +895,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_doubleToString(double d) {\n    char* buf = __btrc_string_alloc(63);\n    snprintf(buf, 64, \"%g\", d);\n    return buf;\n}",
             ],
             ["__btrc_string_alloc"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -747,6 +907,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -755,6 +917,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline char* __btrc_charToString(char c) {\n    char* buf = __btrc_string_alloc(1);\n    buf[0] = c; buf[1] = '\\0';\n    return buf;\n}",
             ],
             ["__btrc_string_alloc"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -765,6 +929,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
@@ -774,6 +940,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_string_alloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "math",
@@ -781,6 +949,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline long long __btrc_math_factorial(int n) {\n    if (n < 0) { fprintf(stderr, \"btrc: factorial of negative number\\n\"); exit(1); }\n    if (n > 20) { fprintf(stderr, \"btrc: factorial overflow (n=%d)\\n\", n); exit(1); }\n    long long r = 1;\n    for (int i = 2; i <= n; i++) r *= i;\n    return r;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -792,6 +962,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "math",
@@ -801,6 +973,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_math_gcd"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "math",
@@ -808,6 +982,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline int __btrc_math_fibonacci(int n) {\n    if (n <= 0) return 0;\n    if (n == 1) return 1;\n    if (n > 46) { fprintf(stderr, \"btrc: fibonacci result overflow\\n\"); exit(1); }\n    int a = 0, b = 1;\n    for (int i = 2; i <= n; i++) { int t = a + b; a = b; b = t; }\n    return b;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -819,6 +995,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "math",
@@ -826,6 +1004,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline int __btrc_math_sum_int(int* data, int size) {\n    if (size <= 0) return 0;\n    if (!data) { fprintf(stderr, \"btrc: sum received null data\\n\"); exit(1); }\n    long long sum = 0;\n    for (int i = 0; i < size; i++) sum += data[i];\n    if (sum < INT_MIN || sum > INT_MAX) { fprintf(stderr, \"btrc: sum result overflow\\n\"); exit(1); }\n    return (int)sum;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -837,6 +1017,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -844,6 +1026,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static _Thread_local volatile int __btrc_try_top = -1;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -855,6 +1039,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_try_level"],
             ["setjmp.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -864,6 +1050,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["string.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -871,6 +1059,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static _Thread_local int __btrc_try_cap = 16;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -882,6 +1072,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -889,6 +1081,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static _Thread_local void* volatile __btrc_launder_slot;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -900,6 +1094,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_launder_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -910,6 +1106,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_trycatch_globals", "__btrc_try_capacity", "__btrc_safe_realloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "hash",
@@ -919,6 +1117,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "hash",
@@ -926,6 +1126,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static inline unsigned int __btrc_hash_str(const char* s) {\n    if (!s) return 0;\n    unsigned int h = 5381;\n    while (*s) { h = ((h << 5) + h) + (unsigned char)*s++; }\n    return h;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -938,6 +1140,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            ["__btrc_arc_count", "__btrc_arc_type", "__btrc_arc_incoming", "__btrc_arc_state", "__btrc_arc_header", "__btrc_destroy_fn", "__btrc_arc_slot_access_fn", "__btrc_field_visit_fn", "__btrc_visit_fn", "__btrc_hook_fn", "__btrc_hook_guard_fn", "__btrc_raise_fn"],
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -947,6 +1151,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_callback_types"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -955,6 +1161,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline const __btrc_arc_type* __btrc_arc_type_of(\n        void* object, const __btrc_arc_type* fallback) {\n    if (object && __btrc_arc_header_of(object)->type)\n        return __btrc_arc_header_of(object)->type;\n    return fallback;\n}",
             ],
             ["__btrc_arc_header_of"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -966,6 +1174,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_header_of"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -973,6 +1183,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "/* ARC cascade-destroy tracking: avoid reading freed memory */\nstatic _Thread_local int __btrc_tracking = 0;\nstatic _Thread_local void** __btrc_destroyed = NULL;\nstatic _Thread_local int __btrc_destroyed_count = 0;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -984,6 +1196,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["stdatomic.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -993,6 +1207,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["stdatomic.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1002,6 +1218,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["stdatomic.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1009,6 +1227,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "typedef void (*__btrc_abandon_drain_fn)(void);\nstatic _Thread_local __btrc_abandon_drain_fn\n    __btrc_abandon_drain_callback = NULL;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -1020,6 +1240,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_abandon_callback_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1027,6 +1249,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static int __btrc_arc_shutdown = 0;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -1038,6 +1262,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1045,6 +1271,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static int __btrc_arc_active_unwinds = 0;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -1056,6 +1284,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_lock_state", "__btrc_arc_snapshot_state", "__btrc_arc_shutdown_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1066,6 +1296,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_destroyed_tracking", "__btrc_arc_mutation_lock", "__btrc_arc_active_unwinds_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1075,6 +1307,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_destroyed_tracking", "__btrc_arc_mutation_lock"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1082,6 +1316,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static _Thread_local int __btrc_destroyed_cap = 0;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -1094,6 +1330,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_destroyed_tracking", "__btrc_destroyed_capacity", "__btrc_safe_realloc", "__btrc_arc_mutation_lock"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1102,6 +1340,8 @@ class GeneratedRuntimeCatalogData {
                 "/* ARC cycle detection: suspect buffer */\nstatic void** __btrc_suspects = NULL;\nstatic int __btrc_suspect_count = 0;\nstatic __btrc_visit_fn* __btrc_visit_table = NULL;\nstatic __btrc_destroy_fn* __btrc_destroy_table = NULL;\nstatic void** __btrc_suspect_keys = NULL;\nstatic int __btrc_suspect_key_cap = 0;",
             ],
             ["__btrc_arc_callback_types"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1112,6 +1352,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1119,6 +1361,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static size_t __btrc_ptr_hash(const void* ptr) {\n    uintptr_t value = (uintptr_t)ptr;\n    value ^= value >> 17;\n    value ^= value >> 9;\n    return (size_t)value;\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -1133,6 +1377,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_suspect_state", "__btrc_suspect_capacity", "__btrc_ptr_hash", "__btrc_safe_calloc", "__btrc_safe_realloc", "__btrc_arc_type_of", "__btrc_arc_validate"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1141,6 +1387,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline void __btrc_suspect(\n        void* obj, __btrc_visit_fn visit, __btrc_destroy_fn destroy) {\n    __btrc_arc_lock_mutation();\n    __btrc_suspect_locked(obj, visit, destroy);\n    __btrc_arc_unlock_mutation();\n}",
             ],
             ["__btrc_suspect_locked", "__btrc_arc_mutation_lock"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1151,6 +1399,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1158,6 +1408,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static _Thread_local int __btrc_arc_topology_depth = 0;\nstatic _Thread_local int __btrc_arc_draining = 0;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -1171,6 +1423,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_lock_state", "__btrc_arc_snapshot_state", "__btrc_arc_snapshot_gate_state", "__btrc_arc_shutdown_state", "__btrc_arc_topology_state", "__btrc_arc_topology_depth_state"],
             ["limits.h", "stdio.h", "stdlib.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1181,6 +1435,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_lock_state", "__btrc_arc_snapshot_state", "__btrc_arc_snapshot_gate_state", "__btrc_arc_shutdown_state", "__btrc_arc_topology_state", "__btrc_arc_topology_depth_state"],
             ["limits.h", "stdio.h", "stdlib.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1190,6 +1446,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_lock_state", "__btrc_arc_shutdown_state", "__btrc_arc_topology_state", "__btrc_arc_topology_depth_state"],
             ["stdio.h", "stdlib.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1200,6 +1458,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_callback_types", "__btrc_arc_header_of"],
             ["stdio.h", "stdlib.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1208,6 +1468,8 @@ class GeneratedRuntimeCatalogData {
                 "\n/* ARC cycle collector: typed graph snapshot, O(vertices + edges). */\ntypedef struct {\n    void* object;\n    __btrc_visit_fn visit;\n    __btrc_destroy_fn destroy;\n    int internal;\n    int first_edge;\n    unsigned char live;\n    unsigned char state;\n    unsigned char root;\n} __btrc_cycle_vertex;\ntypedef struct {\n    volatile void* slot_storage;\n    __btrc_arc_slot_access_fn access;\n    int source;\n    int target;\n    int next;\n} __btrc_cycle_edge;\ntypedef struct {\n    __btrc_cycle_vertex* vertices;\n    __btrc_cycle_edge* edges;\n    int* queue;\n    int vertex_count;\n    int vertex_cap;\n    int edge_count;\n    int edge_cap;\n    int queue_cap;\n    int queue_count;\n    int source;\n    void** object_keys;\n    int* object_values;\n    unsigned int* object_marks;\n    int object_cap;\n    unsigned int object_epoch;\n    volatile void** slot_keys;\n    int* slot_values;\n    unsigned int* slot_marks;\n    int slot_cap;\n    unsigned int slot_epoch;\n} __btrc_cycle_context;\nstatic __btrc_cycle_context __btrc_cycle_scratch;\nst",
                 "atic int __btrc_collecting = 0;\n",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -1227,6 +1489,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_cycle_collector_state", "__btrc_ptr_hash", "__btrc_safe_calloc", "__btrc_safe_realloc", "__btrc_arc_type_of", "__btrc_arc_validate"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1235,6 +1499,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_arc_unregister_incoming(\n        void* object, void* owner) {\n    __btrc_arc_header* header = __btrc_arc_header_of(object);\n    if (!owner) {\n        header->live_witness = NULL;\n        return;\n    }\n    __btrc_arc_incoming** link = &header->incoming;\n    while (*link && (*link)->owner != owner) link = &(*link)->next;\n    if (!*link) {\n        fprintf(stderr, \"btrc: missing managed incoming edge\\n\");\n        exit(1);\n    }\n    __btrc_arc_incoming* removed = *link;\n    *link = removed->next;\n    free(removed);\n    if (header->live_witness == object || header->live_witness == owner) {\n        header->live_witness = NULL;\n        for (__btrc_arc_incoming* edge = header->incoming;\n                edge; edge = edge->next) {\n            if (edge->owner != object) {\n                header->live_witness = edge->owner;\n                break;\n            }\n        }\n    }\n}",
             ],
             ["__btrc_arc_header_of"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1245,6 +1511,8 @@ class GeneratedRuntimeCatalogData {
                 "cts[last];\n            __btrc_visit_table[i] = __btrc_visit_table[last];\n            __btrc_destroy_table[i] = __btrc_destroy_table[last];\n        }\n        return;\n    }\n}",
             ],
             ["__btrc_suspect_state", "__btrc_ptr_hash"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1257,11 +1525,13 @@ class GeneratedRuntimeCatalogData {
                 "tes);\n    }\n    int head = 0;\n    while (head < context->queue_count) {\n        int scanned = context->queue[head++];\n        __btrc_cycle_vertex* vertex = &context->vertices[scanned];\n        if (vertex->state != 3) continue;\n        __btrc_arc_validate(vertex->object);\n        __btrc_arc_header* header = __btrc_arc_header_of(vertex->object);\n        if (header->rc > header->edge_rc) {\n            vertex->state = 2;\n            vertex->live = 1;\n            continue;\n        }\n        vertex->state = 1;\n        vertex->live = 0;\n        if (!vertex->visit) continue;\n        context->source = scanned;\n        vertex->visit(vertex->object, __btrc_cycle_snapshot_edge, context);\n    }\n}\nstatic void __btrc_cycle_mark_live(__btrc_cycle_context* context) {\n    __btrc_cycle_reserve_queue(context, context->vertex_count);\n    int head = 0;\n    int tail = 0;\n    for (int i = 0; i < context->vertex_count; i++) {\n        __btrc_cycle_vertex* vertex = &context->vertices[i];\n        __btrc_arc_validate(vertex->object);\n   ",
                 "     int rc = __btrc_arc_header_of(vertex->object)->rc;\n        if (rc < vertex->internal)\n            __btrc_cycle_fail(\"reference count below internal edge count\");\n        if (vertex->live || rc > vertex->internal) {\n            vertex->live = 1;\n            context->queue[tail++] = i;\n        }\n    }\n    while (head < tail) {\n        int source = context->queue[head++];\n        for (int edge = context->vertices[source].first_edge;\n                edge >= 0; edge = context->edges[edge].next) {\n            int target = context->edges[edge].target;\n            if (!context->vertices[target].live) {\n                context->vertices[target].live = 1;\n                context->queue[tail++] = target;\n            }\n        }\n    }\n    for (int i = 0; i < context->vertex_count; i++) {\n        __btrc_cycle_vertex* vertex = &context->vertices[i];\n        __btrc_arc_header* header =\n            __btrc_arc_header_of(vertex->object);\n        if (!vertex->live) {\n            header->live_witness = NULL;\n        } else ",
                 "if (header->rc == header->edge_rc\n                && !header->live_witness) {\n            /* Preserve a concrete owner; self is only the fallback proof. */\n            header->live_witness = vertex->object;\n        }\n    }\n}\nstatic void __btrc_cycle_reclaim(__btrc_cycle_context* context) {\n    for (int i = 0; i < context->edge_count; i++) {\n        __btrc_cycle_edge* edge = &context->edges[i];\n        if (context->vertices[edge->source].live) continue;\n        void* target_object = context->vertices[edge->target].object;\n        if (edge->access(edge->slot_storage,\n                target_object, NULL, 1) != target_object)\n            __btrc_cycle_fail(\"managed graph changed during cycle collection\");\n        __btrc_arc_unregister_incoming(\n            context->vertices[edge->target].object,\n            context->vertices[edge->source].object);\n        __btrc_arc_header* target = __btrc_arc_header_of(\n            context->vertices[edge->target].object);\n        if (target->rc <= 0 || target->edge_rc <= 0)\n     ",
-                "       __btrc_cycle_fail(\"managed edge count underflow\");\n        target->rc--;\n        target->edge_rc--;\n        if (target->rc > 0)\n            __btrc_arc_validate(context->vertices[edge->target].object);\n    }\n    for (int i = 0; i < context->vertex_count; i++) {\n        __btrc_cycle_vertex* vertex = &context->vertices[i];\n        if (vertex->live) continue;\n        __btrc_arc_header* header = __btrc_arc_header_of(vertex->object);\n        if (header->rc != 0 || header->edge_rc != 0)\n            __btrc_cycle_fail(\"dead cycle retained an owned reference\");\n        if (header->incoming != NULL)\n            __btrc_cycle_fail(\"dead cycle retained an incoming owner\");\n        __btrc_forget_suspect(vertex->object);\n        __btrc_arc_enqueue_locked(vertex->object);\n    }\n}\nstatic int __btrc_collect_cycles_once(void) {\n    __btrc_arc_lock_raw();\n    if (__btrc_arc_shutdown) {\n        __btrc_arc_unlock_raw();\n        fprintf(stderr, \"btrc: ARC operation after shutdown\\n\");\n        exit(1);\n    }\n    if (__btrc_sus",
-                "pect_count == 0) {\n        __btrc_arc_unlock_raw();\n        return 0;\n    }\n    if (__btrc_collecting) {\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    if (atomic_load_explicit(\n                &__btrc_arc_snapshot_pending, memory_order_acquire)\n            || atomic_load_explicit(\n                &__btrc_arc_snapshotting, memory_order_acquire)) {\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    if (__btrc_arc_topology_active > 0) {\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    __btrc_collecting = 1;\n    __btrc_arc_topology_flush_pending = 0;\n    atomic_store_explicit(\n        &__btrc_arc_snapshotting, 1, memory_order_release);\n    __btrc_arc_unlock_raw();\n\n    __btrc_cycle_context* context = &__btrc_cycle_scratch;\n    __btrc_cycle_reset_context(context);\n    __btrc_cycle_snapshot(context);\n    __btrc_cycle_mark_live(context);\n\n  ",
-                "  __btrc_arc_lock_raw();\n    __btrc_cycle_reclaim(context);\n    __btrc_collecting = 0;\n    atomic_store_explicit(\n        &__btrc_arc_snapshotting, 0, memory_order_release);\n    __btrc_arc_unlock_raw();\n    return 1;\n}\n",
+                "       __btrc_cycle_fail(\"managed edge count underflow\");\n        target->rc--;\n        target->edge_rc--;\n        if (target->rc > 0)\n            __btrc_arc_validate(context->vertices[edge->target].object);\n    }\n    for (int i = 0; i < context->vertex_count; i++) {\n        __btrc_cycle_vertex* vertex = &context->vertices[i];\n        if (vertex->live) continue;\n        __btrc_arc_header* header = __btrc_arc_header_of(vertex->object);\n        if (header->rc != 0 || header->edge_rc != 0)\n            __btrc_cycle_fail(\"dead cycle retained an owned reference\");\n        if (header->incoming != NULL)\n            __btrc_cycle_fail(\"dead cycle retained an incoming owner\");\n        __btrc_forget_suspect(vertex->object);\n        __btrc_arc_enqueue_locked(vertex->object);\n    }\n}\nstatic int __btrc_collect_cycles_once(void) {\n    __btrc_arc_lock_raw();\n    if (__btrc_arc_shutdown) {\n        __btrc_arc_unlock_raw();\n        fprintf(stderr, \"btrc: ARC operation after shutdown\\n\");\n        exit(1);\n    }\n    /* The snapsho",
+                "t owner resets the suspect buffer outside the raw lock.\n     * Gate that ownership before inspecting any suspect-buffer state. */\n    if (__btrc_collecting) {\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    if (atomic_load_explicit(\n                &__btrc_arc_snapshot_pending, memory_order_acquire)\n            || atomic_load_explicit(\n                &__btrc_arc_snapshotting, memory_order_acquire)) {\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    if (__btrc_suspect_count == 0) {\n        __btrc_arc_unlock_raw();\n        return 0;\n    }\n    if (__btrc_arc_topology_active > 0) {\n        __btrc_arc_topology_flush_pending = 1;\n        __btrc_arc_unlock_raw();\n        return 2;\n    }\n    __btrc_collecting = 1;\n    __btrc_arc_topology_flush_pending = 0;\n    atomic_store_explicit(\n        &__btrc_arc_snapshotting, 1, memory_order_release);\n    __btrc_arc_unlock_raw();\n\n    __btrc_cycle_context* co",
+                "ntext = &__btrc_cycle_scratch;\n    __btrc_cycle_reset_context(context);\n    __btrc_cycle_snapshot(context);\n    __btrc_cycle_mark_live(context);\n\n    __btrc_arc_lock_raw();\n    __btrc_cycle_reclaim(context);\n    __btrc_collecting = 0;\n    atomic_store_explicit(\n        &__btrc_arc_snapshotting, 0, memory_order_release);\n    __btrc_arc_unlock_raw();\n    return 1;\n}\n",
             ],
             ["__btrc_arc_graph_primitives", "__btrc_suspect_state", "__btrc_ptr_hash", "__btrc_safe_realloc", "__btrc_arc_unregister_incoming", "__btrc_forget_suspect", "__btrc_arc_type_of", "__btrc_arc_validate", "__btrc_arc_lock_state", "__btrc_arc_snapshot_state", "__btrc_arc_snapshot_gate_state", "__btrc_arc_topology_state", "__btrc_arc_shutdown_state", "__btrc_arc_deferred_state"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1275,6 +1545,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_deferred_state", "__btrc_collect_cycles_once", "__btrc_arc_mutation_lock", "__btrc_arc_topology_state", "__btrc_arc_topology_depth_state", "__btrc_arc_shutdown_state", "__btrc_arc_active_drains_state"],
             ["limits.h", "stdio.h", "stdlib.h", "string.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1291,6 +1563,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_graph_primitives", "__btrc_arc_unregister_incoming", "__btrc_forget_suspect", "__btrc_arc_exclusive_snapshot", "__btrc_arc_deferred_state", "__btrc_arc_drain"],
             ["stdlib.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1299,6 +1573,8 @@ class GeneratedRuntimeCatalogData {
                 "static int __btrc_flush_cycles(void) {\n    __btrc_arc_drain_deferred(1);\n    return 0;\n}",
             ],
             ["__btrc_arc_drain"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1309,6 +1585,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_abandon_callback_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1317,6 +1595,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_arc_topology_cleanup(void* token) {\n    int should_flush = __btrc_arc_topology_leave(token);\n    __btrc_arc_drain_pending_abandons();\n    if (should_flush)\n        (void)__btrc_flush_cycles();\n    __btrc_arc_drain_deferred(0);\n}",
             ],
             ["__btrc_arc_topology_leave", "__btrc_arc_abandon_queue_drain", "__btrc_flush_cycles", "__btrc_arc_drain"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1327,6 +1607,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_topology_leave", "__btrc_arc_abandon_queue_drain", "__btrc_flush_cycles", "__btrc_arc_drain"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1334,6 +1616,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "/* Scratch state for exact reverse-root classification. */\nstatic void** __btrc_reverse_queue = NULL;\nstatic int __btrc_reverse_queue_cap = 0;\nstatic void** __btrc_reverse_keys = NULL;\nstatic unsigned int* __btrc_reverse_marks = NULL;\nstatic int __btrc_reverse_key_cap = 0;\nstatic int __btrc_reverse_count = 0;\nstatic unsigned int __btrc_reverse_epoch = 0;",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             false));
@@ -1345,6 +1629,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_header_of", "__btrc_safe_realloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1353,6 +1639,8 @@ class GeneratedRuntimeCatalogData {
                 "static int __btrc_arc_incoming_teardown_pending(\n        void* object) {\n    __btrc_arc_header* header = __btrc_arc_header_of(object);\n    if (!header->incoming) return 0;\n    for (__btrc_arc_incoming* edge = header->incoming;\n            edge; edge = edge->next) {\n        void* owner = edge->owner;\n        if (!owner || owner == object) return 0;\n        __btrc_arc_validate(owner);\n        if (__btrc_arc_header_of(owner)->state != __BTRC_ARC_DESTROYING)\n            return 0;\n    }\n    return 1;\n}",
             ],
             ["__btrc_arc_validate"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1366,6 +1654,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_reverse_state", "__btrc_arc_validate", "__btrc_ptr_hash", "__btrc_safe_calloc", "__btrc_safe_realloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1374,6 +1664,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline int __btrc_arc_retain(void* object) {\n    if (!object) return 0;\n    __btrc_arc_lock_mutation();\n    __btrc_arc_validate(object);\n    __btrc_arc_header* header = __btrc_arc_header_of(object);\n    const __btrc_arc_type* type = header->type;\n    if (header->state != __BTRC_ARC_LIVE) {\n        __btrc_arc_unlock_mutation();\n        __btrc_arc_raise_unlocked(\n            type, \"cannot retain destroying managed object\");\n    }\n    if (header->rc == INT_MAX) { fprintf(stderr, \"btrc: reference count overflow\\n\"); exit(1); }\n    if (header->live_witness == object) header->live_witness = NULL;\n    header->rc++;\n    __btrc_arc_validate(object);\n    __btrc_arc_unlock_mutation();\n    return 0;\n}",
             ],
             ["__btrc_arc_validate", "__btrc_arc_mutation_lock", "__btrc_arc_deferred_state"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1385,6 +1677,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_register_incoming", "__btrc_arc_mutation_lock", "__btrc_arc_deferred_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1394,6 +1688,8 @@ class GeneratedRuntimeCatalogData {
                 "c_unlock_mutation();\n    return 0;\n}",
             ],
             ["__btrc_arc_register_incoming", "__btrc_arc_mutation_lock", "__btrc_arc_deferred_state"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1405,6 +1701,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_unregister_incoming", "__btrc_arc_mutation_lock", "__btrc_arc_deferred_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1414,6 +1712,8 @@ class GeneratedRuntimeCatalogData {
                 "oming edge\\n\");\n            exit(1);\n        }\n        __btrc_forget_suspect(object);\n        __btrc_arc_enqueue_locked(object);\n        return 0;\n    }\n    __btrc_arc_validate(object);\n    if (type->visit && header->rc == header->edge_rc\n            && !__btrc_arc_incoming_teardown_pending(object)\n            && !__btrc_arc_reverse_proves_live(object))\n        __btrc_suspect_locked(object, type->visit, type->destroy);\n    return 0;\n}",
             ],
             ["__btrc_suspect_locked", "__btrc_arc_incoming_teardown_pending", "__btrc_arc_reverse_proves_live", "__btrc_forget_suspect", "__btrc_arc_deferred_state"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1426,6 +1726,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_release_impl", "__btrc_arc_register_incoming", "__btrc_arc_unregister_incoming", "__btrc_arc_mutation_lock", "__btrc_arc_drain"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1434,6 +1736,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline int __btrc_arc_release(\n        void* object, const __btrc_arc_type* type) {\n    if (!object) return 0;\n    __btrc_arc_lock_mutation();\n    __btrc_arc_release_impl(object, type, 0, NULL);\n    __btrc_arc_unlock_mutation();\n    __btrc_arc_drain_deferred(0);\n    return 0;\n}",
             ],
             ["__btrc_arc_release_impl", "__btrc_arc_mutation_lock", "__btrc_arc_drain"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1444,6 +1748,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_release_impl", "__btrc_arc_mutation_lock", "__btrc_arc_drain"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1453,6 +1759,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_type_of", "__btrc_arc_validate", "__btrc_arc_mutation_lock", "__btrc_arc_drain"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1461,6 +1769,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline int __btrc_arc_invalidate(void* object) {\n    __btrc_arc_lock_mutation();\n    __btrc_arc_validate(object);\n    __btrc_arc_unlock_mutation();\n    return 0;\n}",
             ],
             ["__btrc_arc_validate", "__btrc_arc_mutation_lock"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1472,6 +1782,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_forget_suspect", "__btrc_arc_type_of", "__btrc_arc_validate", "__btrc_arc_mutation_lock", "__btrc_arc_deferred_state", "__btrc_arc_drain"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1481,6 +1793,8 @@ class GeneratedRuntimeCatalogData {
                 "    __btrc_arc_unlock_mutation();\n        __btrc_arc_raise_unlocked(\n            type, \"cannot delete shared managed object\");\n    }\n    if (access(slot_storage, object, NULL, 1) != object) {\n        __btrc_arc_unlock_mutation();\n        fprintf(stderr, \"btrc: managed delete slot changed during transaction\\n\");\n        exit(1);\n    }\n    __btrc_arc_unregister_incoming(object, owner);\n    header->rc = 0;\n    header->edge_rc = 0;\n    header->live_witness = NULL;\n    __btrc_forget_suspect(object);\n    __btrc_arc_enqueue_locked(object);\n    __btrc_arc_unlock_mutation();\n    __btrc_arc_drain_deferred(0);\n    return 0;\n}",
             ],
             ["__btrc_forget_suspect", "__btrc_arc_unregister_incoming", "__btrc_arc_type_of", "__btrc_arc_validate", "__btrc_arc_mutation_lock", "__btrc_arc_deferred_state", "__btrc_arc_drain"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1493,6 +1807,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_abandon_graph", "__btrc_arc_abandon_queue_state", "__btrc_safe_realloc", "__btrc_arc_mutation_lock", "__btrc_arc_topology_state", "__btrc_arc_topology_depth_state"],
             ["limits.h", "stdint.h", "stdio.h", "stdlib.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1501,6 +1817,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_collect_cycles(void) {\n    __btrc_arc_drain_deferred(1);\n}",
             ],
             ["__btrc_arc_drain"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1511,6 +1829,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_drain", "__btrc_arc_mutation_lock"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
@@ -1519,6 +1839,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_arc_thread_state_finalize(void) {\n    __btrc_arc_lock_mutation();\n    if (__btrc_tracking != 0\n            || __btrc_arc_topology_depth != 0\n            || __btrc_arc_draining\n            || __btrc_arc_deferred_head\n            || __btrc_arc_deferred_tail\n            || __btrc_abandon_queue\n            || __btrc_abandon_count != 0\n            || __btrc_abandon_drain_callback) {\n        fprintf(stderr, \"btrc: ARC thread cleanup during active work\\n\");\n        exit(1);\n    }\n    free(__btrc_destroyed);\n    __btrc_destroyed = NULL;\n    __btrc_destroyed_count = 0;\n    __btrc_destroyed_cap = 0;\n    free(__btrc_abandon_queue);\n    __btrc_abandon_queue = NULL;\n    __btrc_abandon_count = 0;\n    __btrc_abandon_cap = 0;\n    __btrc_abandon_drain_callback = NULL;\n    __btrc_arc_unlock_mutation();\n}\nstatic void __btrc_arc_thread_state_cleanup(void) {\n    __btrc_arc_drain_pending_abandons();\n    __btrc_arc_drain_deferred(1);\n    __btrc_arc_thread_state_finalize();\n}",
             ],
             ["__btrc_arc_abandon_queue_state", "__btrc_arc_abandon_queue_drain", "__btrc_arc_drain", "__btrc_arc_mutation_lock", "__btrc_arc_topology_depth_state", "__btrc_arc_deferred_state", "__btrc_destroyed_tracking", "__btrc_destroyed_capacity"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1531,6 +1853,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_flush_cycles", "__btrc_arc_thread_state_cleanup", "__btrc_suspect_capacity", "__btrc_arc_reverse_state", "__btrc_arc_deferred_state", "__btrc_arc_drain", "__btrc_arc_mutation_lock", "__btrc_arc_lock_state", "__btrc_arc_snapshot_state", "__btrc_arc_snapshot_gate_state", "__btrc_arc_shutdown_state", "__btrc_arc_active_drains_state", "__btrc_arc_active_unwinds_state", "__btrc_arc_topology_state", "__btrc_cycle_collector_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -1539,6 +1863,8 @@ class GeneratedRuntimeCatalogData {
                 "/* Cleanup slots are opaque; generated adapters access their exact type. */\ntypedef __btrc_destroy_fn __btrc_cleanup_fn;\ntypedef void* (*__btrc_cleanup_take_fn)(void*);\ntypedef struct { void* slot; __btrc_cleanup_take_fn take; __btrc_cleanup_fn fn; __btrc_visit_fn visit; int try_level; int direct; } __btrc_cleanup_entry;\nstatic _Thread_local __btrc_cleanup_entry* __btrc_cleanup_stack = NULL;\nstatic _Thread_local int __btrc_cleanup_top = -1;",
             ],
             ["__btrc_try_level", "__btrc_arc_callback_types"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1550,6 +1876,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_cleanup_types", "__btrc_cleanup_capacity", "__btrc_safe_realloc"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -1558,6 +1886,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline void __btrc_register_cleanup(\n        void* slot, __btrc_cleanup_take_fn take,\n        __btrc_cleanup_fn fn, __btrc_visit_fn visit) {\n    __btrc_register_cleanup_kind(slot, take, fn, visit, 0);\n}",
             ],
             ["__btrc_register_cleanup_kind"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1568,6 +1898,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_register_cleanup_kind"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -1576,6 +1908,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline void __btrc_discard_cleanups(int level) {\n    while (__btrc_cleanup_top >= 0 &&\n           __btrc_cleanup_stack[__btrc_cleanup_top].try_level >= level) {\n        __btrc_cleanup_top--;\n    }\n}",
             ],
             ["__btrc_cleanup_types"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1586,6 +1920,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_cleanup_types"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -1594,6 +1930,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline void __btrc_discard_cleanups_to(int mark) {\n    if (mark < -1 || mark > __btrc_cleanup_top) {\n        fprintf(stderr, \"btrc: invalid cleanup scope marker\\n\");\n        exit(1);\n    }\n    __btrc_cleanup_top = mark;\n}",
             ],
             ["__btrc_cleanup_types"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1604,6 +1942,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_callback_types", "__btrc_push_try", "__btrc_copy_error_message"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -1613,6 +1953,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_callback_types"],
             ["stdio.h", "stdlib.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -1622,6 +1964,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_cleanup_types", "__btrc_push_try", "__btrc_arc_release"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -1630,6 +1974,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_flush_cycles_guarded(void) {\n    __btrc_push_try();\n    int guard_level = __btrc_try_top;\n    if (setjmp(__btrc_try_stack[guard_level]->env) != 0) return;\n    __btrc_flush_cycles();\n    __btrc_try_top--;\n}",
             ],
             ["__btrc_push_try", "__btrc_flush_cycles"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1641,6 +1987,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_cleanup_types", "__btrc_safe_realloc", "__btrc_destroyed_tracking_scope", "__btrc_is_destroyed", "__btrc_run_cleanup_guarded", "__btrc_flush_cycles_guarded"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
@@ -1649,6 +1997,8 @@ class GeneratedRuntimeCatalogData {
                 "static _Noreturn void __btrc_throw(const char* msg) {\n    const char* text = msg ? msg : \"Unknown exception\";\n    __btrc_copy_error_message(\n        __btrc_error_msg, sizeof __btrc_error_msg, text);\n    if (__btrc_try_top < 0) {\n        __btrc_run_cleanups(-1);\n        fprintf(stderr, \"Unhandled exception: %s\\n\", __btrc_error_msg);\n        exit(1);\n    }\n    __btrc_run_cleanups(__btrc_try_top);\n    int level = __btrc_try_top;\n    __btrc_try_top--;\n    longjmp(__btrc_try_stack[level]->env, 1);\n}",
             ],
             ["__btrc_trycatch_globals", "__btrc_copy_error_message", "__btrc_run_cleanups"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1659,6 +2009,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_trycatch_globals", "__btrc_try_capacity", "__btrc_cleanup_types", "__btrc_cleanup_capacity", "__btrc_launder_state"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1668,6 +2020,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["stdint.h", "sys/resource.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1678,6 +2032,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["errno.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1686,6 +2042,8 @@ class GeneratedRuntimeCatalogData {
                 "static int __btrc_close_descriptors_except(\n        int bound, int preserved) {\n    if (preserved < 3) return -1;\n    if (__btrc_close_descriptor_range(\n            3U, (unsigned int)preserved - 1U, bound) != 0)\n        return -1;\n    return __btrc_close_descriptor_range(\n        (unsigned int)preserved + 1U, ~0U, bound);\n}",
             ],
             ["__btrc_close_descriptors_from"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1696,6 +2054,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_close_descriptors_from"],
             ["errno.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1705,6 +2065,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["errno.h", "fcntl.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1717,6 +2079,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["errno.h", "sys/types.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1724,6 +2088,8 @@ class GeneratedRuntimeCatalogData {
             [
                 "static int __btrc_process_descriptors_supported(void) {\n#if defined(__linux__)\n    return 1;\n#else\n    return 0;\n#endif\n}",
             ],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             self.emptyStrings(),
             true));
@@ -1735,6 +2101,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["errno.h", "sys/stat.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1744,6 +2112,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["errno.h", "sys/stat.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1753,6 +2123,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["errno.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1762,6 +2134,8 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["errno.h", "pthread.h", "signal.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1771,6 +2145,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_exec_signal_guard_begin"],
             ["errno.h", "pthread.h", "signal.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1780,6 +2156,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_exec_signal_guard_begin"],
             ["errno.h", "pthread.h", "signal.h", "string.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
@@ -1789,18 +2167,32 @@ class GeneratedRuntimeCatalogData {
             ],
             self.emptyStrings(),
             ["errno.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             true));
+        self.rows.push(GeneratedRuntimeHelperRow(
+            "threads",
+            "__btrc_thread_types",
+            [
+                "typedef void (*__btrc_thread_result_dispose)(void*, void*);\ntypedef void (*__btrc_thread_arg_dispose)(void*);\ntypedef struct {\n    void* (*fn)(void*);\n    void* arg;\n    __btrc_thread_arg_dispose dispose_arg;\n    void* result;\n    void* result_context;\n    __btrc_thread_result_dispose dispose_result;\n    __btrc_raise_fn raise_result;\n    __btrc_raise_fn raise_worker;\n    int has_worker_error;\n    char worker_error[1024];\n    pthread_t handle;\n} __btrc_thread_t;",
+            ],
+            ["__btrc_arc_callback_types"],
+            ["pthread.h"],
+            ["__btrc_thread_result_dispose", "__btrc_thread_arg_dispose", "__btrc_thread_t"],
+            self.emptyStrings(),
+            false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
             "__btrc_thread_spawn",
             [
-                "typedef void (*__btrc_thread_result_dispose)(void*, void*);\ntypedef void (*__btrc_thread_arg_dispose)(void*);\ntypedef struct {\n    void* (*fn)(void*);\n    void* arg;\n    __btrc_thread_arg_dispose dispose_arg;\n    void* result;\n    void* result_context;\n    __btrc_thread_result_dispose dispose_result;\n    __btrc_raise_fn raise_result;\n    __btrc_raise_fn raise_worker;\n    int has_worker_error;\n    char worker_error[1024];\n    pthread_t handle;\n} __btrc_thread_t;\n\nstatic int __btrc_thread_guard(\n        __btrc_thread_t* t, __btrc_hook_fn hook, void* object) {\n    char error[1024];\n    error[0] = '\\0';\n    int failed = __btrc_arc_guard_hook(\n        hook, object, error, sizeof error);\n    if (failed && !t->has_worker_error) {\n        memcpy(t->worker_error, error, sizeof t->worker_error);\n        t->has_worker_error = 1;\n    }\n    return failed;\n}\n\nstatic void __btrc_thread_entry_thunk(void* raw) {\n    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n    t->result = t->fn(t->arg);\n}\n\nstatic void __btrc_thread_arc_cle",
-                "anup_thunk(void* unused) {\n    (void)unused;\n    __btrc_arc_thread_state_cleanup();\n}\n\nstatic void* __btrc_thread_wrapper(void* raw) {\n    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n    (void)__btrc_thread_guard(\n        t, __btrc_thread_entry_thunk, t);\n    if (t->dispose_arg)\n        (void)__btrc_thread_guard(t, t->dispose_arg, t->arg);\n    t->arg = NULL;\n    t->dispose_arg = NULL;\n    int cleanup_failed = __btrc_thread_guard(\n        t, __btrc_thread_arc_cleanup_thunk, NULL);\n    if (cleanup_failed)\n        __btrc_arc_thread_state_finalize();\n    __btrc_try_state_cleanup();\n    return NULL;\n}\n\nstatic __btrc_thread_t* __btrc_thread_spawn(\n        void* (*fn)(void*), void* arg,\n        __btrc_thread_arg_dispose dispose_arg,\n        const void* result_context, size_t context_size,\n        __btrc_thread_result_dispose dispose_result,\n        __btrc_raise_fn raise_result) {\n    if (!fn) { fprintf(stderr, \"btrc: cannot spawn a null thread function\\n\"); exit(1); }\n    if (dispose_arg && !arg) { fprintf(stderr, \"",
-                "btrc: cannot dispose a null thread argument\\n\"); exit(1); }\n    if ((!result_context) != (context_size == 0) || (result_context && !dispose_result)) { fprintf(stderr, \"btrc: invalid thread result disposal context\\n\"); exit(1); }\n    if (raise_result && !dispose_result) { fprintf(stderr, \"btrc: invalid thread result raise callback\\n\"); exit(1); }\n    __btrc_thread_t* t = (__btrc_thread_t*)__btrc_safe_realloc(\n        NULL, sizeof(__btrc_thread_t));\n    t->fn = fn;\n    t->arg = arg;\n    t->dispose_arg = dispose_arg;\n    t->result = NULL;\n    t->result_context = NULL;\n    if (context_size != 0) {\n        t->result_context = __btrc_safe_realloc(NULL, context_size);\n        memcpy(t->result_context, result_context, context_size);\n    }\n    t->dispose_result = dispose_result;\n    t->raise_result = raise_result;\n    t->raise_worker = __btrc_throw;\n    t->has_worker_error = 0;\n    t->worker_error[0] = '\\0';\n    int err = pthread_create(&t->handle, NULL, __btrc_thread_wrapper, t);\n    if (err != 0) { fprintf(stderr, \"",
-                "btrc: pthread_create failed (%d)\\n\", err); free(t->result_context); free(t); exit(1); }\n    return t;\n}",
+                "static int __btrc_thread_guard(\n        __btrc_thread_t* t, __btrc_hook_fn hook, void* object) {\n    char error[1024];\n    error[0] = '\\0';\n    int failed = __btrc_arc_guard_hook(\n        hook, object, error, sizeof error);\n    if (failed && !t->has_worker_error) {\n        memcpy(t->worker_error, error, sizeof t->worker_error);\n        t->has_worker_error = 1;\n    }\n    return failed;\n}\n\nstatic void __btrc_thread_entry_thunk(void* raw) {\n    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n    t->result = t->fn(t->arg);\n}\n\nstatic void __btrc_thread_arc_cleanup_thunk(void* unused) {\n    (void)unused;\n    __btrc_arc_thread_state_cleanup();\n}\n\nstatic void* __btrc_thread_wrapper(void* raw) {\n    __btrc_thread_t* t = (__btrc_thread_t*)raw;\n    (void)__btrc_thread_guard(\n        t, __btrc_thread_entry_thunk, t);\n    if (t->dispose_arg)\n        (void)__btrc_thread_guard(t, t->dispose_arg, t->arg);\n    t->arg = NULL;\n    t->dispose_arg = NULL;\n    int cleanup_failed = __btrc_thread_guard(\n        t, __btrc_thread_arc_clea",
+                "nup_thunk, NULL);\n    if (cleanup_failed)\n        __btrc_arc_thread_state_finalize();\n    __btrc_try_state_cleanup();\n    return NULL;\n}\n\nstatic __btrc_thread_t* __btrc_thread_spawn(\n        void* (*fn)(void*), void* arg,\n        __btrc_thread_arg_dispose dispose_arg,\n        const void* result_context, size_t context_size,\n        __btrc_thread_result_dispose dispose_result,\n        __btrc_raise_fn raise_result) {\n    if (!fn) { fprintf(stderr, \"btrc: cannot spawn a null thread function\\n\"); exit(1); }\n    if (dispose_arg && !arg) { fprintf(stderr, \"btrc: cannot dispose a null thread argument\\n\"); exit(1); }\n    if ((!result_context) != (context_size == 0) || (result_context && !dispose_result)) { fprintf(stderr, \"btrc: invalid thread result disposal context\\n\"); exit(1); }\n    if (raise_result && !dispose_result) { fprintf(stderr, \"btrc: invalid thread result raise callback\\n\"); exit(1); }\n    __btrc_thread_t* t = (__btrc_thread_t*)__btrc_safe_realloc(\n        NULL, sizeof(__btrc_thread_t));\n    t->fn = fn;",
+                "\n    t->arg = arg;\n    t->dispose_arg = dispose_arg;\n    t->result = NULL;\n    t->result_context = NULL;\n    if (context_size != 0) {\n        t->result_context = __btrc_safe_realloc(NULL, context_size);\n        memcpy(t->result_context, result_context, context_size);\n    }\n    t->dispose_result = dispose_result;\n    t->raise_result = raise_result;\n    t->raise_worker = __btrc_throw;\n    t->has_worker_error = 0;\n    t->worker_error[0] = '\\0';\n    int err = pthread_create(&t->handle, NULL, __btrc_thread_wrapper, t);\n    if (err != 0) { fprintf(stderr, \"btrc: pthread_create failed (%d)\\n\", err); free(t->result_context); free(t); exit(1); }\n    return t;\n}",
             ],
-            ["__btrc_safe_realloc", "__btrc_try_state_cleanup", "__btrc_arc_thread_state_cleanup", "__btrc_arc_callback_types", "__btrc_arc_guard_hook", "__btrc_throw"],
+            ["__btrc_thread_types", "__btrc_safe_realloc", "__btrc_try_state_cleanup", "__btrc_arc_thread_state_cleanup", "__btrc_arc_guard_hook", "__btrc_throw"],
             ["pthread.h", "string.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1809,6 +2201,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_thread_finish(__btrc_thread_t* t) {\n    int err = pthread_join(t->handle, NULL);\n    if (err != 0) { fprintf(stderr, \"btrc: pthread_join failed (%d)\\n\", err); exit(1); }\n}",
             ],
             ["__btrc_thread_spawn"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1819,6 +2213,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_thread_spawn"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1827,6 +2223,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline void __btrc_thread_box_dispose(\n        void* result, void* context) {\n    (void)context;\n    free(result);\n}",
             ],
             ["__btrc_thread_spawn"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1837,6 +2235,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_thread_spawn", "__btrc_arc_release", "__btrc_flush_cycles"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1845,6 +2245,8 @@ class GeneratedRuntimeCatalogData {
                 "static inline void __btrc_thread_string_dispose(\n        void* result, void* context) {\n    (void)context;\n    __btrc_string_release((const char*)result);\n}",
             ],
             ["__btrc_thread_spawn", "__btrc_string_release"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1855,6 +2257,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_thread_spawn", "__btrc_arc_guard_hook"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1863,6 +2267,8 @@ class GeneratedRuntimeCatalogData {
                 "static void* __btrc_thread_join(__btrc_thread_t* t) {\n    if (!t) { fprintf(stderr, \"btrc: cannot join a consumed thread handle\\n\"); exit(1); }\n    __btrc_thread_finish(t);\n    if (t->has_worker_error) {\n        char worker_error[1024];\n        char dispose_error[1024];\n        dispose_error[0] = '\\0';\n        memcpy(worker_error, t->worker_error, sizeof worker_error);\n        __btrc_raise_fn raise = t->raise_worker;\n        if (t->dispose_result)\n            (void)__btrc_thread_dispose_guarded(\n                t->dispose_result, t->result, t->result_context,\n                dispose_error, sizeof dispose_error);\n        __btrc_thread_destroy_handle(t);\n        __btrc_raise_captured(raise, worker_error);\n    }\n    void* result = t->result;\n    __btrc_thread_destroy_handle(t);\n    return result;\n}",
             ],
             ["__btrc_thread_finish", "__btrc_thread_destroy_handle", "__btrc_thread_dispose_guarded", "__btrc_raise_captured"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1873,6 +2279,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_thread_finish", "__btrc_thread_destroy_handle", "__btrc_thread_dispose_guarded", "__btrc_raise_captured"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1882,6 +2290,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_arc_callback_types"],
             ["pthread.h"],
+            ["__btrc_mutex_value_access", "__btrc_mutex_value_callback", "__btrc_mutex_finalize_callback", "__btrc_mutex_val_t"],
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1890,6 +2300,8 @@ class GeneratedRuntimeCatalogData {
                 "typedef struct {\n    __btrc_mutex_value_callback callback;\n    const void* storage;\n    __btrc_mutex_value_access access;\n    void* context;\n    void* owner;\n} __btrc_mutex_value_call;\nstatic void __btrc_mutex_value_callback_thunk(void* raw) {\n    __btrc_mutex_value_call* call = (__btrc_mutex_value_call*)raw;\n    call->callback(\n        call->storage, call->access, call->context, call->owner);\n}\nstatic int __btrc_mutex_value_callback_guard(\n        __btrc_mutex_value_callback callback,\n        const void* storage, __btrc_mutex_value_access access,\n        void* context, void* owner,\n        char* error, size_t error_capacity) {\n    __btrc_mutex_value_call call = {\n        callback, storage, access, context, owner};\n    return __btrc_arc_guard_hook(\n        __btrc_mutex_value_callback_thunk,\n        &call, error, error_capacity);\n}",
             ],
             ["__btrc_mutex_val_types", "__btrc_arc_guard_hook"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1900,6 +2312,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_mutex_val_types", "__btrc_arc_guard_hook"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1908,6 +2322,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_mutex_arc_retain(\n        const void* storage, __btrc_mutex_value_access access,\n        void* context, void* owner) {\n    (void)context;\n    if (owner)\n        (void)__btrc_arc_retain_edge(access(storage), owner);\n    else\n        (void)__btrc_arc_retain(access(storage));\n}",
             ],
             ["__btrc_mutex_val_types", "__btrc_arc_retain", "__btrc_arc_retain_edge"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1918,6 +2334,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_mutex_val_types", "__btrc_arc_release", "__btrc_arc_release_edge", "__btrc_arc_unlink_edge"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1926,6 +2344,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_mutex_arc_finalize(void* context) {\n    (void)context;\n    (void)__btrc_flush_cycles();\n}",
             ],
             ["__btrc_mutex_val_types", "__btrc_flush_cycles"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1936,6 +2356,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_mutex_val_types", "__btrc_string_retain"],
             self.emptyStrings(),
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1944,6 +2366,8 @@ class GeneratedRuntimeCatalogData {
                 "static void __btrc_mutex_string_release(\n        const void* storage, __btrc_mutex_value_access access,\n        void* context, void* owner) {\n    (void)context;\n    (void)owner;\n    __btrc_string_release((const char*)access(storage));\n}",
             ],
             ["__btrc_mutex_val_types", "__btrc_string_release"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
@@ -1955,6 +2379,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_mutex_val_types", "__btrc_arc_topology_begin", "__btrc_arc_topology_leave", "__btrc_mark_destroyed", "__btrc_throw"],
             ["stdio.h", "stdlib.h"],
+            self.emptyStrings(),
+            ["__btrc_mutex_arc_descriptor"],
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1966,6 +2392,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_mutex_arc_type", "__btrc_mutex_value_callback_guard", "__btrc_raise_captured", "__btrc_safe_realloc"],
             ["string.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1976,6 +2404,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_mutex_value_callback_guard", "__btrc_mutex_finalize_callback_guard", "__btrc_arc_topology_begin", "__btrc_arc_topology_leave", "__btrc_raise_captured", "__btrc_safe_realloc"],
             ["string.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
@@ -1986,6 +2416,8 @@ class GeneratedRuntimeCatalogData {
             ],
             ["__btrc_mutex_value_callback_guard", "__btrc_mutex_finalize_callback_guard", "__btrc_arc_topology_begin", "__btrc_arc_topology_leave", "__btrc_raise_captured"],
             ["string.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
             false));
     }
 }

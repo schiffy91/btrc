@@ -96,6 +96,7 @@ class ConcurrencyLowerer {
     public string emitSpawnCaptureDisposer(Vector<string> capNames, Map<string, Node> varTypes,
             string envName, int spawnId) {
         if (capNames.len == 0) { return ""; }
+        IRModule module = self.context.activeModule();
         Vector<string> adapters = [];
         int index = 0;
         while (index < capNames.len) {
@@ -105,7 +106,7 @@ class ConcurrencyLowerer {
                     self.cTypes.resolveBodyType(captureType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))) {
                 string adapter = "__btrc_spawn_capture_release_"
                     + Strings.fromInt(spawnId) + "_" + captureName;
-                self.context.module.functions.push(
+                module.functions.push(
                     self.spawnCaptureReleaseAdapter(adapter,
                         envName, captureName, captureType));
                 adapters.push(adapter);
@@ -130,11 +131,11 @@ class ConcurrencyLowerer {
             self.context.referenceHelper("__btrc_throw");
             body.push(IRNode.variableDeclaration(
                 "int", "__has_error", IRNode.literal("0")));
-            body.push(spawnCaptureErrorBuffer("__first_error"));
-            body.push(spawnCaptureErrorBuffer("__error"));
+            body.push(self.spawnCaptureErrorBuffer("__first_error"));
+            body.push(self.spawnCaptureErrorBuffer("__error"));
             index = 0;
             while (index < adapters.len) {
-                body.push(guardSpawnCapture(adapters.get(index)));
+                body.push(self.guardSpawnCapture(adapters.get(index)));
                 index = index + 1;
             }
         }
@@ -152,7 +153,7 @@ class ConcurrencyLowerer {
                 IRNode.block(raiseBody), null));
         }
         definition.body = IRNode.block(body);
-        self.context.module.functions.push(definition);
+        module.functions.push(definition);
         return name;
     }
     public bool threadResultRequiresBox(Node? retType) {
@@ -189,7 +190,11 @@ class ConcurrencyLowerer {
     }
 
     public string threadResultStorageC(Node resultType) {
-        Node storageType = TypeShape.copy(resultType);
+        Node concreteType = self.cTypes.resolveBodyType(
+            resultType, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0);
+        Node storageType = TypeShape.copy(concreteType);
         storageType.is_const = false;
         storageType.is_static = false;
         storageType.is_extern = false;

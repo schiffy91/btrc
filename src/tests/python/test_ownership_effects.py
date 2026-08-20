@@ -1,5 +1,6 @@
 """Ownership-effect extraction across callable body shapes."""
 
+from src.compiler.python.analyzer.ownership import OwnershipAnalyzer
 from src.compiler.python.syntax.ast.generated import (
     Block,
     Identifier,
@@ -10,7 +11,6 @@ from src.compiler.python.syntax.ast.generated import (
     ReleaseStmt,
     TypeExpr,
 )
-from src.compiler.python.analyzer.ownership import OwnershipAnalyzer
 
 
 def _lambda(body):

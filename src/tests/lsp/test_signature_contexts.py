@@ -1,8 +1,7 @@
 """Signature help: inherited-method parent chain, active-parameter counting
 that ignores commas inside string literals, and builtin function calls."""
 
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import analyze, pos_of
+from src.tests.lsp.lsphelp import analyze, get_signature_help, pos_of
 
 
 def _sig(src, needle, occurrence=1, offset=0):

@@ -10,8 +10,8 @@ from pathlib import Path
 
 import pytest
 
-from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
 from src.compiler.python.artifacts.archive import TargetCatalog
+from src.compiler.python.artifacts.selfhost import SelfhostBundleBuilder
 
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 

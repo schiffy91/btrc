@@ -5,6 +5,7 @@ import std.strings;
 import std.vector;
 import ../../generated/ast/node.btrc;
 import ../../syntax/identity.btrc;
+import ../../syntax/literals.btrc;
 import ../../syntax/types.btrc;
 import ../declarations.btrc;
 import ../models.btrc;
@@ -12,6 +13,13 @@ import ../operators.btrc;
 import ../types.btrc;
 import ./constants.btrc;
 import ./types.btrc;
+
+enum StaticInitializerCategory {
+    STATIC_INITIALIZER_INVALID = 0,
+    STATIC_INITIALIZER_INTEGER = 1,
+    STATIC_INITIALIZER_ARITHMETIC = 2,
+    STATIC_INITIALIZER_ADDRESS = 3,
+};
 
 class StorageValidator {
     private SemanticValidationState state;
@@ -28,6 +36,214 @@ class StorageValidator {
         self.operators = operators;
         self.types = types;
         self.constants = constants;
+    }
+
+    public bool staticArrayDesignator(
+            Node? expression) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_STRING_LITERAL) { return true; }
+        if (expression.kind == NK_IDENTIFIER
+                && self.state.analyzed.globalVarTypes.has(expression.name)) {
+            Node typeExpr = self.state.analyzed.globalVarTypes.get(expression.name);
+            return typeExpr.is_array;
+        }
+        return false;
+    }
+
+    public bool staticAddressOperand(
+            Node? expression) {
+        if (expression == null) { return false; }
+        if (expression.kind == NK_STRING_LITERAL) { return true; }
+        if (expression.kind == NK_IDENTIFIER) {
+            return self.state.analyzed.funcNames.has(expression.name)
+                || self.state.analyzed.globalVarTypes.has(expression.name);
+        }
+        if (expression.kind == NK_FIELD_ACCESS_EXPR && !expression.arrow) {
+            return self.staticAddressOperand(expression.obj);
+        }
+        if (expression.kind == NK_INDEX_EXPR) {
+            Map<string, bool> unrestricted = {};
+            SemanticIntegerConstant index = self.constants.integerConstant(
+                expression.index, false, "", unrestricted);
+            return index.valid
+                && self.staticArrayDesignator(expression.obj);
+        }
+        return false;
+    }
+
+    public bool knownNumericZero(Node expression) {
+        if (expression.kind == NK_INT_LITERAL) {
+            IntegerLiteralInfo info = IntegerLiteral(expression.raw).details();
+            return info.valid && info.magnitude == 0ULL;
+        }
+        if (expression.kind == NK_FLOAT_LITERAL) {
+            return expression.value_float == 0.0;
+        }
+        if (expression.kind == NK_BOOL_LITERAL) {
+            return !expression.value_bool;
+        }
+        return false;
+    }
+
+    public StaticInitializerCategory staticInitializerCategory(
+            Node? expression) {
+        if (expression == null) { return STATIC_INITIALIZER_INVALID; }
+        Map<string, bool> unrestricted = {};
+        SemanticIntegerConstant integer = self.constants.integerConstant(
+            expression, false, "", unrestricted);
+        if (integer.valid) { return STATIC_INITIALIZER_INTEGER; }
+        if (expression.kind == NK_FLOAT_LITERAL) {
+            return STATIC_INITIALIZER_ARITHMETIC;
+        }
+        if (expression.kind == NK_STRING_LITERAL
+                || expression.kind == NK_NULL_LITERAL) {
+            return STATIC_INITIALIZER_ADDRESS;
+        }
+        if (expression.kind == NK_IDENTIFIER) {
+            if (expression.name == "NULL") {
+                return STATIC_INITIALIZER_ADDRESS;
+            }
+            if (self.state.analyzed.funcNames.has(expression.name)) {
+                return STATIC_INITIALIZER_ADDRESS;
+            }
+            if (self.state.analyzed.globalVarTypes.has(expression.name)
+                    && self.state.analyzed.globalVarTypes.get(
+                        expression.name).is_array) {
+                return STATIC_INITIALIZER_ADDRESS;
+            }
+            return STATIC_INITIALIZER_INVALID;
+        }
+        if (expression.kind == NK_UNARY_EXPR) {
+            if (expression.op == "&"
+                    && self.staticAddressOperand(
+                        expression.operand)) {
+                return STATIC_INITIALIZER_ADDRESS;
+            }
+            if (expression.op == "+" || expression.op == "-") {
+                StaticInitializerCategory operand =
+                    self.staticInitializerCategory(expression.operand);
+                if (operand == STATIC_INITIALIZER_ARITHMETIC) {
+                    return STATIC_INITIALIZER_ARITHMETIC;
+                }
+            }
+            return STATIC_INITIALIZER_INVALID;
+        }
+        if (expression.kind == NK_BINARY_EXPR) {
+            StaticInitializerCategory left = self.staticInitializerCategory(
+                expression.left);
+            StaticInitializerCategory right = self.staticInitializerCategory(
+                expression.right);
+            if (expression.op == "+"
+                    && ((left == STATIC_INITIALIZER_ADDRESS
+                            && right == STATIC_INITIALIZER_INTEGER)
+                        || (left == STATIC_INITIALIZER_INTEGER
+                            && right == STATIC_INITIALIZER_ADDRESS))) {
+                return STATIC_INITIALIZER_ADDRESS;
+            }
+            if (expression.op == "-"
+                    && left == STATIC_INITIALIZER_ADDRESS
+                    && right == STATIC_INITIALIZER_INTEGER) {
+                return STATIC_INITIALIZER_ADDRESS;
+            }
+            bool leftArithmetic = left == STATIC_INITIALIZER_INTEGER
+                || left == STATIC_INITIALIZER_ARITHMETIC;
+            bool rightArithmetic = right == STATIC_INITIALIZER_INTEGER
+                || right == STATIC_INITIALIZER_ARITHMETIC;
+            if (leftArithmetic && rightArithmetic
+                    && (expression.op == "+" || expression.op == "-"
+                        || expression.op == "*" || expression.op == "/"
+                        || expression.op == "<" || expression.op == ">"
+                        || expression.op == "<=" || expression.op == ">="
+                        || expression.op == "==" || expression.op == "!=")) {
+                if (expression.op == "/"
+                        && self.knownNumericZero(expression.right)) {
+                    return STATIC_INITIALIZER_INVALID;
+                }
+                if (expression.op == "<" || expression.op == ">"
+                        || expression.op == "<=" || expression.op == ">="
+                        || expression.op == "==" || expression.op == "!=") {
+                    return STATIC_INITIALIZER_INTEGER;
+                }
+                return STATIC_INITIALIZER_ARITHMETIC;
+            }
+            return STATIC_INITIALIZER_INVALID;
+        }
+        if (expression.kind == NK_TERNARY_EXPR) {
+            SemanticIntegerConstant condition = self.constants.integerConstant(
+                expression.condition, false, "", unrestricted);
+            if (!condition.valid) { return STATIC_INITIALIZER_INVALID; }
+            if (condition.known) {
+                if (condition.value != 0) {
+                    return self.staticInitializerCategory(
+                        expression.true_expr);
+                }
+                return self.staticInitializerCategory(
+                    expression.false_expr);
+            }
+            StaticInitializerCategory whenTrue =
+                self.staticInitializerCategory(expression.true_expr);
+            StaticInitializerCategory whenFalse =
+                self.staticInitializerCategory(expression.false_expr);
+            if (whenTrue == whenFalse) { return whenTrue; }
+            return STATIC_INITIALIZER_INVALID;
+        }
+        if (expression.kind == NK_CAST_EXPR) {
+            Node? target = self.types.resolveAliases(
+                expression.target_type);
+            StaticInitializerCategory operand =
+                self.staticInitializerCategory(expression.expr);
+            if (target == null
+                    || operand == STATIC_INITIALIZER_INVALID) {
+                return STATIC_INITIALIZER_INVALID;
+            }
+            if (self.operators.isReferenceType(target)) {
+                if (operand == STATIC_INITIALIZER_INTEGER
+                        || operand == STATIC_INITIALIZER_ADDRESS) {
+                    return STATIC_INITIALIZER_ADDRESS;
+                }
+                return STATIC_INITIALIZER_INVALID;
+            }
+            if (NumericSemantics.isType(target, self.state.analyzed)
+                    && (operand == STATIC_INITIALIZER_INTEGER
+                        || operand == STATIC_INITIALIZER_ARITHMETIC)) {
+                if (self.types.integralType(target, self.state.analyzed)) {
+                    return STATIC_INITIALIZER_INTEGER;
+                }
+                return STATIC_INITIALIZER_ARITHMETIC;
+            }
+        }
+        return STATIC_INITIALIZER_INVALID;
+    }
+
+    public bool staticInitializer(Node? expression, Node? expected) {
+        if (expression == null) { return true; }
+        if (expected != null && expected.generic_args.len > 0
+                && expected.base != "Tuple"
+                && expected.base != "__fn_ptr"
+                && (self.state.analyzed.isGenericClass(expected.base)
+                    || self.types.runtimeTypeBase(expected.base))) {
+            /* Collection/class literals allocate and populate at runtime; their
+             * brace spelling is not a C aggregate constant initializer. */
+            return false;
+        }
+        if (expression.kind == NK_BRACE_INITIALIZER
+                || expression.kind == NK_LIST_LITERAL) {
+            if (expression.kind == NK_LIST_LITERAL
+                    && (expected == null || !expected.is_array)) {
+                return false;
+            }
+            int index = 0;
+            while (index < expression.elements.len) {
+                if (!self.staticInitializer(
+                        expression.elements.get(index), null)) {
+                    return false;
+                }
+                index = index + 1;
+            }
+            return true;
+        }
+        return self.staticInitializerCategory(expression)
+            != STATIC_INITIALIZER_INVALID;
     }
 
     private void validateMethodAccess(string className, Node method,
@@ -579,7 +795,7 @@ class StorageValidator {
         if (expression == null || resolvedType == null) { return false; }
         if ((resolvedType.base == "Array" || resolvedType.base == "Vector")
                 && resolvedType.generic_args.len > 0) {
-            return true;
+            return self.types.gpuOutputCollectionType(resolvedType);
         }
         if (!resolvedType.is_array) { return false; }
         if (expression.kind == NK_FIELD_ACCESS_EXPR) {
@@ -611,6 +827,34 @@ class StorageValidator {
         }
         return !self.pointerBackedArrayTarget(
                 target, resolvedType,  vars);
+    }
+
+    public bool gpuOutputCollectionTarget(Node? expression,
+            Node? inferredType, Map<string, Node> vars) {
+        if (!self.types.gpuOutputCollectionType(inferredType)
+                || expression == null) {
+            return false;
+        }
+        if (expression.kind == NK_IDENTIFIER) { return true; }
+        if (expression.kind != NK_FIELD_ACCESS_EXPR
+                || expression.obj == null) {
+            return false;
+        }
+        Node? member = self.arrayTargetMember(expression, vars);
+        if (member != null
+            && member.kind == NK_PROPERTY_DECL
+            && member.access != "class"
+            && member.has_getter) {
+            return true;
+        }
+        Node? receiverType = self.types.inferType(
+            expression.obj, vars);
+        receiverType = self.types.resolveAliases(receiverType);
+        return receiverType != null
+            && self.types.managedOwnershipType(receiverType)
+            && member != null
+            && member.kind == NK_FIELD_DECL
+            && member.access != "class";
     }
 
     public Node? gpuBufferElementType(Node? typeExpr) {
@@ -793,12 +1037,18 @@ class StorageValidator {
                         declaration);
                 }
             }
+            bool hasStaticStorage = isGlobal
+                || declaration.type.is_static;
+            if (hasStaticStorage
+                    && declaration.initializer != null
+                    && !declaration.type.is_extern
+                    && !self.staticInitializer(
+                        declaration.initializer, declaration.type)) {
+                TypeValidator.fail(subject
+                    + " requires a C constant/address initializer for "
+                    + "static storage", declaration);
+            }
         }
-        bool staticStorage = isGlobal
-            || (declaration.type != null && declaration.type.is_static);
-        bool isExtern = declaration.type != null && declaration.type.is_extern;
-        /* Static-initializer expression policy is applied by declaration
-         * traversal after this storage-shape check. */
     }
 
     class string structTypeName(
@@ -836,16 +1086,17 @@ class StorageValidator {
 
     public void validateMutableTarget(Node? targetType,
              Node site,
-            bool allowFixedArrayWrite) {
+            bool allowArrayObjectWrite) {
         Node? resolvedTarget = self.types.resolveAliases(targetType);
         if (resolvedTarget == null) { return; }
         if (resolvedTarget.is_const && resolvedTarget.pointer_depth == 0) {
             TypeValidator.fail("Cannot modify const storage of type '"
                 + self.types.formatType(resolvedTarget) + "'", site);
         }
-        if (resolvedTarget.is_array && resolvedTarget.array_size != null
-                && !allowFixedArrayWrite) {
-            TypeValidator.fail("Fixed array '"
+        if (resolvedTarget.is_array && !allowArrayObjectWrite) {
+            string subject = resolvedTarget.array_size == null
+                ? "Array object" : "Fixed array";
+            TypeValidator.fail(subject + " '"
                 + self.types.formatType(resolvedTarget) + "' is not assignable", site);
         }
         Map<string, bool> visiting = {};
@@ -1132,36 +1383,6 @@ class StorageValidator {
         if (result == null) { return null; }
         return StorageValidator.resolvedIndexedType(
             result, objectType, self.state.analyzed);
-    }
-
-    class Node? indexResultType(Node? objectType, Analyzed analyzed) {
-        if (objectType == null || objectType.base == "Tuple") { return null; }
-        if (SemanticTypeSystem.isString(objectType)) {
-            Node character = SemanticTypeSystem.primitive("char");
-            character.is_const = objectType.is_const;
-            return character;
-        }
-        if (objectType.is_array) {
-            return TypeShape.withoutOuterArray(objectType);
-        }
-        if (StorageValidator.rawIndexedPointer(objectType, analyzed)) {
-            return TypeShape.withoutOuterPointers(objectType, 1);
-        }
-        Node? getter = StorageValidator.indexedMethod(objectType, "get", analyzed);
-        Node? result = null;
-        if (StorageValidator.validIndexedGetter(getter)) {
-            Node concreteGetter = getter;
-            result = concreteGetter.return_type;
-        } else {
-            Node? setter = StorageValidator.indexedMethod(objectType, "set", analyzed);
-            if (StorageValidator.validIndexedSetter(setter)) {
-                Node concreteSetter = setter;
-                result = concreteSetter.params.get(1).type;
-            }
-        }
-        if (result == null) { return null; }
-        return StorageValidator.resolvedIndexedType(
-            result, objectType, analyzed);
     }
 
     public Node? indexParameterType(
@@ -1524,9 +1745,14 @@ class StorageValidator {
             expression.target,  vars);
         bool gpuArrayOutput = expression.op == "="
             && self.types.gpuArrayResultCall(expression.value_node,  vars);
+        bool gpuCollectionOutput = gpuArrayOutput
+            && self.gpuOutputCollectionTarget(
+                expression.target, storageTarget, vars);
         bool gpuTargetHasCapacity = gpuArrayOutput
             && self.arrayTargetHasCapacity(
-                expression.target, storageTarget,  vars);
+                expression.target, storageTarget,  vars)
+            && (!self.types.gpuOutputCollectionType(storageTarget)
+                || gpuCollectionOutput);
         if (gpuArrayOutput && !gpuTargetHasCapacity) {
             TypeValidator.fail(
                 "Array-returning @gpu assignment target has no provable "
@@ -1581,8 +1807,11 @@ class StorageValidator {
             self.validateVolatileReferenceConversion(
                 qualifiedTarget, expression.value_node,
                 "Assignment",  vars);
-            self.types.validateTypedInitializer(target, expression.value_node,
-                "Assignment",  vars);
+            if (!gpuTargetHasCapacity) {
+                self.types.validateTypedInitializer(
+                    target, expression.value_node,
+                    "Assignment",  vars);
+            }
         }
         self.validatePropertyMutation(expression.target,
             expression.op != "=", gpuTargetHasCapacity,
@@ -1626,11 +1855,33 @@ class StorageValidator {
         }
         self.types.validatePortableNumericMix(expression, target, source,
             "Compound assignment '" + expression.op + "'");
-        if (self.types.hasBinaryOverload(
-                target, expression.op.substring(0, expression.op.length() - 1))) {
+        if (target.base == source.base
+                && self.state.typeParams.has(target.base)) {
             return;
         }
         string op = expression.op.substring(0, expression.op.length() - 1);
+        Node? overload = self.types.binaryOverloadMethod(target, op);
+        if (overload != null) {
+            Node concreteOverload = overload;
+            if (concreteOverload.params.len > 0) {
+                Node expected = self.types.resolvedBinaryOverloadType(
+                    concreteOverload.params.get(0).type, target);
+                if (!self.types.assignmentCompatible(expected, source)) {
+                    TypeValidator.fail("Operator '" + op + "' expects '"
+                        + self.types.formatType(expected) + "' but got '"
+                        + self.types.formatType(source) + "'", expression);
+                }
+            }
+            Node result = self.types.resolvedBinaryOverloadType(
+                concreteOverload.return_type, target);
+            if (!self.types.assignmentCompatible(target, result)) {
+                TypeValidator.fail("Operator '" + op + "' returns '"
+                    + self.types.formatType(result)
+                    + "', which cannot be stored in compound target '"
+                    + self.types.formatType(target) + "'", expression);
+            }
+            return;
+        }
         bool valid = false;
         if (op == "+" && TypeComposition.isSemanticScalarString(target)
                 && (TypeComposition.isSemanticScalarString(source)

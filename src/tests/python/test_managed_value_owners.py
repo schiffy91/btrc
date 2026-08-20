@@ -52,6 +52,9 @@ def test_specialization_is_scoped_state_on_the_shared_lowering_session() -> None
         symbol=identity.specialization_symbol("Box", [TypeExpr(base="Item")]),
         base_name="Box",
         type_arguments=(TypeExpr(base="Item"),),
+        selected_callables=frozenset(),
+        owner_name="Box",
+        owner_symbol=identity.specialization_symbol("Box", [TypeExpr(base="Item")]),
     )
 
     assert session.active_specialization is None

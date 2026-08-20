@@ -26,6 +26,7 @@ from src.compiler.python.syntax.ast.generated import (
     LambdaBlock,
     LambdaExpr,
     LambdaExprBody,
+    MethodDecl,
     ReturnStmt,
 )
 
@@ -46,6 +47,7 @@ if TYPE_CHECKING:
     from .concurrency import ConcurrencyLowerer
     from .exceptions import ExceptionLowerer
     from .expressions import ExpressionLowerer
+    from .generics import SpecializedDeclarationView
     from .gpu import GpuLowerer
     from .session import LoweringSession
     from .statements import StatementLowerer
@@ -90,9 +92,66 @@ class FunctionLowerer:
             declaration,
         )
 
-    def lower_specialization(self, view):
-        return self.emit_function_decl(
-            view.declaration,
+    def lower_specialization(self, view: SpecializedDeclarationView[MethodDecl]) -> None:
+        method = view.declaration
+        if method.body is None:
+            return
+        declaration = self.specialization_declaration(view)
+        provenance = CallableProvenance(self._analyzed, self._session, self._types, self._signatures)
+        previous_class = self._session.current_class
+        previous_class_name = self._session.current_class_name
+        self._session.current_class = self._analyzed.class_table.get(view.owner_name)
+        self._session.current_class_name = view.owner_name
+        return_type = self._types.resolve_active_type(method.return_type)
+        return_c_type = self._types.render(return_type) if return_type is not None else "void"
+        self._session.function_declarations = []
+        try:
+            with self.isolated_function_context(return_c_type, return_type):
+                body = self._statements.lower_block(
+                    method.body,
+                    provenance,
+                    local_bindings=[
+                        *([] if method.access == "class" else ["self"]),
+                        *(parameter.name for parameter in method.params),
+                    ],
+                    callable_bindings=method.params,
+                )
+        finally:
+            self._session.current_class = previous_class
+            self._session.current_class_name = previous_class_name
+        self._session.module.function_defs.append(
+            IRFunctionDef(
+                name=declaration.name,
+                return_type=declaration.return_type,
+                params=list(declaration.params),
+                body=body,
+                is_static=True,
+            )
+        )
+
+    def declare_specialization(self, view: SpecializedDeclarationView[MethodDecl]) -> None:
+        declaration = self.specialization_declaration(view)
+        if declaration not in self._session.module.function_decls:
+            self._session.module.function_decls.append(declaration)
+
+    def specialization_declaration(
+        self,
+        view: SpecializedDeclarationView[MethodDecl],
+    ) -> IRFunctionDecl:
+        """Describe one generic method instance through shared signature policy."""
+        method = view.declaration
+        params = []
+        if method.access != "class":
+            params.append(IRParam(c_type=CType(text=f"{view.owner_symbol}*"), name="self"))
+        for parameter in method.params:
+            resolved = self._types.resolve_active_type(parameter.type)
+            params.append(self._signatures.lower_source_param(parameter, resolved_type=resolved))
+        return_type = self._types.resolve_active_type(method.return_type)
+        return IRFunctionDecl(
+            name=view.symbol,
+            return_type=CType(text=self._types.render(return_type) if return_type is not None else "void"),
+            params=params,
+            is_static=True,
         )
 
     def materialize_default_helpers(
@@ -143,6 +202,16 @@ class FunctionLowerer:
                     is_static=True,
                 )
             )
+
+    def materialize_deferred_closure(
+        self,
+        default_plans: list[GenericDefaultHelperPlan],
+    ) -> None:
+        """Reach a fixed point across mutually discovered deferred bodies."""
+
+        while default_plans or self._session.pending_lambdas or self._session.pending_thread_spawns:
+            self.materialize_default_helpers(default_plans)
+            self.materialize_deferred_functions()
 
     def materialize_deferred_functions(
         self,
@@ -379,9 +448,9 @@ class FunctionLowerer:
         """Return the analyzer-resolved lambda result type, if one is known."""
         if node.return_type:
             return node.return_type
-        fn_type = self._analyzed.node_types.get(id(node))
+        fn_type = self._session.type_of(node)
         if fn_type and fn_type.base == "__fn_ptr" and fn_type.generic_args:
             return fn_type.generic_args[0]
         if isinstance(node.body, LambdaExprBody) and node.body.expression:
-            return self._analyzed.node_types.get(id(node.body.expression))
+            return self._session.type_of(node.body.expression)
         return None

@@ -1570,12 +1570,26 @@ class ExceptionLowerer:
     def lower_throw(self, node: ThrowStmt, provenance: CallableProvenance) -> list[IRStmt]:
         self._require_setjmp()
         self._session.require_helper("__btrc_throw")
-        expr = self._expressions.lower_expr(
+        prepared = self._expressions.prepare_value(
             node.expr,
+            TypeExpr(base="string"),
             provenance,
         )
+        operand = self._ownership.materialize_terminal_operand(
+            prepared.value,
+            prepared.effective_type,
+            owned=prepared.owned,
+        )
         return [
-            IRExprStmt(expr=IRCall(callee="__btrc_throw", args=[expr], helper_ref="__btrc_throw", never_returns=True))
+            *operand.statements,
+            IRExprStmt(
+                expr=IRCall(
+                    callee="__btrc_throw",
+                    args=[operand.value],
+                    helper_ref="__btrc_throw",
+                    never_returns=True,
+                )
+            ),
         ]
 
     @staticmethod

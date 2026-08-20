@@ -1,1 +1,5 @@
 src/runtime/c/* text eol=lf
+src/tests/fixtures/compiler_boundaries/manifest.toml text eol=lf
+src/tests/fixtures/compiler_boundaries/sources/* text eol=lf
+src/tests/fixtures/compiler_boundaries/artifacts/** binary
+src/tests/stdlib/expected/test_stdlib_terminal.stderr text eol=lf whitespace=-blank-at-eol

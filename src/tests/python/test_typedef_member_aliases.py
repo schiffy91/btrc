@@ -10,13 +10,53 @@ from pathlib import Path
 import pytest
 
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.syntax.ast.generated import Identifier
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
+from src.compiler.python.syntax.ast.generated import Identifier
 from src.tests.python.test_codegen import emit_c
 
 FIXTURE = Path(__file__).resolve().parents[1] / "btrc" / "fixtures" / "typedef_member_alias_runtime.btrc"
 COMPILERS = tuple(path for name in ("gcc", "clang") if (path := shutil.which(name)))
+
+TYPEDEF_OPERATOR_RUNTIME_SOURCE = r"""
+#include <assert.h>
+
+class Box<T> {
+    public T value;
+    public Box(T value) { self.value = value; }
+    public Box<T> __add__(T delta) { return new Box<T>(delta); }
+    public bool __eq__(T other) { return self.value == other; }
+}
+
+class SignedValue {
+    public int value;
+    public SignedValue(int value) { self.value = value; }
+    public SignedValue __neg__() { return new SignedValue(-self.value); }
+}
+
+typedef Box<int> IntBox;
+typedef SignedValue SignedAlias;
+
+int main() {
+    IntBox value = new Box<int>(2);
+    IntBox sum = value + 3;
+    value += 4;
+    SignedAlias original = new SignedValue(5);
+    SignedAlias negative = -original;
+
+    assert(sum.value == 3);
+    assert(value.value == 4);
+    assert(sum == 3);
+    assert(value == 4);
+    assert(negative.value == -5);
+
+    value = null;
+    sum = null;
+    original = null;
+    negative = null;
+    return 0;
+}
+"""
 
 
 def _parse(source: str):
@@ -118,12 +158,73 @@ def test_alias_declarations_keep_source_spelling_but_dispatch_canonically():
     assert "box.add(" not in generated
 
 
+def test_alias_operators_dispatch_canonically_but_keep_physical_spelling():
+    _program, analyzed = _analyze(TYPEDEF_OPERATOR_RUNTIME_SOURCE)
+    assert analyzed.errors == []
+
+    generated = emit_c(TYPEDEF_OPERATOR_RUNTIME_SOURCE)
+    assert "IntBox value = btrc_Box_int_new(2);" in generated
+    assert "SignedAlias original = SignedValue_new(5);" in generated
+    assert "btrc_Box_int___add__(" in generated
+    assert "btrc_Box_int___eq__(" in generated
+    assert "SignedValue___neg__(" in generated
+    assert "IntBox __btrc_update_old_" in generated
+
+
+@pytest.mark.parametrize(
+    ("source", "diagnostic"),
+    (
+        (
+            "class Secret { private Secret __add__(int delta) { return self; } } "
+            "typedef Secret Alias; "
+            "void run(Alias value) { Alias result = value + 1; }",
+            "private operator 'Secret.__add__'",
+        ),
+        (
+            'typedef string TextAlias; void run() { TextAlias value = "x"; value -= "x"; }',
+            "Operator '-=' is not defined for 'TextAlias' and 'string'",
+        ),
+    ),
+)
+def test_alias_operators_preserve_invalid_operation_checks(source: str, diagnostic: str):
+    _program, analyzed = _analyze(source)
+    assert any(diagnostic in error for error in analyzed.errors), analyzed.errors
+
+
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 def test_alias_member_runtime_is_strict_c11(tmp_path: Path, c_compiler: str):
     generated = tmp_path / "typedef_member_aliases.c"
     binary = tmp_path / "typedef_member_aliases"
     generated.write_text(emit_c(FIXTURE.read_text()))
+    subprocess.run(
+        [
+            c_compiler,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-O2",
+            str(generated),
+            "-lm",
+            "-lpthread",
+            "-o",
+            str(binary),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    subprocess.run([str(binary)], check=True, timeout=10)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_alias_operator_runtime_is_strict_c11(tmp_path: Path, c_compiler: str):
+    generated = tmp_path / "typedef_operators.c"
+    binary = tmp_path / "typedef_operators"
+    generated.write_text(emit_c(TYPEDEF_OPERATOR_RUNTIME_SOURCE))
     subprocess.run(
         [
             c_compiler,

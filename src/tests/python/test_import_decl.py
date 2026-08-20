@@ -8,6 +8,10 @@ finds the right files via the front-end helpers.
 
 import pytest
 
+from src.compiler.python.frontend.packages import IncludeResolutionError
+from src.compiler.python.frontend.stage import FrontendStage
+from src.compiler.python.lexer.lexer import Lexer
+from src.compiler.python.parser.parser import Parser
 from src.compiler.python.syntax.ast.generated import (
     ImportDecl,
     PackagePath,
@@ -16,10 +20,6 @@ from src.compiler.python.syntax.ast.generated import (
     StdGlob,
     StdModules,
 )
-from src.compiler.python.frontend.packages import IncludeResolutionError
-from src.compiler.python.frontend.stage import FrontendStage
-from src.compiler.python.lexer.lexer import Lexer
-from src.compiler.python.parser.parser import Parser
 
 RESOLVER = FrontendStage().resolver
 

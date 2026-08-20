@@ -8,10 +8,12 @@ from pathlib import Path
 
 import pytest
 
+from src.compiler.python import Compiler
 from src.compiler.python.analyzer.analyzer import SemanticAnalyzer
-from src.compiler.python.backend.c_emitter import CEmitter
+from src.compiler.python.application.pipeline import CompilationPipeline
+from src.compiler.python.application.results import CompilerOptions
 from src.compiler.python.ir.lowering.lowerer import IRLowerer
-from src.compiler.python.ir.optimizer import IROptimizer
+from src.compiler.python.ir.nodes import IRCall, IRInitializerList, IRNode, IRVarDecl
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 
@@ -34,13 +36,21 @@ def _has(errors: list[str], fragment: str) -> bool:
 def _emit(source: str) -> str:
     analyzed = _analyze(source)
     assert analyzed.errors == []
-    return CEmitter().emit(IROptimizer(IRLowerer(analyzed).lower()).optimize())
+    pipeline = CompilationPipeline()
+    module = pipeline.optimize(IRLowerer(analyzed).lower(), CompilerOptions())
+    return pipeline.emit(module)
 
 
-def _strict_build_and_run(source: str, tmp_path: Path, compiler: str) -> None:
-    c_path = tmp_path / f"program-{Path(compiler).name}.c"
+def _strict_build_generated(
+    generated: str,
+    tmp_path: Path,
+    compiler: str,
+    *,
+    stem: str = "program",
+) -> None:
+    c_path = tmp_path / f"{stem}-{Path(compiler).name}.c"
     executable = c_path.with_suffix("")
-    c_path.write_text(_emit(source))
+    c_path.write_text(generated)
     built = subprocess.run(
         [
             compiler,
@@ -61,6 +71,10 @@ def _strict_build_and_run(source: str, tmp_path: Path, compiler: str) -> None:
     )
     assert built.returncode == 0, built.stderr
     subprocess.run([str(executable)], check=True, timeout=10)
+
+
+def _strict_build_and_run(source: str, tmp_path: Path, compiler: str) -> None:
+    _strict_build_generated(_emit(source), tmp_path, compiler)
 
 
 @pytest.mark.parametrize(
@@ -254,6 +268,32 @@ POINTER_SOURCE = """
 """
 
 
+EFFECTFUL_INITIALIZER_SOURCE = """
+    struct Pair { int left; int right; };
+    int order = 0;
+
+    int mark(int expected) {
+        order = order + 1;
+        return order == expected ? expected : -expected;
+    }
+
+    int main() {
+        int fixed[2] = {mark(1), mark(2)};
+        Pair nested[2] = {{mark(3), mark(4)}, {mark(5), mark(6)}};
+        int listed[] = [mark(7), mark(8)];
+        Pair pair = {mark(9), mark(10)};
+        (int, int) tuple = (mark(11), mark(12));
+        return order == 12
+            && fixed[0] == 1 && fixed[1] == 2
+            && nested[0].left == 3 && nested[0].right == 4
+            && nested[1].left == 5 && nested[1].right == 6
+            && listed[0] == 7 && listed[1] == 8
+            && pair.left == 9 && pair.right == 10
+            && tuple._0 == 11 && tuple._1 == 12 ? 0 : 1;
+    }
+"""
+
+
 @pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
 @pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
 @pytest.mark.parametrize(
@@ -267,3 +307,80 @@ def test_valid_aggregate_contracts_compile_strict_c11(
     tmp_path: Path,
 ):
     _strict_build_and_run(source, tmp_path, c_compiler)
+
+
+def test_effectful_array_initializer_ir_uses_ordered_scalar_temporaries() -> None:
+    module = IRLowerer(_analyze(EFFECTFUL_INITIALIZER_SOURCE)).lower()
+    main = next(function for function in module.function_defs if function.name == "main")
+    declarations = {statement.name: statement for statement in main.body.stmts if isinstance(statement, IRVarDecl)}
+
+    for name in ("fixed", "nested", "listed"):
+        initializer = declarations[name].init
+        assert isinstance(initializer, IRInitializerList)
+        assert not any(isinstance(node, IRCall) for node in IRNode.walk_value(initializer))
+
+    calls = [node for node in IRNode.walk_value(main.body) if isinstance(node, IRCall) and node.callee == "mark"]
+    assert len(calls) == 12
+
+
+def test_inert_array_initializer_keeps_direct_c_brace_shape() -> None:
+    emitted = _emit("int main() { int values[2] = {1, 2}; return values[0] - 1; }")
+
+    assert "int values[2] = {1, 2};" in emitted
+    assert "__btrc_call_operand" not in emitted
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_effectful_aggregate_initializers_run_once_in_source_order(
+    c_compiler: str,
+    tmp_path: Path,
+) -> None:
+    _strict_build_and_run(EFFECTFUL_INITIALIZER_SOURCE, tmp_path, c_compiler)
+
+
+@pytest.mark.skipif(not COMPILERS, reason="requires a hosted C11 compiler")
+@pytest.mark.parametrize("c_compiler", COMPILERS, ids=lambda path: Path(path).name)
+def test_imported_c_enum_array_initializer_keeps_typed_source_order(
+    c_compiler: str,
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "foreign_enum.c").write_text(
+        "enum ForeignColor { FOREIGN_RED = 0, FOREIGN_GREEN = 1, FOREIGN_BLUE = 2 };\n"
+    )
+    source = """
+        import ./foreign_enum.c;
+
+        int observed = 0;
+
+        int markForeign(int value, int expected) {
+            observed++;
+            return observed == expected ? value : -1;
+        }
+
+        int main() {
+            enum ForeignColor values[4] = {
+                FOREIGN_RED,
+                (enum ForeignColor)markForeign((int)FOREIGN_GREEN, 1),
+                (enum ForeignColor)markForeign((int)FOREIGN_BLUE, 2),
+                FOREIGN_RED
+            };
+            return observed == 2
+                && values[0] == FOREIGN_RED
+                && values[1] == FOREIGN_GREEN
+                && values[2] == FOREIGN_BLUE
+                && values[3] == FOREIGN_RED ? 0 : 1;
+        }
+    """
+    source_path = tmp_path / "imported-enum-array.btrc"
+    source_path.write_text(source)
+    result = Compiler().compile(source, str(source_path), CompilerOptions())
+
+    assert result.successful, result.failure or result.diagnostics
+    assert result.c_source is not None
+    _strict_build_generated(
+        result.c_source,
+        tmp_path,
+        c_compiler,
+        stem="imported-enum-array",
+    )

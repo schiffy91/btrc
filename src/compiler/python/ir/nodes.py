@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import copy
 import dataclasses
-from collections.abc import Iterator
+import json
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -72,11 +74,7 @@ class IRExpr(IRNode):
         if isinstance(self, IRVar):
             return self.name
         if isinstance(self, IRFieldAccess):
-            return (
-                None
-                if self.arrow or not isinstance(self.obj, IRExpr)
-                else self.obj.direct_storage_root()
-            )
+            return None if self.arrow or not isinstance(self.obj, IRExpr) else self.obj.direct_storage_root()
         if isinstance(self, (IRIndex, IRDeref)) and self.storage_root_known:
             return self.storage_root or None
         if isinstance(self, IRIndex) and isinstance(self.obj, IRExpr):
@@ -93,18 +91,14 @@ class IRExpr(IRNode):
         """Carry array storage identity across one operand temporary."""
         if semantic_type is not None and getattr(semantic_type, "is_array", False):
             self.array_storage_known = True
-            self.array_storage_root = (
-                source.array_storage_root_value() if isinstance(source, IRExpr) else None
-            ) or ""
+            self.array_storage_root = (source.array_storage_root_value() if isinstance(source, IRExpr) else None) or ""
         return self
 
     def record_index_storage(self, receiver_type: object | None) -> IRExpr:
         """Annotate a source index with its semantic array-vs-pointer identity."""
         self.storage_root_known = True
         if receiver_type is not None and getattr(receiver_type, "is_array", False):
-            self.storage_root = (
-                self.obj.array_storage_root_value() if isinstance(self.obj, IRExpr) else None
-            ) or ""
+            self.storage_root = (self.obj.array_storage_root_value() if isinstance(self.obj, IRExpr) else None) or ""
         return self
 
     def record_array_projection(self, result_type: object | None) -> IRExpr:
@@ -120,6 +114,7 @@ class IRExpr(IRNode):
             self.array_storage_known = True
             self.array_storage_root = self.direct_storage_root() or ""
         return self
+
 
 @dataclass
 class IRLiteral(IRExpr):
@@ -286,9 +281,9 @@ class IRDeref(IRExpr):
 class IRStmtExpr(IRExpr):
     """Hoistable declarations followed by an expression-local result.
 
-    ``stmts`` must contain only uninitialized declarations. Runtime work belongs
-    in ``result`` (normally an :class:`IRCommaExpr`) so control-sensitive
-    evaluation is preserved.
+    ``stmts`` must contain only uninitialized or literal-zero-initialized
+    declarations. Runtime work belongs in ``result`` (normally an
+    :class:`IRCommaExpr`) so control-sensitive evaluation is preserved.
     """
 
     stmts: list = field(default_factory=list)
@@ -331,10 +326,7 @@ class IRInclude(IRNode):
     @staticmethod
     def _contains_c11_trigraph(value: str) -> bool:
         suffixes = "=/'()!<>-"
-        return any(
-            value[index : index + 2] == "??" and value[index + 2] in suffixes
-            for index in range(len(value) - 2)
-        )
+        return any(value[index : index + 2] == "??" and value[index + 2] in suffixes for index in range(len(value) - 2))
 
     def __post_init__(self) -> None:
         if not isinstance(self.header, str):
@@ -865,9 +857,7 @@ class IRModule(IRNode):
 
     def record_type_declaration_plan(
         self,
-        declarations: list[
-            IREnumDef | IRFunctionPointerTypedef | IRTypedefDef | IRTaggedUnionDef | IRStructDef
-        ],
+        declarations: list[IREnumDef | IRFunctionPointerTypedef | IRTypedefDef | IRTaggedUnionDef | IRStructDef],
     ) -> None:
         """Install one declaration plan and snapshot the inputs that justify it."""
 
@@ -878,9 +868,7 @@ class IRModule(IRNode):
             for index, declaration in enumerate(entries)
         }
         self.ordered_type_declarations = list(declarations)
-        self._ordered_type_declaration_keys = tuple(
-            keys_by_identity[id(declaration)] for declaration in declarations
-        )
+        self._ordered_type_declaration_keys = tuple(keys_by_identity[id(declaration)] for declaration in declarations)
         self._type_declaration_snapshot = copy.deepcopy(groups)
 
     def type_declaration_plan_is_current(self) -> bool:
@@ -897,15 +885,11 @@ class IRModule(IRNode):
             for index, declaration in enumerate(entries)
         }
         try:
-            expected = tuple(
-                declarations_by_key[key]
-                for key in self._ordered_type_declaration_keys
-            )
+            expected = tuple(declarations_by_key[key] for key in self._ordered_type_declaration_keys)
         except KeyError:
             return False
         return len(self.ordered_type_declarations) == len(expected) and all(
-            actual is planned
-            for actual, planned in zip(self.ordered_type_declarations, expected)
+            actual is planned for actual, planned in zip(self.ordered_type_declarations, expected)
         )
 
     def record_generated_runtime_preprocessor(
@@ -934,63 +918,255 @@ class IRModule(IRNode):
         self._freestanding_system_includes_lowered = True
 
 
+class IRCanonicalRenderer:
+    """Serialize one complete structured IR module without consulting a backend."""
+
+    FORMAT = "btrc-ir-v1"
+    _AST_MODULE = "src.compiler.python.syntax.ast.generated"
+
+    def __init__(self) -> None:
+        self._active_ids: set[int] = set()
+
+    def render(self, module: IRModule) -> str:
+        """Return deterministic, typed JSON for one IR stage boundary."""
+
+        if not isinstance(module, IRModule):
+            raise TypeError(f"IRCanonicalRenderer requires IRModule, got {type(module).__name__}")
+        self._active_ids.clear()
+        try:
+            value = {
+                "$format": self.FORMAT,
+                "module": self._encode(module, "$.module"),
+            }
+        finally:
+            self._active_ids.clear()
+        return json.dumps(value, ensure_ascii=False, indent=2)
+
+    def _encode(self, value: object, path: str) -> object:
+        if value is None or isinstance(value, (bool, int, str)):
+            return value
+        if isinstance(value, float):
+            return {"$float": value.hex()}
+        if isinstance(value, Enum):
+            return {"$enum": {"type": type(value).__name__, "name": value.name}}
+        if isinstance(value, list):
+            return self._encode_sequence(value, path, None)
+        if isinstance(value, tuple):
+            return self._encode_sequence(value, path, "$tuple")
+        if isinstance(value, set):
+            return self._encode_set(value, path, "$set")
+        if isinstance(value, frozenset):
+            return self._encode_set(value, path, "$frozenset")
+        if isinstance(value, Mapping):
+            return self._encode_mapping(value, path)
+        if dataclasses.is_dataclass(value) and not isinstance(value, type):
+            value_type = type(value)
+            if isinstance(value, IRNode) and value_type.__module__ == __name__:
+                return self._encode_dataclass(value, path)
+            if value_type.__module__ == self._AST_MODULE:
+                return self._encode_dataclass(value, path)
+        raise TypeError(f"unsupported canonical IR value at {path}: {type(value).__name__}")
+
+    def _encode_sequence(self, value: list | tuple, path: str, tag: str | None) -> object:
+        self._enter(value, path)
+        try:
+            items = [self._encode(item, f"{path}[{index}]") for index, item in enumerate(value)]
+        finally:
+            self._leave(value)
+        return items if tag is None else {tag: items}
+
+    def _encode_set(self, value: set | frozenset, path: str, tag: str) -> object:
+        self._enter(value, path)
+        try:
+            items = [self._encode(item, f"{path}[*]") for item in value]
+        finally:
+            self._leave(value)
+        items.sort(key=self._sort_token)
+        return {tag: items}
+
+    def _encode_mapping(self, value: Mapping, path: str) -> object:
+        self._enter(value, path)
+        try:
+            entries = [
+                (
+                    self._encode(key, f"{path}.<key>"),
+                    self._encode(item, f"{path}[{self._mapping_path_key(key)}]"),
+                )
+                for key, item in value.items()
+            ]
+        finally:
+            self._leave(value)
+        entries.sort(key=lambda entry: self._sort_token(entry[0]))
+        tokens = [self._sort_token(key) for key, _ in entries]
+        if len(tokens) != len(set(tokens)):
+            raise ValueError(f"canonical IR mapping keys collide at {path}")
+        return {"$map": [[key, item] for key, item in entries]}
+
+    def _encode_dataclass(self, value: object, path: str) -> object:
+        self._enter(value, path)
+        try:
+            encoded = {"$type": type(value).__name__}
+            for node_field in dataclasses.fields(value):
+                field_value = getattr(value, node_field.name)
+                field_path = f"{path}.{node_field.name}"
+                if isinstance(value, IRModule) and node_field.name == "ordered_type_declarations":
+                    encoded[node_field.name] = self._ordered_type_references(value, field_value, field_path)
+                elif isinstance(value, IRGpuShaderModule) and node_field.name == "node_types":
+                    encoded[node_field.name] = self._shader_node_types(value, field_value, field_path)
+                else:
+                    encoded[node_field.name] = self._encode(field_value, field_path)
+            return encoded
+        finally:
+            self._leave(value)
+
+    def _ordered_type_references(self, module: IRModule, declarations: object, path: str) -> object:
+        if not isinstance(declarations, list):
+            raise TypeError(f"ordered type declarations must be a list at {path}")
+        references: dict[int, tuple[str, int]] = {}
+        for field_name, entries in module.type_declaration_groups():
+            for index, declaration in enumerate(entries):
+                identity = id(declaration)
+                if identity in references:
+                    raise ValueError(f"type declaration has multiple canonical locations at {path}")
+                references[identity] = (field_name, index)
+        encoded = []
+        for index, declaration in enumerate(declarations):
+            reference = references.get(id(declaration))
+            if reference is None:
+                raise ValueError(f"ordered type declaration at {path}[{index}] is not owned by IRModule")
+            encoded.append({"$ref": {"field": reference[0], "index": reference[1]}})
+        return encoded
+
+    def _shader_node_types(self, shader: IRGpuShaderModule, node_types: object, path: str) -> object:
+        if not isinstance(node_types, dict):
+            raise TypeError(f"shader node types must be a dict at {path}")
+        if any(isinstance(key, bool) or not isinstance(key, int) for key in node_types):
+            raise TypeError(f"shader node type keys must be integer identities at {path}")
+        nodes = self._dataclass_preorder(shader.body)
+        entries = [
+            {
+                "node": ordinal,
+                "type": self._encode(node_types[id(node)], f"{path}[node={ordinal}].type"),
+            }
+            for ordinal, node in enumerate(nodes)
+            if id(node) in node_types
+        ]
+        return {
+            "$scope": "shader-body-dataclass-preorder",
+            "entries": entries,
+        }
+
+    def _dataclass_preorder(self, root: object) -> list[object]:
+        ordered: list[object] = []
+        seen: set[int] = set()
+
+        def visit(value: object) -> None:
+            if dataclasses.is_dataclass(value) and not isinstance(value, type):
+                identity = id(value)
+                if identity in seen:
+                    return
+                seen.add(identity)
+                ordered.append(value)
+                for node_field in dataclasses.fields(value):
+                    visit(getattr(value, node_field.name))
+                return
+            if isinstance(value, Mapping):
+                ordered_items = sorted(
+                    value.items(), key=lambda item: self._sort_token(self._encode(item[0], "$gpu-key"))
+                )
+                for key, item in ordered_items:
+                    visit(key)
+                    visit(item)
+                return
+            if isinstance(value, (list, tuple)):
+                for item in value:
+                    visit(item)
+                return
+            if isinstance(value, (set, frozenset)):
+                for item in sorted(value, key=lambda item: self._sort_token(self._encode(item, "$gpu-set"))):
+                    visit(item)
+
+        visit(root)
+        return ordered
+
+    @staticmethod
+    def _sort_token(value: object) -> str:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    @staticmethod
+    def _mapping_path_key(value: object) -> str:
+        if value is None or isinstance(value, (bool, int, float, str)):
+            return str(value)
+        return type(value).__name__
+
+    def _enter(self, value: object, path: str) -> None:
+        identity = id(value)
+        if identity in self._active_ids:
+            raise ValueError(f"canonical IR contains a cycle at {path}")
+        self._active_ids.add(identity)
+
+    def _leave(self, value: object) -> None:
+        self._active_ids.remove(id(value))
+
+
 __all__ = (
-    "IRNode",
     "CType",
-    "IRExpr",
-    "IRLiteral",
-    "IRVar",
-    "IRFunctionRef",
-    "IRCleanupSlot",
-    "IRBinOp",
-    "IRCommaExpr",
-    "IRUnaryOp",
-    "IRCall",
-    "IRFieldAccess",
-    "IRCast",
-    "IRTernary",
-    "IRSizeof",
-    "IRInitializerList",
-    "IRCompoundLiteral",
-    "IRIndex",
-    "IRAddressOf",
-    "IRDeref",
-    "IRStmtExpr",
-    "IRStructForward",
-    "IRFunctionPointerTypedef",
-    "IRFunctionDecl",
-    "IRInclude",
-    "IRMacroDef",
-    "IRStructField",
-    "IRStructDef",
-    "IRTypedefDef",
-    "IRTaggedUnionVariant",
-    "IRTaggedUnionDef",
-    "IRGlobalDecl",
-    "IRHelperDecl",
-    "IREnumValue",
-    "IREnumDef",
-    "IRStmt",
-    "IRParam",
-    "IRFunctionDef",
-    "IRBlock",
-    "IRLineMarker",
-    "IRVarDecl",
-    "IRAssign",
-    "IRReturn",
-    "IRIf",
-    "IRWhile",
-    "IRDoWhile",
-    "IRFor",
-    "IRSwitch",
-    "IRCase",
-    "IRExprStmt",
-    "IRBreak",
-    "IRContinue",
-    "IRGpuBuffer",
-    "IRGpuShaderModule",
-    "IRGpuKernel",
     "GpuDispatchNames",
-    "IRStatementSequence",
+    "IRAddressOf",
+    "IRAssign",
+    "IRBinOp",
+    "IRBlock",
+    "IRBreak",
+    "IRCall",
+    "IRCanonicalRenderer",
+    "IRCase",
+    "IRCast",
+    "IRCleanupSlot",
+    "IRCommaExpr",
+    "IRCompoundLiteral",
+    "IRContinue",
+    "IRDeref",
+    "IRDoWhile",
+    "IREnumDef",
+    "IREnumValue",
+    "IRExpr",
+    "IRExprStmt",
+    "IRFieldAccess",
+    "IRFor",
+    "IRFunctionDecl",
+    "IRFunctionDef",
+    "IRFunctionPointerTypedef",
+    "IRFunctionRef",
+    "IRGlobalDecl",
+    "IRGpuBuffer",
+    "IRGpuKernel",
+    "IRGpuShaderModule",
+    "IRHelperDecl",
+    "IRIf",
+    "IRInclude",
+    "IRIndex",
+    "IRInitializerList",
+    "IRLineMarker",
+    "IRLiteral",
+    "IRMacroDef",
     "IRModule",
+    "IRNode",
+    "IRParam",
+    "IRReturn",
+    "IRSizeof",
+    "IRStatementSequence",
+    "IRStmt",
+    "IRStmtExpr",
+    "IRStructDef",
+    "IRStructField",
+    "IRStructForward",
+    "IRSwitch",
+    "IRTaggedUnionDef",
+    "IRTaggedUnionVariant",
+    "IRTernary",
+    "IRTypedefDef",
+    "IRUnaryOp",
+    "IRVar",
+    "IRVarDecl",
+    "IRWhile",
 )

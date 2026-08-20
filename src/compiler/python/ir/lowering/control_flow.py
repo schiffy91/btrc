@@ -222,13 +222,8 @@ class ControlFlowLowerer:
     def lower_delete(self, node: DeleteStmt, provenance: CallableProvenance) -> list[IRStmt]:
         """Lower delete through the shared take-clear destruction boundary."""
         self._ownership.mark_borrowed_cycle_seeds()
-        plan = self._ownership.plan_release(node.expr)
-        return self._ownership.materialize_release(
-            plan,
-            self._expressions.lower_expr(
-                node.expr,
-                provenance,
-            ),
+        return self._ownership.materialize_delete_target(
+            self._expressions.lower_managed_slot_target(node.expr, provenance)
         )
 
     def _lower_expr(self, node, provenance: CallableProvenance):

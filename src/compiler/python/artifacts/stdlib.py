@@ -71,6 +71,7 @@ class StdlibArchivePublisher:
             self.PUBLICATION_NAME,
         )
 
+
 class ArchiveVersionError(ValueError):
     """The archive is incompatible with the compiler, stdlib, or program."""
 
@@ -197,15 +198,30 @@ class StdlibArchiveManifest:
         if not (
             isinstance(macro, dict)
             and set(macro) == self._MACRO_FIELDS
-            and isinstance(macro["name"], str)
+            and self._valid_c_identifier(macro["name"])
             and (
                 macro["params"] is None
-                or (isinstance(macro["params"], list) and all(isinstance(param, str) for param in macro["params"]))
+                or (
+                    isinstance(macro["params"], list)
+                    and len(macro["params"]) == len(set(macro["params"]))
+                    and all(self._valid_c_identifier(param) for param in macro["params"])
+                )
             )
             and isinstance(macro["replacement"], str)
         ):
             return False
-        return bool(macro["name"]) and "\n" not in macro["name"]
+        return "\n" not in macro["replacement"] and "\r" not in macro["replacement"]
+
+    @staticmethod
+    def _valid_c_identifier(value) -> bool:
+        """Accept one portable ASCII C identifier for archive reconstruction."""
+        return bool(
+            isinstance(value, str)
+            and value
+            and value.isascii()
+            and (value[0] == "_" or value[0].isalpha())
+            and all(character == "_" or character.isalnum() for character in value[1:])
+        )
 
     def _artifact_hash(self, path: str) -> str | None:
         """Hash one bounded regular archive artifact, or reject it."""
@@ -232,9 +248,11 @@ class StdlibArchiveManifest:
                 return None
         return digest.hexdigest()
 
+
 HEADER_NAME, IMPL_NAME = StdlibArchiveManifest.ARTIFACT_NAMES
 MANIFEST_NAME = "btrc_stdlib.manifest"
 MANIFEST_SCHEMA = StdlibArchiveManifest.SCHEMA
+
 
 class StdlibArtifactRepository:
     """Own standard-library archive serialization and publication."""

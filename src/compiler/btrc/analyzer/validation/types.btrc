@@ -539,16 +539,51 @@ class TypeValidator {
             && declaration.return_type.is_array;
     }
 
-    public bool hasBinaryOverload(Node leftType, string op) {
+    public bool gpuOutputCollectionType(Node? typeExpr) {
+        return self.gpu.outputCollectionType(typeExpr);
+    }
+
+    public Node? binaryOverloadMethod(Node? leftType, string op) {
         string magic = self.operators.binaryMethodName(op);
-        if (magic == "") { return false; }
+        Node? receiver = self.resolveAliases(leftType);
+        if (magic == "" || receiver == null) { return null; }
+        Node concreteReceiver = receiver;
         Node? method = null;
-        if (self.state.analyzed.isClass(leftType.base)) {
-            method = self.state.analyzed.classMethod(leftType.base, magic);
-        } else if (self.state.analyzed.isGenericClass(leftType.base)) {
-            method = self.state.analyzed.genericClassMethod(leftType.base, magic);
+        if (self.state.analyzed.isClass(concreteReceiver.base)) {
+            method = self.state.analyzed.classMethod(
+                concreteReceiver.base, magic);
+        } else if (self.state.analyzed.isGenericClass(
+                concreteReceiver.base)) {
+            method = self.state.analyzed.genericClassMethod(
+                concreteReceiver.base, magic);
         }
-        return method != null && method.kind == NK_METHOD_DECL;
+        if (method == null || method.kind != NK_METHOD_DECL) { return null; }
+        return method;
+    }
+
+    public Node resolvedBinaryOverloadType(
+            Node declaredType, Node receiverType) {
+        Node resolved = declaredType;
+        Node? receiver = self.resolveAliases(receiverType);
+        if (receiver != null) {
+            Node concreteReceiver = receiver;
+            if (concreteReceiver.generic_args.len > 0
+                    && self.state.analyzed.isGenericClass(
+                        concreteReceiver.base)) {
+                resolved = SemanticTypeSystem.resolveGenericType(
+                    declaredType,
+                    SemanticTypeSystem.genericTypeMap(
+                        self.state.analyzed, concreteReceiver),
+                    self.state.analyzed);
+            }
+        }
+        Node? canonical = self.resolveAliases(resolved);
+        if (canonical != null) { return canonical; }
+        return resolved;
+    }
+
+    public bool hasBinaryOverload(Node leftType, string op) {
+        return self.binaryOverloadMethod(leftType, op) != null;
     }
 
     public bool hasUnaryOverload(Node operandType, string op) {
@@ -970,7 +1005,6 @@ class TypeValidator {
 
     public void validateAggregateDeclarationTypes(
             Node program) {
-        Map<string, Node> noVars = {};
         int index = 0;
         while (index < program.declarations.len) {
             Node declaration = program.declarations.get(index);

@@ -5,12 +5,15 @@ normally short-circuits."""
 
 from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
-from src.tests.lsp.lsphelp import get_completions
-from src.tests.lsp.lsphelp import get_definition
 from src.devex.lsp.analysis.document import DocumentAnalysis as AnalysisResult
-from src.tests.lsp.lsphelp import get_hover_info
-from src.tests.lsp.lsphelp import get_signature_help
-from src.tests.lsp.lsphelp import hover_text, pos_of
+from src.tests.lsp.lsphelp import (
+    get_completions,
+    get_definition,
+    get_hover_info,
+    get_signature_help,
+    hover_text,
+    pos_of,
+)
 
 SRC = """\
 class Box {

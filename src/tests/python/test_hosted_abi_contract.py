@@ -156,10 +156,7 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
         for declaration in variants:
             assert analyzer.declarations.hosted_abi_type(declaration.return_type) == spec.result
             assert (
-                tuple(
-                    analyzer.declarations.hosted_abi_type(parameter.type)
-                    for parameter in declaration.params
-                )
+                tuple(analyzer.declarations.hosted_abi_type(parameter.type) for parameter in declaration.params)
                 == spec.parameters
             )
             if name == "btrc_tray_take_command":

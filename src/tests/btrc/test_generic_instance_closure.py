@@ -105,6 +105,15 @@ def test_transitive_generic_instances_match_and_run_strictly(
         assert selfhost.stdout.count(struct) == 1
         assert reference_source.read_text().count(struct) == 1
 
+    if fixture_name == "generic_call_target_binding_runtime.btrc":
+        emitted = selfhost_source.read_text()
+        direct_size = next(line for line in emitted.splitlines() if "directBareSize =" in line)
+        direct_pair = next(line for line in emitted.splitlines() if "directBarePair =" in line)
+        assert "btrc_Sized_int_new(" in direct_size
+        assert "btrc_Pair_Base_p1_new(" in direct_pair
+        assert "__btrc_arc_retain(directBareSize)" not in emitted
+        assert "__btrc_arc_retain(directBarePair)" not in emitted
+
     _strict_build_and_run(selfhost_source, tmp_path / f"selfhost-{fixture.stem}")
     _strict_build_and_run(reference_source, tmp_path / f"python-{fixture.stem}")
 

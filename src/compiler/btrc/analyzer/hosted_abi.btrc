@@ -98,10 +98,6 @@ class HostedAbiRepository {
         return self.macroNames.has(name);
     }
 
-    public bool typeName(string name) {
-        return self.typeNames.has(name);
-    }
-
     public bool typedefName(string name) {
         return self.typedefNames.has(name);
     }
