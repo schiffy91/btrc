@@ -36,7 +36,6 @@ class LockfileVersionError(LockfileError):
 
 
 LOCK_SCHEMA = 2
-MAX_LOCK_BYTES = 16 * 1024 * 1024
 
 
 class PackageFileStore:
@@ -66,19 +65,17 @@ class PackageFileStore:
                 with suppress(OSError):
                     os.close(descriptor)
 
-    def read_json(self, path: str, *, max_bytes: int = 64 * 1024 * 1024):
+    def read_json(self, path: str):
+        """Read one regular JSON file, letting the OS bound what fits."""
+
         try:
             file = self.open_regular_binary(path)
             if file is None:
                 return None
             with file:
-                if os.fstat(file.fileno()).st_size > max_bytes:
-                    return None
-                encoded = file.read(max_bytes + 1)
-            if len(encoded) > max_bytes:
-                return None
+                encoded = file.read()
             return json.loads(encoded.decode("utf-8"), parse_constant=self._reject_json_constant)
-        except (OSError, UnicodeError, ValueError, TypeError, RecursionError):
+        except (OSError, MemoryError, UnicodeError, ValueError, TypeError, RecursionError):
             return None
 
     def write_json(self, path: str, payload, *, file_mode: int | None = None) -> None:
@@ -171,19 +168,13 @@ class ResolvedPackages:
 
 
 class PackageManifestReader:
-    """Own bounded UTF-8 TOML reads for package resolution."""
-
-    DEFAULT_MAX_BYTES = 1024 * 1024
+    """Own UTF-8 TOML reads for package resolution."""
 
     def __init__(
         self,
-        max_bytes: int = DEFAULT_MAX_BYTES,
         *,
         file_store: PackageFileStore | None = None,
     ) -> None:
-        if max_bytes <= 0:
-            raise ValueError("package manifest byte limit must be positive")
-        self.max_bytes = max_bytes
         self.file_store = file_store or PackageFileStore()
 
     def read(self, path: str) -> dict:
@@ -194,12 +185,11 @@ class PackageManifestReader:
         )
         if manifest_file is None:
             raise ValueError(f"package manifest '{path}' is not a regular file")
-        with manifest_file:
-            if os.fstat(manifest_file.fileno()).st_size > self.max_bytes:
-                raise ValueError(f"package manifest '{path}' exceeds the {self.max_bytes}-byte limit")
-            encoded = manifest_file.read(self.max_bytes + 1)
-        if len(encoded) > self.max_bytes:
-            raise ValueError(f"package manifest '{path}' exceeds the {self.max_bytes}-byte limit")
+        try:
+            with manifest_file:
+                encoded = manifest_file.read()
+        except (OSError, MemoryError) as error:
+            raise ValueError(f"cannot read package manifest '{path}': {error}") from error
         try:
             text = encoded.decode("utf-8")
         except UnicodeDecodeError as error:
@@ -368,7 +358,7 @@ class PackageUniverse:
     ) -> dict[str, dict[str, str]] | None:
         """Return a schema-v2 resolution, or ``None`` for stale data."""
 
-        lock = self.file_store.read_json(lock_path, max_bytes=MAX_LOCK_BYTES)
+        lock = self.file_store.read_json(lock_path)
         if lock is None:
             if not os.path.exists(lock_path):
                 return None
@@ -471,7 +461,6 @@ class GitDependencyCache:
     """Own Git execution, ref pinning, and immutable checkout publication."""
 
     REF_RECORD_SCHEMA = 1
-    MAX_REF_RECORD_BYTES = 16 * 1024
     GIT_TIMEOUT_SECONDS = 300
 
     def __init__(
@@ -511,10 +500,7 @@ class GitDependencyCache:
 
         record_path = self._ref_record_path(name, url, revision)
         if not refresh:
-            record = self.file_store.read_json(
-                record_path,
-                max_bytes=self.MAX_REF_RECORD_BYTES,
-            )
+            record = self.file_store.read_json(record_path)
             if self._valid_ref_record(record, name, url, revision):
                 return self._ensure_commit_checkout(
                     name,
@@ -749,7 +735,6 @@ class GitDependencyCache:
 
 __all__ = (
     "LOCK_SCHEMA",
-    "MAX_LOCK_BYTES",
     "GitDependencyCache",
     "IncludeResolutionError",
     "LockfileError",

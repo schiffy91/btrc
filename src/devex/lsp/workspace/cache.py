@@ -10,7 +10,6 @@ from collections import OrderedDict
 from weakref import WeakValueDictionary
 
 from src.compiler.python.frontend.packages import (
-    MAX_LOCK_BYTES,
     IncludeResolutionError,
     PackageFileStore,
     PackageUniverse,
@@ -267,27 +266,25 @@ class PackageResolutionCache:
     def _fingerprint(self, manifest: str) -> tuple:
         lock_path = os.path.join(os.path.dirname(manifest), "btrc.lock")
         return (
-            self._file_digest(manifest, self.resolver.manifest_reader.max_bytes, follow_symlinks=True),
-            self._file_digest(lock_path, MAX_LOCK_BYTES),
+            self._file_digest(manifest, follow_symlinks=True),
+            self._file_digest(lock_path),
             os.environ.get("BTRC_PKG_CACHE"),
         )
 
-    def _file_digest(self, path: str, max_bytes: int, *, follow_symlinks: bool = False) -> tuple:
-        """Fingerprint one bounded package input without trusting its size."""
+    def _file_digest(self, path: str, *, follow_symlinks: bool = False) -> tuple:
+        """Fingerprint one package input, letting the OS bound what fits."""
         try:
             source_file = self.resolver.file_store.open_regular_binary(path, follow_symlinks=follow_symlinks)
             if source_file is None:
                 return ("not-regular",)
             with source_file:
-                if os.fstat(source_file.fileno()).st_size > max_bytes:
-                    return ("too-large",)
-                encoded = source_file.read(max_bytes + 1)
+                encoded = source_file.read()
         except FileNotFoundError:
             return ("missing",)
         except OSError as error:
             return ("unreadable", error.errno)
-        if len(encoded) > max_bytes:
-            return ("too-large",)
+        except MemoryError:
+            return ("unreadable", None)
         return ("sha256", hashlib.sha256(encoded).hexdigest())
 
 

@@ -147,24 +147,27 @@ def test_package_resolution_never_caches_repeatedly_changing_inputs(tmp_path, mo
     assert resolver._entries == {}
 
 
-def test_package_fingerprints_bound_manifest_and_lock_reads(tmp_path):
+def test_package_fingerprints_digest_contents_and_report_absence(tmp_path):
     package_input = tmp_path / "package-input"
     package_input.write_bytes(b"12345")
 
     resolver = package_resolution.PackageResolutionCache()
-    assert resolver._file_digest(str(package_input), 4) == ("too-large",)
-    assert resolver._file_digest(str(package_input), 5)[0] == "sha256"
-    assert resolver._file_digest(str(tmp_path / "missing"), 5) == ("missing",)
+    digest = resolver._file_digest(str(package_input))
+    assert digest[0] == "sha256"
+    assert resolver._file_digest(str(tmp_path / "missing")) == ("missing",)
+
+    package_input.write_bytes(b"123456")
+    assert resolver._file_digest(str(package_input)) != digest
 
 
-def test_package_fingerprints_use_the_resolver_owned_store_and_manifest_limit(
+def test_package_fingerprints_use_the_resolver_owned_store(
     tmp_path,
     monkeypatch,
 ):
     package_input = tmp_path / "btrc.toml"
     package_input.write_bytes(b"12345")
     store = PackageFileStore()
-    reader = pkg.PackageManifestReader(max_bytes=4, file_store=store)
+    reader = pkg.PackageManifestReader(file_store=store)
     core = pkg.PackageUniverse(file_store=store, manifest_reader=reader)
     resolver = package_resolution.PackageResolutionCache(core)
     opened = []
@@ -178,7 +181,7 @@ def test_package_fingerprints_use_the_resolver_owned_store_and_manifest_limit(
 
     fingerprint = resolver._fingerprint(str(package_input))
 
-    assert fingerprint[0] == ("too-large",)
+    assert fingerprint[0][0] == "sha256"
     assert opened[0] == (str(package_input), True)
 
 

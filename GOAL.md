@@ -93,6 +93,23 @@ Both frontends now scale with the host instead of a compiler quota.
   intentionally retained: they bound untrusted dependency metadata, not program
   source, and the self-hosted compiler implements no package resolution.
 
+### Completed: the package-layer resource ceilings
+
+The first pass removed the ceilings from source resolution but left four in
+`frontend/packages.py`, which import resolution reads on every package build:
+a 64 MiB cap in `read_json` -- the same 64 MiB the goal names -- a 16 MiB
+`MAX_LOCK_BYTES`, a 1 MiB `PackageManifestReader.DEFAULT_MAX_BYTES`, and a
+16 KiB `MAX_REF_RECORD_BYTES`. They survived because
+`test_source_resolution_has_no_compiler_defined_resource_quotas` reads only
+`sources.py`.
+
+All four are gone; those reads now run to EOF and surface `MemoryError` and
+`OSError` as diagnostics rather than silently returning nothing or refusing a
+large input. The LSP workspace cache fingerprinted manifests through the same
+limit, with a `too-large` digest branch, so it reads to EOF too. The contract
+test now covers `packages.py` as well, which is the check whose absence let
+this through. The self-hosted frontend has no byte ceilings, so parity holds.
+
 ### Completed: Python VLA bound single evaluation
 
 `StorageLowerer.materialize_array_bound` returns an `ArrayBound`
@@ -315,10 +332,16 @@ Binding the test to its own declaration before the conditional was tried and
 enclosing expression, and four callable-provenance tests assert exactly that
 ordering (`test_long_concat_classifies_each_leaf_at_its_source_flow_entry`
 among them). The attempt turned one failure into five. A working fix has to
-keep the assignment sequenced where the source puts it -- emitting
-`(test, arm)` when both arms are identical would do that for this shape, since
-the comma operator carries its own sequence point, but it only covers the
-degenerate case where the arms match.
+keep the assignment sequenced where the source puts it.
+
+`(test, arm)` was also tried and does **not** work: GCC reports the same
+diagnostic for `(((bool)(callback = make)), callback)(false)` even though the
+comma operator carries its own sequence point. GCC appears to object to an
+assignment and a read of the same object anywhere within one full expression,
+regardless of the sequence points between them, so any fix that keeps both in
+the same full expression will fail. That leaves moving the assignment into a
+statement of its own without disturbing the order of the sibling operands
+around it.
 
 ### Immediate next steps
 

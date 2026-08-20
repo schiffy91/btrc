@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+import src.compiler.python.frontend.packages as frontend_packages
 import src.compiler.python.frontend.sources as frontend_sources
 from src.compiler.python.frontend.imports import ImportResolver
 from src.compiler.python.frontend.packages import PackageUniverse
@@ -49,6 +50,27 @@ def test_source_resolution_has_no_compiler_defined_resource_quotas() -> None:
     assert "SourceResolutionPolicy" not in declared
     assert "ResolutionBudget" not in declared
     for quota in ("max_source_bytes", "max_files", "max_scan_entries", "max_depth", "DEFAULT_MAX_BYTES"):
+        assert quota not in source_text
+
+
+def test_package_resolution_has_no_compiler_defined_resource_quotas() -> None:
+    """Import resolution reads packages too, so the same rule binds that layer.
+
+    The ceilings removed from source resolution had counterparts here -- a
+    64 MiB JSON cap, a 16 MiB lock cap, a 1 MiB manifest cap, and a 16 KiB ref
+    record cap -- and this file was not covered by the check above, which reads
+    only the source resolver.
+    """
+
+    source_text = Path(frontend_packages.__file__).read_text()
+
+    for quota in (
+        "max_bytes",
+        "MAX_LOCK_BYTES",
+        "MAX_REF_RECORD_BYTES",
+        "DEFAULT_MAX_BYTES",
+        "64 * 1024 * 1024",
+    ):
         assert quota not in source_text
 
 

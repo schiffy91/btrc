@@ -33,7 +33,7 @@ def test_git_dependency_behavior_is_owned_by_the_package_resolver(tmp_path):
 
 
 def test_package_resolver_owns_manifest_reads(tmp_path):
-    reader = PackageManifestReader(max_bytes=128)
+    reader = PackageManifestReader()
     resolver = packages.PackageUniverse(manifest_reader=reader)
 
     assert resolver.manifest_reader is reader
@@ -87,12 +87,8 @@ def test_package_timeout_becomes_resolution_error(tmp_path, monkeypatch):
         RESOLVER.resolve_for(str(tmp_path / "main.btrc"))
 
 
-def test_package_manifest_read_is_bounded_and_utf8(tmp_path):
+def test_package_manifest_read_reports_encoding_faults(tmp_path):
     manifest = tmp_path / "btrc.toml"
-    manifest.write_bytes(b"#" * (RESOLVER.manifest_reader.max_bytes + 1))
-    with pytest.raises(ValueError, match="exceeds"):
-        RESOLVER.resolve_manifest(str(manifest))
-
     manifest.write_bytes(b"[package]\nname = '\xff'\n")
     with pytest.raises(ValueError, match="not valid UTF-8"):
         RESOLVER.resolve_manifest(str(manifest))
