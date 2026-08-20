@@ -141,6 +141,7 @@ class CleanupSlotRegistry:
         self._take_adapters: dict[str, str] = {}
         self._arc_slot_adapters: dict[str, str] = {}
         self._mutex_value_adapters: dict[str, str] = {}
+        self._store_adapters: dict[str, str] = {}
         self._definitions: list[IRFunctionDef] = []
         self._finalized = False
 
@@ -207,6 +208,44 @@ class CleanupSlotRegistry:
         self._mutex_value_adapters[value_type.text] = name
         self._definitions.append(self._mutex_value_adapter(name, value_type))
         return name
+
+    def ensure_store_adapter(self, value_type: CType) -> str:
+        """Return a typed store for an assignment that stays inside an expression.
+
+        GCC reports -Wsequence-point whenever an assignment and a read of the
+        same object are both visible in one full expression, including where
+        C11 6.5.15p4 sequences them -- a conditional whose test assigns what its
+        arms read. Performing the store inside a call leaves only reads in the
+        expression, so both compilers accept it, and the call's own sequencing
+        keeps the store exactly where the source put it.
+        """
+
+        existing = self._store_adapters.get(value_type.text)
+        if existing is not None:
+            return existing
+        name = f"__btrc_store_{len(self._store_adapters) + 1}"
+        self._store_adapters[value_type.text] = name
+        self._definitions.append(self._store_adapter(name, value_type))
+        return name
+
+    def _store_adapter(self, name: str, value_type: CType) -> IRFunctionDef:
+        slot = IRVar(name="slot")
+        value = IRVar(name="value")
+        return IRFunctionDef(
+            name=name,
+            return_type=value_type,
+            params=[
+                IRParam(c_type=CType(text=f"{value_type}*"), name="slot"),
+                IRParam(c_type=value_type, name="value"),
+            ],
+            body=IRBlock(
+                stmts=[
+                    IRAssign(target=IRDeref(expr=slot), value=value),
+                    IRReturn(value=value),
+                ]
+            ),
+            is_static=True,
+        )
 
     def _ensure_take_adapter(self, slot_type: CType) -> str:
         existing = self._take_adapters.get(slot_type.text)

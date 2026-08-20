@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
 from src.compiler.python.analyzer.types import IndexedProtocolResolver, TypeIdentity, TypeSystem
@@ -627,6 +627,86 @@ class ExpressionLowerer:
                 [self.lower_expr(argument, provenance) for argument in materialization.arguments],
             )
         raise TypeError(f"unsupported sequenced expression plan: {type(materialization).__name__}")
+
+    @staticmethod
+    def _names_read(node: object) -> set[str]:
+        """Collect every identifier this source expression reads."""
+
+        names: set[str] = set()
+        pending = [node]
+        visited: set[int] = set()
+        while pending:
+            current = pending.pop()
+            if isinstance(current, Identifier):
+                names.add(current.name)
+                continue
+            if isinstance(current, (list, tuple)):
+                pending.extend(current)
+                continue
+            if not is_dataclass(current) or id(current) in visited:
+                continue
+            visited.add(id(current))
+            pending.extend(getattr(current, field.name) for field in fields(current))
+        return names
+
+    def _store_assignments_read_by_arms(self, node: TernaryExpr, condition: IRExpr) -> IRExpr:
+        """Perform a test's assignment through a typed store when the arms read it.
+
+        C11 6.5.15p4 sequences a conditional's test before either arm, so a test
+        that assigns what the arms read is defined. GCC reports
+        -Wsequence-point for it anyway -- for the equivalent hand-written C too
+        -- and generated C has to satisfy GCC and Clang alike. Moving the store
+        into a call leaves only reads in the expression and keeps the store
+        where the source put it, which both compilers accept. Only a plain
+        assignment to a simple variable is rewritten; anything else, including
+        the transactional sequences that managed slots lower to, is left alone.
+        """
+
+        assigned = {target.name for candidate in (node.condition,) for target in self._assignment_targets(candidate)}
+        if not assigned:
+            return condition
+        read = self._names_read(node.true_expr) | self._names_read(node.false_expr)
+        shared = assigned & read
+        if not shared:
+            return condition
+        return self._rewrite_stores(condition, shared, node)
+
+    @staticmethod
+    def _assignment_targets(node: object) -> list[Identifier]:
+        targets: list[Identifier] = []
+        pending = [node]
+        visited: set[int] = set()
+        while pending:
+            current = pending.pop()
+            if isinstance(current, AssignExpr) and isinstance(current.target, Identifier):
+                targets.append(current.target)
+            if isinstance(current, (list, tuple)):
+                pending.extend(current)
+                continue
+            if not is_dataclass(current) or id(current) in visited:
+                continue
+            visited.add(id(current))
+            pending.extend(getattr(current, field.name) for field in fields(current))
+        return targets
+
+    def _rewrite_stores(self, expression: IRExpr, shared: set[str], node: TernaryExpr) -> IRExpr:
+        if isinstance(expression, IRBinOp) and expression.op == "=" and isinstance(expression.left, IRVar):
+            declared = self._session.type_of(node.condition)
+            for target in self._assignment_targets(node.condition):
+                if target.name in shared:
+                    declared = self._session.type_of(target) or declared
+                    break
+            rendered = self._types.render(declared)
+            if rendered:
+                adapter = self._cleanup_slots.ensure_store_adapter(CType(text=rendered))
+                return IRCall(
+                    callee=adapter,
+                    args=[IRAddressOf(expr=expression.left), expression.right],
+                )
+            return expression
+        if isinstance(expression, IRCast):
+            return replace(expression, expr=self._rewrite_stores(expression.expr, shared, node))
+        return expression
 
     def lower_call_plan(
         self,
@@ -1783,9 +1863,12 @@ class ExpressionLowerer:
         if isinstance(node, TernaryExpr):
             branch_ownership = self._ownership.conditional_branch_ownership(node, provenance)
             owns_result = self._ownership.owns_result(node, provenance=provenance)
-            condition = self.lower_expr(
-                node.condition,
-                provenance,
+            condition = self._store_assignments_read_by_arms(
+                node,
+                self.lower_expr(
+                    node.condition,
+                    provenance,
+                ),
             )
             with provenance.isolated_flow() as true_isolation:
                 true_expr = self.lower_expr(
