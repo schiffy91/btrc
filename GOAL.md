@@ -263,15 +263,62 @@ readings by 2x; compare user CPU time and confirm any win on a second build.
 
 ### Verified on this checkpoint
 
-- Python unit + LSP + debugger, no cache: **3802 passed, 30 skipped**.
-- Python language corpus: **930 passed, 3 skipped** (rerun in progress after the
-  ownership fixes).
-- `test_gpu_boundary.py` + `test_gpu_explicit_output_bounds.py`: 95 passed,
-  2 skipped.
-- Frozen compiler boundaries: 301 records checked.
-- Self-hosted lexer parity: 755/755 byte-identical.
-- Generated-source check, `ruff check src/`, `ruff format --check src/`, and
-  `git diff --check` are clean.
+`make test` on this tree: **1 failed, 7272 passed, 20 skipped** in 25:51
+(33:13 including the gates). The gates cost 7:36 of that, mostly
+`boundary-check` re-capturing all 301 fixtures through both compilers.
+
+Also verified separately: reference corpus 932 passed / 3 skipped; self-host
+corpus 931 passed / 3 skipped; unit + LSP + debugger 3802 passed / 30 skipped;
+`src/tests/btrc/` 1586 passed / 4 skipped **including the bootstrap fixed
+point**; frozen boundaries 301 records; generated-source check, `ruff check`,
+`ruff format --check`, and `git diff --check` clean.
+
+**The bootstrap has not run on the current tree.** `make test` runs it as a
+serial line after the parallel one, and `make` stops at the first failure, so
+the single failure below prevents it from executing. The 1586-passing
+`src/tests/btrc/` run above predates the runtime performance commits.
+
+### Remaining failure: GCC rejects conforming C11 under -Wsequence-point
+
+`src/tests/python/test_callable_provenance_codegen.py::test_callable_runtime_is_strict_c11_clean[gcc]`
+is the only failing test. It is **pre-existing** -- it fails identically with
+this session's lowering changes reverted -- and it fails only under GCC; the
+Clang parametrization passes.
+
+The corpus source deliberately writes a callable call through a conditional
+whose test assigns the callable:
+
+```
+string effectfulCallee = ((bool)(callback = make) ? callback : callback)(false);
+```
+
+which lowers faithfully to the same shape in C. C11 6.5.15p4 places a sequence
+point between a conditional's first operand and whichever arm runs, so
+assigning in the test and reading the assigned object from an arm is defined.
+GCC 15.2.0 reports `operation on 'callback' may be undefined
+[-Werror=sequence-point]` anyway, and it does so for the hand-written C as
+well, with no btrc involved:
+
+```c
+typedef const char* (*fn_t)(bool);
+static const char* make(bool flag) { (void)flag; return "seventy"; }
+fn_t callback = 0;
+const char* r = (((bool)(callback = make)) ? callback : callback)(false);
+```
+
+So the emitted C is correct and the diagnostic is a GCC false positive. It
+still has to be worked around, because generated C must satisfy GCC and Clang
+alike.
+
+Binding the test to its own declaration before the conditional was tried and
+**reverted**: it moves the assignment ahead of the sibling operands of the
+enclosing expression, and four callable-provenance tests assert exactly that
+ordering (`test_long_concat_classifies_each_leaf_at_its_source_flow_entry`
+among them). The attempt turned one failure into five. A working fix has to
+keep the assignment sequenced where the source puts it -- emitting
+`(test, arm)` when both arms are identical would do that for this shape, since
+the comma operator carries its own sequence point, but it only covers the
+degenerate case where the arms match.
 
 ### Immediate next steps
 
