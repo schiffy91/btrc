@@ -2828,6 +2828,19 @@ class ExpressionLowerer {
         return self.lowerUnaryCore(node, varTypes, callableFlow);
     }
 
+    /* Storage targets must stay C lvalues. The owned-index path materializes a
+     * volatile result temporary, which is correct for a read but cannot be
+     * stored through or have its address taken. Ordering for a target's own
+     * operands belongs to the enclosing assignment/update boundary. */
+    public IRNode lowerStorageTarget(
+            Node target, Map<string, Node> varTypes,
+            CallableFlowState callableFlow) {
+        if (target.kind == NK_INDEX_EXPR) {
+            return self.lowerIndexCore(target, varTypes, callableFlow);
+        }
+        return self.lowerExpr(target, varTypes, callableFlow);
+    }
+
     public IRNode lowerUnaryCore(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
         if (node.op == "++" || node.op == "--") {
             IRNode? indirect = self.lowerIndirectIncDec(node, varTypes, callableFlow);
@@ -2843,7 +2856,9 @@ class ExpressionLowerer {
                     self.context.genericBody
                         || self.context.callDefaultTypeDepth > 0));
         }
-        IRNode operand = self.lowerExpr(node.operand, varTypes, callableFlow);
+        IRNode operand = node.op == "++" || node.op == "--" || node.op == "&"
+            ? self.lowerStorageTarget(node.operand, varTypes, callableFlow)
+            : self.lowerExpr(node.operand, varTypes, callableFlow);
         string op = node.op;
         if (op == "&") {
             IRNode address = IRNode.addressOf(operand);
@@ -5051,7 +5066,7 @@ class ExpressionLowerer {
             }
         }
 
-        IRNode target = self.lowerExpr(
+        IRNode target = self.lowerStorageTarget(
             assignment.target, variableTypes, callableFlow);
         if (assignment.op != "=" && assignment.op.length() > 1) {
             IRNode value = self.lowerExpr(

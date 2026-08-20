@@ -1515,6 +1515,21 @@ class CallableValueLowerer {
         if (plan.hasEnvironment) {
             module.struct_defs.push(plan.environmentDefinition);
         }
+        /* A lambda nested inside another lambda is lifted while the outer body
+         * is still being lowered, so it is materialized after the caller that
+         * names it. A prototype keeps every lifted body callable regardless of
+         * definition order. */
+        IRFunctionDecl prototype = IRFunctionDecl(
+            plan.liftedFunction.name,
+            plan.liftedFunction.return_type,
+            plan.liftedFunction.is_static);
+        int parameterIndex = 0;
+        while (parameterIndex < plan.liftedFunction.params.len) {
+            prototype.params.push(self.cTypes.copyParameter(
+                plan.liftedFunction.params.get(parameterIndex)));
+            parameterIndex = parameterIndex + 1;
+        }
+        module.function_decls.push(prototype);
         module.functions.push(plan.liftedFunction);
         plan.materialized = true;
     }
