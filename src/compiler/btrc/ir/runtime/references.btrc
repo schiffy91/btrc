@@ -34,8 +34,17 @@ class RuntimeReferenceCollector {
 
         self.collectMacroReferences(module, canonicalOrder, used);
         self.collectStructuredRoots(module, used);
-        self.closeDeclaredDependencies(used);
-        self.closeSourceReferences(used, canonicalOrder);
+        /* Each closure can expose roots for the other: scanning a helper's
+         * source reaches helpers nobody named directly, and those helpers carry
+         * declared dependencies of their own. Running them once each in a fixed
+         * order drops whichever set the later pass introduces, so alternate
+         * until neither adds a name. */
+        int previous = -1;
+        while (used.len != previous) {
+            previous = used.len;
+            self.closeDeclaredDependencies(used);
+            self.closeSourceReferences(used, canonicalOrder);
+        }
         return used;
     }
 
