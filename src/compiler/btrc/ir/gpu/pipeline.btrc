@@ -887,6 +887,17 @@ class GpuPipeline {
                 self.appendPreparedCleanup(result, prepared);
                 return result;
             }
+            string outputSuffix = Strings.fromInt(self.outputCounter);
+            bool declaredOutputBound = !plan.outputAssignment
+                && operands.outputSize != null;
+            /* `int out[bound()] = kernel(arg())` evaluates the declared bound
+             * before the kernel's own arguments, so it is bound to a local
+             * ahead of the prepared argument sequence. */
+            string boundName = "__gpu_output_size_" + outputSuffix;
+            if (declaredOutputBound) {
+                result.statements.push(IRNode.variableDeclaration(
+                    "int", boundName, operands.outputSize));
+            }
             self.appendPreparedPrefix(result, prepared);
             if (plan.outputAssignment) {
                 if (operands.outputTarget == null
@@ -903,24 +914,29 @@ class GpuPipeline {
             }
             string outputName = self.lexicalBindingCName(
                 plan.outputName);
-            string lengthName = "__gpu_output_len_"
-                + Strings.fromInt(self.outputCounter);
             self.outputCounter = self.outputCounter + 1;
-            IRNode logicalLength = prepared.dispatch_length;
-            if (operands.outputSize != null) {
-                logicalLength = operands.outputSize;
+            /* The declared bound is the writable capacity; the dispatch length
+             * is how much of it the kernel fills. Iteration and chained
+             * dispatch read the dispatch length, never the capacity. Without a
+             * declared bound the length also sizes the storage, so it is bound
+             * to a local rather than repeated. */
+            IRNode length = prepared.dispatch_length;
+            if (!declaredOutputBound) {
+                string lengthName = "__gpu_output_len_" + outputSuffix;
+                result.statements.push(IRNode.variableDeclaration(
+                    "int", lengthName, prepared.dispatch_length));
+                length = IRNode.variable(lengthName);
             }
-            result.statements.push(IRNode.variableDeclaration(
-                "int", lengthName, logicalLength));
-            IRNode length = IRNode.variable(lengthName);
+            IRNode capacity = declaredOutputBound
+                ? IRNode.variable(boundName) : length;
             IRNode physicalLength = IRNode.ternary(
-                IRNode.binary(length, ">", IRNode.literal("0")),
-                length, IRNode.literal("1"));
+                IRNode.binary(capacity, ">", IRNode.literal("0")),
+                capacity, IRNode.literal("1"));
             result.statements.push(IRNode.arrayDeclaration(
                 self.outputElementCType(target), outputName,
                 physicalLength, null));
             self.appendOutputDispatch(result, target, prepared,
-                IRNode.variable(outputName), length, module);
+                IRNode.variable(outputName), capacity, module);
             self.appendPreparedCleanup(result, prepared);
             Node outputType = plan.outputType;
             variableTypes.put(plan.outputName, outputType);
