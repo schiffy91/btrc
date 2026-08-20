@@ -130,9 +130,14 @@ PUBLIC_ENTRY_POINTS = frozenset(
     }
 )
 
+# Public surfaces that only external probes exercise: the dependency graph's
+# membership query and the two identity spellings the shared type-identity
+# contract pins in both compilers (see fixtures/type_identity_driver.btrc).
 INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("FeDependencyGraph", "hasSource"),
+        ("TypeComposition", "substitutionPointerDepth"),
+        ("TypeIdentity", "symbolComponent"),
     }
 )
 

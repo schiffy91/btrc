@@ -845,6 +845,17 @@ class CallableSignatureLowerer:
             return f"__btrc_source_{name}"
         return name
 
+    @staticmethod
+    def payload_field_c_name(name: str) -> str:
+        """Return the generated member name for one rich-enum payload slot.
+
+        A member lives in C's own member namespace, so shadowing a source type
+        needs no rename; a hosted macro does, because the preprocessor would
+        rewrite the member itself.
+        """
+
+        return f"__btrc_source_{name}" if name in HOSTED_ABI.macros else name
+
     def _binding_conflicts_with_type(self, name: str) -> bool:
         if name in HOSTED_ABI.typedefs:
             return True
@@ -943,6 +954,9 @@ class CallableProvenance:
     def source_binding_c_name(self, name: str) -> str:
         return self._signatures.source_binding_c_name(name)
 
+    def payload_field_c_name(self, name: str) -> str:
+        return self._signatures.payload_field_c_name(name)
+
     def source_field_c_name(self, receiver, name: str) -> str:
         """Return the generated field name for a rich-enum payload slot."""
         if name not in HOSTED_ABI.macros:
@@ -963,7 +977,7 @@ class CallableProvenance:
         )
         if variant is None or all(parameter.name != name for parameter in variant.params):
             return name
-        return self.source_binding_c_name(name)
+        return self.payload_field_c_name(name)
 
     def source_function_c_name(self, name: str, call=None) -> str:
         return self._signatures.source_function_c_name(name, call)

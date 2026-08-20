@@ -129,10 +129,7 @@ class DeclarationLowerer:
                 fields=[
                     IRStructField(
                         c_type=CType(text=self._types.render(param.type)),
-                        # A payload member lives in C's member namespace, so it
-                        # keeps its source spelling even when that shadows a
-                        # type: `payload.data.Some.Item` must name this field.
-                        name=param.name,
+                        name=self._signatures.payload_field_c_name(param.name),
                         is_volatile=bool(param.type and param.type.is_volatile),
                         effective_is_volatile=StorageModel.effective_outer_volatile(
                             param.type, self._analyzed.typedef_table
@@ -166,7 +163,7 @@ class DeclarationLowerer:
                                     field=v.name,
                                     arrow=False,
                                 ),
-                                field=p.name,
+                                field=provenance.payload_field_c_name(p.name),
                                 arrow=False,
                             ),
                             value=IRVar(name=provenance.source_binding_c_name(p.name)),

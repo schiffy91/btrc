@@ -146,10 +146,6 @@ class ControlFlowValidator {
             || self.operators.isReferenceType(typeExpr);
     }
 
-    public bool threadCopySource(Node value) {
-        return self.ownership.threadCopySource(value);
-    }
-
     public bool freshThreadResult(Node? expression,
              Map<string, Node> vars) {
         return self.ownership.freshThreadResult(expression, vars);
@@ -158,11 +154,6 @@ class ControlFlowValidator {
     public bool threadValue(Node? expression,
              Map<string, Node> vars) {
         return self.ownership.threadValue(expression, vars);
-    }
-
-    public void rejectFreshThreadResult(Node? expression,
-             Map<string, Node> vars) {
-        self.ownership.rejectFreshThreadResult(expression, vars);
     }
 
     public void rejectThreadObservation(Node? expression,
