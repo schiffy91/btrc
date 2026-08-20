@@ -1544,9 +1544,7 @@ class OwnershipLowerer:
         provenance: CallableBodyFacts,
     ) -> bool:
         """Whether a virtual store's RHS already supplies the assignment result +1."""
-        return bool(
-            expression.op == "=" and self._virtual_assignment_owns(expression.target)
-        )
+        return bool(expression.op == "=" and self._virtual_assignment_owns(expression.target))
 
     def _virtual_assignment_owns(self, target) -> bool:
         """Whether a virtual store of a managed value yields a +1 result.
