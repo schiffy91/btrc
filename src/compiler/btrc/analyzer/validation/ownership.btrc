@@ -34,6 +34,78 @@ class OwnershipValidator {
         self.storage = storage;
     }
 
+    /* Thread handles have exactly one owner. These rules decide whether an
+     * expression is a fresh Thread result, and reject every shape that would
+     * observe or copy a handle instead of consuming it. One definition serves
+     * statement, control-flow, and expression validation alike. */
+    public bool threadCopySource(Node value) {
+        if (value.kind == NK_SPAWN_EXPR || value.kind == NK_CALL_EXPR
+                || value.kind == NK_NULL_LITERAL) {
+            return false;
+        }
+        if (value.kind == NK_TERNARY_EXPR) {
+            return self.threadCopySource(value.true_expr)
+                || self.threadCopySource(value.false_expr);
+        }
+        return true;
+    }
+
+    public bool freshThreadResult(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null || self.threadCopySource(expression)) {
+            return false;
+        }
+        Node? resultType = self.types.inferType(expression,  vars);
+        return resultType != null && resultType.base == "Thread";
+    }
+
+    public bool threadValue(Node? expression,
+             Map<string, Node> vars) {
+        Node? valueType = self.types.inferType(expression,  vars);
+        return valueType != null && valueType.base == "Thread";
+    }
+
+    public void rejectFreshThreadResult(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null) { return; }
+        if (!self.freshThreadResult(expression,  vars)) { return; }
+        TypeValidator.fail(
+            "Fresh Thread result must be joined, returned, discarded directly, "
+                + "or bound to a direct Thread<T> owner",
+            expression);
+    }
+
+    public void rejectThreadObservation(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null
+                || !self.threadValue(expression,  vars)
+                || expression.kind == NK_IDENTIFIER) {
+            return;
+        }
+        if (self.freshThreadResult(expression,  vars)) {
+            self.rejectFreshThreadResult(expression,  vars);
+            return;
+        }
+        TypeValidator.fail(
+            "Thread-producing expression must be a direct spawn() or "
+                + "Thread-returning call before it can be consumed",
+            expression);
+    }
+
+    public void validateThreadTransferSource(Node? expression,
+             Map<string, Node> vars) {
+        if (expression == null
+                || !self.threadValue(expression,  vars)
+                || expression.kind == NK_IDENTIFIER
+                || self.freshThreadResult(expression,  vars)) {
+            return;
+        }
+        TypeValidator.fail(
+            "Thread transfer must use one unique local owner or a direct fresh "
+                + "result",
+            expression);
+    }
+
     private int parameterIndex(Vector<Node> parameters, string name) {
         int index = 0;
         while (index < parameters.len) {

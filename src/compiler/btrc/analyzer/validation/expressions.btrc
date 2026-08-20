@@ -89,14 +89,7 @@ class ExpressionValidator {
 
     private void rejectThreadObservation(Node? expression,
             Map<string, Node> variables) {
-        if (expression == null) { return; }
-        Node? typeExpr = self.types.inferType(expression, variables);
-        if (typeExpr != null && typeExpr.base == "Thread"
-                && expression.kind != NK_IDENTIFIER) {
-            TypeValidator.fail(
-                "Thread-producing expression must be consumed directly",
-                expression);
-        }
+        self.ownership.rejectThreadObservation(expression, variables);
     }
 
     private void rejectThreadValueEscape(Node? expression,
