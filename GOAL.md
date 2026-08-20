@@ -341,7 +341,25 @@ assignment and a read of the same object anywhere within one full expression,
 regardless of the sequence points between them, so any fix that keeps both in
 the same full expression will fail. That leaves moving the assignment into a
 statement of its own without disturbing the order of the sibling operands
-around it.
+around it, and the IR deliberately forbids exactly that: `IRStmtExpr.stmts`
+accepts "only uninitialized or literal-zero-initialized declarations", with
+runtime work required to stay in `result` as an `IRCommaExpr` "so
+control-sensitive evaluation is preserved". Hoisting the assignment through
+`record_declaration` instead moves it to the top of the function, which is what
+turned one failure into five.
+
+**This is the blocker.** Every resolution is outside a local fix:
+
+1. GCC's diagnostic is wrong and would have to change upstream.
+2. Changing the corpus source removes a deliberate callable-provenance case, which
+   is weakening the test.
+3. Allowing ordered runtime setup statements between an expression's operands is a
+   change to the evaluation-order machinery the IR is built around, not a
+   codegen tweak -- and four provenance tests currently pin that ordering.
+
+Until one of those is taken, `make test` stops at this line and never reaches
+the serial bootstrap behind it. `make bootstrap` still runs the fixed point on
+its own and passed on the pre-performance tree.
 
 ### Immediate next steps
 
