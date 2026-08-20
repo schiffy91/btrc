@@ -16,10 +16,16 @@ GPU_BACKEND_CFLAGS ?= -DBTRC_GPU_WGPU_NATIVE
 GPU_THREAD_FLAGS ?= $(if $(filter Windows_NT,$(OS)),,-pthread)
 NATIVE_CFLAGS := -std=c11 -Wall -Wextra -Werror -pedantic
 PYTEST      := python3 -m pytest
-# Self-host fixture compiles are memory-heavy; callers may raise this explicitly.
-PYTEST_WORKERS ?= 4
-PYTEST_ARGS ?= -x -q -n $(PYTEST_WORKERS)
-PYTEST_SERIAL_ARGS ?= -x -q
+# The self-host compiler is content-addressed and built at most once per
+# source revision, so workers no longer each pay for it. Bounded rather than
+# `auto` because every worker also spawns its own C compiler; override freely.
+PYTEST_WORKERS ?= 8
+# A gate exists to produce the complete failure inventory: -x would stop at the
+# first of ~7000 tests and hide the rest, and it would also skip the serial
+# bootstrap line behind it. -rs reports skip reasons so a green run cannot be
+# confused with a run whose coverage was silently gated away.
+PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
+PYTEST_SERIAL_ARGS ?= -q -rs
 
 all: generated-check build gpu gui test lint examples extension ## Build and verify everything
 
@@ -349,7 +355,7 @@ devcontainer: ## Generate .devcontainer/ and build image
 clean: ## Remove all build artifacts
 	rm -rf bin/ dist/ .btrc-cache/ .devcontainer/
 	rm -rf .pytest_cache/ .ruff_cache/ htmlcov/ .coverage .coverage.* coverage.json coverage.xml
-	rm -rf build/generated/ build/devex/vscode/ build/stdlib/ build/out/ build/lib/ build/bdist.*/ build/btrcc/ build/temp.*/
+	rm -rf build/generated/ build/devex/vscode/ build/stdlib/ build/out/ build/lib/ build/bdist.*/ build/btrcc/ build/test-btrcc/ build/temp.*/
 	rm -rf btrc.egg-info/ src/btrc.egg-info/
 	find src examples bench -type d \( -name __pycache__ -o -name .pytest_cache \) -prune -exec rm -rf {} +
 	find src examples bench -type d -name '*.dSYM' -prune -exec rm -rf {} +

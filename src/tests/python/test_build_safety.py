@@ -50,7 +50,7 @@ def test_default_pytest_parallelism_is_bounded_and_configurable():
     default = _make_dry_run("test", "NIX=")
     constrained = _make_dry_run("test", "NIX=", "PYTEST_WORKERS=2")
 
-    assert " -n 4" in default
+    assert " -n 8" in default
     assert " -n auto" not in default
     assert " -n 2" in constrained
 

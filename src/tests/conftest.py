@@ -6,14 +6,34 @@ compiler-specific suites live under src/tests/python/ (Python reference compiler
 white-box unit tests) and src/tests/btrc/ (self-hosted compiler tests).
 """
 
+import contextlib
+import hashlib
 import os
 import shlex
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
+
+# Every input category the self-hosted compiler is generated from. This mirrors
+# BTRCC_INPUTS in the Makefile: the fingerprint below must cover exactly what
+# can change btrcc.c, or a cached compiler would silently answer for sources it
+# was not built from.
+_BTRCC_INPUT_GLOBS = (
+    ("src/compiler/python", "*.py"),
+    ("src/compiler/btrc", "*.btrc"),
+    ("src/stdlib", "*.btrc"),
+    ("src/language", "*.ebnf"),
+    ("src/language", "*.asdl"),
+    ("src/language", "*.toml"),
+    ("src/runtime/c", "*.c"),
+    ("src/runtime/c", "*.h"),
+    ("src/runtime/c", "*.toml"),
+    ("tools/compiler_codegen", "*.py"),
+)
 
 
 def pytest_addoption(parser):
@@ -110,9 +130,61 @@ def _selfhost_runtime_data():
         os.environ["BTRC_HOME"] = old
 
 
+def _btrcc_fingerprint(compiler: list[str]) -> str:
+    """Identify one self-host compiler by everything that can change it.
+
+    The artifact is a pure function of the compiler sources, the shared
+    specifications, the runtime C, the generators, and the C toolchain that
+    links it. Hashing all of them lets one build serve every worker and every
+    later run, while a single edited byte anywhere produces a different key.
+    """
+
+    digest = hashlib.sha256()
+    digest.update(b"btrcc-test-fixture-v1")
+    for relative, pattern in _BTRCC_INPUT_GLOBS:
+        for source in sorted((REPO / relative).rglob(pattern)):
+            if "__pycache__" in source.parts:
+                continue
+            digest.update(str(source.relative_to(REPO)).encode())
+            digest.update(source.read_bytes())
+    digest.update(b"\0".join(part.encode() for part in compiler))
+    version = subprocess.run(
+        [compiler[0], "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    digest.update(version.stdout.encode())
+    return digest.hexdigest()[:32]
+
+
+@contextlib.contextmanager
+def _exclusive(lock_path: Path):
+    """Serialize one build across xdist workers and concurrent runs."""
+
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":  # pragma: no cover - POSIX advisory locks only
+        yield
+        return
+    import fcntl
+
+    with lock_path.open("w") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
 @pytest.fixture(scope="session")
-def immutable_btrcc(tmp_path_factory, _selfhost_runtime_data) -> Path:
-    """Build one strict immutable self-host compiler per pytest worker."""
+def immutable_btrcc(_selfhost_runtime_data) -> Path:
+    """Return one strict immutable self-host compiler for the whole run.
+
+    Building it costs minutes -- a 431k-line single translation unit -- so it is
+    content-addressed and built at most once. Every xdist worker and every later
+    run over unchanged sources reuses the same binary; any source edit changes
+    the key and forces a rebuild.
+    """
 
     configured = _configured_test_btrcc()
     if configured is not None:
@@ -120,13 +192,25 @@ def immutable_btrcc(tmp_path_factory, _selfhost_runtime_data) -> Path:
     compiler = shlex.split(os.environ.get("BTRC_CC", "cc"))
     if not compiler:
         raise ValueError("BTRC_CC must name a C compiler")
-    output = tmp_path_factory.mktemp("immutable-btrcc")
-    generated = output / "btrcc.c"
+    output = REPO / "build" / "test-btrcc" / _btrcc_fingerprint(compiler)
     binary = output / "btrcc"
+    with _exclusive(output.parent / f"{output.name}.lock"):
+        if binary.is_file():
+            return binary
+        _build_immutable_btrcc(compiler, output, binary)
+    return binary
+
+
+def _build_immutable_btrcc(compiler: list[str], output: Path, binary: Path) -> None:
+    """Transpile and link one self-host compiler, publishing it atomically."""
+
+    output.mkdir(parents=True, exist_ok=True)
+    generated = output / "btrcc.c"
+    staged = output / "btrcc.partial"
     environment = {**os.environ, "BTRC_CACHE_DIR": str(output / "cache")}
     transpile = subprocess.run(
         [
-            "python3",
+            sys.executable,
             "-m",
             "src.compiler.python.main",
             "src/compiler/btrc/btrcc_main.btrc",
@@ -138,7 +222,7 @@ def immutable_btrcc(tmp_path_factory, _selfhost_runtime_data) -> Path:
         env=environment,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=900,
     )
     assert transpile.returncode == 0 and generated.is_file(), transpile.stderr
     build = subprocess.run(
@@ -152,20 +236,22 @@ def immutable_btrcc(tmp_path_factory, _selfhost_runtime_data) -> Path:
             "-O2",
             str(generated),
             "-o",
-            str(binary),
+            str(staged),
             "-lm",
             "-lpthread",
         ],
         cwd=REPO,
         capture_output=True,
         text=True,
-        timeout=300,
+        timeout=900,
     )
-    assert build.returncode == 0 and binary.is_file(), build.stderr
+    assert build.returncode == 0 and staged.is_file(), build.stderr
     if os.name != "nt":
         generated.chmod(0o444)
-        binary.chmod(0o555)
-    return binary
+        staged.chmod(0o555)
+    # Publish only a complete binary: a crashed build must not leave a partial
+    # artifact that the next worker trusts because the path exists.
+    staged.replace(binary)
 
 
 @pytest.fixture(scope="session")

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -62,7 +63,12 @@ def test_operator_owner_runtime_matches_both_frontends(
     if frontend == "python":
         compiled_source = _run(
             [
-                str(REPO / "bin/btrcpy"),
+                # The reference compiler is invoked as a module, exactly as every
+                # other test does: bin/btrcpy is an untracked build product that
+                # `make clean` removes and a fresh checkout never has.
+                sys.executable,
+                "-m",
+                "src.compiler.python.main",
                 "--no-stdlib",
                 "--strict-imports",
                 "--no-cache",

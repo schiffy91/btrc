@@ -60,6 +60,7 @@ examples/gui/gui_font
 # Local build artifacts. The tracked `build/*.nix` files are authored policy,
 # so ignore only generated children; a new policy file must remain visible.
 /build/generated/
+/build/test-btrcc/
 /build/architecture/
 /build/out/
 /build/lib/
