@@ -293,96 +293,41 @@ class ResolvedSource:
         return digest.hexdigest()
 
 
-@dataclass(frozen=True, slots=True)
-class SourceResolutionPolicy:
-    """Own immutable resource limits for one compiler application."""
-
-    max_source_bytes: int = 64 * 1024 * 1024
-    max_files: int = 10_000
-    max_scan_entries: int = 100_000
-    max_depth: int = 256
-
-    def __post_init__(self) -> None:
-        if (
-            min(
-                self.max_source_bytes,
-                self.max_files,
-                self.max_scan_entries,
-                self.max_depth,
-            )
-            <= 0
-        ):
-            raise ValueError("source resolution limits must be positive")
-
-    def new_budget(self) -> ResolutionBudget:
-        """Create isolated accounting state governed by this policy."""
-        return ResolutionBudget(self)
-
-    def validate_combined(self, *sources: str) -> None:
-        """Reject final user-plus-stdlib text before concatenating it."""
-        total = 0
-        for source in sources:
-            encoded_bytes = len(source.encode("utf-8"))
-            if encoded_bytes > self.max_source_bytes - total:
-                raise IncludeResolutionError(f"resolved source exceeds the {self.max_source_bytes}-byte limit")
-            total += encoded_bytes
-
-
-@dataclass(slots=True)
-class ResolutionBudget:
-    """Track unique source files before their lines are materialized."""
-
-    policy: SourceResolutionPolicy
-    total_bytes: int = 0
-    files: int = 0
-
-    def enter(self, source: str, path: str, depth: int) -> None:
-        if depth > self.policy.max_depth:
-            raise IncludeResolutionError(
-                f"include/import graph exceeds the maximum depth of {self.policy.max_depth} at {path!r}"
-            )
-        self.files += 1
-        if self.files > self.policy.max_files:
-            raise IncludeResolutionError(f"include/import graph exceeds the {self.policy.max_files}-file limit")
-        encoded_bytes = len(source.encode("utf-8"))
-        if encoded_bytes > self.policy.max_source_bytes - self.total_bytes:
-            raise IncludeResolutionError(f"resolved source exceeds the {self.policy.max_source_bytes}-byte limit")
-        self.total_bytes += encoded_bytes
-
-
 class SourceReadError(OSError):
     """A source file could not be read under the compiler's input contract."""
 
 
 class SourceFileReader:
-    """Own bounded, deterministic UTF-8 reads for one compiler application."""
+    """Own deterministic UTF-8 source reads for one compiler application.
 
-    DEFAULT_MAX_BYTES = 64 * 1024 * 1024
-
-    def __init__(self, max_bytes: int = DEFAULT_MAX_BYTES) -> None:
-        if max_bytes <= 0:
-            raise ValueError("source byte limit must be positive")
-        self.max_bytes = max_bytes
+    The compiler imposes no size ceiling of its own: a source file is read
+    until the operating system reports end of file, and only genuine
+    filesystem or allocation failures become diagnostics.
+    """
 
     def read(self, path: str) -> str:
-        """Read one bounded source file and normalize universal newlines."""
+        """Read one source file and normalize universal newlines."""
 
         try:
             with open(path, "rb") as source_file:
-                encoded = source_file.read(self.max_bytes + 1)
+                encoded = source_file.read()
         except FileNotFoundError as error:
             raise SourceReadError(f"source file {path!r} not found") from error
         except OSError as error:
             raise SourceReadError(f"cannot read source file {path!r}: {error}") from error
-        if len(encoded) > self.max_bytes:
-            raise SourceReadError(f"source file {path!r} exceeds the {self.max_bytes}-byte limit")
+        except MemoryError as error:
+            raise SourceReadError(f"cannot allocate memory for source file {path!r}") from error
         try:
             text = encoded.decode("utf-8-sig")
         except UnicodeDecodeError as error:
             raise SourceReadError(f"source file {path!r} is not valid UTF-8 at byte {error.start}") from error
+        except MemoryError as error:
+            raise SourceReadError(f"cannot allocate memory for source file {path!r}") from error
         nul = text.find("\0")
         if nul >= 0:
             raise SourceReadError(f"source file {path!r} contains a NUL byte at character {nul}")
+        if "\r" not in text:
+            return text
         return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
@@ -470,7 +415,6 @@ class StdlibAstCache:
     SUFFIX = ".ast.json"
     LEGACY_SUFFIX = ".ast"
     MAX_AGE_SECONDS = 30 * 24 * 3600
-    MAX_ENTRY_BYTES = 64 * 1024 * 1024
 
     def __init__(
         self,
@@ -517,20 +461,20 @@ class StdlibAstCache:
             return
         cutoff = time.time() - self.max_age_seconds
         try:
-            names = os.listdir(cache_dir)
+            with os.scandir(cache_dir) as entries:
+                self._pruned_dirs.add(cache_dir)
+                for entry in entries:
+                    name = entry.name
+                    if not name.startswith(self.PREFIX):
+                        continue
+                    try:
+                        expired_json = name.endswith(self.SUFFIX) and entry.stat().st_mtime < cutoff
+                        if name.endswith(self.LEGACY_SUFFIX) or expired_json:
+                            os.remove(entry.path)
+                    except OSError:
+                        pass
         except OSError:
             return
-        self._pruned_dirs.add(cache_dir)
-        for name in names:
-            if not name.startswith(self.PREFIX):
-                continue
-            path = os.path.join(cache_dir, name)
-            try:
-                expired_json = name.endswith(self.SUFFIX) and os.path.getmtime(path) < cutoff
-                if name.endswith(self.LEGACY_SUFFIX) or expired_json:
-                    os.remove(path)
-            except OSError:
-                pass
 
     @staticmethod
     def source_hash(source: str) -> str:
@@ -544,14 +488,17 @@ class StdlibAstCache:
         except OSError:
             return None
         try:
-            metadata = os.fstat(descriptor)
-            if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > self.MAX_ENTRY_BYTES:
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 return None
-            encoded = os.read(descriptor, self.MAX_ENTRY_BYTES + 1)
-            if len(encoded) > self.MAX_ENTRY_BYTES:
-                return None
+            chunks: list[bytes] = []
+            while True:
+                chunk = os.read(descriptor, 1 << 20)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+            encoded = b"".join(chunks)
             return json.loads(encoded.decode("utf-8"), parse_constant=self._reject_json_constant)
-        except (OSError, UnicodeError, ValueError, TypeError, RecursionError):
+        except (OSError, UnicodeError, ValueError, TypeError, RecursionError, MemoryError):
             return None
         finally:
             with suppress(OSError):
@@ -687,52 +634,36 @@ class SourceDirectiveScanner:
 
 
 class SourceDirectoryScanner:
-    """Own bounded, deterministic filesystem traversal for directory imports."""
+    """Own iterative, deterministic filesystem traversal for directory imports.
+
+    Traversal streams directory entries and keeps an explicit pending stack, so
+    neither nesting depth nor directory size is capped by the compiler. Only
+    real filesystem failures become diagnostics.
+    """
 
     _SOURCE_SUFFIXES = (".btrc", ".c")
 
-    def __init__(
-        self,
-        policy: SourceResolutionPolicy | None = None,
-        *,
-        max_entries: int | None = None,
-        max_files: int | None = None,
-    ) -> None:
-        policy = policy or SourceResolutionPolicy()
-        self._max_entries = policy.max_scan_entries if max_entries is None else max_entries
-        self._max_files = policy.max_files if max_files is None else max_files
-        if self._max_entries <= 0 or self._max_files <= 0:
-            raise ValueError("import scan limits must be positive")
-
     def scan(self, root: str, *, recursive: bool) -> list[str]:
-        """Return sorted sources without materializing an unbounded listing."""
+        """Return sorted sources without materializing whole directory listings."""
 
         matches: list[str] = []
         pending = [root]
-        scanned_entries = 0
         try:
             while pending:
                 current = pending.pop()
                 child_directories: list[str] = []
                 with os.scandir(current) as entries:
                     for entry in entries:
-                        scanned_entries += 1
-                        if scanned_entries > self._max_entries:
-                            raise IncludeResolutionError(
-                                f"import directory exceeds the {self._max_entries}-entry scan limit: {root!r}"
-                            )
                         if recursive and entry.is_dir(follow_symlinks=False):
                             child_directories.append(entry.path)
                         elif entry.is_file() and entry.name.endswith(self._SOURCE_SUFFIXES):
-                            if len(matches) >= self._max_files:
-                                raise IncludeResolutionError(
-                                    f"import directory exceeds the {self._max_files}-file limit: {root!r}"
-                                )
                             matches.append(entry.path)
                 if recursive:
                     pending.extend(sorted(child_directories, reverse=True))
         except OSError as error:
             raise IncludeResolutionError(f"cannot scan import directory {root!r}: {error}") from error
+        except MemoryError as error:
+            raise IncludeResolutionError(f"cannot allocate memory scanning import directory {root!r}") from error
         return sorted(matches)
 
 
@@ -772,13 +703,11 @@ class StdlibRepository:
         directive_scanner: SourceDirectiveScanner | None = None,
         *,
         directory: str | None = None,
-        resolution_policy: SourceResolutionPolicy | None = None,
     ) -> None:
-        self.resolution_policy = resolution_policy or SourceResolutionPolicy()
         self.ast_cache = ast_cache or StdlibAstCache()
         self._cache_directory = cache_directory or FrontendCacheDirectory()
         self._ast_version = (fingerprint or FrontendFingerprint()).digest()
-        self._source_reader = source_reader or SourceFileReader(self.resolution_policy.max_source_bytes)
+        self._source_reader = source_reader or SourceFileReader()
         self._directives = directive_scanner or SourceDirectiveScanner()
         self._directory = os.path.abspath(directory or _DEFAULT_STDLIB_DIRECTORY)
         self._symbol_files: dict[str, frozenset[str]] | None = None
@@ -792,29 +721,43 @@ class StdlibRepository:
 
     def discover_files(self) -> list[str]:
         """Return root stdlib modules in their deterministic composition order."""
+        files: list[str] = []
         try:
-            files = sorted(name for name in os.listdir(self._directory) if name.endswith(".btrc"))
+            with os.scandir(self._directory) as entries:
+                files.extend(entry.name for entry in entries if entry.name.endswith(".btrc"))
         except OSError:
             return []
+        files.sort()
         prioritized = [name for name in _PRIORITY_FILES if name in files]
         prioritized.extend(name for name in files if name not in _PRIORITY_FILES)
         return prioritized
 
     def find_file(self, include_path: str) -> str | None:
-        """Find a stdlib file by root-relative path or nested basename."""
+        """Find a stdlib file by root-relative path or nested basename.
+
+        The nested fallback streams the root directory and keeps only the
+        lexicographically first match, so the answer stays deterministic
+        without materializing the listing.
+        """
+
         direct = os.path.join(self._directory, include_path)
         if os.path.isfile(direct):
             return direct
         filename = os.path.basename(include_path)
+        best_name: str | None = None
+        best_path: str | None = None
         try:
-            entries = os.listdir(self._directory)
+            with os.scandir(self._directory) as entries:
+                for entry in entries:
+                    if best_name is not None and entry.name >= best_name:
+                        continue
+                    candidate = os.path.join(entry.path, filename)
+                    if os.path.isfile(candidate):
+                        best_name = entry.name
+                        best_path = candidate
         except OSError:
             return None
-        for entry in entries:
-            candidate = os.path.join(self._directory, entry, filename)
-            if os.path.isfile(candidate):
-                return candidate
-        return None
+        return best_path
 
     def defined_names(self, source: str) -> set[str]:
         return set(_CLASS_NAME.findall(source)) | set(_INTERFACE_NAME.findall(source))
@@ -827,7 +770,6 @@ class StdlibRepository:
         user_names = self.defined_names(user_source)
         lines: list[str] = []
         source_positions: list[tuple[str, int]] = []
-        budget = self.resolution_policy.new_budget()
         for filename in self.discover_files():
             path = os.path.join(self._directory, filename)
             if not os.path.isfile(path):
@@ -836,7 +778,6 @@ class StdlibRepository:
                 content = self._source_reader.read(path)
             except SourceReadError as error:
                 raise IncludeResolutionError(str(error)) from error
-            budget.enter(content, path, 0)
             if self.defined_names(content) & user_names:
                 continue
             file_lines, file_positions = self._source_without_imports(
@@ -954,7 +895,6 @@ class StdlibRepository:
 
 class _SourceImportResolver(Protocol):
     stdlib: StdlibRepository
-    resolution_policy: SourceResolutionPolicy
 
     def resolve_mapped(self, source, source_path, packages, included=None, *, exit_on_error=True): ...
 
@@ -972,20 +912,9 @@ class SourceResolver:
         *,
         imports: _SourceImportResolver,
         package_universe: PackageUniverse | None = None,
-        resolution_policy: SourceResolutionPolicy | None = None,
     ) -> None:
         if imports is not None and stdlib is not None and imports.stdlib is not stdlib:
             raise ValueError("SourceResolver imports and stdlib must share one repository")
-        owned_policy = resolution_policy
-        if owned_policy is None and imports is not None:
-            owned_policy = imports.resolution_policy
-        if owned_policy is None and stdlib is not None:
-            owned_policy = stdlib.resolution_policy
-        self.resolution_policy = owned_policy or SourceResolutionPolicy()
-        if imports is not None and imports.resolution_policy != self.resolution_policy:
-            raise ValueError("SourceResolver and imports must share one source resolution policy")
-        if stdlib is not None and stdlib.resolution_policy != self.resolution_policy:
-            raise ValueError("SourceResolver and stdlib must share one source resolution policy")
         self.stdlib = imports.stdlib
         self.imports = imports
         self.package_universe = package_universe or PackageUniverse()
@@ -1033,11 +962,6 @@ class SourceResolver:
                 stdlib_source = self.stdlib.source(user_source)
             self._timed(profile, "stdlib_include", start)
 
-        self.resolution_policy.validate_combined(
-            stdlib_source,
-            "\n" if stdlib_source else "",
-            user_source,
-        )
         full_source = f"{stdlib_source}\n{user_source}" if stdlib_source else user_source
         return ResolvedSource(
             user_source=user_source,
@@ -1087,7 +1011,6 @@ __all__ = (
     "CompilerStdlibSource",
     "FrontendCacheDirectory",
     "FrontendFingerprint",
-    "ResolutionBudget",
     "ResolvedSource",
     "SourceDependency",
     "SourceDependencyGraph",
@@ -1098,7 +1021,6 @@ __all__ = (
     "SourceFileReader",
     "SourceMap",
     "SourceReadError",
-    "SourceResolutionPolicy",
     "SourceResolver",
     "StdlibAstCache",
     "StdlibRepository",

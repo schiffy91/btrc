@@ -133,9 +133,6 @@ PUBLIC_ENTRY_POINTS = frozenset(
 INTENTIONAL_DEFINITION_ONLY_METHODS = frozenset(
     {
         ("FeDependencyGraph", "hasSource"),
-        ("FeResolutionBudget", "sourceBytes"),
-        ("FeResolutionBudget", "fileCount"),
-        ("FeDirectoryScanBudget", "entryCount"),
     }
 )
 

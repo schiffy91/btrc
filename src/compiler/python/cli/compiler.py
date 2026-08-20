@@ -252,27 +252,27 @@ class CompilerCommand:
 
 
 class CompilerFileIO:
-    """Own source reads and transactional artifact writes for one CLI."""
+    """Own source reads and transactional artifact writes for one CLI.
 
-    MAX_INPUT_BYTES = 64 * 1024 * 1024
+    The entry-point read imposes no size ceiling of its own: the file is read to
+    end of file and only real filesystem, allocation, and encoding failures are
+    reported.
+    """
 
     def read_input(self, path: str) -> str:
         try:
             with open(path, "rb") as source_file:
-                encoded = source_file.read(self.MAX_INPUT_BYTES + 1)
+                encoded = source_file.read()
         except FileNotFoundError as error:
             print(f"error: source file {path!r} not found", file=sys.stderr)
             raise SystemExit(1) from error
         except OSError as error:
             print(f"error: cannot read source file {path!r}: {error}", file=sys.stderr)
             raise SystemExit(1) from error
+        except MemoryError as error:
+            print(f"error: cannot allocate memory for source file {path!r}", file=sys.stderr)
+            raise SystemExit(1) from error
 
-        if len(encoded) > self.MAX_INPUT_BYTES:
-            print(
-                f"error: source file {path!r} exceeds the {self.MAX_INPUT_BYTES}-byte limit",
-                file=sys.stderr,
-            )
-            raise SystemExit(1)
         try:
             source = encoded.decode("utf-8-sig")
         except UnicodeDecodeError as error:
@@ -281,6 +281,9 @@ class CompilerFileIO:
                 file=sys.stderr,
             )
             raise SystemExit(1) from error
+        except MemoryError as error:
+            print(f"error: cannot allocate memory for source file {path!r}", file=sys.stderr)
+            raise SystemExit(1) from error
         nul = source.find("\0")
         if nul >= 0:
             print(
@@ -288,6 +291,8 @@ class CompilerFileIO:
                 file=sys.stderr,
             )
             raise SystemExit(1)
+        if "\r" not in source:
+            return source
         return source.replace("\r\n", "\n").replace("\r", "\n")
 
     def output_path(self, input_path: str, requested_path: str | None) -> str:

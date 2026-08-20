@@ -302,6 +302,7 @@ class StatementLowerer:
                     if explicit_size is not None
                     else self._storage.safe_array_size(output.array_length or IRLiteral(text="0"))
                 ),
+                logical_length=explicit_size,
             )
             return [
                 *size_setup,
@@ -350,8 +351,8 @@ class StatementLowerer:
                     initializer_type,
                     prepared.value,
                 )
-        array_size = (
-            self._storage.materialize_array_size(
+        array_bound = (
+            self._storage.materialize_array_bound(
                 plan,
                 self._expressions.lower_expr(
                     plan.array_size,
@@ -367,9 +368,11 @@ class StatementLowerer:
             initializer=initializer,
             initializer_type=initializer_type,
             initializer_owned=initializer_owned,
-            array_size=array_size,
+            array_size=None if array_bound is None else array_bound.physical,
+            logical_length=None if array_bound is None else array_bound.logical,
         )
-        return [*initializer_before, *declaration, *initializer_after]
+        bound_setup = () if array_bound is None else array_bound.setup
+        return [*initializer_before, *bound_setup, *declaration, *initializer_after]
 
     def lower_expression_statement(
         self,

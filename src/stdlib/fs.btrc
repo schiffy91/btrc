@@ -75,6 +75,68 @@ class FileStatus {
     }
 }
 
+/* One directory read as a stream of names.  Callers that only need to inspect
+ * or filter entries never have to materialize a whole listing, so traversal
+ * cost scales with what the caller keeps rather than with directory size.
+ * `close()` must be called explicitly, exactly like File. */
+class DirectoryStream {
+    private DIR* handle;
+    private string current;
+    private bool is_open;
+    private bool io_failed;
+
+    public DirectoryStream(string path) {
+        self.current = "";
+        self.handle = path == null ? NULL : opendir(path);
+        self.is_open = self.handle != NULL;
+        self.io_failed = !self.is_open;
+    }
+
+    public bool ok() {
+        return self.is_open;
+    }
+
+    public bool failed() {
+        return self.io_failed;
+    }
+
+    /* The entry reached by the most recent successful next(). */
+    public string name() {
+        return self.current;
+    }
+
+    /* Advance past "." and ".." to the next real entry. */
+    public bool next() {
+        bool advanced = false;
+        bool done = !self.is_open;
+        while (!done) {
+            errno = 0;
+            struct dirent* entry = readdir(self.handle);
+            if (entry == NULL) {
+                if (errno != 0) { self.io_failed = true; }
+                done = true;
+            } else {
+                string entryName = entry->d_name;
+                if (!entryName.equals(".") && !entryName.equals("..")) {
+                    self.current = Strings.copy(entryName);
+                    advanced = true;
+                    done = true;
+                }
+            }
+        }
+        return advanced;
+    }
+
+    public bool close() {
+        if (self.is_open) {
+            self.is_open = false;
+            if (closedir(self.handle) != 0) { self.io_failed = true; }
+            self.handle = NULL;
+        }
+        return !self.io_failed;
+    }
+}
+
 class Directory {
     public string path;
     private bool io_failed;
@@ -88,40 +150,26 @@ class Directory {
         return self.io_failed;
     }
 
-    /* Return at most maxEntries + 1 names so callers can enforce a scan
-     * budget without first materializing an unbounded directory. */
-    public Vector<string> entriesBounded(int maxEntries) {
+    /* Materialize every name in this directory.  Vector growth carries its own
+     * integer-overflow protection; the only other bound is host memory. */
+    public Vector<string> entries() {
         Vector<string> result = [];
         self.io_failed = false;
-        if (self.path == null || maxEntries < 0 || maxEntries >= 2147483646) {
+        DirectoryStream stream = DirectoryStream(self.path);
+        if (!stream.ok()) {
             self.io_failed = true;
             return result;
         }
-        errno = 0;
-        DIR* dir = opendir(self.path);
-        if (dir == NULL) {
-            self.io_failed = true;
-            return result;
+        while (stream.next()) {
+            result.push(stream.name());
         }
-        while (true) {
-            errno = 0;
-            struct dirent* entry = readdir(dir);
-            if (entry == NULL) {
-                if (errno != 0) { self.io_failed = true; }
-                break;
-            }
-            string name = entry->d_name;
-            if (!name.equals(".") && !name.equals("..")) {
-                result.push(Strings.copy(name));
-                if (result.len > maxEntries) { break; }
-            }
-        }
-        if (closedir(dir) != 0) { self.io_failed = true; }
+        if (!stream.close()) { self.io_failed = true; }
         return result;
     }
 
-    public Vector<string> entries() {
-        return self.entriesBounded(2147483645);
+    /* Iterate this directory without materializing its listing. */
+    public DirectoryStream stream() {
+        return DirectoryStream(self.path);
     }
 }
 

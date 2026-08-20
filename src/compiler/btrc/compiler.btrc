@@ -6,10 +6,9 @@ class Compiler {
     private CompilerPipeline pipeline;
 
     public Compiler(GrammarInfo grammar, string stdlibDirectory,
-                    FeSourceFileReader sourceFiles,
-                    FeSourceResolutionPolicy resolutionPolicy) {
+                    FeSourceFileReader sourceFiles) {
         self.pipeline = CompilerPipeline(
-            grammar, stdlibDirectory, sourceFiles, resolutionPolicy);
+            grammar, stdlibDirectory, sourceFiles);
     }
 
     public BtrccCompilationResult compile(string source, string sourcePath,

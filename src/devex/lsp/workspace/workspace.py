@@ -12,6 +12,7 @@ import hashlib
 import os
 import threading
 from collections import OrderedDict
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 from src.compiler.python.frontend.imports import ImportResolver
@@ -21,7 +22,6 @@ from src.compiler.python.frontend.sources import (
     SourceDirectiveScanner,
     SourceFileReader,
     SourceReadError,
-    SourceResolutionPolicy,
     StdlibRepository,
 )
 from src.compiler.python.syntax.ast.generated import Program
@@ -78,36 +78,20 @@ class Workspace:
         workspace_cache: WorkspaceCache | None = None,
         source_reader: SourceFileReader | None = None,
         directive_scanner: SourceDirectiveScanner | None = None,
-        resolution_policy: SourceResolutionPolicy | None = None,
     ):
         self._cache = workspace_cache or WorkspaceCache()
         self._package_cache = package_cache or PackageResolutionCache()
-        if stdlib is not None:
-            if resolution_policy is not None and stdlib.resolution_policy != resolution_policy:
-                raise ValueError("Workspace and stdlib must share one source resolution policy")
-            resolution_policy = stdlib.resolution_policy
-        elif resolution_policy is None and source_reader is not None:
-            resolution_policy = SourceResolutionPolicy(
-                max_source_bytes=source_reader.max_bytes,
-            )
-        self._resolution_policy = resolution_policy or SourceResolutionPolicy()
-        if source_reader is not None and source_reader.max_bytes != self._resolution_policy.max_source_bytes:
-            raise ValueError("Workspace and source reader must share one source byte limit")
-        self._source_reader = source_reader or SourceFileReader(
-            self._resolution_policy.max_source_bytes,
-        )
+        self._source_reader = source_reader or SourceFileReader()
         self._directives = directive_scanner or SourceDirectiveScanner()
         self._stdlib = stdlib or StdlibRepository(
             source_reader=self._source_reader,
             directive_scanner=self._directives,
-            resolution_policy=self._resolution_policy,
         )
         self._unit_cache = unit_cache or UnitCache.from_environment()
         self._imports = ImportResolver(
             self._stdlib,
             source_reader=self._source_reader,
             directive_scanner=self._directives,
-            resolution_policy=self._resolution_policy,
         )
         self._stdlib_units: list[FileUnit] | None = None
         self._stdlib_lock = threading.Lock()  # one stdlib build/analysis at a time
@@ -217,14 +201,36 @@ class Workspace:
         unit.tokens = []
         return unit
 
+    def _composition_targets(
+        self,
+        unit: FileUnit,
+        attribute_line: int,
+        active: FileUnit,
+        packages: ResolvedPackages,
+        import_errors: list[tuple[int, str]],
+    ) -> Iterator[tuple[str, object, int, str]]:
+        """Stream one unit's resolved dependency paths in declaration order."""
+
+        for dependency in unit.dependencies:
+            attribute = dependency.line if unit is active else attribute_line
+            try:
+                paths = self._imports.import_paths(
+                    dependency.spec,
+                    os.path.dirname(unit.path),
+                    packages,
+                )
+            except IncludeResolutionError as error:
+                import_errors.append((attribute, str(error)))
+                continue
+            for path in paths:
+                yield unit.path, dependency, attribute, path
+
     def compose(self, active: FileUnit) -> Composition:
         imported: list[FileUnit] = []
         import_errors: list[tuple[int, str]] = []
         included = {WorkspaceCache.path_identity(active.path)}
         graph = SourceDependencyGraph()
         graph.ensure_source(active.path)
-        budget = self._resolution_policy.new_budget()
-        budget.enter(active.source, active.path, 0)
 
         try:
             packages = self._package_cache.resolve_for(active.path)
@@ -232,51 +238,40 @@ class Workspace:
             packages = ResolvedPackages.empty()
             import_errors.append((1, str(error)))
 
-        def visit(unit: FileUnit, attribute_line: int, depth: int = 0):
-            for dependency in unit.dependencies:
-                attr = dependency.line if unit is active else attribute_line
-                try:
-                    paths = self._imports.import_paths(
-                        dependency.spec,
-                        os.path.dirname(unit.path),
-                        packages,
-                    )
-                except IncludeResolutionError as e:
-                    import_errors.append((attr, str(e)))
-                    continue
-                for p in paths:
-                    ap = os.path.abspath(p)
-                    graph.add(unit.path, ap, dependency.kind)
-                    identity = WorkspaceCache.path_identity(ap)
-                    if identity in included or ap.endswith(".c"):
-                        continue
-                    included.add(identity)
-                    u = self.get_file_unit(ap)
-                    if u is None:
-                        import_errors.append((attr, f"cannot read import '{dependency.spec}'"))
-                        continue
-                    try:
-                        budget.enter(u.source, ap, depth + 1)
-                    except IncludeResolutionError as error:
-                        import_errors.append((attr, str(error)))
-                        continue
-                    if u.error:
-                        import_errors.append((attr, f"imported file '{os.path.basename(ap)}': {u.error}"))
-                    imported.append(u)
-                    visit(u, attr, depth + 1)
-
-        visit(active, 1)
+        # An explicit stack keeps composition depth-first without host
+        # recursion, so import nesting is bounded only by available memory.
+        stack = [self._composition_targets(active, 1, active, packages, import_errors)]
+        while stack:
+            target = next(stack[-1], None)
+            if target is None:
+                stack.pop()
+                continue
+            parent_path, dependency, attribute, path = target
+            absolute = os.path.abspath(path)
+            graph.add(parent_path, absolute, dependency.kind)
+            identity = WorkspaceCache.path_identity(absolute)
+            if identity in included or absolute.endswith(".c"):
+                continue
+            included.add(identity)
+            unit = self.get_file_unit(absolute)
+            if unit is None:
+                import_errors.append((attribute, f"cannot read import '{dependency.spec}'"))
+                continue
+            if unit.error:
+                import_errors.append((attribute, f"imported file '{os.path.basename(absolute)}': {unit.error}"))
+            imported.append(unit)
+            stack.append(self._composition_targets(unit, attribute, active, packages, import_errors))
 
         user_names = set(active.defined_names)
-        for u in imported:
-            user_names |= u.defined_names
-        stdlib = [u for u in self.stdlib_units() if not (u.defined_names & user_names)]
+        for unit in imported:
+            user_names |= unit.defined_names
+        stdlib = [unit for unit in self.stdlib_units() if not (unit.defined_names & user_names)]
 
         decls: list = []
-        for u in stdlib:
-            decls.extend(u.decls)
-        for u in imported:
-            decls.extend(u.decls)
+        for unit in stdlib:
+            decls.extend(unit.decls)
+        for unit in imported:
+            decls.extend(unit.decls)
         decls.extend(active.decls)
 
         return Composition(
@@ -363,13 +358,10 @@ class Workspace:
             return base
 
     def _live_source_digest(self, source: str) -> str:
-        """Hash one editor buffer after enforcing the compiler's source limit."""
+        """Hash one editor buffer without imposing a document size ceiling."""
 
         try:
             encoded = source.encode("utf-8")
         except UnicodeEncodeError as error:
             raise ValueError("document contains invalid Unicode") from error
-        max_bytes = self._source_reader.max_bytes
-        if len(encoded) > max_bytes:
-            raise ValueError(f"document exceeds the {max_bytes}-byte source limit")
         return hashlib.sha256(encoded).hexdigest()

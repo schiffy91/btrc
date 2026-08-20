@@ -60,6 +60,21 @@ class CArrayBinding:
 
 
 @dataclass(frozen=True, slots=True)
+class ArrayBound:
+    """One declared array extent, evaluated exactly once.
+
+    ``physical`` is the extent C storage is declared with; a runtime bound is
+    clamped so an empty logical array still declares a valid one-element VLA.
+    ``logical`` is the unclamped extent GPU dispatch and iteration must use, and
+    is ``None`` when the bound is a C constant expression that needs no temp.
+    """
+
+    setup: tuple[IRStmt, ...]
+    physical: IRExpr
+    logical: IRExpr | None
+
+
+@dataclass(frozen=True, slots=True)
 class StoragePlan:
     target: object
     value: object | None
@@ -760,6 +775,7 @@ class StorageLowerer:
         initializer_type: TypeExpr | None = None,
         initializer_owned: bool | None = None,
         array_size: IRExpr | None,
+        logical_length: IRExpr | None = None,
     ) -> list[IRStmt]:
         """Materialize a declaration from values lowered by the statement owner."""
         source = plan.source
@@ -781,7 +797,7 @@ class StorageLowerer:
             **plan.storage,
         )
         self._session.record_declaration(declaration)
-        self.declare_c_binding(source.name, is_array=is_array)
+        self.declare_c_binding(source.name, is_array=is_array, logical_length=logical_length)
         self._ownership.declare_local_ownership(source.name, provenance, c_name=plan.c_name)
         provenance.bind_local(source.name, source.type, source.initializer)
         result: list[IRStmt] = [declaration]
@@ -898,6 +914,41 @@ class StorageLowerer:
         if id(plan.array_size) in self._analyzed.constant_array_bound_ids:
             return lowered_size
         return self.safe_array_size(lowered_size)
+
+    def materialize_array_bound(
+        self,
+        plan: VariableDeclarationPlan,
+        lowered_size: IRExpr,
+    ) -> ArrayBound:
+        """Evaluate a declared bound once, then clamp only its C storage extent.
+
+        A runtime bound may call an effectful function, so it is bound to a typed
+        local before the array declaration reads it. Constant bounds stay direct
+        so C keeps a constant-expression array rather than a VLA.
+        """
+
+        if id(plan.array_size) in self._analyzed.constant_array_bound_ids:
+            return ArrayBound(setup=(), physical=lowered_size, logical=None)
+        declaration = IRVarDecl(
+            c_type=CType(text=self._array_bound_c_type(plan)),
+            name=self._session.fresh_temp("__btrc_array_bound"),
+            init=lowered_size,
+        )
+        self._session.record_declaration(declaration)
+        bound = IRVar(name=declaration.name)
+        return ArrayBound(
+            setup=(declaration,),
+            physical=self.safe_array_size(bound),
+            logical=bound,
+        )
+
+    def _array_bound_c_type(self, plan: VariableDeclarationPlan) -> str:
+        """Render the declared bound's own scalar type so nothing is truncated."""
+
+        bound_type = self._session.type_of(plan.array_size)
+        if bound_type is None or bound_type.pointer_depth or bound_type.is_array:
+            return "int"
+        return self._types.render(bound_type)
 
     @staticmethod
     def safe_array_size(logical_length: IRExpr) -> IRExpr:

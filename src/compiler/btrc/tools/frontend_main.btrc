@@ -20,15 +20,11 @@ import ../syntax/grammar.btrc;
 
 class FrontendInspectionCommand {
     private BtrccOutput output;
-    private FeSourceResolutionPolicy resolutionPolicy;
     private FeSourceFileReader sourceFiles;
 
-    public FrontendInspectionCommand(
-            BtrccOutput output,
-            FeSourceResolutionPolicy resolutionPolicy) {
+    public FrontendInspectionCommand(BtrccOutput output) {
         self.output = output;
-        self.resolutionPolicy = resolutionPolicy;
-        self.sourceFiles = FeSourceFileReader(resolutionPolicy);
+        self.sourceFiles = FeSourceFileReader();
     }
 
     private string usage() {
@@ -75,11 +71,9 @@ class FrontendInspectionCommand {
         GrammarInfo grammar = EbnfGrammarParser(
             self.sourceFiles.readRequired(dataPaths.grammar)).parse();
         FeStdlibRepository stdlib = FeStdlibRepository(
-            dataPaths.stdlib, self.sourceFiles,
-            self.resolutionPolicy);
+            dataPaths.stdlib, self.sourceFiles);
         FeFrontendResolver resolver = FeFrontendResolver(
-            grammar, stdlib, includeStdlib, strictImports,
-            self.resolutionPolicy);
+            grammar, stdlib, includeStdlib, strictImports);
         FeResolvedSource resolved = resolver.resolve(source, path);
         if (self.output.write(resolved.source)) { return 0; }
         fprintf(
@@ -90,5 +84,5 @@ class FrontendInspectionCommand {
 
 int main(int argc, char** argv) {
     return FrontendInspectionCommand(
-        BtrccOutput(stdout), FeSourceResolutionPolicy()).run(argc, argv);
+        BtrccOutput(stdout)).run(argc, argv);
 }

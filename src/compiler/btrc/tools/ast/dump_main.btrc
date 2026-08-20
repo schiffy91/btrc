@@ -13,11 +13,9 @@ class AsdlDumpCommand {
     private BtrccOutput output;
     private FeSourceFileReader sourceFiles;
 
-    public AsdlDumpCommand(
-            BtrccOutput output,
-            FeSourceResolutionPolicy resolutionPolicy) {
+    public AsdlDumpCommand(BtrccOutput output) {
         self.output = output;
-        self.sourceFiles = FeSourceFileReader(resolutionPolicy);
+        self.sourceFiles = FeSourceFileReader();
     }
 
     private bool writeLine(string line) {
@@ -76,5 +74,5 @@ class AsdlDumpCommand {
 
 int main() {
     return AsdlDumpCommand(
-        BtrccOutput(stdout), FeSourceResolutionPolicy()).run();
+        BtrccOutput(stdout)).run();
 }

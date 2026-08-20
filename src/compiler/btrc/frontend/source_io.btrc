@@ -219,13 +219,14 @@ class FeUtf8SourceDecoder {
     }
 }
 
-/* Fail-closed, bounded source-file input for one compiler application. */
+/* Fail-closed source-file input for one compiler application.  A source file is
+ * read until the operating system reports end of file; only real open, read,
+ * close, decoding, and allocation failures are diagnosed.  Buffer growth keeps
+ * its own integer-overflow protection. */
 class FeSourceFileReader {
-    private FeSourceResolutionPolicy policy;
     private FeUtf8SourceDecoder decoder;
 
-    public FeSourceFileReader(FeSourceResolutionPolicy policy) {
-        self.policy = policy;
+    public FeSourceFileReader() {
         self.decoder = FeUtf8SourceDecoder();
     }
 
@@ -238,24 +239,27 @@ class FeSourceFileReader {
     public string readRequired(string path) {
         File source = File(path, "rb");
         if (!source.ok()) { self.fail(path, "open failed"); }
-        Bytes encoded = source.readBytesBounded(self.policy.sourceByteLimit());
+        Bytes encoded = source.readBytes();
         bool readFailed = source.failed();
         bool closed = source.close();
         if (readFailed) { self.fail(path, "read failed"); }
         if (!closed || source.failed()) { self.fail(path, "close failed"); }
-        if (encoded.len > self.policy.sourceByteLimit()) {
-            string reason = f"file exceeds the {self.policy.sourceByteLimit()}-byte limit";
-            self.fail(path, reason);
-        }
         return self.decoder.decode(encoded, path);
     }
 }
 
+/* Directory traversal streams through the operating system's own iterator.  The
+ * compiler imposes no entry ceiling; callers keep only what they select. */
 class FeSourceDirectoryScanner {
-    private FeSourceResolutionPolicy policy;
+    private FeSourcePathPolicy sourcePaths;
 
-    public FeSourceDirectoryScanner(FeSourceResolutionPolicy policy) {
-        self.policy = policy;
+    public FeSourceDirectoryScanner() {
+        self.sourcePaths = FeSourcePathPolicy();
+    }
+
+    private void fail(string path) {
+        fprintf(stderr, "error: cannot scan source directory '%s'\n", path);
+        exit(1);
     }
 
     private void sort(Vector<string> entries) {
@@ -263,35 +267,71 @@ class FeSourceDirectoryScanner {
             Strings.lessThan(left, right));
     }
 
-    private Vector<string> readRequired(string path, int maximumEntries) {
-        Directory directory = Directory(path);
-        Vector<string> entries = directory.entriesBounded(maximumEntries);
-        if (directory.failed()) {
-            fprintf(stderr, "error: cannot scan source directory '%s'\n", path);
-            exit(1);
+    /* Split one directory into its child directories and the source files a
+     * caller selected, retaining only those names.  Symlinked children are
+     * never descended into. */
+    public void partition(string root, Vector<string> childDirectories,
+                          Vector<string> sourceFiles,
+                          Vector<string> suffixes, bool wantChildren) {
+        DirectoryStream stream = Directory(root).stream();
+        if (!stream.ok()) { self.fail(root); }
+        while (stream.next()) {
+            string name = stream.name();
+            string path = self.sourcePaths.join(root, name);
+            if (wantChildren && FileSystem.isDir(path)
+                    && !FileSystem.isSymlink(path)) {
+                childDirectories.push(path);
+            } else if (self.matchesSuffix(name, suffixes)
+                    && FileSystem.isFile(path)) {
+                sourceFiles.push(path);
+            }
         }
-        if (entries.len > maximumEntries) {
-            fprintf(stderr,
-                "error: source directory exceeds its entry scan limit: '%s'\n",
-                path);
-            exit(1);
-        }
-        return entries;
+        if (!stream.close()) { self.fail(root); }
     }
 
-    public Vector<string> sortedEntries(string path) {
-        Vector<string> entries = self.readRequired(
-            path, self.policy.directoryEntryLimit());
-        self.sort(entries);
-        return entries;
+    private bool matchesSuffix(string name, Vector<string> suffixes) {
+        int index = 0;
+        while (index < suffixes.len) {
+            if (name.endsWith(suffixes.get(index))) { return true; }
+            index++;
+        }
+        return false;
     }
 
-    public Vector<string> sortedEntriesWithinBudget(
-            string path, FeDirectoryScanBudget budget) {
-        Vector<string> entries = self.readRequired(
-            path, budget.remainingEntries());
-        budget.addEntries(entries.len);
-        self.sort(entries);
-        return entries;
+    /* Return the lexicographically first entry naming an existing child file,
+     * or "" when none matches.  Exactly one candidate is retained, so the
+     * listing itself never has to be materialized. */
+    public string firstEntryWithChildFile(string root, string childName) {
+        DirectoryStream stream = Directory(root).stream();
+        if (!stream.ok()) { return ""; }
+        string best = "";
+        string bestPath = "";
+        while (stream.next()) {
+            string name = stream.name();
+            if (best.isEmpty() || Strings.lessThan(name, best)) {
+                string candidate = self.sourcePaths.join(
+                    self.sourcePaths.join(root, name), childName);
+                if (FileSystem.isFile(candidate)) {
+                    best = name;
+                    bestPath = candidate;
+                }
+            }
+        }
+        if (!stream.close()) { self.fail(root); }
+        return bestPath;
+    }
+
+    /* Stream one directory and keep only the names carrying a suffix. */
+    public Vector<string> sortedNamesWithSuffix(string root, string suffix) {
+        Vector<string> names = [];
+        DirectoryStream stream = Directory(root).stream();
+        if (!stream.ok()) { self.fail(root); }
+        while (stream.next()) {
+            string name = stream.name();
+            if (name.endsWith(suffix)) { names.push(name); }
+        }
+        if (!stream.close()) { self.fail(root); }
+        self.sort(names);
+        return names;
     }
 }

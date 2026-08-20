@@ -9,12 +9,10 @@ class ParserInspectionCommand {
     private BtrccOutput output;
     private FeSourceFileReader sourceFiles;
 
-    public ParserInspectionCommand(
-            BtrccOutput output,
-            FeSourceResolutionPolicy resolutionPolicy) {
+    public ParserInspectionCommand(BtrccOutput output) {
         self.astRenderer = AstCanonicalRenderer();
         self.output = output;
-        self.sourceFiles = FeSourceFileReader(resolutionPolicy);
+        self.sourceFiles = FeSourceFileReader();
     }
 
     public int run(int argc, char** argv) {
@@ -47,5 +45,5 @@ class ParserInspectionCommand {
 
 int main(int argc, char** argv) {
     return ParserInspectionCommand(
-        BtrccOutput(stdout), FeSourceResolutionPolicy()).run(argc, argv);
+        BtrccOutput(stdout)).run(argc, argv);
 }

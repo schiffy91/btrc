@@ -266,17 +266,14 @@ class FeImportResolver {
     private FeStdlibRepository stdlib;
     private FeStdlibRootSnapshot stdlibSnapshot;
     private FeSourceDirectoryScanner sourceDirectories;
-    private FeSourceResolutionPolicy resolutionPolicy;
     private FeSourcePathPolicy sourcePaths;
 
     public FeImportResolver(
             FeStdlibRepository stdlib, FeStdlibRootSnapshot stdlibSnapshot,
-            FeSourceDirectoryScanner sourceDirectories,
-            FeSourceResolutionPolicy resolutionPolicy) {
+            FeSourceDirectoryScanner sourceDirectories) {
         self.stdlib = stdlib;
         self.stdlibSnapshot = stdlibSnapshot;
         self.sourceDirectories = sourceDirectories;
-        self.resolutionPolicy = resolutionPolicy;
         self.sourcePaths = FeSourcePathPolicy();
     }
 
@@ -289,34 +286,25 @@ class FeImportResolver {
             includePath, self.stdlibSnapshot);
     }
 
-    private bool compilableSourcePath(string name) {
-        return name.endsWith(".btrc") || name.endsWith(".c");
+    private Vector<string> compilableSuffixes() {
+        Vector<string> suffixes = [".btrc", ".c"];
+        return suffixes;
     }
 
     /* Recursive imports never descend through symlinked child directories.
+     * Traversal keeps an explicit pending stack and streams each directory, so
+     * neither nesting depth nor directory size is capped by the compiler.
      * Directory entries and the final result retain Python's sorted order. */
-    private void collectTree(
-            string root, Vector<string> out, FeDirectoryScanBudget budget) {
+    private void collectTree(string root, Vector<string> out) {
+        Vector<string> suffixes = self.compilableSuffixes();
         Vector<string> pending = [];
         pending.push(root);
         while (pending.len > 0) {
             string current = pending.pop();
-            Vector<string> entries = self.sourceDirectories
-                .sortedEntriesWithinBudget(current, budget);
             Vector<string> children = [];
-            int index = 0;
-            while (index < entries.len) {
-                string name = entries.get(index);
-                string path = self.sourcePaths.join(current, name);
-                if (FileSystem.isDir(path) && !FileSystem.isSymlink(path)) {
-                    children.push(path);
-                } else if (FileSystem.isFile(path)
-                        && self.compilableSourcePath(name)) {
-                    budget.addFile();
-                    out.push(path);
-                }
-                index++;
-            }
+            self.sourceDirectories.partition(
+                current, children, out, suffixes, true);
+            self.sortPaths(children);
             int child = children.len - 1;
             while (child >= 0) {
                 pending.push(children.get(child));
@@ -330,20 +318,10 @@ class FeImportResolver {
             Strings.lessThan(left, right));
     }
 
-    private void collectDirectory(
-            string root, Vector<string> out, FeDirectoryScanBudget budget) {
-        Vector<string> entries = self.sourceDirectories
-            .sortedEntriesWithinBudget(root, budget);
-        int index = 0;
-        while (index < entries.len) {
-            string name = entries.get(index);
-            string path = self.sourcePaths.join(root, name);
-            if (FileSystem.isFile(path) && self.compilableSourcePath(name)) {
-                budget.addFile();
-                out.push(path);
-            }
-            index++;
-        }
+    private void collectDirectory(string root, Vector<string> out) {
+        Vector<string> children = [];
+        self.sourceDirectories.partition(
+            root, children, out, self.compilableSuffixes(), false);
         self.sortPaths(out);
     }
 
@@ -362,13 +340,11 @@ class FeImportResolver {
                     spec, root);
                 exit(1);
             }
-            FeDirectoryScanBudget budget =
-                self.resolutionPolicy.newDirectoryBudget(root);
             if (recursive) {
-                self.collectTree(root, paths, budget);
+                self.collectTree(root, paths);
                 self.sortPaths(paths);
             } else {
-                self.collectDirectory(root, paths, budget);
+                self.collectDirectory(root, paths);
             }
             return paths;
         }
@@ -376,9 +352,7 @@ class FeImportResolver {
         string directory = PathTools.isAbsolute(spec)
             ? spec : self.sourcePaths.join(sourceDir, spec);
         if (FileSystem.isDir(directory)) {
-            FeDirectoryScanBudget budget =
-                self.resolutionPolicy.newDirectoryBudget(directory);
-            self.collectDirectory(directory, paths, budget);
+            self.collectDirectory(directory, paths);
             return paths;
         }
 
@@ -531,6 +505,82 @@ class FeImportResolver {
     }
 }
 
+/* One dependency queued by the directive currently being expanded. */
+class FePendingSource {
+    public string path;
+    public int line;
+    public bool viaInclude;
+
+    public FePendingSource(string path, int line, bool viaInclude) {
+        self.path = path;
+        self.line = line;
+        self.viaInclude = viaInclude;
+    }
+}
+
+/* One source file in progress during iterative import resolution. */
+class FeResolutionFrame {
+    public string absPath;
+    public string sourceDir;
+    public Vector<string> lines;
+    public Vector<FeDirective> directives;
+    public Map<int, int> byStart;
+    public Map<int, bool> covered;
+    private int cursor;
+    private Vector<FePendingSource> pending;
+    private int pendingCursor;
+
+    public FeResolutionFrame(
+            string absPath, string sourceDir, Vector<string> lines,
+            Vector<FeDirective> directives, Map<int, int> byStart,
+            Map<int, bool> covered) {
+        self.absPath = absPath;
+        self.sourceDir = sourceDir;
+        self.lines = lines;
+        self.directives = directives;
+        self.byStart = byStart;
+        self.covered = covered;
+        self.cursor = 0;
+        Vector<FePendingSource> empty = [];
+        self.pending = empty;
+        self.pendingCursor = 0;
+    }
+
+    public bool hasPending() {
+        return self.pendingCursor < self.pending.len;
+    }
+
+    public FePendingSource takePending() {
+        FePendingSource next = self.pending.get(self.pendingCursor);
+        self.pendingCursor++;
+        return next;
+    }
+
+    /* Each directive owns its own dependency queue. */
+    public void queue(FePendingSource dependency, bool first) {
+        if (first) {
+            Vector<FePendingSource> empty = [];
+            self.pending = empty;
+            self.pendingCursor = 0;
+        }
+        self.pending.push(dependency);
+    }
+
+    public bool exhausted() {
+        return self.cursor >= self.lines.len;
+    }
+
+    /* Advance one line and return its 1-based number. */
+    public int takeLineNumber() {
+        self.cursor++;
+        return self.cursor;
+    }
+
+    public string lineAt(int lineNumber) {
+        return self.lines.get(lineNumber - 1);
+    }
+}
+
 class FeFrontendResolver {
     private FeDirectiveScanner directiveScanner;
     private FeSourceDirectoryScanner sourceDirectories;
@@ -541,17 +591,13 @@ class FeFrontendResolver {
     private bool strictImports;
     private Map<string, bool> included;
     private FeDependencyGraphBuilder dependencies;
-    private FeResolutionBudget budget;
-    private FeSourceResolutionPolicy resolutionPolicy;
     private FeSourcePathPolicy sourcePaths;
 
     public FeFrontendResolver(
             GrammarInfo grammar, FeStdlibRepository stdlib,
-            bool includeStdlib, bool strictImports,
-            FeSourceResolutionPolicy resolutionPolicy) {
+            bool includeStdlib, bool strictImports) {
         self.directiveScanner = FeDirectiveScanner(grammar);
-        self.sourceDirectories = FeSourceDirectoryScanner(resolutionPolicy);
-        self.resolutionPolicy = resolutionPolicy;
+        self.sourceDirectories = FeSourceDirectoryScanner();
         self.sourcePaths = FeSourcePathPolicy();
         self.stdlib = stdlib;
         Vector<string> emptyPaths = [];
@@ -560,54 +606,24 @@ class FeFrontendResolver {
             emptyPaths, emptySources);
         self.stdlibSnapshot = emptySnapshot;
         self.importResolver = FeImportResolver(
-            stdlib, emptySnapshot, self.sourceDirectories,
-            self.resolutionPolicy);
+            stdlib, emptySnapshot, self.sourceDirectories);
         self.includeStdlib = includeStdlib;
         self.strictImports = strictImports;
         self.included = {};
         self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
-        self.budget = self.resolutionPolicy.newResolutionBudget();
     }
 
-    /* Splice resolved targets into the current traversal. C sources become
-     * native include lines; btrc sources re-enter dependency resolution. */
-    private void inlinePaths(Vector<string> paths, string absPath,
-                             Vector<FeLine> out, int depth) {
-        int index = 0;
-        while (index < paths.len) {
-            string fullPath = paths.get(index);
-            string absolute = self.sourcePaths.absolute(fullPath);
-            self.dependencies.addImport(absPath, absolute);
-            if (fullPath.endsWith(".c")) {
-                string identity = self.sourcePaths.identity(absolute);
-                if (!self.included.has(identity)) {
-                    self.budget.enter("", absolute, depth);
-                    self.included.put(identity, true);
-                    out.push(FeLine(
-                        self.importResolver.renderCInclude(absolute), absPath, 0));
-                }
-            } else {
-                string content = self.stdlib.readSourceForCompilation(
-                    fullPath, self.stdlibSnapshot);
-                self.resolveInto(content, fullPath, out, depth);
-            }
-            index++;
-        }
-    }
-
-    /* Resolve one source and recursively inline its explicit dependencies while
-     * preserving line provenance and typed graph edges. */
-    private void resolveInto(string source, string sourcePath,
-                             Vector<FeLine> out, int depth) {
-        string absPath = self.sourcePaths.absolute(sourcePath);
+    /* Register one source in the dependency graph.  Returns false when it was
+     * already composed and must not contribute lines a second time. */
+    private bool beginSource(string absPath) {
         string identity = self.sourcePaths.identity(absPath);
-        string sourceDir = self.sourcePaths.directoryName(absPath);
         self.dependencies.ensureSource(absPath);
-        if (self.included.has(identity)) { return; }
-        self.budget.enter(source, absPath, depth);
+        if (self.included.has(identity)) { return false; }
         self.included.put(identity, true);
+        return true;
+    }
 
-        Vector<string> lines = FeSourceText(source).lines();
+    private FeResolutionFrame openFrame(string source, string absPath) {
         Vector<FeDirective> directives = self.directiveScanner.scan(source);
         Map<int, int> byStart = {};
         Map<int, bool> covered = {};
@@ -622,51 +638,106 @@ class FeFrontendResolver {
             }
             directiveIndex++;
         }
+        return FeResolutionFrame(
+            absPath, self.sourcePaths.directoryName(absPath),
+            FeSourceText(source).lines(), directives, byStart, covered);
+    }
 
-        int lineIndex = 0;
-        while (lineIndex < lines.len) {
-            int lineNumber = lineIndex + 1;
-            if (byStart.has(lineNumber)) {
-                FeDirective directive = directives.get(byStart.get(lineNumber));
-                if (directive.kind.equals("btrc_include")) {
-                    string resolved = self.importResolver.resolveIncludePath(
-                        directive.payload, sourceDir);
-                    if (resolved.length() == 0) {
-                        fprintf(stderr,
-                            "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
-                            directive.payload, sourceDir, self.stdlib.directory());
-                        exit(1);
-                    }
-                    self.dependencies.addInclude(absPath, resolved);
-                    string content = self.stdlib.readSourceForCompilation(
-                        resolved, self.stdlibSnapshot);
-                    self.resolveInto(content, resolved, out, depth + 1);
-                } else {
-                    Vector<string> paths = self.importResolver.resolveSpec(
-                        directive.payload, sourceDir);
-                    self.inlinePaths(paths, absPath, out, depth + 1);
-                }
-            } else if (!covered.has(lineNumber)) {
-                out.push(FeLine(lines.get(lineIndex), absPath, lineNumber));
+    /* Queue every source one directive contributes, in resolution order. */
+    private void splice(FeResolutionFrame frame, FeDirective directive,
+                        int lineNumber) {
+        if (directive.kind.equals("btrc_include")) {
+            string resolved = self.importResolver.resolveIncludePath(
+                directive.payload, frame.sourceDir);
+            if (resolved.length() == 0) {
+                fprintf(stderr,
+                    "error: include file '%s' not found\n  searched: %s\n  searched: %s\n",
+                    directive.payload, frame.sourceDir, self.stdlib.directory());
+                exit(1);
             }
-            lineIndex++;
+            self.dependencies.addInclude(frame.absPath, resolved);
+            frame.queue(FePendingSource(resolved, lineNumber, true), true);
+            return;
+        }
+        Vector<string> paths = self.importResolver.resolveSpec(
+            directive.payload, frame.sourceDir);
+        int index = 0;
+        while (index < paths.len) {
+            frame.queue(
+                FePendingSource(paths.get(index), lineNumber, false),
+                index == 0);
+            index++;
+        }
+    }
+
+    /* Splice one queued dependency into the traversal.  C sources become native
+     * include lines; btrc sources push a child frame. */
+    private void enter(FeResolutionFrame frame, FePendingSource dependency,
+                       Vector<FeLine> out,
+                       Vector<FeResolutionFrame> stack) {
+        string absolute = self.sourcePaths.absolute(dependency.path);
+        if (!dependency.viaInclude) {
+            self.dependencies.addImport(frame.absPath, absolute);
+        }
+        if (dependency.path.endsWith(".c")) {
+            string identity = self.sourcePaths.identity(absolute);
+            if (!self.included.has(identity)) {
+                self.included.put(identity, true);
+                out.push(FeLine(
+                    self.importResolver.renderCInclude(absolute),
+                    frame.absPath, 0));
+            }
+            return;
+        }
+        string content = self.stdlib.readSourceForCompilation(
+            dependency.path, self.stdlibSnapshot);
+        if (self.beginSource(absolute)) {
+            stack.push(self.openFrame(content, absolute));
+        }
+    }
+
+    /* Compose one source graph depth-first with an explicit frame stack, so
+     * import nesting is bounded only by available memory rather than by a
+     * compiler-defined depth ceiling or the host's call stack. */
+    private void resolveGraph(string source, string sourcePath,
+                              Vector<FeLine> out) {
+        string rootPath = self.sourcePaths.absolute(sourcePath);
+        if (!self.beginSource(rootPath)) { return; }
+        Vector<FeResolutionFrame> stack = [];
+        stack.push(self.openFrame(source, rootPath));
+        while (stack.len > 0) {
+            FeResolutionFrame frame = stack.get(stack.len - 1);
+            if (frame.hasPending()) {
+                self.enter(frame, frame.takePending(), out, stack);
+            } else if (frame.exhausted()) {
+                stack.pop();
+            } else {
+                int lineNumber = frame.takeLineNumber();
+                if (frame.byStart.has(lineNumber)) {
+                    self.splice(
+                        frame,
+                        frame.directives.get(frame.byStart.get(lineNumber)),
+                        lineNumber);
+                } else if (!frame.covered.has(lineNumber)) {
+                    out.push(FeLine(
+                        frame.lineAt(lineNumber), frame.absPath, lineNumber));
+                }
+            }
         }
     }
 
     public FeResolvedSource resolve(string source, string sourcePath) {
         /* Each result owns a stable dependency graph. Resolver reuse must not
-         * retain include guards or consume a prior call's resource budget. */
+         * retain a prior call's include guards or dependency edges. */
         self.included = {};
         self.dependencies = FeDependencyGraphBuilder(self.sourcePaths);
-        self.budget = self.resolutionPolicy.newResolutionBudget();
         FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
         self.stdlibSnapshot = currentSnapshot;
         self.importResolver = FeImportResolver(
-            self.stdlib, currentSnapshot, self.sourceDirectories,
-            self.resolutionPolicy);
+            self.stdlib, currentSnapshot, self.sourceDirectories);
 
         Vector<FeLine> userLines = [];
-        self.resolveInto(source, sourcePath, userLines, 0);
+        self.resolveGraph(source, sourcePath, userLines);
 
         Vector<string> userTexts = [];
         int lineIndex = 0;
@@ -680,9 +751,6 @@ class FeFrontendResolver {
             stdlibSource = self.sourceAtSnapshot(
                 userSource, self.stdlibSnapshot);
         }
-        string separator = stdlibSource.length() > 0 ? "\n" : "";
-        self.resolutionPolicy.validateCombinedSource(
-            stdlibSource, separator, userSource);
         string combined = stdlibSource.length() > 0
             ? stdlibSource + "\n" + userSource : userSource;
         int stdlibLineCount = stdlibSource.length() > 0
@@ -837,12 +905,9 @@ class FeFrontendResolver {
             string userSource, FeStdlibRootSnapshot snapshot) {
         Map<string, bool> userNames = self.definedTypeNames(userSource);
         Vector<string> lines = [];
-        FeResolutionBudget budget = self.resolutionPolicy.newResolutionBudget();
         int fileIndex = 0;
         while (fileIndex < snapshot.count()) {
-            string path = snapshot.pathAt(fileIndex);
             string content = snapshot.sourceAt(fileIndex);
-            budget.enter(content, path, 0);
             if (!self.namesIntersect(
                     self.definedTypeNames(content), userNames)) {
                 Vector<string> fileLines = self.sourceWithoutImports(content);

@@ -42,11 +42,14 @@ def test_source_read_rejects_embedded_nul(tmp_path):
         SourceFileReader().read(str(path))
 
 
-def test_source_read_is_bounded(tmp_path):
+def test_source_read_has_no_compiler_defined_size_ceiling(tmp_path):
+    """Source size is bounded by the host, never by a compiler quota."""
+
     path = tmp_path / "large.btrc"
-    path.write_bytes(b"12345")
-    with pytest.raises(SourceReadError, match="exceeds"):
-        SourceFileReader(max_bytes=4).read(str(path))
+    payload = "".join(f"int filler_{index} = {index};\n" for index in range(50000))
+    path.write_text(payload, encoding="utf-8")
+
+    assert SourceFileReader().read(str(path)) == payload
 
 
 def test_write_if_missing_never_clobbers_existing_content(tmp_path):

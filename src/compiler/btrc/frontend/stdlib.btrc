@@ -26,11 +26,10 @@ class FeStdlibRepository {
     private FeSourcePathPolicy sourcePaths;
 
     public FeStdlibRepository(
-            string directory, FeSourceFileReader sourceFiles,
-            FeSourceResolutionPolicy resolutionPolicy) {
+            string directory, FeSourceFileReader sourceFiles) {
         self.sourcePaths = FeSourcePathPolicy();
         self.directoryPath = self.sourcePaths.absolute(directory);
-        self.sourceDirectories = FeSourceDirectoryScanner(resolutionPolicy);
+        self.sourceDirectories = FeSourceDirectoryScanner();
         self.sourceFiles = sourceFiles;
     }
 
@@ -78,15 +77,8 @@ class FeStdlibRepository {
     private Vector<string> discoverFiles() {
         Vector<string> ordered = [];
         if (!FileSystem.isDir(self.directoryPath)) { return ordered; }
-        Vector<string> entries = self.sourceDirectories.sortedEntries(
-            self.directoryPath);
-        Vector<string> files = [];
-        int index = 0;
-        while (index < entries.len) {
-            string name = entries.get(index);
-            if (name.endsWith(".btrc")) { files.push(name); }
-            index++;
-        }
+        Vector<string> files = self.sourceDirectories.sortedNamesWithSuffix(
+            self.directoryPath, ".btrc");
         Vector<string> priority = [
             "vector.btrc",
             "list.btrc",
@@ -103,7 +95,7 @@ class FeStdlibRepository {
             if (self.containsPath(files, name)) { ordered.push(name); }
             priorityIndex++;
         }
-        index = 0;
+        int index = 0;
         while (index < files.len) {
             string name = files.get(index);
             if (!self.containsPath(priority, name)) { ordered.push(name); }
@@ -138,18 +130,8 @@ class FeStdlibRepository {
         if (self.snapshotContains(snapshot, direct)) { return direct; }
         string base = self.sourcePaths.baseName(includePath);
         if (!FileSystem.isDir(self.directoryPath)) { return ""; }
-        Vector<string> entries = self.sourceDirectories.sortedEntries(
-            self.directoryPath);
-        int index = 0;
-        while (index < entries.len) {
-            string child = self.sourcePaths.join(self.directoryPath, entries.get(index));
-            if (FileSystem.isDir(child)) {
-                string candidate = self.sourcePaths.join(child, base);
-                if (FileSystem.isFile(candidate)) { return candidate; }
-            }
-            index++;
-        }
-        return "";
+        return self.sourceDirectories.firstEntryWithChildFile(
+            self.directoryPath, base);
     }
 
     public FeStdlibLookup requiredModuleForCompilation(

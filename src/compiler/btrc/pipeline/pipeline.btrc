@@ -9,16 +9,13 @@ class CompilerPipeline {
     private GrammarInfo grammar;
     private FeStdlibRepository stdlib;
     private FeStdlibSymbolIndex stdlibSymbols;
-    private FeSourceResolutionPolicy resolutionPolicy;
     private HostedAbiRepository hostedAbi;
 
     public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory,
-                            FeSourceFileReader sourceFiles,
-                            FeSourceResolutionPolicy resolutionPolicy) {
+                            FeSourceFileReader sourceFiles) {
         self.grammar = grammar;
-        self.resolutionPolicy = resolutionPolicy;
         self.stdlib = FeStdlibRepository(
-            stdlibDirectory, sourceFiles, resolutionPolicy);
+            stdlibDirectory, sourceFiles);
         self.stdlibSymbols = FeStdlibSymbolIndex();
         self.hostedAbi = HostedAbiRepository(
             GeneratedHostedAbiData());
@@ -43,8 +40,7 @@ class CompilerPipeline {
                                           BtrccOptions options) {
         FeFrontendResolver resolver = FeFrontendResolver(
             self.grammar, self.stdlib,
-            options.includeStdlib, options.strictImports,
-            self.resolutionPolicy);
+            options.includeStdlib, options.strictImports);
         FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 
         Lexer lexer = Lexer(resolved.source, self.grammar);

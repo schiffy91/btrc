@@ -84,21 +84,53 @@ def test_source_text_boundary_rejects_lossy_inputs(
     assert reference.returncode != 0
 
 
-def test_source_text_boundary_enforces_the_production_size_limit(
+def test_source_input_has_no_compiler_defined_size_ceiling(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
+    """A source past the removed 64 MiB ceiling is read, then judged on content.
+
+    The file is sparse, so both frontends must stream all 64 MiB + 1 bytes and
+    reject it for the NUL bytes it actually contains rather than for its size.
+    """
+
     program = tmp_path / "oversized.btrc"
     with program.open("wb") as stream:
         stream.truncate(64 * 1024 * 1024 + 1)
 
-    selfhost = _selfhost(semantic_btrcc, program)
-    reference = _reference(program, tmp_path / "reference.c")
+    selfhost = _selfhost(semantic_btrcc, program, timeout=300)
+    reference = _reference(program, tmp_path / "reference.c", timeout=300)
 
     assert selfhost.returncode != 0
-    assert "67108864-byte limit" in selfhost.stderr
     assert reference.returncode != 0
-    assert "67108864-byte limit" in reference.stderr
+    for stderr in (selfhost.stderr, reference.stderr):
+        assert "byte limit" not in stderr
+        assert "67108864" not in stderr
+        assert "NUL byte" in stderr or "not valid UTF-8" in stderr
+
+
+def test_deep_import_nesting_has_no_compiler_depth_ceiling(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    """Iterative composition resolves nesting far past the removed 256 cap."""
+
+    count = 1024
+    for index in range(count):
+        path = tmp_path / f"level_{index}.btrc"
+        body = f"int value_{index}() {{ return {'1' if index + 1 == count else f'value_{index + 1}()'}; }}\n"
+        include = "" if index + 1 == count else f'#include "level_{index + 1}.btrc"\n'
+        main = "int main() { return value_0() == 1 ? 0 : 1; }\n" if index == 0 else ""
+        path.write_text(f"{include}{body}{main}")
+
+    root = tmp_path / "level_0.btrc"
+    selfhost = _selfhost(semantic_btrcc, root, timeout=600)
+    reference = _reference(root, tmp_path / "reference.c", timeout=600)
+
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    assert f"value_{count - 1}" in selfhost.stdout
+    assert f"value_{count - 1}" in (tmp_path / "reference.c").read_text()
 
 
 def test_dependency_read_failure_is_not_an_empty_include(
@@ -224,28 +256,6 @@ def test_multiline_imports_follow_the_whitespace_insensitive_grammar(
     assert reference.returncode == 0, reference.stderr
 
 
-def test_import_depth_limit_precedes_stack_exhaustion(
-    semantic_btrcc: Path,
-    tmp_path: Path,
-) -> None:
-    count = 258
-    for index in range(count):
-        path = tmp_path / f"level_{index}.btrc"
-        if index + 1 < count:
-            path.write_text(f'#include "level_{index + 1}.btrc"\n')
-        else:
-            path.write_text("int terminal() { return 0; }\n")
-
-    root = tmp_path / "level_0.btrc"
-    selfhost = _selfhost(semantic_btrcc, root)
-    reference = _reference(root, tmp_path / "reference.c")
-
-    assert selfhost.returncode != 0
-    assert "maximum depth of 256" in selfhost.stderr
-    assert reference.returncode != 0
-    assert "maximum depth of 256" in reference.stderr
-
-
 @pytest.mark.skipif(not Path("/dev/full").exists(), reason="requires /dev/full")
 def test_stdout_flush_failure_returns_nonzero(semantic_btrcc: Path) -> None:
     with Path("/dev/full").open("wb", buffering=0) as sink:
@@ -262,35 +272,50 @@ def test_stdout_flush_failure_returns_nonzero(semantic_btrcc: Path) -> None:
     assert "cannot write standard output" in result.stderr
 
 
-def test_frontend_scan_limits_are_wired_before_materialization() -> None:
-    frontend = (REPO / "src/compiler/btrc/frontend/resolver.btrc").read_text()
-    source_io = (REPO / "src/compiler/btrc/frontend/source_io.btrc").read_text()
-    filesystem = (REPO / "src/stdlib/fs.btrc").read_text()
-    read_required = source_io[
-        source_io.index("private Vector<string> readRequired(") : source_io.index(
-            "public Vector<string> sortedEntries("
-        )
-    ]
-    budgeted_scan = source_io[source_io.index("public Vector<string> sortedEntriesWithinBudget(") :]
-    tree_scan = frontend[frontend.index("private void collectTree(") : frontend.index("private void sortPaths(")]
-    directory_scan = frontend[
-        frontend.index("private void collectDirectory(") : frontend.index("private Vector<string> resolveRelative(")
-    ]
+def test_frontend_traversal_is_iterative_and_streaming() -> None:
+    """Neither frontend may reintroduce quotas, recursion, or bulk listings."""
 
-    assert "source.readBytesBounded(self.policy.sourceByteLimit())" in source_io
-    assert "directory.entriesBounded(maximumEntries)" in read_required
-    assert budgeted_scan.index("path, budget.remainingEntries())") < budgeted_scan.index(
-        "budget.addEntries(entries.len)"
-    )
-    assert tree_scan.index(".sortedEntriesWithinBudget(current, budget)") < tree_scan.index(
-        "while (index < entries.len)"
-    )
-    assert directory_scan.index(".sortedEntriesWithinBudget(root, budget)") < directory_scan.index(
-        "while (index < entries.len)"
-    )
-    assert "budget.addFile()" in frontend
-    assert "Vector<string> pending = []" in frontend
-    assert "result.len > maxEntries" in filesystem
+    resolver = (REPO / "src/compiler/btrc/frontend/resolver.btrc").read_text()
+    source_io = (REPO / "src/compiler/btrc/frontend/source_io.btrc").read_text()
+    stdlib = (REPO / "src/compiler/btrc/frontend/stdlib.btrc").read_text()
+    models = (REPO / "src/compiler/btrc/frontend/models.btrc").read_text()
+    filesystem = (REPO / "src/stdlib/fs.btrc").read_text()
+    stream_io = (REPO / "src/stdlib/io.btrc").read_text()
+    python_sources = (REPO / "src/compiler/python/frontend/sources.py").read_text()
+    python_imports = (REPO / "src/compiler/python/frontend/imports.py").read_text()
+
+    selfhost = resolver + source_io + stdlib + models + filesystem + stream_io
+    for removed in (
+        "FeSourceResolutionPolicy",
+        "FeResolutionBudget",
+        "FeDirectoryScanBudget",
+        "readBytesBounded",
+        "entriesBounded",
+        "sortedEntriesWithinBudget",
+        "67108864",
+    ):
+        assert removed not in selfhost, removed
+
+    assert "class DirectoryStream" in filesystem
+    assert "source.readBytes()" in source_io
+    assert "Directory(root).stream()" in source_io
+    assert "class FeResolutionFrame" in resolver
+    assert "Vector<FeResolutionFrame> stack = []" in resolver
+    assert "resolveInto" not in resolver
+    assert "Vector<string> pending = []" in resolver
+
+    for removed in (
+        "SourceResolutionPolicy",
+        "ResolutionBudget",
+        "max_source_bytes",
+        "max_scan_entries",
+        "max_depth",
+        "64 * 1024 * 1024",
+    ):
+        assert removed not in python_sources, removed
+    assert "os.listdir" not in python_sources
+    assert "class ResolutionFrame" in python_imports
+    assert "stack: list[ResolutionFrame]" in python_imports
 
 
 @pytest.mark.skipif(
@@ -319,26 +344,13 @@ def test_frontend_resolver_reuse_resets_state_and_isolates_results(
         f"import {json.dumps(str(stage))};\n"
         "\n"
         "int main() {\n"
-        "    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();\n"
-        "    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);\n"
-        "    FeResolutionBudget firstGraphBudget = resolutionPolicy.newResolutionBudget();\n"
-        "    FeResolutionBudget secondGraphBudget = resolutionPolicy.newResolutionBudget();\n"
-        '    firstGraphBudget.enter("abc", "first.btrc", 0);\n'
-        '    resolutionPolicy.validateCombinedSource("left", "\\n", "right");\n'
-        "    if (resolutionPolicy.sourceByteLimit() != 67108864\n"
-        "            || resolutionPolicy.sourceFileLimit() != 10000\n"
-        "            || resolutionPolicy.directoryEntryLimit() != 100000\n"
-        "            || resolutionPolicy.importDepthLimit() != 256\n"
-        "            || firstGraphBudget.sourceBytes() != 3\n"
-        "            || firstGraphBudget.fileCount() != 1\n"
-        "            || secondGraphBudget.sourceBytes() != 0\n"
-        "            || secondGraphBudget.fileCount() != 0) { return 9; }\n"
+        "    FeSourceFileReader sourceFiles = FeSourceFileReader();\n"
         f"    string grammarSource = sourceFiles.readRequired({json.dumps(str(grammar_path))});\n"
         "    EbnfGrammarParser grammarParser = EbnfGrammarParser(grammarSource);\n"
         "    GrammarInfo grammar = grammarParser.parse();\n"
-        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, sourceFiles, resolutionPolicy);\n"
+        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, sourceFiles);\n"
         "    FeFrontendResolver resolver = FeFrontendResolver(\n"
-        "        grammar, stdlib, false, true, resolutionPolicy);\n"
+        "        grammar, stdlib, false, true);\n"
         f"    string firstSource = {json.dumps(first_source)};\n"
         f"    string secondSource = {json.dumps(second_source)};\n"
         f"    string sourcePath = {json.dumps(str(virtual_source))};\n"
@@ -423,33 +435,36 @@ def test_import_resolver_owns_deterministic_bulk_paths_and_c11_rendering(
         f"import {json.dumps(str(stage))};\n"
         "\n"
         "int main() {\n"
-        "    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();\n"
-        "    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);\n"
+        "    FeSourceFileReader sourceFiles = FeSourceFileReader();\n"
         f"    string grammarSource = sourceFiles.readRequired({json.dumps(str(grammar_path))});\n"
         "    EbnfGrammarParser grammarParser = EbnfGrammarParser(grammarSource);\n"
         "    GrammarInfo grammar = grammarParser.parse();\n"
-        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, sourceFiles, resolutionPolicy);\n"
+        f"    FeStdlibRepository stdlib = FeStdlibRepository({json.dumps(str(stdlib_path))}, sourceFiles);\n"
         "    FeStdlibRootSnapshot snapshot = stdlib.rootSnapshot();\n"
-        "    FeSourceDirectoryScanner directories = FeSourceDirectoryScanner(resolutionPolicy);\n"
+        "    FeSourceDirectoryScanner directories = FeSourceDirectoryScanner();\n"
         "    FeImportResolver resolver = FeImportResolver(\n"
-        "        stdlib, snapshot, directories, resolutionPolicy);\n"
+        "        stdlib, snapshot, directories);\n"
         f"    string sourceDirectory = {json.dumps(str(tmp_path))};\n"
         f"    string importsDirectory = {json.dumps(str(imports))};\n"
-        "    FeDirectoryScanBudget firstBudget = resolutionPolicy.newDirectoryBudget(importsDirectory);\n"
-        "    FeDirectoryScanBudget secondBudget = resolutionPolicy.newDirectoryBudget(importsDirectory);\n"
-        "    Vector<string> firstEntries = directories.sortedEntriesWithinBudget(\n"
-        "        importsDirectory, firstBudget);\n"
-        "    Vector<string> secondEntries = directories.sortedEntriesWithinBudget(\n"
-        "        importsDirectory, secondBudget);\n"
-        "    if (firstEntries.len != secondEntries.len\n"
-        "            || firstBudget.entryCount() != firstEntries.len\n"
-        "            || secondBudget.entryCount() != secondEntries.len\n"
-        "            || firstEntries.len != 5) { return 1; }\n"
-        "    int entryIndex = 0;\n"
-        "    while (entryIndex < firstEntries.len) {\n"
-        "        if (!firstEntries.get(entryIndex).equals(secondEntries.get(entryIndex))) { return 2; }\n"
-        "        entryIndex++;\n"
-        "    }\n"
+        '    Vector<string> suffixes = [".btrc", ".c"];\n'
+        "    Vector<string> firstChildren = [];\n"
+        "    Vector<string> firstFiles = [];\n"
+        "    Vector<string> secondChildren = [];\n"
+        "    Vector<string> secondFiles = [];\n"
+        "    directories.partition(\n"
+        "        importsDirectory, firstChildren, firstFiles, suffixes, true);\n"
+        "    directories.partition(\n"
+        "        importsDirectory, secondChildren, secondFiles, suffixes, true);\n"
+        "    if (firstChildren.len != secondChildren.len\n"
+        "            || firstFiles.len != secondFiles.len\n"
+        "            || firstChildren.len != 1\n"
+        "            || firstFiles.len != 2) { return 1; }\n"
+        '    if (directories.firstEntryWithChildFile(importsDirectory, "b.btrc").isEmpty()\n'
+        "            || !directories.firstEntryWithChildFile(\n"
+        '                importsDirectory, "b.btrc").endsWith("/nested/b.btrc")\n'
+        "            || !directories.firstEntryWithChildFile(\n"
+        '                importsDirectory, "absent.btrc").isEmpty()) { return 2; }\n'
+        '    if (directories.sortedNamesWithSuffix(importsDirectory, ".btrc").len != 1) { return 8; }\n'
         '    FeSourceText firstText = FeSourceText("alpha\\nbeta\\n");\n'
         '    FeSourceText secondText = FeSourceText("std.vector");\n'
         "    Vector<string> firstLines = firstText.lines();\n"
@@ -534,10 +549,8 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         f"import {json.dumps(str(stage))};\n"
         "\n"
         "int main() {\n"
-        "    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();\n"
-        "    FeSourceResolutionPolicy isolatedPolicy = FeSourceResolutionPolicy();\n"
-        "    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);\n"
-        "    FeSourceFileReader isolatedSourceFiles = FeSourceFileReader(isolatedPolicy);\n"
+        "    FeSourceFileReader sourceFiles = FeSourceFileReader();\n"
+        "    FeSourceFileReader isolatedSourceFiles = FeSourceFileReader();\n"
         f"    string firstRead = sourceFiles.readRequired({json.dumps(str(first_input))});\n"
         f"    string secondRead = isolatedSourceFiles.readRequired({json.dumps(str(second_input))});\n"
         f"    string firstReadAgain = sourceFiles.readRequired({json.dumps(str(first_input))});\n"
@@ -546,14 +559,14 @@ def test_stdlib_repository_instances_reuse_their_own_isolated_state(
         f"    string grammarSource = sourceFiles.readRequired({json.dumps(str(grammar_path))});\n"
         "    EbnfGrammarParser grammarParser = EbnfGrammarParser(grammarSource);\n"
         "    GrammarInfo grammar = grammarParser.parse();\n"
-        f"    FeStdlibRepository first = FeStdlibRepository({json.dumps(str(stdlib_a))}, sourceFiles, resolutionPolicy);\n"
-        f"    FeStdlibRepository second = FeStdlibRepository({json.dumps(str(stdlib_b))}, sourceFiles, resolutionPolicy);\n"
+        f"    FeStdlibRepository first = FeStdlibRepository({json.dumps(str(stdlib_a))}, sourceFiles);\n"
+        f"    FeStdlibRepository second = FeStdlibRepository({json.dumps(str(stdlib_b))}, sourceFiles);\n"
         "    FeStdlibRootSnapshot firstSnapshot = first.rootSnapshot();\n"
         "    FeStdlibRootSnapshot secondSnapshot = second.rootSnapshot();\n"
         "    FeFrontendResolver firstResolver = FeFrontendResolver(\n"
-        "        grammar, first, false, true, resolutionPolicy);\n"
+        "        grammar, first, false, true);\n"
         "    FeFrontendResolver secondResolver = FeFrontendResolver(\n"
-        "        grammar, second, false, true, resolutionPolicy);\n"
+        "        grammar, second, false, true);\n"
         "    if (firstSnapshot.count() != 2\n"
         '            || !PathTools.basename(firstSnapshot.pathAt(0)).equals("vector.btrc")\n'
         '            || !PathTools.basename(firstSnapshot.pathAt(1)).equals("zeta.btrc")) { return 2; }\n'
@@ -632,10 +645,9 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
         "\n"
         "FeVisibilityCheckResult checkStdlibSnapshot(\n"
         "        FeStdlibRepository repository, FeStdlibSymbolIndex index,\n"
-        "        GrammarInfo grammar, FeSourceResolutionPolicy resolutionPolicy,\n"
-        "        string sourcePath) {\n"
+        "        GrammarInfo grammar, string sourcePath) {\n"
         "    FeFrontendResolver resolver = FeFrontendResolver(\n"
-        "        grammar, repository, false, true, resolutionPolicy);\n"
+        "        grammar, repository, false, true);\n"
         '    FeResolvedSource resolved = resolver.resolve("int localValue;\\n", sourcePath);\n'
         "    Lexer lexer = Lexer(resolved.source, grammar);\n"
         "    Vector<Token> tokens = lexer.tokenize();\n"
@@ -648,17 +660,16 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
         "}\n"
         "\n"
         "int main() {\n"
-        "    FeSourceResolutionPolicy resolutionPolicy = FeSourceResolutionPolicy();\n"
-        "    FeSourceFileReader sourceFiles = FeSourceFileReader(resolutionPolicy);\n"
+        "    FeSourceFileReader sourceFiles = FeSourceFileReader();\n"
         f"    string grammarSource = sourceFiles.readRequired({json.dumps(str(grammar_path))});\n"
         "    EbnfGrammarParser grammarParser = EbnfGrammarParser(grammarSource);\n"
         "    GrammarInfo grammar = grammarParser.parse();\n"
-        f"    FeStdlibRepository repository = FeStdlibRepository({json.dumps(str(stdlib))}, sourceFiles, resolutionPolicy);\n"
+        f"    FeStdlibRepository repository = FeStdlibRepository({json.dumps(str(stdlib))}, sourceFiles);\n"
         "    FeStdlibSymbolIndex index = FeStdlibSymbolIndex();\n"
         f"    string sourcePath = {json.dumps(str(program))};\n"
         "    FeStdlibRootSnapshot firstSnapshot = repository.rootSnapshot();\n"
         "    FeVisibilityCheckResult first = checkStdlibSnapshot(\n"
-        "        repository, index, grammar, resolutionPolicy, sourcePath);\n"
+        "        repository, index, grammar, sourcePath);\n"
         "    Map<string, Vector<string>> firstSymbols = {};\n"
         "    index.mergeInto(firstSymbols);\n"
         "    if (!first.success || !index.currentFor(firstSnapshot)\n"
@@ -668,7 +679,7 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
         f"{json.dumps(invalid_stdlib_source)})) {{ return 2; }}\n"
         "    FeStdlibRootSnapshot invalidSnapshot = repository.rootSnapshot();\n"
         "    FeVisibilityCheckResult failed = checkStdlibSnapshot(\n"
-        "        repository, index, grammar, resolutionPolicy, sourcePath);\n"
+        "        repository, index, grammar, sourcePath);\n"
         "    Map<string, Vector<string>> failedSymbols = {};\n"
         "    index.mergeInto(failedSymbols);\n"
         "    if (failed.success || !failed.diagnostic.contains(\n"
@@ -683,7 +694,7 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
         f"{json.dumps(fixed_stdlib_source)})) {{ return 4; }}\n"
         "    FeStdlibRootSnapshot fixedSnapshot = repository.rootSnapshot();\n"
         "    FeVisibilityCheckResult fixed = checkStdlibSnapshot(\n"
-        "        repository, index, grammar, resolutionPolicy, sourcePath);\n"
+        "        repository, index, grammar, sourcePath);\n"
         "    Map<string, Vector<string>> fixedSymbols = {};\n"
         "    index.mergeInto(fixedSymbols);\n"
         "    if (!fixed.success || fixedSnapshot.sameContents(invalidSnapshot)\n"

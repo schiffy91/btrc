@@ -9,7 +9,6 @@ import pytest
 
 import src.compiler.python.frontend.packages as pkg
 from src.compiler.python.frontend.packages import PackageFileStore
-from src.compiler.python.frontend.sources import SourceResolutionPolicy
 from src.devex.lsp.workspace import cache as package_resolution
 from src.devex.lsp.workspace.workspace import Workspace
 from src.tests.lsp.lsphelp import compute_diagnostics
@@ -224,28 +223,39 @@ def test_workspace_package_resolution_cache_is_lru_bounded(tmp_path, monkeypatch
     assert evicted not in resolver._entries
 
 
-def test_workspace_import_composition_enforces_the_shared_byte_budget(tmp_path):
-    active, source, module = _path_dependency_project(tmp_path, "bounded")
-    workspace = Workspace(
-        resolution_policy=SourceResolutionPolicy(
-            max_source_bytes=len(source.encode()) + len(module.read_bytes()) - 1,
-        )
+def test_workspace_import_composition_has_no_source_byte_ceiling(tmp_path):
+    active, source, module = _path_dependency_project(tmp_path, "unbounded")
+    module.write_text(
+        module.read_text() + "".join(f"int filler_{index} = {index};\n" for index in range(20000)),
     )
+    workspace = Workspace()
 
     composition = workspace.compose(workspace.parse_active(str(active), source))
 
-    assert composition.imported == []
-    assert any("resolved source exceeds" in message for _, message in composition.import_errors)
+    assert composition.import_errors == []
+    assert [unit.path for unit in composition.imported] == [str(module)]
 
 
-def test_workspace_composes_one_owned_source_resolution_policy():
-    policy = SourceResolutionPolicy(max_source_bytes=4096)
-    workspace = Workspace(resolution_policy=policy)
+def test_workspace_composition_is_iterative_and_unbounded_in_depth(tmp_path):
+    depth = 512
+    project = tmp_path / "deep"
+    project.mkdir()
+    (project / "btrc.toml").write_text("[dependencies]\n")
+    for index in range(depth):
+        module = project / f"level_{index}.btrc"
+        if index + 1 < depth:
+            module.write_text(f'import "./level_{index + 1}.btrc";\nint value_{index}() {{ return {index}; }}\n')
+        else:
+            module.write_text(f"int value_{index}() {{ return {index}; }}\n")
+    active = project / "main.btrc"
+    source = 'import "./level_0.btrc";\nint main() { return value_0(); }\n'
+    active.write_text(source)
+    workspace = Workspace()
 
-    assert workspace._resolution_policy is policy
-    assert workspace._stdlib.resolution_policy is policy
-    assert workspace._imports.resolution_policy is policy
-    assert workspace._source_reader.max_bytes == policy.max_source_bytes
+    composition = workspace.compose(workspace.parse_active(str(active), source))
+
+    assert composition.import_errors == []
+    assert len(composition.imported) == depth
 
 
 def test_diagnostic_snapshot_invalidates_when_import_error_changes(tmp_path):

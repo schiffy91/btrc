@@ -14,9 +14,14 @@ def test_array_list_literal_initializer():
 
 def test_gpu_dispatch_over_runtime_sized_vector():
     # Dispatching with a Vector<T> argument uses ->len / ->data at the call site.
+    # The snippet declares its own collection because emit_c composes no stdlib,
+    # and GPU dispatch requires a provable readable buffer capacity.
     c = emit_c(
+        "class Vector<T> { public T* data; public int len;\n"
+        "  public Vector(T* data, int len) { self.data = data; self.len = len; } }\n"
         "@gpu\nvoid scale(float[] xs, float k) { int i = gpu_id(); xs[i] = xs[i] * k; }\n"
-        "int main() { Vector<float> v = new Vector<float>(); v.add(1.0); scale(v, 2.0); return 0; }"
+        "float raw[3] = {1.0, 2.0, 3.0};\n"
+        "int main() { Vector<float> v = new Vector<float>(raw, 3); scale(v, 2.0); return 0; }"
     )
     assert "->len" in c or "->data" in c
 

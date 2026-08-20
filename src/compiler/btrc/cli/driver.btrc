@@ -341,14 +341,12 @@ class BtrccOutput {
 class BtrccDriver {
     private BtrccCommandLine commandLine;
     private BtrccOutput output;
-    private FeSourceResolutionPolicy resolutionPolicy;
     private FeSourceFileReader sourceFiles;
 
     public BtrccDriver(int argc, char** argv) {
         self.commandLine = BtrccCommandLine(argc, argv);
         self.output = BtrccOutput(stdout);
-        self.resolutionPolicy = FeSourceResolutionPolicy();
-        self.sourceFiles = FeSourceFileReader(self.resolutionPolicy);
+        self.sourceFiles = FeSourceFileReader();
     }
 
     private int fail(string diagnostic) {
@@ -396,8 +394,7 @@ class BtrccDriver {
         }
         string source = self.sourceFiles.readRequired(sourcePath);
         Compiler compiler = Compiler(
-            grammar, dataPaths.stdlib, self.sourceFiles,
-            self.resolutionPolicy);
+            grammar, dataPaths.stdlib, self.sourceFiles);
         BtrccCompilationResult result =
             compiler.compile(source, sourcePath, options);
         if (!result.success) {

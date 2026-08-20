@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import sys
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass
 from typing import Any
 
 import src.compiler.python.syntax.ast.generated as ast
@@ -22,15 +22,52 @@ from ..abi.hosted import HOSTED_ABI
 from .packages import IncludeResolutionError, ResolvedPackages
 from .sources import (
     CompilerStdlibSource,
-    ResolutionBudget,
     SourceDependencyGraph,
+    SourceDirective,
     SourceDirectiveScanner,
     SourceDirectoryScanner,
     SourceFileReader,
     SourceReadError,
-    SourceResolutionPolicy,
     StdlibRepository,
 )
+
+
+@dataclass(slots=True)
+class ResolutionFrame:
+    """One source file in progress during iterative import resolution."""
+
+    absolute: str
+    source_dir: str
+    lines: list[str]
+    by_start: dict[int, SourceDirective]
+    covered: set[int]
+    cursor: int = 0
+    pending: list[tuple[str, int, str]] = field(default_factory=list)
+    pending_cursor: int = 0
+
+    def next_dependency(self) -> tuple[str, int, str] | None:
+        """Take the next dependency spliced in by the current directive."""
+
+        if self.pending_cursor >= len(self.pending):
+            return None
+        dependency = self.pending[self.pending_cursor]
+        self.pending_cursor += 1
+        return dependency
+
+    def next_line(self) -> tuple[int, str] | None:
+        """Advance one source line, or report that this frame is finished."""
+
+        if self.cursor >= len(self.lines):
+            return None
+        line = self.lines[self.cursor]
+        self.cursor += 1
+        return self.cursor, line
+
+    def directive_at(self, line_number: int) -> SourceDirective | None:
+        return self.by_start.get(line_number)
+
+    def emits(self, line_number: int) -> bool:
+        return line_number not in self.covered
 
 
 class ImportResolver:
@@ -45,17 +82,11 @@ class ImportResolver:
         source_reader: SourceFileReader | None = None,
         directive_scanner: SourceDirectiveScanner | None = None,
         directory_scanner: SourceDirectoryScanner | None = None,
-        resolution_policy: SourceResolutionPolicy | None = None,
     ) -> None:
-        if stdlib is not None and resolution_policy is not None and stdlib.resolution_policy != resolution_policy:
-            raise ValueError("ImportResolver and stdlib must share one source resolution policy")
-        self.resolution_policy = resolution_policy or (
-            stdlib.resolution_policy if stdlib is not None else SourceResolutionPolicy()
-        )
-        self.stdlib = stdlib or StdlibRepository(resolution_policy=self.resolution_policy)
-        self._source_reader = source_reader or SourceFileReader(self.resolution_policy.max_source_bytes)
+        self.stdlib = stdlib or StdlibRepository()
+        self._source_reader = source_reader or SourceFileReader()
         self._directives = directive_scanner or SourceDirectiveScanner()
-        self._directories = directory_scanner or SourceDirectoryScanner(self.resolution_policy)
+        self._directories = directory_scanner or SourceDirectoryScanner()
 
     def import_paths(
         self,
@@ -99,8 +130,6 @@ class ImportResolver:
                 packages,
                 set() if included is None else included,
                 graph,
-                self.resolution_policy.new_budget(),
-                0,
             )
         except IncludeResolutionError as error:
             if not exit_on_error:
@@ -203,40 +232,89 @@ class ImportResolver:
                 raise IncludeResolutionError(f"cannot import C file whose path contains a C trigraph: {path!r}")
         return f'#include "{path}"'
 
-    def _inline_paths(
+    def _open_frame(
         self,
-        paths: list[str],
-        packages: ResolvedPackages,
+        source: str,
         source_path: str,
+        included: set[str],
+        graph: SourceDependencyGraph,
+    ) -> ResolutionFrame | None:
+        """Register one source in the graph and start traversing it once."""
+
+        absolute = os.path.abspath(source_path)
+        identity = os.path.normcase(os.path.realpath(absolute))
+        graph.ensure_source(absolute)
+        if identity in included:
+            return None
+        included.add(identity)
+        directives = self._directives.scan(source)
+        return ResolutionFrame(
+            absolute=absolute,
+            source_dir=os.path.dirname(absolute),
+            lines=source.split("\n"),
+            by_start={directive.start: directive for directive in directives},
+            covered={line for directive in directives for line in range(directive.start, directive.end + 1)},
+        )
+
+    def _splice_dependencies(
+        self,
+        frame: ResolutionFrame,
+        directive: SourceDirective,
         line_number: int,
+        packages: ResolvedPackages,
+        graph: SourceDependencyGraph,
+    ) -> None:
+        """Queue the sources one directive contributes, in resolution order."""
+
+        frame.pending.clear()
+        frame.pending_cursor = 0
+        if directive.kind == "btrc_include":
+            target = os.path.abspath(
+                self._resolve_include_path(
+                    directive.payload,
+                    frame.source_dir,
+                )
+            )
+            graph.add_include(frame.absolute, target)
+            frame.pending.append((target, line_number, "include"))
+            return
+        frame.pending.extend(
+            (path, line_number, "import")
+            for path in self.import_paths(
+                directive.payload,
+                frame.source_dir,
+                packages,
+            )
+        )
+
+    def _enter_dependency(
+        self,
+        frame: ResolutionFrame,
+        dependency: tuple[str, int, str],
+        packages: ResolvedPackages,
         included: set[str],
         graph: SourceDependencyGraph,
         output: list[tuple[str, str, int]],
-        budget: ResolutionBudget,
-        depth: int,
-    ) -> None:
-        for path in paths:
-            absolute = os.path.abspath(path)
-            graph.add_import(source_path, absolute)
-            if path.endswith(".c"):
-                identity = os.path.normcase(os.path.realpath(absolute))
-                if identity in included:
-                    continue
-                budget.enter("", absolute, depth)
-                included.add(identity)
-                output.append((self.render_c_include(absolute), source_path, line_number))
-                continue
-            output.extend(
-                self._resolve_traced(
-                    self._read_source(path),
-                    path,
-                    packages,
-                    included,
-                    graph,
-                    budget,
-                    depth,
-                )
-            )
+    ) -> ResolutionFrame | None:
+        """Inline one dependency, returning a child frame for btrc sources."""
+
+        path, line_number, kind = dependency
+        absolute = os.path.abspath(path)
+        if kind == "import":
+            graph.add_import(frame.absolute, absolute)
+        if path.endswith(".c"):
+            identity = os.path.normcase(os.path.realpath(absolute))
+            if identity in included:
+                return None
+            included.add(identity)
+            output.append((self.render_c_include(absolute), frame.absolute, line_number))
+            return None
+        return self._open_frame(
+            self._read_source(path),
+            path,
+            included,
+            graph,
+        )
 
     def _resolve_traced(
         self,
@@ -245,63 +323,42 @@ class ImportResolver:
         packages: ResolvedPackages,
         included: set[str],
         graph: SourceDependencyGraph,
-        budget: ResolutionBudget,
-        depth: int,
     ) -> list[tuple[str, str, int]]:
-        absolute = os.path.abspath(source_path)
-        identity = os.path.normcase(os.path.realpath(absolute))
-        source_dir = os.path.dirname(absolute)
-        graph.ensure_source(absolute)
-        if identity in included:
-            return []
-        budget.enter(source, absolute, depth)
-        included.add(identity)
+        """Compose one source graph depth-first without host recursion.
 
-        directives = self._directives.scan(source)
-        by_start = {directive.start: directive for directive in directives}
-        covered = {line for directive in directives for line in range(directive.start, directive.end + 1)}
+        An explicit frame stack replaces recursive descent so import nesting is
+        limited only by available memory rather than by a compiler-defined depth
+        ceiling or the interpreter's call stack.
+        """
+
         output: list[tuple[str, str, int]] = []
-        for line_number, line in enumerate(source.split("\n"), start=1):
-            directive = by_start.get(line_number)
-            if directive is not None:
-                if directive.kind == "btrc_include":
-                    target = os.path.abspath(
-                        self._resolve_include_path(
-                            directive.payload,
-                            source_dir,
-                        )
-                    )
-                    graph.add_include(absolute, target)
-                    output.extend(
-                        self._resolve_traced(
-                            self._read_source(target),
-                            target,
-                            packages,
-                            included,
-                            graph,
-                            budget,
-                            depth + 1,
-                        )
-                    )
-                else:
-                    self._inline_paths(
-                        self.import_paths(
-                            directive.payload,
-                            source_dir,
-                            packages,
-                        ),
-                        packages,
-                        absolute,
-                        line_number,
-                        included,
-                        graph,
-                        output,
-                        budget,
-                        depth + 1,
-                    )
+        root = self._open_frame(source, source_path, included, graph)
+        stack: list[ResolutionFrame] = [] if root is None else [root]
+        while stack:
+            frame = stack[-1]
+            dependency = frame.next_dependency()
+            if dependency is not None:
+                child = self._enter_dependency(
+                    frame,
+                    dependency,
+                    packages,
+                    included,
+                    graph,
+                    output,
+                )
+                if child is not None:
+                    stack.append(child)
                 continue
-            if line_number not in covered:
-                output.append((line, absolute, line_number))
+            advanced = frame.next_line()
+            if advanced is None:
+                stack.pop()
+                continue
+            line_number, line = advanced
+            directive = frame.directive_at(line_number)
+            if directive is not None:
+                self._splice_dependencies(frame, directive, line_number, packages, graph)
+            elif frame.emits(line_number):
+                output.append((line, frame.absolute, line_number))
         return output
 
 
@@ -484,8 +541,8 @@ class ImportReferenceCollector:
             return
         if not is_dataclass(node):
             return
-        for field in fields(node):
-            self.visit(getattr(node, field.name))
+        for member in fields(node):
+            self.visit(getattr(node, member.name))
 
 
 class ImportVisibilityChecker:
@@ -653,4 +710,5 @@ __all__ = (
     "ImportResolver",
     "ImportVisibilityChecker",
     "ImportVisibilityFailure",
+    "ResolutionFrame",
 )

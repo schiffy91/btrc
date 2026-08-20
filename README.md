@@ -175,10 +175,11 @@ Supported forms are:
 - directory globs with `./dir/*`
 - recursive directory globs with `./dir/**`
 
-Import composition is bounded before files are concatenated: resolved source
-may contain at most 64 MiB across 10,000 unique files, import nesting is capped
-at 256 levels, and a directory glob scans at most 100,000 entries. Exceeding a
-limit produces a compiler diagnostic instead of exhausting the host process.
+Import resolution imposes no compiler-defined ceilings on source size, file
+count, nesting depth, or directory-scan size. Traversal is iterative and
+directory listings stream, so a compilation scales with the memory and file
+descriptors the host actually provides; genuine filesystem and allocation
+failures are reported as diagnostics.
 
 Explicit imports are always resolved. `--no-stdlib` only disables the implicit
 stdlib composition used by `--relaxed-imports`; it has no effect on normal

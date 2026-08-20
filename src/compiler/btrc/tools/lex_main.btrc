@@ -7,11 +7,9 @@ class LexerInspectionCommand {
     private BtrccOutput output;
     private FeSourceFileReader sourceFiles;
 
-    public LexerInspectionCommand(
-            BtrccOutput output,
-            FeSourceResolutionPolicy resolutionPolicy) {
+    public LexerInspectionCommand(BtrccOutput output) {
         self.output = output;
-        self.sourceFiles = FeSourceFileReader(resolutionPolicy);
+        self.sourceFiles = FeSourceFileReader();
     }
 
     public int run(int argc, char** argv) {
@@ -48,5 +46,5 @@ class LexerInspectionCommand {
 
 int main(int argc, char** argv) {
     return LexerInspectionCommand(
-        BtrccOutput(stdout), FeSourceResolutionPolicy()).run(argc, argv);
+        BtrccOutput(stdout)).run(argc, argv);
 }

@@ -431,5 +431,5 @@ class AstNodeGenerator {
 int main() {
     return AstNodeGenerator(
         BtrccOutput(stdout),
-        FeSourceFileReader(FeSourceResolutionPolicy())).run();
+        FeSourceFileReader()).run();
 }

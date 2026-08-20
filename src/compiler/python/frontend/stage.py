@@ -16,7 +16,6 @@ from .packages import PackageUniverse
 from .sources import (
     CompilerStdlibSource,
     ResolvedSource,
-    SourceResolutionPolicy,
     SourceResolver,
     StdlibRepository,
 )
@@ -41,7 +40,6 @@ class FrontendStage:
         resolver: SourceResolver | None = None,
         imports: ImportResolver | None = None,
         package_universe: PackageUniverse | None = None,
-        resolution_policy: SourceResolutionPolicy | None = None,
     ) -> None:
         if resolver is not None:
             if stdlib is not None and resolver.stdlib is not stdlib:
@@ -51,24 +49,12 @@ class FrontendStage:
             self.resolver = resolver
             self.stdlib = resolver.stdlib
         else:
-            owned_policy = resolution_policy
-            if owned_policy is None and imports is not None:
-                owned_policy = imports.resolution_policy
-            if owned_policy is None and stdlib is not None:
-                owned_policy = stdlib.resolution_policy
-            owned_policy = owned_policy or SourceResolutionPolicy()
-            self.stdlib = stdlib or StdlibRepository(
-                resolution_policy=owned_policy,
-            )
-            imports = imports or ImportResolver(
-                self.stdlib,
-                resolution_policy=owned_policy,
-            )
+            self.stdlib = stdlib or (imports.stdlib if imports is not None else StdlibRepository())
+            imports = imports or ImportResolver(self.stdlib)
             self.resolver = SourceResolver(
                 self.stdlib,
                 imports=imports,
                 package_universe=package_universe,
-                resolution_policy=owned_policy,
             )
 
     def resolve(
