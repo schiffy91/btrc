@@ -55,14 +55,14 @@ Plus, btrc *definitely* has bugs.
 
 ## Development Handoff
 
-The architecture/ownership refactor is preserved on the
-`codex/compiler-refactor-handoff` branch, but the correctness hill-climb is not
-finished and this branch is not release-ready. The destination package layout,
-frozen compiler-boundary harness, runtime catalogs, strict-import path, and most
-focused Python/self-host parity fixes are in place. The remaining work starts
-with an effectful variable-length-array bound that the Python compiler currently
-emits twice, followed by the remaining self-host discovery shards and the final
-serial verification matrix.
+Work happens directly on `main`; every campaign branch has been merged and
+deleted. The correctness hill-climb is not finished and `main` is not
+release-ready. The destination package layout, frozen compiler-boundary harness,
+runtime catalogs, strict-import path, and the Python/self-host parity fixes are
+in place, as are the frontend resource-ceiling removal, the effectful
+variable-length-array bound that the Python compiler used to emit twice, and the
+empty-managed-slot initialization defect. What remains is the final serial
+verification matrix.
 
 Claude Code and other contributors should read [CLAUDE.md](CLAUDE.md) and the
 detailed [active handoff in GOAL.md](GOAL.md#active-handoff-2026-08-19) before

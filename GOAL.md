@@ -38,8 +38,13 @@ test matrix passes, and the devex artifacts build successfully.
   moves, and corpus golden completion are implemented.
 - Correctness is in the final hill-climb. Completed on this checkpoint:
   the frontend resource-ceiling removal, the Python VLA bound
-  single-evaluation fix, the full no-cache Python unit suite, the frozen
-  boundary gate, lint, format, and `git diff --check`.
+  single-evaluation fix, the empty managed slot defect, the full no-cache
+  Python unit suite, the frozen boundary gate, lint, format, and
+  `git diff --check`.
+- The test harness now builds the self-hosted compiler once per source
+  revision rather than once per pytest worker, keyed on a fingerprint of the
+  compiler sources, stdlib, shared specs, runtime assets, and C compiler
+  version. `make test` also runs from a clean checkout again.
 - The final serial self-host suite, the language corpora, `make test`,
   `make test-c11`, and the actual bootstrap fixed point have **not** yet passed
   on this checkpoint. Do not mark this goal complete.
@@ -147,6 +152,57 @@ Python reference compiler:
 - GPU output declarations record the dispatch length, not the declared bound, as
   the logical extent.
 
+### Completed: the empty managed slot defect
+
+A managed local declared without an initializer was emitted as raw stack
+storage on the reference side, yet it still had a cleanup registered and a
+later assignment still treated it as a slot replacement. That replacement reads
+the slot before overwriting it, so `Box b; b = new Box(3);` released whatever
+the stack happened to hold: segfault at `-O0`, ARC assertion at `-O2`, both
+deterministic. The reference lowering now initializes the slot under exactly
+the condition that decides whether a cleanup is registered, matching the
+self-hosted lowering, which already did this. Regression:
+`src/tests/memory/test_empty_managed_local.btrc`, which fails in both of those
+ways without the fix.
+
+### Measured, not fixed: cleanup registration is linear in live entries
+
+`__btrc_register_cleanup_kind` scans the whole cleanup stack on every managed
+assignment. Instrumented over one compile of a thirty-line input by the
+self-hosted compiler:
+
+| measure | value |
+| --- | --- |
+| calls | 15,375,708 |
+| loop iterations | 1,536,323,377 |
+| iterations per call | 99.9 |
+| dedup hits served | 41,267 (0.27%) |
+| max cleanup stack depth | 6,153 |
+
+Sampling attributes ~53% of that compile to this function. A further ~21% sits
+in `sigprocmask`/`sigaltstack`, which Darwin's `setjmp` calls to save the signal
+mask on entry to every try block; btrc never throws out of a signal handler, so
+that mask is not state a catch has to restore. These are properties of every
+program btrc emits, not of the test harness — the self-hosted compiler is
+simply the largest btrc program available to measure.
+
+An open-addressed index keyed on (slot, try level), lazily validated against the
+stack, was implemented and **reverted**: at a three-quarter load factor, linear
+probing over the buckets left behind by popped entries degenerates into long
+probe chains, and the resulting compiler was 25x slower in user CPU time
+(7.55s versus 0.30s per invocation). Lazy deletion is the wrong fit for a stack
+workload. A correct version needs eager removal on pop — the pop sites
+(`__btrc_run_cleanups`, `__btrc_discard_cleanups`, `__btrc_discard_cleanups_to`)
+each release a contiguous range from the top, so backward-shift deletion there
+would hold occupancy at the live count and keep probes short.
+
+Two cautions for whoever picks this up. First, benchmark on a quiet machine:
+`corespotlightd` saturated a core during this session and made wall-clock
+readings vary by 2x, so compare user CPU time and confirm any win twice.
+Second, `__btrc_try_top` and `__btrc_try_stack` are referenced directly by
+generated code in both compilers, so the state cannot be folded into a single
+thread-local struct without changing both lowerings.
+
 ### Verified on this checkpoint
 
 - Python unit + LSP + debugger, no cache: **3802 passed, 30 skipped**.
@@ -166,6 +222,10 @@ Python reference compiler:
 2. Run `make test-c11`, `make extension`, `make test`, and finally
    `make bootstrap`.
 3. Remove only ignored caches/build products after every gate passes.
+
+The cleanup-registration and `setjmp` costs recorded below are performance
+defects, not correctness ones. They do not gate this goal and should not be
+attempted alongside it; they need their own quiet-machine benchmarking cycle.
 
 ### Known follow-up (documented, not yet fixed)
 

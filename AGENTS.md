@@ -16,11 +16,18 @@ deleted. Read the **Active Handoff** section of `GOAL.md` before making any
 change — it records what has already been verified and what remains.
 
 The architecture destination and frozen-boundary infrastructure are complete.
-The frontend resource-ceiling removal and the Python VLA bound
-single-evaluation fix have landed with their regressions. What remains is the
-self-host hill-climb: rebuild the self-host artifact from current sources, rerun
-the focused self-host nodes, then run the full serial matrix ending in
-`make test` and `make bootstrap`.
+The frontend resource-ceiling removal, the Python VLA bound single-evaluation
+fix, and the empty managed slot defect have landed with their regressions. What
+remains is the self-host hill-climb: rebuild the self-host artifact from current
+sources, rerun the focused self-host nodes, then run the full serial matrix
+ending in `make test` and `make bootstrap`.
+
+The test harness builds the self-hosted compiler once per source revision and
+caches it under `build/test-btrcc/<fingerprint>/`; a change to any compiler
+source, the stdlib, a shared spec, a runtime asset, or the C compiler version
+invalidates it. Set `BTRC_TEST_BTRCC` to reuse a binary you built yourself.
+GOAL.md records two measured runtime performance defects that are deliberately
+out of scope for this goal — do not attempt them alongside correctness work.
 
 Self-host binaries under `/tmp` are an ephemeral convenience, never a tracked
 build product. Rebuild after any change to self-host production sources or to
