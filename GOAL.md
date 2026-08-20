@@ -354,14 +354,32 @@ control-sensitive evaluation is preserved". Hoisting the assignment through
 `record_declaration` instead moves it to the top of the function, which is what
 turned one failure into five.
 
-**This is the blocker.** Every resolution is outside a local fix:
+**This is the blocker, and each way out is closed by a rule this goal sets.**
 
-1. GCC's diagnostic is wrong and would have to change upstream.
-2. Changing the corpus source removes a deliberate callable-provenance case, which
-   is weakening the test.
-3. Allowing ordered runtime setup statements between an expression's operands is a
-   change to the evaluation-order machinery the IR is built around, not a
-   codegen tweak -- and four provenance tests currently pin that ordering.
+1. *Fix GCC.* The diagnostic is wrong about conforming C11 and would have to
+   change upstream. This is the only root-cause fix and it is external.
+2. *Change the corpus source.* It removes a deliberate callable-provenance case
+   -- weakening a test.
+3. *Suppress `-Wsequence-point` for this build.* It would hide real
+   sequence-point defects everywhere else -- weakening the gate.
+4. *Special-case this shape in the variable-declaration path.* Statement-level
+   lowering can already emit setup statements ahead of a declaration, so a
+   narrow fix is reachable there. It would only cover initializers: the same
+   construct in a return, an argument, or a condition still emits the rejected
+   form. That is a compatibility shim for one test rather than a fix, and this
+   goal forbids shims.
+5. *Let ordered runtime setup sit between an expression's operands.* This is the
+   only general fix inside the repository, and it is a redesign rather than a
+   change. The IR deliberately keeps every side effect inside one
+   `IRCommaExpr`, hoisting only side-effect-free declarations, precisely so
+   strict C11 can be emitted without GNU statement expressions. Splitting side
+   effects out means linearizing side-effecting expressions into statements --
+   three-address form -- across the whole expression lowerer, and four
+   provenance tests currently pin the ordering it would move.
+
+Option 5 is real work that a future goal could take on deliberately. It is not
+a correctness defect: the compiler emits conforming C today, and Clang builds
+it at every optimization level.
 
 Until one of those is taken, `make test` stops at this line and never reaches
 the serial bootstrap behind it. `make bootstrap` still runs the fixed point on
