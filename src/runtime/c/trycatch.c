@@ -85,7 +85,24 @@ static inline void __btrc_register_cleanup_kind(
         void* slot, __btrc_cleanup_take_fn take,
         __btrc_cleanup_fn fn, __btrc_visit_fn visit, int direct) {
     if (!slot || !take || !fn) return;
-    for (int i = __btrc_cleanup_top; i >= 0; i--) {
+    /* Look for a superseded entry among the most recent registrations only.
+     *
+     * Finding one is an optimization, not a correctness requirement:
+     * __btrc_run_cleanups takes every slot in the batch before running any
+     * cleanup, and a take clears the slot it reads, so a duplicate left behind
+     * reads back NULL and is skipped. What the search prevents is a slot that
+     * is assigned repeatedly -- a loop body, say -- pushing one entry per
+     * assignment, and the entry to reuse in that case is the one this scope
+     * pushed most recently. Scanning the whole stack to find it made every
+     * managed assignment linear in the number of live entries: over a single
+     * compile of a thirty-line input, the self-hosted compiler ran 1.54 billion
+     * iterations of this loop to serve 41,267 matches, averaging 99.9 iterations
+     * per call for a 0.27% hit rate. Entries are never moved, so a window
+     * measured down from the top is stable. */
+    const int recent = 16;
+    int oldest = __btrc_cleanup_top - (recent - 1);
+    if (oldest < 0) oldest = 0;
+    for (int i = __btrc_cleanup_top; i >= oldest; i--) {
         __btrc_cleanup_entry* existing = &__btrc_cleanup_stack[i];
         if (existing->try_level == __btrc_try_top && existing->slot == slot) {
             existing->take = take;

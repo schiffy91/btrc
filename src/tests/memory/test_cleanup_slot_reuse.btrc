@@ -1,0 +1,72 @@
+/* A managed slot reassigned many times inside a try block registers its
+ * cleanup once per assignment. Registration reuses the slot's existing entry
+ * rather than stacking a new one, and unwinding stays correct either way:
+ * every slot in a batch is taken before any cleanup runs, and a take clears
+ * the slot it read, so a superseded entry sees null and is skipped. This
+ * exercises both — the reuse that keeps the cleanup stack bounded, and the
+ * release-exactly-once behaviour that does not depend on it. */
+#include <assert.h>
+
+int alive = 0;
+
+class Resource {
+    public int id;
+
+    public Resource(int id) {
+        self.id = id;
+        alive++;
+    }
+
+    public void __del__() {
+        alive--;
+    }
+}
+
+int main() {
+    // Reassigning one slot in a loop: each assignment releases the previous
+    // object, so only the last one is alive when the try block ends.
+    try {
+        Resource r = new Resource(0);
+        for (int i = 1; i < 5000; i++) {
+            r = new Resource(i);
+            assert(alive == 1);
+        }
+        assert(r.id == 4999);
+    } catch (string e) {
+        assert(false);
+    }
+    assert(alive == 0);
+
+    // Same shape, but leaving the block by throwing rather than falling out.
+    try {
+        Resource a = new Resource(1);
+        for (int i = 0; i < 5000; i++) {
+            a = new Resource(i);
+        }
+        Resource b = new Resource(2);
+        throw "unwind";
+    } catch (string e) {
+        assert(alive == 0);
+    }
+    assert(alive == 0);
+
+    // Several distinct slots interleaved, so a reassignment is not always the
+    // most recent registration.
+    try {
+        Resource p = new Resource(1);
+        Resource q = new Resource(2);
+        Resource s = new Resource(3);
+        for (int i = 0; i < 2000; i++) {
+            p = new Resource(i);
+            q = new Resource(i);
+            s = new Resource(i);
+            assert(alive == 3);
+        }
+    } catch (string e) {
+        assert(false);
+    }
+    assert(alive == 0);
+
+    print("PASS: test_cleanup_slot_reuse");
+    return 0;
+}

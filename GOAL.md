@@ -165,9 +165,9 @@ self-hosted lowering, which already did this. Regression:
 `src/tests/memory/test_empty_managed_local.btrc`, which fails in both of those
 ways without the fix.
 
-### Measured, not fixed: cleanup registration is linear in live entries
+### Completed: cleanup registration no longer scans the whole stack
 
-`__btrc_register_cleanup_kind` scans the whole cleanup stack on every managed
+`__btrc_register_cleanup_kind` scanned every live cleanup entry on each managed
 assignment. Instrumented over one compile of a thirty-line input by the
 self-hosted compiler:
 
@@ -179,29 +179,52 @@ self-hosted compiler:
 | dedup hits served | 41,267 (0.27%) |
 | max cleanup stack depth | 6,153 |
 
-Sampling attributes ~53% of that compile to this function. A further ~21% sits
-in `sigprocmask`/`sigaltstack`, which Darwin's `setjmp` calls to save the signal
-mask on entry to every try block; btrc never throws out of a signal handler, so
-that mask is not state a catch has to restore. These are properties of every
-program btrc emits, not of the test harness — the self-hosted compiler is
-simply the largest btrc program available to measure.
+The search is an optimization, not a correctness requirement.
+`__btrc_run_cleanups` takes every slot in a batch before running any cleanup,
+and a take clears the slot it read, so an entry superseded by a later
+registration of the same slot reads back NULL and is skipped. What the search
+prevents is a repeatedly-assigned slot pushing one entry per assignment, and
+the entry to reuse in that case is the one the current scope pushed most
+recently. Registration now looks only at the most recent sixteen entries.
+Entries are never moved, so a window measured down from the top is stable.
 
-An open-addressed index keyed on (slot, try level), lazily validated against the
-stack, was implemented and **reverted**: at a three-quarter load factor, linear
-probing over the buckets left behind by popped entries degenerates into long
-probe chains, and the resulting compiler was 25x slower in user CPU time
-(7.55s versus 0.30s per invocation). Lazy deletion is the wrong fit for a stack
-workload. A correct version needs eager removal on pop — the pop sites
-(`__btrc_run_cleanups`, `__btrc_discard_cleanups`, `__btrc_discard_cleanups_to`)
-each release a contiguous range from the top, so backward-shift deletion there
-would hold occupancy at the live count and keep probes short.
+Result: 1.91x faster in user CPU time on the self-hosted compiler with
+byte-identical output; in sampling, the function fell from 614 samples (first)
+to 75 (fourth). Regression:
+`src/tests/memory/test_cleanup_slot_reuse.btrc`, which reassigns managed slots
+thousands of times inside try blocks, on both the fall-through and the throwing
+exit, and with several slots interleaved so a reassignment is not always the
+most recent registration.
 
-Two cautions for whoever picks this up. First, benchmark on a quiet machine:
-`corespotlightd` saturated a core during this session and made wall-clock
-readings vary by 2x, so compare user CPU time and confirm any win twice.
-Second, `__btrc_try_top` and `__btrc_try_stack` are referenced directly by
-generated code in both compilers, so the state cannot be folded into a single
-thread-local struct without changing both lowerings.
+Three other shapes were tried and rejected, recorded so they are not retried
+blindly:
+
+- **Stop the scan at the first differing try level.** Worth 1.6%: the
+  self-hosted compiler contains only eight `__btrc_push_try` sites, so nearly
+  every entry sits at the same try level.
+- **An open-addressed index keyed on (slot, try level), lazily validated.**
+  Implemented and reverted — lazy deletion suits a stack workload badly, and at
+  a three-quarter load factor the probe chains left by popped entries made the
+  compiler 25x slower.
+- **Compacting the stack to drop superseded entries.** Not possible: generated
+  code holds `__btrc_cleanup_mark()` results as raw integer indices at 5,905
+  sites, so removing an entry silently invalidates every outstanding mark.
+
+### Known follow-up: setjmp saves the signal mask on every try entry
+
+Darwin and the BSDs make `setjmp` save the caller's signal mask and alternate
+stack, costing two syscalls on entry to every try block. btrc never throws out
+of a signal handler, so that mask is not state a catch has to restore. With the
+registration scan fixed, `sigprocmask` and `__sigaltstack` are the largest
+remaining cost in the self-hosted compiler at roughly 40% of samples.
+`_setjmp`/`_longjmp` compile clean under
+`-std=c11 -pedantic-errors -Wall -Wextra -Werror` on both macOS/clang and
+nix/glibc/gcc, so a `BTRC_TRY_SETJMP` seam that keeps the C11 pair for
+freestanding shims and unknown targets is the shape to use.
+
+Benchmark on a quiet machine. `corespotlightd` indexes the large generated C
+this work produces and will saturate a core for minutes, swinging wall-clock
+readings by 2x; compare user CPU time and confirm any win on a second build.
 
 ### Verified on this checkpoint
 
