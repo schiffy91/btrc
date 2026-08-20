@@ -1,0 +1,1 @@
+{"asset":"trycatch.c","btrc_order":166,"category":"trycatch","dependencies":["__btrc_arc_callback_types","__btrc_push_try","__btrc_copy_error_message"],"headers":[],"name":"__btrc_arc_guard_hook","provided_objects":[],"provided_types":[],"python_order":102,"source_sha256":"c1ca8e8b14b53edc977ed5f15ee2a76b9b94edea60540b4e72b8051739bf26e5","source_size":682,"source_visible":false}
