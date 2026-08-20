@@ -822,7 +822,7 @@ class StorageLowerer:
         declaration = IRVarDecl(
             c_type=CType(text=plan.element_c_type if is_array else plan.c_type),
             name=plan.c_name,
-            init=initializer,
+            init=self._empty_managed_slot(plan, external, is_array) if initializer is None else initializer,
             array_size=array_size,
             is_unsized_array=bool(is_array and array_size is None),
             **plan.storage,
@@ -875,6 +875,25 @@ class StorageLowerer:
             self._session.require_helper("__btrc_thread_free")
             self._lifetime.register_direct_cleanup(plan.c_name, "__btrc_thread_free", result)
         return result
+
+    def _empty_managed_slot(
+        self,
+        plan: VariableDeclarationPlan,
+        external: bool,
+        is_array: bool,
+    ) -> IRExpr | None:
+        """Give an uninitialized managed local an empty slot rather than garbage.
+
+        A managed slot must always hold either NULL or a live object: assigning
+        over one reads and releases whatever it held. Without this, ``Box b;``
+        followed by ``b = new Box();`` releases indeterminate stack bytes. The
+        compiler already does this for its own temporaries; a source binding
+        needs the same guarantee.
+        """
+
+        if external or is_array or not self._values.is_managed(plan.source.type):
+            return None
+        return IRLiteral(text="NULL")
 
     def _materialize_captured_callable_declaration(
         self,
