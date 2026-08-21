@@ -294,120 +294,72 @@ self-host corpus 931 passed / 3 skipped; unit + LSP + debugger
 point**; frozen boundaries 301 records; generated-source check, `ruff check`,
 `ruff format --check`, and `git diff --check` clean.
 
-`make bootstrap` on the current tree: **1 passed in 28:30** -- the self-hosted
+**The repository is green.** `make test` on the current tree:
+**7274 passed, 20 skipped**, exit 0 -- including the serial bootstrap line it
+runs last, 1 passed in 26:49. `make bootstrap` as its own target: **1 passed in
+27:57**.
+
+`make bootstrap` on an earlier tree: **1 passed in 28:30** -- the self-hosted
 compiler reproduces itself byte-for-byte with the runtime performance work and
 the reference-collector fix in place. It has to be run as its own target:
 `make test` sequences it behind the parallel line, and `make` stops at the
 failure below before reaching it.
 
-End-to-end cost of a complete verification on this machine: 7:36 of gates,
-25:51 for 7,291 tests at `-n 8`, and 28:30 for the serial bootstrap -- about an
-hour, with the bootstrap and the boundary gate together accounting for well
-over half of it.
+End-to-end cost of a green `make test` on this machine: about **57 minutes** --
+7:36 of gates, 22:21 for 7,294 tests at `-n 8`, and 26:49 for the serial
+bootstrap it ends with. The bootstrap alone is roughly half.
 
-### Remaining failure: GCC rejects conforming C11 under -Wsequence-point
+Note that `make test` checks **277** frozen boundary records, not 301: four
+observed capabilities (`behavior-gcc@managed`, `behavior-clang@managed`, and
+their btrc counterparts) are skipped as incompatible under the nix toolchain,
+leaving 24 records unchecked there. Running `boundary-check` outside nix checks
+all 301.
 
-`src/tests/python/test_callable_provenance_codegen.py::test_callable_runtime_is_strict_c11_clean[gcc]`
-is the only failing test. It is **pre-existing** -- it fails identically with
-this session's lowering changes reverted -- and it fails only under GCC; the
-Clang parametrization passes.
+### Completed: the GCC sequence-point rejection
 
-The corpus source deliberately writes a callable call through a conditional
-whose test assigns the callable:
+`(bool)(callback = make) ? callback : callback` is defined -- C11 6.5.15p4
+sequences a conditional's test before either arm -- and Clang accepts it at
+every optimization level. GCC reports `-Wsequence-point` for it anyway, and for
+the equivalent hand-written C with no btrc involved, so generated C that must
+satisfy both compilers could not emit it.
 
-```
-string effectfulCallee = ((bool)(callback = make) ? callback : callback)(false);
-```
-
-which lowers faithfully to the same shape in C. C11 6.5.15p4 places a sequence
-point between a conditional's first operand and whichever arm runs, so
-assigning in the test and reading the assigned object from an arm is defined.
-GCC 15.2.0 reports `operation on 'callback' may be undefined
-[-Werror=sequence-point]` anyway, and it does so for the hand-written C as
-well, with no btrc involved:
-
-```c
-typedef const char* (*fn_t)(bool);
-static const char* make(bool flag) { (void)flag; return "seventy"; }
-fn_t callback = 0;
-const char* r = (((bool)(callback = make)) ? callback : callback)(false);
-```
-
-So the emitted C is correct and the diagnostic is a GCC false positive. It
-still has to be worked around, because generated C must satisfy GCC and Clang
-alike.
-
-Binding the test to its own declaration before the conditional was tried and
-**reverted**: it moves the assignment ahead of the sibling operands of the
-enclosing expression, and four callable-provenance tests assert exactly that
-ordering (`test_long_concat_classifies_each_leaf_at_its_source_flow_entry`
-among them). The attempt turned one failure into five. A working fix has to
-keep the assignment sequenced where the source puts it.
-
-`(test, arm)` was also tried and does **not** work: GCC reports the same
-diagnostic for `(((bool)(callback = make)), callback)(false)` even though the
-comma operator carries its own sequence point. GCC appears to object to an
-assignment and a read of the same object anywhere within one full expression,
-regardless of the sequence points between them, so any fix that keeps both in
-the same full expression will fail. That leaves moving the assignment into a
-statement of its own without disturbing the order of the sibling operands
-around it, and the IR deliberately forbids exactly that: `IRStmtExpr.stmts`
-accepts "only uninitialized or literal-zero-initialized declarations", with
-runtime work required to stay in `result` as an `IRCommaExpr` "so
-control-sensitive evaluation is preserved". Hoisting the assignment through
-`record_declaration` instead moves it to the top of the function, which is what
-turned one failure into five.
-
-**Four forms were measured against GCC 15.2.0.** Three of them satisfy it, so
-the earlier claim here that a fix needs whole-expression linearization was
-wrong:
+Measuring which forms GCC accepts is what unlocked this, and the earlier
+analysis here was wrong twice before that measurement was taken:
 
 | emitted form | gcc |
 | --- | --- |
-| `((bool)(cb = make) ? cb : cb)(false)` -- what is emitted today | rejected |
+| `((bool)(cb = make) ? cb : cb)(false)` | rejected |
 | `(((bool)(cb = make)), cb)(false)` -- comma | rejected |
-| `(store(&cb, make) ? cb : cb)(false)` -- assignment inside a call | clean |
-| `((bool)(*slot = make) ? cb : cb)(false)` -- assignment through a pointer | clean |
-| `bool c = (bool)(cb = make);` then `(c ? cb : cb)(false)` -- two statements | clean |
+| `((bool)(*(&cb) = make) ? cb : cb)(false)` -- inline pointer | rejected |
+| `(store(&cb, make) ? cb : cb)(false)` -- store inside a call | **clean** |
+| `((bool)(*slot = make) ? cb : cb)(false)` -- separate pointer | clean |
+| `bool c = ...;` then `(c ? cb : cb)(false)` -- two statements | clean |
 
-So GCC objects to an assignment and a read of one object being *syntactically
-visible* in the same full expression; hiding the assignment behind a call or a
-pointer, or moving it to its own statement, all silence it. Each is a viable
-workaround, and none is a fix:
+GCC objects to an assignment and a read of one object being *syntactically
+visible* in one full expression, not to the sequencing. So the test's store now
+goes through a typed adapter -- `_store_adapter` in
+`ir/lowering/ownership.py`, alongside the existing per-type cleanup adapters --
+leaving only reads in the expression while the call's own sequencing keeps the
+store where the source put it.
 
-1. *Assignment through a store helper.* General -- it works in every expression
-   position. It also routes an ordinary operation through a helper call in
-   emitted C, and needs a typed helper per assigned type.
-2. *Assignment through a pointer.* Cheapest, and purely a trick: it works only
-   because GCC does not connect `*slot` with `cb`. It would break the moment
-   that analysis improves, and it obscures the generated code meanwhile.
-3. *Splitting the assignment into its own statement.* The honest shape. The
-   IR supports it at statement level -- `materialize_declaration` already
-   returns a statement list and the GPU path already builds setup lists this
-   way -- but it is only correct where the conditional is the first thing
-   evaluated in its statement. Anywhere else, hoisting reorders it ahead of
-   sibling side effects, which is what turned one failure into five when it was
-   attempted through `record_declaration` (that appends to
-   `function_declarations`, hoisting the initializer to the top of the
-   function, so the ordering was always wrong).
+The rewrite fires only when a test assigns a name an arm reads, and only for a
+plain assignment to a simple variable; the transactional sequences managed
+slots lower to are untouched. It needs no evaluation-order analysis, which is
+what made an earlier hoisting attempt reorder side effects and turn one failure
+into five, and it holds in every expression position rather than only
+declarations. The adapter is `static`, or cross-translation-unit archive builds
+would collide on it.
 
-**Why none was taken.** The diagnostic is a GCC defect, not a btrc one: the
-emitted C conforms, and Clang accepts it at every optimization level. No corpus
-program uses this construct -- exactly one test does, and it writes it
-deliberately to exercise callable provenance. Every workaround above makes the
-compiler permanently worse to satisfy a wrong warning: two of them add
-indirection to a common operation across all programs, and the third adds a
-first-evaluated-position analysis to the expression lowerer and still leaves
-the construct rejected everywhere that analysis does not hold.
+### Known flake: the daemon corpus test under saturating load
 
-The root cause is external. The workarounds are in scope and are recorded here
-so the next session can take one deliberately if the trade is judged
-differently -- option 3 is the one to take, and it needs a session that can
-afford to re-verify the ordering contracts it touches.
-
-Until one of those is taken, `make test` stops at this line and never reaches
-the serial bootstrap behind it. `make bootstrap` still runs the fixed point on
-its own and passed on the pre-performance tree.
+`stdlib/test_stdlib_daemon.btrc` failed once with exit 124, "daemon did not
+confirm termination before the deadline", and passed on every other run
+including twice in isolation. The stop path takes a wall-clock 7500ms deadline;
+`waitForRemoval` and `pauseBeforeRetry` honor it correctly, so this is a timing
+assumption rather than a defect: the test starts `sleep 60` under a supervisor
+while eight compiler processes saturate ten cores. If it recurs, the owner is
+the harness's concurrency for timing-sensitive corpus cases, not the stdlib
+contract.
 
 ### Immediate next steps
 
