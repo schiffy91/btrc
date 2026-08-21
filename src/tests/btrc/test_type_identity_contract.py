@@ -78,23 +78,17 @@ def _build_driver(source: Path, output: Path, cache: Path) -> Path:
 
 
 @pytest.fixture(scope="module")
-def identity_driver(tmp_path_factory) -> Path:
-    output = tmp_path_factory.mktemp("selfhost-type-identity")
-    return _build_driver(
-        REPO / "src/tests/btrc/fixtures/type_identity_driver.btrc",
-        output / "identity",
-        output / "cache",
-    )
+def identity_driver(selfhost_driver) -> Path:
+    """Built once per revision through the shared driver cache."""
+
+    return selfhost_driver(REPO / "src/tests/btrc/fixtures/type_identity_driver.btrc")
 
 
 @pytest.fixture(scope="module")
-def selfhost_compiler(tmp_path_factory) -> Path:
-    output = tmp_path_factory.mktemp("selfhost-type-identity-compiler")
-    return _build_driver(
-        SELFHOST / "btrcc_main.btrc",
-        output / "btrcc",
-        output / "cache",
-    )
+def selfhost_compiler(immutable_btrcc: Path) -> Path:
+    """The production self-host driver the whole suite already shares."""
+
+    return immutable_btrcc
 
 
 def test_identity_contract_has_one_shared_implementation() -> None:

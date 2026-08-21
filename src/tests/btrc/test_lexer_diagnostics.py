@@ -35,48 +35,23 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.fixture(scope="module")
-def lexer_boundary_drivers(tmp_path_factory) -> dict[str, Path]:
-    """Build the lex-only, parse, and production self-hosted drivers."""
-    output = tmp_path_factory.mktemp("selfhost-lexer-diagnostics")
-    cache = output / "cache"
-    binaries: dict[str, Path] = {}
-    for name, source in DRIVER_SOURCES.items():
-        generated = output / f"{name}.c"
-        binary = output / name
-        transpile = _run(
-            [
-                "python3",
-                "-m",
-                "src.compiler.python.main",
-                source,
-                "--no-cache",
-                "-o",
-                str(generated),
-            ],
-            env={**os.environ, "BTRC_CACHE_DIR": str(cache)},
-            timeout=300,
-        )
-        assert transpile.returncode == 0 and generated.exists(), (
-            f"failed to transpile {source}:\n{transpile.stderr[:3000]}"
-        )
-        compile_result = _run(
-            [
-                *CC,
-                "-std=c11",
-                "-pedantic-errors",
-                str(generated),
-                "-o",
-                str(binary),
-                "-lm",
-                "-lpthread",
-            ],
-            timeout=300,
-        )
-        assert compile_result.returncode == 0 and binary.exists(), (
-            f"failed to compile {source}:\n{compile_result.stderr[:3000]}"
-        )
-        binaries[name] = binary
-    return binaries
+def lexer_boundary_drivers(selfhost_driver, immutable_btrcc: Path) -> dict[str, Path]:
+    """The lex-only, parse, and production self-hosted drivers.
+
+    The production driver is the compiler the whole suite already shares, so it
+    is taken rather than rebuilt. The two tool drivers come from the shared
+    session cache, keyed on the compiler revision and their own source, so they
+    are built once per revision instead of once per xdist worker that reaches
+    this module.
+    """
+
+    drivers = {
+        name: selfhost_driver(REPO / source, compile_flags=("-pedantic-errors",))
+        for name, source in DRIVER_SOURCES.items()
+        if name != "compiler"
+    }
+    drivers["compiler"] = immutable_btrcc
+    return drivers
 
 
 INVALID_INPUTS = [

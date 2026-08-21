@@ -34,48 +34,21 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.fixture(scope="module")
-def selfhost_drivers(tmp_path_factory) -> dict[str, Path]:
-    """Build the real parser-stage and production self-host drivers."""
-    output = tmp_path_factory.mktemp("selfhost-parser-diagnostics")
-    cache = output / "cache"
-    binaries: dict[str, Path] = {}
-    for name, source in DRIVER_SOURCES.items():
-        generated = output / f"{name}.c"
-        binary = output / name
-        transpile = _run(
-            [
-                "python3",
-                "-m",
-                "src.compiler.python.main",
-                source,
-                "--no-cache",
-                "-o",
-                str(generated),
-            ],
-            env={**os.environ, "BTRC_CACHE_DIR": str(cache)},
-            timeout=300,
-        )
-        assert transpile.returncode == 0 and generated.exists(), (
-            f"failed to transpile {source}:\n{transpile.stderr[:3000]}"
-        )
-        compile_result = _run(
-            [
-                *CC,
-                "-std=c11",
-                "-pedantic-errors",
-                str(generated),
-                "-o",
-                str(binary),
-                "-lm",
-                "-lpthread",
-            ],
-            timeout=300,
-        )
-        assert compile_result.returncode == 0 and binary.exists(), (
-            f"failed to compile {source}:\n{compile_result.stderr[:3000]}"
-        )
-        binaries[name] = binary
-    return binaries
+def selfhost_drivers(selfhost_driver, immutable_btrcc: Path) -> dict[str, Path]:
+    """The parser-stage and production self-host drivers.
+
+    The production driver is the compiler the suite already shares; the parser
+    tool driver comes from the shared session cache, so it is built once per
+    revision rather than once per xdist worker reaching this module.
+    """
+
+    drivers = {
+        name: selfhost_driver(REPO / source, compile_flags=("-pedantic-errors",))
+        for name, source in DRIVER_SOURCES.items()
+        if name != "compiler"
+    }
+    drivers["compiler"] = immutable_btrcc
+    return drivers
 
 
 INVALID_PROGRAMS = [

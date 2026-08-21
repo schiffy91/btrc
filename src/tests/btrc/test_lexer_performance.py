@@ -31,40 +31,13 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.fixture(scope="module")
-def selfhost_lexer(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    output = tmp_path_factory.mktemp("selfhost-lexer-scaling")
-    generated = output / "lexer.c"
-    binary = output / "lexer"
-    transpile = _run(
-        [
-            "python3",
-            "-m",
-            "src.compiler.python.main",
-            "src/compiler/btrc/tools/lex_main.btrc",
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
-        env={**os.environ, "BTRC_CACHE_DIR": str(output / "cache")},
-        timeout=300,
+def selfhost_lexer(selfhost_driver) -> Path:
+    """The lex-only driver, built once per revision and shared."""
+
+    return selfhost_driver(
+        REPO / "src/compiler/btrc/tools/lex_main.btrc",
+        compile_flags=("-pedantic-errors",),
     )
-    assert transpile.returncode == 0, transpile.stderr[:3000]
-    compiled = _run(
-        [
-            *CC,
-            "-std=c11",
-            "-pedantic-errors",
-            "-O2",
-            str(generated),
-            "-o",
-            str(binary),
-            "-lm",
-            "-lpthread",
-        ],
-        timeout=300,
-    )
-    assert compiled.returncode == 0, compiled.stderr[:3000]
-    return binary
 
 
 def _lex_time(binary: Path, source: Path) -> float:

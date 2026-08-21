@@ -59,40 +59,14 @@ def _gpu_dispatch_index(
 
 
 @pytest.fixture(scope="module")
-def btrcc_driver(tmp_path_factory) -> Path:
-    """Build the real production self-host driver from the current sources."""
-    output = tmp_path_factory.mktemp("selfhost-gpu-boundary")
-    generated = output / "btrcc.c"
-    binary = output / "btrcc"
-    transpile = _run(
-        [
-            "python3",
-            "-m",
-            "src.compiler.python.main",
-            str(BTRCC_SOURCE),
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
-        env={**os.environ, "BTRC_CACHE_DIR": str(output / "cache")},
-        timeout=300,
-    )
-    assert transpile.returncode == 0 and generated.exists(), transpile.stderr
-    compile_result = _run(
-        [
-            *CC,
-            "-std=c11",
-            "-pedantic-errors",
-            str(generated),
-            "-lm",
-            "-lpthread",
-            "-o",
-            str(binary),
-        ],
-        timeout=300,
-    )
-    assert compile_result.returncode == 0 and binary.exists(), compile_result.stderr
-    return binary
+def btrcc_driver(immutable_btrcc: Path) -> Path:
+    """The production self-host driver the whole suite already shares.
+
+    This module used to transpile and link its own copy, which under xdist is
+    one full compiler build per worker that reaches it.
+    """
+
+    return immutable_btrcc
 
 
 def test_unused_gpu_kernel_is_proven_dead_and_erased(

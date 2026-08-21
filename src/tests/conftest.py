@@ -13,6 +13,7 @@ import os
 import shlex
 import subprocess
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
@@ -257,6 +258,82 @@ def _build_immutable_btrcc(compiler: list[str], output: Path, binary: Path) -> N
     # Publish only a complete binary: a crashed build must not leave a partial
     # artifact that the next worker trusts because the path exists.
     staged.replace(binary)
+
+
+@pytest.fixture(scope="session")
+def selfhost_driver(_selfhost_runtime_data):
+    """Build one self-hosted driver per source and share it everywhere.
+
+    Modules needing a driver binary built their own in module-scoped fixtures,
+    so under xdist every worker touching such a module paid a full transpile and
+    link. Seven modules do this with the production compiler or its tool
+    drivers, and they were the seven most expensive setups in the suite -- one
+    module's fixture alone accounted for 472s.
+
+    Key each driver on the same fingerprint the compiler build uses, plus the
+    driver's own bytes and flags, so one build serves every module, every
+    worker, and every later run over unchanged sources.
+    """
+
+    compiler = shlex.split(os.environ.get("BTRC_CC", "cc"))
+    if not compiler:
+        raise ValueError("BTRC_CC must name a C compiler")
+    revision = _btrcc_fingerprint(compiler)
+    root = REPO / "build" / "test-btrcc" / "drivers"
+
+    def build(
+        source: Path | str,
+        *,
+        transpile_flags: Sequence[str] = (),
+        compile_flags: Sequence[str] = (),
+    ) -> Path:
+        origin = Path(source)
+        key = hashlib.sha256()
+        key.update(revision.encode())
+        key.update(str(origin.resolve()).encode())
+        key.update(origin.read_bytes())
+        key.update(b"\0".join(flag.encode() for flag in transpile_flags))
+        key.update(b"\0".join(flag.encode() for flag in compile_flags))
+        digest = key.hexdigest()[:32]
+        output = root / digest
+        binary = output / "driver"
+        with _exclusive(root / f"{digest}.lock"):
+            if binary.is_file():
+                return binary
+            output.mkdir(parents=True, exist_ok=True)
+            generated = output / "driver.c"
+            staged = output / "driver.partial"
+            transpile = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "src.compiler.python.main",
+                    str(origin),
+                    "--no-cache",
+                    *transpile_flags,
+                    "-o",
+                    str(generated),
+                ],
+                cwd=REPO,
+                env={**os.environ, "BTRC_CACHE_DIR": str(output / "cache")},
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+            assert transpile.returncode == 0 and generated.is_file(), transpile.stderr
+            built = subprocess.run(
+                [*compiler, "-std=c11", *compile_flags, str(generated), "-o", str(staged), "-lm", "-lpthread"],
+                cwd=REPO,
+                capture_output=True,
+                text=True,
+                timeout=900,
+            )
+            assert built.returncode == 0 and staged.is_file(), built.stderr
+            # Publish only a complete binary, as the compiler cache does.
+            staged.replace(binary)
+        return binary
+
+    return build
 
 
 @pytest.fixture(scope="session")

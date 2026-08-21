@@ -32,39 +32,10 @@ def _run(command: list[str], **kwargs) -> subprocess.CompletedProcess[str]:
 
 
 @pytest.fixture(scope="module")
-def btrcc_driver(tmp_path_factory) -> Path:
-    output = tmp_path_factory.mktemp("selfhost-helper-mirrors")
-    generated = output / "btrcc.c"
-    binary = output / "btrcc"
-    transpile = _run(
-        [
-            "python3",
-            "-m",
-            "src.compiler.python.main",
-            str(BTRCC_SOURCE),
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
-        env={**os.environ, "BTRC_CACHE_DIR": str(output / "cache")},
-        timeout=300,
-    )
-    assert transpile.returncode == 0 and generated.exists(), transpile.stderr
-    compile_result = _run(
-        [
-            *CC,
-            "-std=c11",
-            "-pedantic-errors",
-            str(generated),
-            "-o",
-            str(binary),
-            "-lm",
-            "-lpthread",
-        ],
-        timeout=300,
-    )
-    assert compile_result.returncode == 0 and binary.exists(), compile_result.stderr
-    return binary
+def btrcc_driver(immutable_btrcc: Path) -> Path:
+    """The production self-host driver the whole suite already shares."""
+
+    return immutable_btrcc
 
 
 def _emit(btrcc_driver: Path, tmp_path: Path, source: str) -> str:
