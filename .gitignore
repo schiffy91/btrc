@@ -70,3 +70,4 @@ examples/gui/gui_font
 /build/btrcc/
 /build/temp.*/
 /dist/
+/build/logs/

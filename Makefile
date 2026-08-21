@@ -238,10 +238,26 @@ ast-generate-btrc: compiler-codegen-generate ## Regenerate both AST catalogs thr
 
 # ─── Test ────────────────────────────────────────────────────────────────────
 
-test: generated-check test-boundaries gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
-	$(NIX) $(PYTEST) src/tests/ \
-		--ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS)
-	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py $(PYTEST_SERIAL_ARGS)
+# The frozen boundary gate, the parallel suite, and the bootstrap fixed point are
+# three independent verifications of the same tree. Running them in sequence cost
+# their sum while the two single-threaded ones left most cores idle, so they run
+# together and every failure is reported rather than only the first. Their output
+# goes to logs because three concurrent pytest streams interleave into noise; a
+# failing log is printed in full.
+BUILD_LOGS := build/logs
+test: generated-check gpu-required ## Run everything: unit + LSP + debugger + language corpus on BOTH compilers
+	@mkdir -p $(BUILD_LOGS)
+	@set +e; \
+	$(NIX) python3 -m tools.compiler_codegen.main boundary-check > $(BUILD_LOGS)/boundaries.log 2>&1 & boundary=$$!; \
+	$(NIX) $(PYTEST) src/tests/btrc/test_bootstrap.py $(PYTEST_SERIAL_ARGS) > $(BUILD_LOGS)/bootstrap.log 2>&1 & bootstrap=$$!; \
+	$(NIX) $(PYTEST) src/tests/ --ignore=src/tests/btrc/test_bootstrap.py $(PYTEST_ARGS); suite=$$?; \
+	wait $$boundary; boundaries=$$?; \
+	wait $$bootstrap; fixedpoint=$$?; \
+	if [ $$boundaries -ne 0 ]; then echo "--- frozen boundaries FAILED ---"; cat $(BUILD_LOGS)/boundaries.log; \
+	else echo "frozen boundaries: $$(tail -1 $(BUILD_LOGS)/boundaries.log)"; fi; \
+	if [ $$fixedpoint -ne 0 ]; then echo "--- bootstrap FAILED ---"; cat $(BUILD_LOGS)/bootstrap.log; \
+	else echo "bootstrap: $$(grep -oE '[0-9]+ passed.*' $(BUILD_LOGS)/bootstrap.log | tail -1)"; fi; \
+	[ $$suite -eq 0 ] && [ $$boundaries -eq 0 ] && [ $$fixedpoint -eq 0 ]
 
 test-unit: generated-check ## Run Python reference-compiler unit tests (lexer, parser, analyzer, codegen)
 	$(NIX) $(PYTEST) src/tests/python/ $(PYTEST_ARGS)
