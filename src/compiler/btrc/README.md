@@ -81,11 +81,10 @@ The developer build resolves the repository data from `bin/btrcc`'s real path;
 release bundles resolve `share/btrc` beside their `bin` directory. Neither mode
 uses the current directory as an implicit data source.
 
-During the architecture-first ownership phase, each slice is checked with
-exact-tree and stale-path audits, generation and parse/import checks,
-dependency/SCC and loose-behavior audits, and `git diff --check`. Behavior,
-parity, corpus, and bootstrap checks resume after the destination tree is
-complete, first as focused hill-climb checks and then as the final matrix below.
+Structural audits — exact-tree and stale-path, generation and parse/import
+checks, dependency/SCC and loose-behavior audits, and `git diff --check` — are
+the first pass on a change. Behavior, parity, corpus, and bootstrap checks all
+apply as well; the matrix below is the finish line.
 
 ```bash
 make btrcc                  # native bin/btrcc

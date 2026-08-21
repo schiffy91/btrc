@@ -101,11 +101,10 @@ assemble runtime source.
 
 ## Verification
 
-During the architecture-first ownership phase, individual slices use exact-tree
-and stale-path audits, generated-source checks, parse/import and dependency/SCC
-checks, loose-behavior audits, and `git diff --check`. Corpus, parity, bootstrap,
-and broad correctness runs resume only after the destination tree is complete,
-first as focused hill-climb checks and then as the mandatory final matrix:
+Structural audits come first on any change: exact-tree and stale-path,
+generated-source checks, parse/import and dependency/SCC checks, loose-behavior
+audits, and `git diff --check`. Corpus, parity, bootstrap, and broad correctness
+runs all apply too — the mandatory final matrix is:
 
 ```bash
 make test-selfhost          # lexer parity

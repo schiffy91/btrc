@@ -12,8 +12,8 @@ This project is too large for a single context window. You WILL run out of memor
 ### Current state (2026-08-21)
 
 Work happens directly on `main`; every prior campaign branch was merged and
-deleted. Read the **Active Handoff** section of `GOAL.md` before making any
-change — it records what has already been verified and what remains.
+deleted. The architecture migration is finished; what follows records the state
+a change has to preserve.
 
 The architecture destination and frozen-boundary infrastructure are complete.
 The frontend resource-ceiling removal, the Python VLA bound single-evaluation
@@ -41,10 +41,39 @@ The test harness builds the self-hosted compiler once per source revision and
 caches it under `build/test-btrcc/<fingerprint>/`; a change to any compiler
 source, the stdlib, a shared spec, a runtime asset, or the C compiler version
 invalidates it. Set `BTRC_TEST_BTRCC` to reuse a binary you built yourself.
-GOAL.md records the runtime and compile-time performance work with its
-measurements: what landed, what was attempted and reverted, and why. Read those
-entries before starting performance work — several obvious-looking changes there
-were measured and found neutral or worse.
+### Performance changes already measured and rejected
+
+Each of these was implemented or prototyped, measured, and abandoned. Do not
+retry them without new evidence:
+
+- **Bounding the substring scan.** `__btrc_substring` measures the whole string
+  to clamp, so lexing is quadratic — `Lexer_readIdentifier` slices the entire
+  source once per token, and `strlen` was 60% of a self-compile profile.
+  Scanning only `start + len` measured **415s against a 278s baseline**: it
+  traded a SIMD `strlen` for a byte-at-a-time loop.
+- **A pointer-keyed string-length cache.** Memory-unsafe. Cache `(buf, 900)`
+  for a `char[1024]`, let the frame return, and a later `char[16]` at that
+  stack address yields a 900-byte read from a 16-byte buffer.
+- **Consolidating the thread-locals.** `_tlv_get_addr` was 45% of profile
+  samples, but a build with `_Thread_local` stripped was not faster.
+  Leaf-sample share is not speedup.
+- **`-ftls-model=local-exec`.** Identical timings; Darwin resolves
+  thread-locals through its own TLV descriptors, not the ELF models that flag
+  selects.
+- **`-O1` for the bootstrap's C compiles.** `-O1` is 392s against `-O2`'s 430s;
+  the cliff is `-O0`→`-O1`. Dropping to `-O0` would also retire
+  `-Wmaybe-uninitialized`, which only fires at `-O2`.
+- **Running the gate's three verifications concurrently.** Reverted:
+  `test_memory_intensive_bootstrap_runs_after_the_parallel_suite` encodes the
+  sequencing, and its reason is in its name — the bootstrap compiles a
+  431k-line translation unit at `-O2`, which is a memory risk beside eight
+  pytest workers.
+
+What did work: emitting the generated ABI and runtime-catalog tables as many
+small methods rather than one constructor (a single 114,073-line C function was
+~90% of the cost of compiling the compiler; `-O2` went 429.8s → 52.5s), and
+sharing one cached compiler across test modules instead of rebuilding it per
+xdist worker.
 
 Self-host binaries under `/tmp` are an ephemeral convenience, never a tracked
 build product. Rebuild after any change to self-host production sources or to
@@ -52,13 +81,13 @@ the Python compiler that generates them.
 
 **Before you start working:**
 1. Read this file completely
-2. Read `GOAL.md` completely
-3. Read MEMORY.md (in your auto-memory directory)
-4. Check git status and the goal checklist to preserve concurrent work
-5. Establish only the baseline permitted by the current goal phase. During the
-   architecture-first phase, use structural, generation, parse/import, and
-   diff checks; defer behavior, parity, bootstrap, and broad correctness suites
-   until the destination tree is complete.
+2. Read MEMORY.md (in your auto-memory directory)
+3. Check `git status` — this repository is synced across machines, so HEAD can
+   move and foreign uncommitted files can appear mid-session
+4. Establish a baseline before changing anything. The architecture migration is
+   finished, so behavior, parity, and correctness suites all apply: run the
+   gates that cover what you are about to touch, and know what was already
+   failing before you start.
 
 **Before context runs out:**
 1. Commit working code frequently
@@ -388,21 +417,20 @@ and the parse inspection tool calls that owner; generated `Node` data owns no
 formatting behavior. The unified generator check structurally verifies that
 the handwritten renderer covers every ASDL constructor and field.
 
-The exact 88-file inventory is normative in `GOAL.md` and
+The exact 88-file inventory is normative in
 `docs/design/compiler-structure.md`. Stage manifests contain imports only;
 implementation behavior belongs to the concrete owner. The unified language
 runner executes the corpus through both compilers, and the bootstrap suite
 proves a byte-stable self-hosting fixed point.
 
-## Architecture-first verification phase
+## Verification
 
-While ownership moves are in progress, slices use exact-tree and stale-path
-audits, generated-source checks, AST/parse/import checks, dependency/SCC and
-loose-behavior audits, and `git diff --check`. They do not spend time repairing
-transitional behavior failures or run parity, bootstrap, compiler-corpus, or
-broad correctness suites. Once the destination tree is complete, verification
-hill-climbs through focused behavior/parity checks and then the full completion
-matrix below. Final correctness remains mandatory.
+The architecture migration is finished, so every gate applies. Structural checks
+still matter — exact-tree and stale-path audits, generated-source checks,
+AST/parse/import checks, dependency/SCC and loose-behavior audits, and
+`git diff --check` — but they are a first pass, not a substitute for behavior,
+parity, corpus, and bootstrap runs. Run the gates covering what you touched,
+and finish on the full matrix below.
 
 ---
 
