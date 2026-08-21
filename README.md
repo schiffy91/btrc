@@ -56,13 +56,18 @@ Plus, btrc *definitely* has bugs.
 ## Development Handoff
 
 Work happens directly on `main`; every campaign branch has been merged and
-deleted. The correctness hill-climb is not finished and `main` is not
-release-ready. The destination package layout, frozen compiler-boundary harness,
+deleted. The destination package layout, frozen compiler-boundary harness,
 runtime catalogs, strict-import path, and the Python/self-host parity fixes are
 in place, as are the frontend resource-ceiling removal, the effectful
 variable-length-array bound that the Python compiler used to emit twice, and the
-empty-managed-slot initialization defect. What remains is the final serial
-verification matrix.
+empty-managed-slot initialization defect.
+
+The verification matrix runs: `make test` at 7,274 passed and 20 skipped,
+`make bootstrap` reaching its byte-stable fixed point, and the frozen boundary
+gate green. That gate checks 301 records outside the nix shell but 277 inside
+it, because four observed-behavior capabilities are skipped as incompatible
+under that toolchain -- so 24 records go unchecked there. `main` is still not
+tagged release-ready; see the roadmap for the language gaps that remain.
 
 Claude Code and other contributors should read [CLAUDE.md](CLAUDE.md) and the
 detailed [active handoff in GOAL.md](GOAL.md#active-handoff-2026-08-19) before
@@ -1277,12 +1282,19 @@ examples/
 
 ## Build & Test
 
-The ownership refactor currently uses an architecture-first gate: exact-tree,
-stale-path, generated-source, parse/import, dependency/SCC, loose-behavior, and
-diff checks establish each structural slice. Behavior, parity, bootstrap, and
-broad corpus runs resume after the destination tree is mechanically complete,
-first as focused hill-climb checks and then as the full completion matrix. The
-commands below remain mandatory final gates.
+`make test` is the gate: it runs the frozen compiler-boundary check, then the
+whole suite across both compilers, then the bootstrap fixed point serially. A
+green run is 7,274 passing tests and 20 skips, and `make bootstrap` proves the
+self-hosted compiler reproduces itself byte-for-byte.
+
+Two things are worth knowing before you trust a green run. The skips are
+missing tools rather than product defects -- `naga`, `lldb`, `pkg-config`, and
+platform-specific paths -- but they are still coverage you did not get, and the
+run looks identical either way: install those and the GPU/WGSL validation, the
+debugger, and the tray runtime all start testing for real. And
+`stdlib/test_stdlib_daemon.btrc` asserts a wall-clock daemon-stop deadline, so
+it can fail on a saturated machine and pass on a quiet one; that is a timing
+assumption in the test, not a defect in the stdlib.
 
 ```bash
 make all                    # Build and verify the complete developer tree
@@ -1298,6 +1310,7 @@ make test-selfhost          # Self-hosted lexer parity
 make test-btrc              # Language corpus through the Python reference compiler
 make test-btrc-selfhost     # Language corpus through the self-hosted compiler (btrcc)
 make bootstrap              # Prove the self-hosted compiler's byte-stable fixed point
+make test-boundaries        # Check the frozen compiler boundaries (portable records)
 make test-c11               # Strict, warning-free C11: gcc + clang at -O0 through -O3
 make generated-check        # Verify every committed generated source is current
 make compiler-codegen-check # Verify shared-spec generated compiler sources
@@ -1417,6 +1430,11 @@ GitHub Actions ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs on 
 CI builds the GPU runtime as a required gate before both corpus matrices; a
 missing backend dependency fails the job instead of silently skipping GPU
 runtime cases.
+
+Two further workflows cover the platforms the Linux job cannot:
+[`macOS`](.github/workflows/macos.yml) and
+[`Windows`](.github/workflows/windows.yml) each build a native release archive,
+relocate it, and run the compiled output on that operating system.
 
 ## Editor Support
 
