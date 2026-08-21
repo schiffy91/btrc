@@ -46,47 +46,13 @@ def _environment(**values: str) -> dict[str, str]:
 
 
 @pytest.fixture(scope="module")
-def runtime_path_probe(tmp_path_factory: pytest.TempPathFactory) -> Path:
-    output = tmp_path_factory.mktemp("runtime-path-probe")
-    generated = output / "probe.c"
-    binary = output / "probe"
-    transpile = subprocess.run(
-        [
-            "python3",
-            "-m",
-            "src.compiler.python.main",
-            str(SOURCE),
-            "--no-cache",
-            "-o",
-            str(generated),
-        ],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        timeout=300,
+def runtime_path_probe(selfhost_driver) -> Path:
+    """The probe driver, built once per revision through the shared cache."""
+
+    return selfhost_driver(
+        SOURCE,
+        compile_flags=("-pedantic-errors", "-Wall", "-Wextra", "-Werror"),
     )
-    assert transpile.returncode == 0, transpile.stderr
-    compile_result = subprocess.run(
-        [
-            *CC,
-            "-std=c11",
-            "-pedantic-errors",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            str(generated),
-            "-o",
-            str(binary),
-            "-lm",
-            "-lpthread",
-        ],
-        cwd=REPO,
-        capture_output=True,
-        text=True,
-        timeout=300,
-    )
-    assert compile_result.returncode == 0, compile_result.stderr
-    return binary
 
 
 def _data_root(root: Path) -> Path:
