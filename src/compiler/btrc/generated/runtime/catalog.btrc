@@ -42,6 +42,36 @@ class GeneratedRuntimeCatalogData {
 
     public GeneratedRuntimeCatalogData() {
         self.rows = [];
+        self.pushRows0();
+        self.pushRows1();
+        self.pushRows2();
+        self.pushRows3();
+        self.pushRows4();
+        self.pushRows5();
+        self.pushRows6();
+        self.pushRows7();
+        self.pushRows8();
+        self.pushRows9();
+        self.pushRows10();
+        self.pushRows11();
+        self.pushRows12();
+        self.pushRows13();
+        self.pushRows14();
+        self.pushRows15();
+        self.pushRows16();
+        self.pushRows17();
+        self.pushRows18();
+        self.pushRows19();
+        self.pushRows20();
+        self.pushRows21();
+        self.pushRows22();
+        self.pushRows23();
+        self.pushRows24();
+        self.pushRows25();
+        self.pushRows26();
+    }
+
+    private void pushRows0() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "alloc",
             "__btrc_strdup",
@@ -134,6 +164,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows1() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
             "__btrc_string_registry",
@@ -223,6 +256,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             true));
+    }
+
+    private void pushRows2() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string_ownership",
             "__btrc_string_retain",
@@ -312,6 +348,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             true));
+    }
+
+    private void pushRows3() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
             "__btrc_string_alloc",
@@ -400,6 +439,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows4() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
             "__btrc_replace",
@@ -490,6 +532,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows5() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
             "__btrc_swapCase",
@@ -578,6 +623,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows6() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
             "__btrc_join",
@@ -667,6 +715,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows7() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
             "__btrc_count",
@@ -755,6 +806,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows8() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
             "__btrc_utf8_charlen",
@@ -844,6 +898,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows9() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
             "__btrc_uintToString",
@@ -932,6 +989,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows10() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "string",
             "__btrc_fromFloat",
@@ -1020,6 +1080,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows11() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
             "__btrc_try_level",
@@ -1109,6 +1172,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows12() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "hash",
             "__btrc_hash_real",
@@ -1199,6 +1265,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows13() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
             "__btrc_arc_snapshot_state",
@@ -1287,6 +1356,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows14() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
             "__btrc_destroyed_tracking_scope",
@@ -1380,6 +1452,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows15() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
             "__btrc_suspect",
@@ -1473,6 +1548,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows16() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
             "__btrc_arc_graph_primitives",
@@ -1588,6 +1666,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows17() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
             "__btrc_arc_topology_cleanup",
@@ -1680,6 +1761,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows18() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
             "__btrc_arc_adopt_edge",
@@ -1773,6 +1857,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows19() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "cycles",
             "__btrc_arc_destroy_slot",
@@ -1867,6 +1954,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows20() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
             "__btrc_register_cleanup_kind",
@@ -1958,6 +2048,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows21() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "trycatch",
             "__btrc_run_cleanup_guarded",
@@ -2048,6 +2141,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             true));
+    }
+
+    private void pushRows22() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
             "__btrc_close_descriptors_except_many",
@@ -2139,6 +2235,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             true));
+    }
+
+    private void pushRows23() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "process",
             "__btrc_exec_signal_guard_parent_end",
@@ -2229,6 +2328,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows24() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
             "__btrc_thread_arc_dispose",
@@ -2317,6 +2419,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows25() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
             "__btrc_mutex_arc_retain",
@@ -2409,6 +2514,9 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+    }
+
+    private void pushRows26() {
         self.rows.push(GeneratedRuntimeHelperRow(
             "threads",
             "__btrc_mutex_val_set",
@@ -2422,4 +2530,5 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             false));
     }
+
 }

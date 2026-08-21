@@ -658,18 +658,21 @@ class RuntimeCatalogGenerator:
             "    public GeneratedRuntimeCatalogData() {",
             "        self.rows = [];",
         ]
+        # One constructor holding every row compiled into a single C function of
+        # tens of thousands of lines, and a C optimizer's cost grows superlinearly
+        # with function size. The rows and their order are unchanged; they are just
+        # spread across methods small enough to stay in the linear regime.
+        blocks: list[list[str]] = []
         for helper in self._manifest.helpers_for("btrc"):
-            lines.extend(
-                [
-                    "        self.rows.push(GeneratedRuntimeHelperRow(",
-                    f"            {self._btrc_string(helper.category)},",
-                    f"            {self._btrc_string(helper.name)},",
-                    "            [",
-                ]
-            )
+            block = [
+                "        self.rows.push(GeneratedRuntimeHelperRow(",
+                f"            {self._btrc_string(helper.category)},",
+                f"            {self._btrc_string(helper.name)},",
+                "            [",
+            ]
             for chunk in self._btrc_chunks(helper.source):
-                lines.append(f"                {self._btrc_string(chunk)},")
-            lines.extend(
+                block.append(f"                {self._btrc_string(chunk)},")
+            block.extend(
                 [
                     "            ],",
                     f"            {self._btrc_vector(helper.dependencies)},",
@@ -679,8 +682,21 @@ class RuntimeCatalogGenerator:
                     f"            {'true' if helper.source_visible else 'false'}));",
                 ]
             )
-        lines.extend(["    }", "}", ""])
+            blocks.append(block)
+        methods: list[str] = []
+        for start in range(0, len(blocks), self.BTRC_ROWS_PER_METHOD):
+            name = f"pushRows{start // self.BTRC_ROWS_PER_METHOD}"
+            lines.append(f"        self.{name}();")
+            methods.append(f"    private void {name}() {{")
+            for block in blocks[start : start + self.BTRC_ROWS_PER_METHOD]:
+                methods.extend(block)
+            methods.extend(["    }", ""])
+        lines.extend(["    }", ""])
+        lines.extend(methods)
+        lines.extend(["}", ""])
         return "\n".join(lines)
+
+    BTRC_ROWS_PER_METHOD = 8
 
     def _python_string_lines(self, value: str, indent: int) -> list[str]:
         prefix = " " * indent

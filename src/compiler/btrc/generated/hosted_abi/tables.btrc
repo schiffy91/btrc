@@ -97,6 +97,92 @@ class GeneratedHostedAbiData {
 
     public GeneratedHostedAbiData() {
         self.functions = [];
+        self.pushFunctions0();
+        self.pushFunctions1();
+        self.pushFunctions2();
+        self.pushFunctions3();
+        self.pushFunctions4();
+        self.pushFunctions5();
+        self.pushFunctions6();
+        self.pushFunctions7();
+        self.pushFunctions8();
+        self.pushFunctions9();
+        self.pushFunctions10();
+        self.function_names = [];
+        self.push_function_names0();
+        self.push_function_names1();
+        self.push_function_names2();
+        self.push_function_names3();
+        self.push_function_names4();
+        self.macro_names = [];
+        self.push_macro_names0();
+        self.push_macro_names1();
+        self.push_macro_names2();
+        self.push_macro_names3();
+        self.push_macro_names4();
+        self.push_macro_names5();
+        self.push_macro_names6();
+        self.push_macro_names7();
+        self.push_macro_names8();
+        self.push_macro_names9();
+        self.push_macro_names10();
+        self.object_names = [];
+        self.push_object_names0();
+        self.type_names = [];
+        self.push_type_names0();
+        self.push_type_names1();
+        self.typedef_names = [];
+        self.push_typedef_names0();
+        self.owned_names = [];
+        self.push_owned_names0();
+        self.push_owned_names1();
+        self.push_owned_names2();
+        self.push_owned_names3();
+        self.push_owned_names4();
+        self.push_owned_names5();
+        self.push_owned_names6();
+        self.push_owned_names7();
+        self.push_owned_names8();
+        self.push_owned_names9();
+        self.push_owned_names10();
+        self.push_owned_names11();
+        self.push_owned_names12();
+        self.push_owned_names13();
+        self.push_owned_names14();
+        self.push_owned_names15();
+        self.native_names = [];
+        self.push_native_names0();
+        self.native_internal_names = [];
+        self.push_native_internal_names0();
+        self.runtime_adopting_helpers = [];
+        self.push_runtime_adopting_helpers0();
+        self.platform_function_names = [];
+        self.push_platform_function_names0();
+        self.push_platform_function_names1();
+        self.push_platform_function_names2();
+        self.platform_macro_names = [];
+        self.push_platform_macro_names0();
+        self.push_platform_macro_names1();
+        self.push_platform_macro_names2();
+        self.push_platform_macro_names3();
+        self.push_platform_macro_names4();
+        self.push_platform_macro_names5();
+        self.push_platform_macro_names6();
+        self.push_platform_macro_names7();
+        self.push_platform_macro_names8();
+        self.push_platform_macro_names9();
+        self.platform_object_names = [];
+        self.push_platform_object_names0();
+        self.platform_type_names = [];
+        self.push_platform_type_names0();
+        self.platform_typedef_names = [];
+        self.push_platform_typedef_names0();
+        self.stdlib_source_marker = "compiler:stdlib";
+        self.user_source_marker = "compiler:user";
+        self.fingerprint = "fa522f33580af55cfeb8f40d8950fd1e14af9a44d4e586c553955697ce57b77f";
+    }
+
+    private void pushFunctions0() {
         self.functions.push(GeneratedHostedFunctionRow(
             "_Exit",
             "stdlib",
@@ -870,6 +956,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions1() {
         self.functions.push(GeneratedHostedFunctionRow(
             "asinl",
             "math",
@@ -1659,6 +1748,9 @@ class GeneratedHostedAbiData {
             "",
             "btrc_gpu_shader_destroy",
             ""));
+    }
+
+    private void pushFunctions2() {
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_uniform_destroy",
             "native_gpu",
@@ -2456,6 +2548,9 @@ class GeneratedHostedAbiData {
             "",
             "btrc_tray_destroy",
             ""));
+    }
+
+    private void pushFunctions3() {
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_request_quit",
             "native_tray",
@@ -3226,6 +3321,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions4() {
         self.functions.push(GeneratedHostedFunctionRow(
             "exit",
             "stdlib",
@@ -4006,6 +4104,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions5() {
         self.functions.push(GeneratedHostedFunctionRow(
             "fmodf",
             "math",
@@ -4793,6 +4894,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions6() {
         self.functions.push(GeneratedHostedFunctionRow(
             "ispunct",
             "ctype",
@@ -5572,6 +5676,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions7() {
         self.functions.push(GeneratedHostedFunctionRow(
             "nearbyintf",
             "math",
@@ -6364,6 +6471,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions8() {
         self.functions.push(GeneratedHostedFunctionRow(
             "remainderl",
             "math",
@@ -7153,6 +7263,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions9() {
         self.functions.push(GeneratedHostedFunctionRow(
             "strcoll",
             "string",
@@ -7943,6 +8056,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions10() {
         self.functions.push(GeneratedHostedFunctionRow(
             "toupper",
             "ctype",
@@ -8140,7 +8256,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-        self.function_names = [];
+    }
+
+    private void push_function_names0() {
         self.function_names.push("GetFileAttributesA");
         self.function_names.push("RemoveDirectoryA");
         self.function_names.push("_Exit");
@@ -8391,6 +8509,9 @@ class GeneratedHostedAbiData {
         self.function_names.push("erf");
         self.function_names.push("erfc");
         self.function_names.push("erfcf");
+    }
+
+    private void push_function_names1() {
         self.function_names.push("erfcl");
         self.function_names.push("erff");
         self.function_names.push("erfl");
@@ -8641,6 +8762,9 @@ class GeneratedHostedAbiData {
         self.function_names.push("isatty");
         self.function_names.push("isblank");
         self.function_names.push("iscntrl");
+    }
+
+    private void push_function_names2() {
         self.function_names.push("isdigit");
         self.function_names.push("isfdtype");
         self.function_names.push("isgraph");
@@ -8891,6 +9015,9 @@ class GeneratedHostedAbiData {
         self.function_names.push("pthread_mutex_consistent");
         self.function_names.push("pthread_mutex_destroy");
         self.function_names.push("pthread_mutex_getprioceiling");
+    }
+
+    private void push_function_names3() {
         self.function_names.push("pthread_mutex_init");
         self.function_names.push("pthread_mutex_lock");
         self.function_names.push("pthread_mutex_setprioceiling");
@@ -9141,6 +9268,9 @@ class GeneratedHostedAbiData {
         self.function_names.push("strcoll_l");
         self.function_names.push("strcpy");
         self.function_names.push("strcspn");
+    }
+
+    private void push_function_names4() {
         self.function_names.push("strdup");
         self.function_names.push("strerror");
         self.function_names.push("strerror_l");
@@ -9284,7 +9414,9 @@ class GeneratedHostedAbiData {
         self.function_names.push("yn");
         self.function_names.push("ynf");
         self.function_names.push("ynl");
-        self.macro_names = [];
+    }
+
+    private void push_macro_names0() {
         self.macro_names.push("ACCESSPERMS");
         self.macro_names.push("ACCESSX_MAX_DESCRIPTORS");
         self.macro_names.push("ACCESSX_MAX_TABLESIZE");
@@ -9535,6 +9667,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("CPF_MASK");
         self.macro_names.push("CPF_OVERWRITE");
         self.macro_names.push("CPUMON_MAKE_FATAL");
+    }
+
+    private void push_macro_names1() {
         self.macro_names.push("CQUIT");
         self.macro_names.push("CR0");
         self.macro_names.push("CR1");
@@ -9785,6 +9920,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("FF0");
         self.macro_names.push("FF1");
         self.macro_names.push("FFDLY");
+    }
+
+    private void push_macro_names2() {
         self.macro_names.push("FFDSYNC");
         self.macro_names.push("FFSYNC");
         self.macro_names.push("FILENAME_MAX");
@@ -10035,6 +10173,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("INT_FAST32_MAX");
         self.macro_names.push("INT_FAST32_MIN");
         self.macro_names.push("INT_FAST64_MAX");
+    }
+
+    private void push_macro_names3() {
         self.macro_names.push("INT_FAST64_MIN");
         self.macro_names.push("INT_FAST8_MAX");
         self.macro_names.push("INT_FAST8_MIN");
@@ -10285,6 +10426,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("IPV6CTL_DEFHLIM");
         self.macro_names.push("IPV6CTL_DEFMCASTHLIM");
         self.macro_names.push("IPV6CTL_FORWARDING");
+    }
+
+    private void push_macro_names4() {
         self.macro_names.push("IPV6CTL_FORWSRCRT");
         self.macro_names.push("IPV6CTL_GIF_HLIM");
         self.macro_names.push("IPV6CTL_HDRNESTLIMIT");
@@ -10535,6 +10679,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("KEV_DL_LOW_POWER_MODE_CHANGED");
         self.macro_names.push("KEV_DL_MASTER_ELECTED");
         self.macro_names.push("KEV_DL_NODE_ABSENCE");
+    }
+
+    private void push_macro_names5() {
         self.macro_names.push("KEV_DL_NODE_PRESENCE");
         self.macro_names.push("KEV_DL_PRIMARY_ELECTED");
         self.macro_names.push("KEV_DL_PROTO_ATTACHED");
@@ -10785,6 +10932,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("NSIG");
         self.macro_names.push("NSS_BUFLEN_PASSWD");
         self.macro_names.push("NTOHL");
+    }
+
+    private void push_macro_names6() {
         self.macro_names.push("NTOHLL");
         self.macro_names.push("NTOHS");
         self.macro_names.push("NULL");
@@ -11035,6 +11185,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("RLIMIT_RSS");
         self.macro_names.push("RLIMIT_RTPRIO");
         self.macro_names.push("RLIMIT_RTTIME");
+    }
+
+    private void push_macro_names7() {
         self.macro_names.push("RLIMIT_SIGPENDING");
         self.macro_names.push("RLIMIT_STACK");
         self.macro_names.push("RLIMIT_THREAD_CPULIMITS");
@@ -11285,6 +11438,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("SO_NOADDRERR");
         self.macro_names.push("SO_NOFCS");
         self.macro_names.push("SO_NOSIGPIPE");
+    }
+
+    private void push_macro_names8() {
         self.macro_names.push("SO_NOTIFYCONFLICT");
         self.macro_names.push("SO_NO_CHECK");
         self.macro_names.push("SO_NP_EXTENSIONS");
@@ -11535,6 +11691,9 @@ class GeneratedHostedAbiData {
         self.macro_names.push("UINT_FAST8_MAX");
         self.macro_names.push("UINT_LEAST16_MAX");
         self.macro_names.push("UINT_LEAST32_MAX");
+    }
+
+    private void push_macro_names9() {
         self.macro_names.push("UINT_LEAST64_MAX");
         self.macro_names.push("UINT_LEAST8_MAX");
         self.macro_names.push("UINT_MAX");
@@ -11785,8 +11944,13 @@ class GeneratedHostedAbiData {
         self.macro_names.push("w_retcode");
         self.macro_names.push("w_stopsig");
         self.macro_names.push("w_stopval");
+    }
+
+    private void push_macro_names10() {
         self.macro_names.push("w_termsig");
-        self.object_names = [];
+    }
+
+    private void push_object_names0() {
         self.object_names.push("FILESEC_ACL");
         self.object_names.push("FILESEC_ACL_ALLOCSIZE");
         self.object_names.push("FILESEC_ACL_RAW");
@@ -11848,7 +12012,9 @@ class GeneratedHostedAbiData {
         self.object_names.push("sys_siglist");
         self.object_names.push("sys_signame");
         self.object_names.push("tzname");
-        self.type_names = [];
+    }
+
+    private void push_type_names0() {
         self.type_names.push("BtrcGPUAsync");
         self.type_names.push("BtrcGPUAsyncResultRelease");
         self.type_names.push("BtrcGPUAsyncWaitOutcome");
@@ -12099,6 +12265,9 @@ class GeneratedHostedAbiData {
         self.type_names.push("timeval64");
         self.type_names.push("timezone");
         self.type_names.push("tm");
+    }
+
+    private void push_type_names1() {
         self.type_names.push("u_char");
         self.type_names.push("u_int");
         self.type_names.push("u_int16_t");
@@ -12141,7 +12310,9 @@ class GeneratedHostedAbiData {
         self.type_names.push("wchar_t");
         self.type_names.push("winsize");
         self.type_names.push("wint_t");
-        self.typedef_names = [];
+    }
+
+    private void push_typedef_names0() {
         self.typedef_names.push("BtrcGPUAsync");
         self.typedef_names.push("BtrcGPUAsyncResultRelease");
         self.typedef_names.push("BtrcGPUAsyncWaitOutcome");
@@ -12351,7 +12522,9 @@ class GeneratedHostedAbiData {
         self.typedef_names.push("uuid_t");
         self.typedef_names.push("wchar_t");
         self.typedef_names.push("wint_t");
-        self.owned_names = [];
+    }
+
+    private void push_owned_names0() {
         self.owned_names.push("ACCESSPERMS");
         self.owned_names.push("ACCESSX_MAX_DESCRIPTORS");
         self.owned_names.push("ACCESSX_MAX_TABLESIZE");
@@ -12602,6 +12775,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("CONNECT_DATA_IDEMPOTENT");
         self.owned_names.push("CONNECT_RESUME_ON_READ_WRITE");
         self.owned_names.push("CPF_IGNORE_MODE");
+    }
+
+    private void push_owned_names1() {
         self.owned_names.push("CPF_MASK");
         self.owned_names.push("CPF_OVERWRITE");
         self.owned_names.push("CPUMON_MAKE_FATAL");
@@ -12852,6 +13028,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("FD_ISSET");
         self.owned_names.push("FD_SET");
         self.owned_names.push("FD_SETSIZE");
+    }
+
+    private void push_owned_names2() {
         self.owned_names.push("FD_ZERO");
         self.owned_names.push("FF0");
         self.owned_names.push("FF1");
@@ -13102,6 +13281,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("INT32_MIN");
         self.owned_names.push("INT64_C");
         self.owned_names.push("INT64_MAX");
+    }
+
+    private void push_owned_names3() {
         self.owned_names.push("INT64_MIN");
         self.owned_names.push("INT8_C");
         self.owned_names.push("INT8_MAX");
@@ -13352,6 +13534,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("IPPROTO_RCCMON");
         self.owned_names.push("IPPROTO_RDP");
         self.owned_names.push("IPPROTO_ROUTING");
+    }
+
+    private void push_owned_names4() {
         self.owned_names.push("IPPROTO_RSVP");
         self.owned_names.push("IPPROTO_RVD");
         self.owned_names.push("IPPROTO_SATEXPAK");
@@ -13602,6 +13787,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("IP_ROUTER_ALERT");
         self.owned_names.push("IP_RSVP_OFF");
         self.owned_names.push("IP_RSVP_ON");
+    }
+
+    private void push_owned_names5() {
         self.owned_names.push("IP_RSVP_VIF_OFF");
         self.owned_names.push("IP_RSVP_VIF_ON");
         self.owned_names.push("IP_STRIPHDR");
@@ -13852,6 +14040,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("NETSVC_MRKNG_LVL_L3L2_ALL");
         self.owned_names.push("NETSVC_MRKNG_LVL_L3L2_BK");
         self.owned_names.push("NETSVC_MRKNG_UNKNOWN");
+    }
+
+    private void push_owned_names6() {
         self.owned_names.push("NET_MAXID");
         self.owned_names.push("NET_RT_DUMP");
         self.owned_names.push("NET_RT_DUMP2");
@@ -14102,6 +14293,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("REG_ENOSYS");
         self.owned_names.push("REG_EPAREN");
         self.owned_names.push("REG_ERANGE");
+    }
+
+    private void push_owned_names7() {
         self.owned_names.push("REG_ERPAREN");
         self.owned_names.push("REG_ESIZE");
         self.owned_names.push("REG_ESPACE");
@@ -14352,6 +14546,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("SONPX_SETOPTSHUT");
         self.owned_names.push("SO_ACCEPTCONN");
         self.owned_names.push("SO_ATTACH_BPF");
+    }
+
+    private void push_owned_names8() {
         self.owned_names.push("SO_ATTACH_FILTER");
         self.owned_names.push("SO_ATTACH_REUSEPORT_CBPF");
         self.owned_names.push("SO_ATTACH_REUSEPORT_EBPF");
@@ -14602,6 +14799,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("TIOCSTAT");
         self.owned_names.push("TIOCSTI");
         self.owned_names.push("TIOCSTOP");
+    }
+
+    private void push_owned_names9() {
         self.owned_names.push("TIOCSWINSZ");
         self.owned_names.push("TIOCTIMESTAMP");
         self.owned_names.push("TIOCUCNTL");
@@ -14852,6 +15052,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("atomic_size_t");
         self.owned_names.push("atomic_store");
         self.owned_names.push("atomic_store_explicit");
+    }
+
+    private void push_owned_names10() {
         self.owned_names.push("atomic_thread_fence");
         self.owned_names.push("atomic_uchar");
         self.owned_names.push("atomic_uint");
@@ -15102,6 +15305,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("false");
         self.owned_names.push("fattributiontag");
         self.owned_names.push("fattributiontag_t");
+    }
+
+    private void push_owned_names11() {
         self.owned_names.push("fchdir");
         self.owned_names.push("fchecklv");
         self.owned_names.push("fchecklv_t");
@@ -15352,6 +15558,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("inet6_option_next");
         self.owned_names.push("inet6_option_space");
         self.owned_names.push("inet6_rth_add");
+    }
+
+    private void push_owned_names12() {
         self.owned_names.push("inet6_rth_getaddr");
         self.owned_names.push("inet6_rth_init");
         self.owned_names.push("inet6_rth_reverse");
@@ -15602,6 +15811,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("nearbyint");
         self.owned_names.push("nearbyintf");
         self.owned_names.push("nearbyintl");
+    }
+
+    private void push_owned_names13() {
         self.owned_names.push("nextafter");
         self.owned_names.push("nextafterf");
         self.owned_names.push("nextafterl");
@@ -15852,6 +16064,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("regwnexec");
         self.owned_names.push("remainder");
         self.owned_names.push("remainderf");
+    }
+
+    private void push_owned_names14() {
         self.owned_names.push("remainderl");
         self.owned_names.push("remove");
         self.owned_names.push("remquo");
@@ -16102,6 +16317,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("strftime_l");
         self.owned_names.push("strlcat");
         self.owned_names.push("strlcpy");
+    }
+
+    private void push_owned_names15() {
         self.owned_names.push("strlen");
         self.owned_names.push("strmode");
         self.owned_names.push("strncasecmp");
@@ -16313,7 +16531,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("yn");
         self.owned_names.push("ynf");
         self.owned_names.push("ynl");
-        self.native_names = [];
+    }
+
+    private void push_native_names0() {
         self.native_names.push("btrc_gpu_acquire_compute");
         self.native_names.push("btrc_gpu_available");
         self.native_names.push("btrc_gpu_begin_frame");
@@ -16387,7 +16607,9 @@ class GeneratedHostedAbiData {
         self.native_names.push("btrc_tray_should_quit");
         self.native_names.push("btrc_tray_show");
         self.native_names.push("btrc_tray_take_command");
-        self.native_internal_names = [];
+    }
+
+    private void push_native_internal_names0() {
         self.native_internal_names.push("btrc_gpu_async_complete");
         self.native_internal_names.push("btrc_gpu_async_create");
         self.native_internal_names.push("btrc_gpu_async_release");
@@ -16404,10 +16626,14 @@ class GeneratedHostedAbiData {
         self.native_internal_names.push("btrc_gui_clear_font_if_active");
         self.native_internal_names.push("btrc_gui_install_font_backend");
         self.native_internal_names.push("btrc_gui_surface_pixels");
-        self.runtime_adopting_helpers = [];
+    }
+
+    private void push_runtime_adopting_helpers0() {
         self.runtime_adopting_helpers.push("__btrc_str_track");
         self.runtime_adopting_helpers.push("__btrc_string_adopt");
-        self.platform_function_names = [];
+    }
+
+    private void push_platform_function_names0() {
         self.platform_function_names.push("GetFileAttributesA");
         self.platform_function_names.push("RemoveDirectoryA");
         self.platform_function_names.push("a64l");
@@ -16658,6 +16884,9 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("getdomainname");
         self.platform_function_names.push("getdtablesize");
         self.platform_function_names.push("getegid");
+    }
+
+    private void push_platform_function_names1() {
         self.platform_function_names.push("getentropy");
         self.platform_function_names.push("geteuid");
         self.platform_function_names.push("getgid");
@@ -16908,6 +17137,9 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("regexec");
         self.platform_function_names.push("regfree");
         self.platform_function_names.push("regncomp");
+    }
+
+    private void push_platform_function_names2() {
         self.platform_function_names.push("regnexec");
         self.platform_function_names.push("regwcomp");
         self.platform_function_names.push("regwexec");
@@ -17114,7 +17346,9 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("yn");
         self.platform_function_names.push("ynf");
         self.platform_function_names.push("ynl");
-        self.platform_macro_names = [];
+    }
+
+    private void push_platform_macro_names0() {
         self.platform_macro_names.push("ACCESSPERMS");
         self.platform_macro_names.push("ACCESSX_MAX_DESCRIPTORS");
         self.platform_macro_names.push("ACCESSX_MAX_TABLESIZE");
@@ -17365,6 +17599,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("CS6");
         self.platform_macro_names.push("CS7");
         self.platform_macro_names.push("CS8");
+    }
+
+    private void push_platform_macro_names1() {
         self.platform_macro_names.push("CSIZE");
         self.platform_macro_names.push("CSTART");
         self.platform_macro_names.push("CSTATUS");
@@ -17615,6 +17852,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("FPE_INTDIV");
         self.platform_macro_names.push("FPE_INTOVF");
         self.platform_macro_names.push("FPE_NOOP");
+    }
+
+    private void push_platform_macro_names2() {
         self.platform_macro_names.push("FP_ILOGB0");
         self.platform_macro_names.push("FP_ILOGBNAN");
         self.platform_macro_names.push("FP_QNAN");
@@ -17865,6 +18105,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("IOPOL_VFS_IGNORE_PERMISSIONS_ON");
         self.platform_macro_names.push("IOPOL_VFS_NOCACHE_WRITE_FS_BLKSIZE_DEFAULT");
         self.platform_macro_names.push("IOPOL_VFS_NOCACHE_WRITE_FS_BLKSIZE_ON");
+    }
+
+    private void push_platform_macro_names3() {
         self.platform_macro_names.push("IOPOL_VFS_SKIP_MTIME_UPDATE_IGNORE");
         self.platform_macro_names.push("IOPOL_VFS_SKIP_MTIME_UPDATE_OFF");
         self.platform_macro_names.push("IOPOL_VFS_SKIP_MTIME_UPDATE_ON");
@@ -18115,6 +18358,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("IPV6_PKTINFO");
         self.platform_macro_names.push("IPV6_PMTUDISC_DO");
         self.platform_macro_names.push("IPV6_PMTUDISC_DONT");
+    }
+
+    private void push_platform_macro_names4() {
         self.platform_macro_names.push("IPV6_PMTUDISC_INTERFACE");
         self.platform_macro_names.push("IPV6_PMTUDISC_OMIT");
         self.platform_macro_names.push("IPV6_PMTUDISC_PROBE");
@@ -18365,6 +18611,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("MAC_OS_X_VERSION_10_10_2");
         self.platform_macro_names.push("MAC_OS_X_VERSION_10_10_3");
         self.platform_macro_names.push("MAC_OS_X_VERSION_10_11");
+    }
+
+    private void push_platform_macro_names5() {
         self.platform_macro_names.push("MAC_OS_X_VERSION_10_11_2");
         self.platform_macro_names.push("MAC_OS_X_VERSION_10_11_3");
         self.platform_macro_names.push("MAC_OS_X_VERSION_10_11_4");
@@ -18615,6 +18864,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("PF_RDS");
         self.platform_macro_names.push("PF_RESERVED_36");
         self.platform_macro_names.push("PF_ROSE");
+    }
+
+    private void push_platform_macro_names6() {
         self.platform_macro_names.push("PF_ROUTE");
         self.platform_macro_names.push("PF_RTIP");
         self.platform_macro_names.push("PF_RXRPC");
@@ -18865,6 +19117,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("SIGWINCH");
         self.platform_macro_names.push("SIGXCPU");
         self.platform_macro_names.push("SIGXFSZ");
+    }
+
+    private void push_platform_macro_names7() {
         self.platform_macro_names.push("SIG_BLOCK");
         self.platform_macro_names.push("SIG_DFL");
         self.platform_macro_names.push("SIG_ERR");
@@ -19115,6 +19370,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("TCOON");
         self.platform_macro_names.push("TCSADRAIN");
         self.platform_macro_names.push("TCSAFLUSH");
+    }
+
+    private void push_platform_macro_names8() {
         self.platform_macro_names.push("TCSANOW");
         self.platform_macro_names.push("TCSASOFT");
         self.platform_macro_names.push("TIMER_ABSTIME");
@@ -19365,6 +19623,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("stpncpy");
         self.platform_macro_names.push("strcat");
         self.platform_macro_names.push("strcpy");
+    }
+
+    private void push_platform_macro_names9() {
         self.platform_macro_names.push("strlcat");
         self.platform_macro_names.push("strlcpy");
         self.platform_macro_names.push("strncat");
@@ -19384,7 +19645,9 @@ class GeneratedHostedAbiData {
         self.platform_macro_names.push("w_stopsig");
         self.platform_macro_names.push("w_stopval");
         self.platform_macro_names.push("w_termsig");
-        self.platform_object_names = [];
+    }
+
+    private void push_platform_object_names0() {
         self.platform_object_names.push("FILESEC_ACL");
         self.platform_object_names.push("FILESEC_ACL_ALLOCSIZE");
         self.platform_object_names.push("FILESEC_ACL_RAW");
@@ -19442,7 +19705,9 @@ class GeneratedHostedAbiData {
         self.platform_object_names.push("sys_siglist");
         self.platform_object_names.push("sys_signame");
         self.platform_object_names.push("tzname");
-        self.platform_type_names = [];
+    }
+
+    private void push_platform_type_names0() {
         self.platform_type_names.push("BtrcGPUAsync");
         self.platform_type_names.push("BtrcGPUAsyncResultRelease");
         self.platform_type_names.push("BtrcGPUAsyncWaitOutcome");
@@ -19642,7 +19907,9 @@ class GeneratedHostedAbiData {
         self.platform_type_names.push("uuid_t");
         self.platform_type_names.push("wait");
         self.platform_type_names.push("winsize");
-        self.platform_typedef_names = [];
+    }
+
+    private void push_platform_typedef_names0() {
         self.platform_typedef_names.push("BtrcGPUAsync");
         self.platform_typedef_names.push("BtrcGPUAsyncResultRelease");
         self.platform_typedef_names.push("BtrcGPUAsyncWaitOutcome");
@@ -19759,8 +20026,6 @@ class GeneratedHostedAbiData {
         self.platform_typedef_names.push("ushort");
         self.platform_typedef_names.push("uuid_string_t");
         self.platform_typedef_names.push("uuid_t");
-        self.stdlib_source_marker = "compiler:stdlib";
-        self.user_source_marker = "compiler:user";
-        self.fingerprint = "fa522f33580af55cfeb8f40d8950fd1e14af9a44d4e586c553955697ce57b77f";
     }
+
 }

@@ -831,28 +831,66 @@ class HostedAbiCatalogGenerator:
             "    }",
             "",
             "    public GeneratedHostedAbiData() {",
-            "        self.functions = [];",
         ]
-        for function in self._manifest.functions:
-            lines.extend(self._btrc_function(function))
+        # Populating these tables from the constructor alone produced a single C
+        # function of 114,000 lines, and a C optimizer's cost grows superlinearly
+        # with function size: that one function accounted for roughly 90% of the
+        # time to compile the whole self-hosted compiler. Spreading the same rows,
+        # in the same order, over many small methods keeps the data identical
+        # while staying in the optimizer's linear regime.
+        calls: list[str] = ["        self.functions = [];"]
+        methods: list[str] = []
+        self._btrc_chunk(
+            calls,
+            methods,
+            "pushFunctions",
+            [self._btrc_function(function) for function in self._manifest.functions],
+            self.BTRC_ROWS_PER_METHOD,
+        )
         for field, values in self._btrc_name_fields():
-            lines.append(f"        self.{field} = [];")
-            lines.extend(
-                f"        self.{field}.push({self._btrc_string(value)});" for value in values
+            calls.append(f"        self.{field} = [];")
+            self._btrc_chunk(
+                calls,
+                methods,
+                f"push_{field}",
+                [[f"        self.{field}.push({self._btrc_string(value)});"] for value in values],
+                self.BTRC_NAMES_PER_METHOD,
             )
-        lines.extend(
+        calls.extend(
             [
                 "        self.stdlib_source_marker = "
                 f"{self._btrc_string(self._manifest.provenance.stdlib_source_marker)};",
                 "        self.user_source_marker = "
                 f"{self._btrc_string(self._manifest.provenance.user_source_marker)};",
                 f"        self.fingerprint = {self._btrc_string(self._manifest.fingerprint)};",
-                "    }",
-                "}",
-                "",
             ]
         )
+        lines.extend(calls)
+        lines.extend(["    }", ""])
+        lines.extend(methods)
+        lines.extend(["}", ""])
         return "\n".join(lines)
+
+    @staticmethod
+    def _btrc_chunk(
+        calls: list[str],
+        methods: list[str],
+        prefix: str,
+        blocks: list[list[str]],
+        per_method: int,
+    ) -> None:
+        """Spread row population across methods a C optimizer can still chew."""
+
+        for start in range(0, len(blocks), per_method):
+            name = f"{prefix}{start // per_method}"
+            calls.append(f"        self.{name}();")
+            methods.append(f"    private void {name}() {{")
+            for block in blocks[start : start + per_method]:
+                methods.extend(block)
+            methods.extend(["    }", ""])
+
+    BTRC_ROWS_PER_METHOD = 40
+    BTRC_NAMES_PER_METHOD = 250
 
     def _btrc_function(self, function: HostedAbiFunctionSpec) -> list[str]:
         semantic = function.semantic_result or function.result
