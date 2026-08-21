@@ -47,35 +47,11 @@ Depending on how you define things, it might be more accurate to call btrc a tra
 
 ## Should I Use It?
 
-Probably not. But you're welcome to contribute if you find this kind of thing fun.
+Probably not. But you're welcome to contribute if you find this kind of thing fun. [AGENTS.md](AGENTS.md) has the architecture rules and the gates a change has to pass; work happens directly on `main`.
 
 If you need a production systems language with full safety guarantees, use [Rust](https://www.rust-lang.org/), [Zig](https://ziglang.org/), [Odin](https://odin-lang.org/), or [C3](https://c3-lang.org/). Those languages are more mature, robust, and real.
 
 Plus, btrc *definitely* has bugs.
-
-## Development Handoff
-
-Work happens directly on `main`; every campaign branch has been merged and
-deleted. The destination package layout, frozen compiler-boundary harness,
-runtime catalogs, strict-import path, and the Python/self-host parity fixes are
-in place, as are the frontend resource-ceiling removal, the effectful
-variable-length-array bound that the Python compiler used to emit twice, and the
-empty-managed-slot initialization defect.
-
-The verification matrix runs: `make test` at 7,274 passed and 20 skipped,
-`make bootstrap` reaching its byte-stable fixed point, and the frozen boundary
-gate green. That gate checks 301 records outside the nix shell but 277 inside
-it, because four observed-behavior capabilities are skipped as incompatible
-under that toolchain -- so 24 records go unchecked there. `main` is still not
-tagged release-ready; see the roadmap for the language gaps that remain.
-
-Claude Code and other contributors should read [CLAUDE.md](CLAUDE.md) and the
-detailed [active handoff in GOAL.md](GOAL.md#active-handoff-2026-08-19) before
-changing code. In particular, do not treat the size of the checkpoint as
-accidental, do not discard its frozen boundary fixtures, and do not claim
-completion until `make test`, `make bootstrap`, `make test-c11`, lint, format,
-generated-source, extension, and repository-hygiene gates all pass on the final
-tree.
 
 ## Quick Start
 

@@ -9,7 +9,7 @@ Read this ENTIRE file before writing any code.
 
 This project is too large for a single context window. You WILL run out of memory.
 
-### Active correctness hill-climb (2026-08-19)
+### Current state (2026-08-21)
 
 Work happens directly on `main`; every prior campaign branch was merged and
 deleted. Read the **Active Handoff** section of `GOAL.md` before making any
@@ -17,17 +17,34 @@ change — it records what has already been verified and what remains.
 
 The architecture destination and frozen-boundary infrastructure are complete.
 The frontend resource-ceiling removal, the Python VLA bound single-evaluation
-fix, and the empty managed slot defect have landed with their regressions. What
-remains is the self-host hill-climb: rebuild the self-host artifact from current
-sources, rerun the focused self-host nodes, then run the full serial matrix
-ending in `make test` and `make bootstrap`.
+fix, and the empty managed slot defect have landed with their regressions.
+
+The verification matrix runs: `make test` at 7,274 passed and 20 skipped, and
+`make bootstrap` reaching its byte-stable fixed point. Two caveats matter when
+you read a green run:
+
+- The boundary gate checks **301** records outside the nix shell but **277**
+  inside it, because four observed-behavior capabilities are skipped there as
+  incompatible. Twenty-four records go unchecked under that toolchain.
+- The twenty skips are missing tools — `naga`, `lldb`, `pkg-config`, and
+  platform-specific paths — not product defects. They are still coverage the
+  run did not get, and a green result looks identical either way.
+- `stdlib/test_stdlib_daemon.btrc` asserts a wall-clock daemon-stop deadline,
+  so it can fail on a saturated machine and pass on a quiet one.
+
+Do not claim completion until `make test`, `make bootstrap`, `make test-c11`,
+lint, format, generated-source, extension, and repository-hygiene gates all pass
+on the final tree. Do not treat the size of the checkpoint as accidental, and do
+not discard its frozen boundary fixtures.
 
 The test harness builds the self-hosted compiler once per source revision and
 caches it under `build/test-btrcc/<fingerprint>/`; a change to any compiler
 source, the stdlib, a shared spec, a runtime asset, or the C compiler version
 invalidates it. Set `BTRC_TEST_BTRCC` to reuse a binary you built yourself.
-GOAL.md records two measured runtime performance defects that are deliberately
-out of scope for this goal — do not attempt them alongside correctness work.
+GOAL.md records the runtime and compile-time performance work with its
+measurements: what landed, what was attempted and reverted, and why. Read those
+entries before starting performance work — several obvious-looking changes there
+were measured and found neutral or worse.
 
 Self-host binaries under `/tmp` are an ephemeral convenience, never a tracked
 build product. Rebuild after any change to self-host production sources or to

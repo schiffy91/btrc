@@ -350,6 +350,61 @@ into five, and it holds in every expression position rather than only
 declarations. The adapter is `static`, or cross-translation-unit archive builds
 would collide on it.
 
+### Completed: generated tables no longer compile as one giant function
+
+A C optimizer's cost grows superlinearly with the size of a single function, and
+the hosted-ABI and runtime-catalog tables were emitted as one constructor
+holding every row. In the self-hosted compiler that became a single C function
+of 114,073 lines -- 21% of the file -- plus a second of 23,904.
+
+Measured three ways. Gutting only those two functions took the file from 392s to
+41s at -O1, so they were ~90% of the cost while being 25% of the lines. An
+isolated synthetic makes the mechanism unambiguous: 60,000 statements in one
+function take 721.6s, the same 60,000 across 60 functions take 15.1s. Splitting
+both generators takes the compiler's own -O2 build from 429.8s to 52.5s and the
+largest emitted function from 114,073 lines to 7,752.
+
+Rows and their order are untouched; only the emission is restructured. Emitted C
+is byte-identical for representative corpus programs, the frozen boundary gate
+passes unchanged, and `-O2 -Werror -pedantic` is preserved -- none of this was
+bought by lowering the optimization level.
+
+### Completed: the suite stops rebuilding compilers per worker
+
+Seven modules built the production compiler, or one of its tool drivers, in
+module-scoped fixtures. Under xdist that is a full transpile and link for every
+worker reaching such a module, and they were the seven most expensive setups in
+the suite. Five now take the shared `immutable_btrcc`; the genuine tool drivers
+go through a session-scoped cache keyed on the compiler fingerprint plus the
+driver's own bytes and flags. Those modules went from roughly 1,886s of setup to
+28s.
+
+### Measured and rejected: performance changes that did not work
+
+Recorded so they are not retried. Each was implemented or prototyped, measured,
+and abandoned:
+
+- **Bounding the substring scan.** `__btrc_substring` measures the whole string
+  to clamp, which makes lexing quadratic -- `Lexer_readIdentifier` slices the
+  entire source once per token, and `strlen` was 60% of a self-compile profile.
+  Scanning only `start + len` measured **415s against a 278s baseline**: it
+  replaced a SIMD `strlen` with a byte-at-a-time loop.
+- **A pointer-keyed length cache.** Memory-unsafe. Cache `(buf, 900)` for a
+  `char[1024]`, let the frame return, and a later `char[16]` at that stack
+  address yields a 900-byte read from a 16-byte buffer.
+- **Consolidating the thread-locals.** `_tlv_get_addr` was 45% of profile
+  samples, but a build with `_Thread_local` stripped was not faster. Leaf-sample
+  share is not speedup.
+- **`-ftls-model=local-exec`.** Identical timings; Darwin resolves
+  thread-locals through its own TLV descriptors, not the ELF models that flag
+  selects.
+- **`-O1` for the bootstrap's C compiles.** `-O1` is 392s against `-O2`'s 430s;
+  the cliff is `-O0` to `-O1`. Dropping to `-O0` would also retire
+  `-Wmaybe-uninitialized`, which only fires at `-O2`.
+- **Running the gate's three verifications concurrently.** Reverted:
+  `test_memory_intensive_bootstrap_runs_after_the_parallel_suite` encodes the
+  sequencing, and its reason is in its name.
+
 ### Known flake: the daemon corpus test under saturating load
 
 `stdlib/test_stdlib_daemon.btrc` failed once with exit 124, "daemon did not
