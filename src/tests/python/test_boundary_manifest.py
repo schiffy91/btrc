@@ -615,7 +615,7 @@ def test_tracked_manifest_has_exact_capability_fixture_and_runtime_universes() -
         "shared.runtime-metadata",
         "shared.runtime-order",
     }
-    assert len(manifest.records) == 301
+    assert len(manifest.records) == 304
     assert not BoundaryManifest._supports_capability("btrc", "raw-ir")
     assert not BoundaryManifest._supports_capability("btrc", "optimized-ir")
     manifest._validate_runtime_channel_universe(REPO)

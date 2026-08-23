@@ -1,0 +1,1 @@
+{"asset":"process.c","btrc_order":210,"category":"process","dependencies":[],"headers":["errno.h","unistd.h"],"name":"__btrc_terminal_foreground_group","provided_objects":[],"provided_types":[],"python_order":225,"source_sha256":"fe08d0b0f0fb5be0ccbb392983febd2235bdd11ec84206e868def433d88416f0","source_size":160,"source_visible":true}

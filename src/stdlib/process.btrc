@@ -725,7 +725,8 @@ class ChildProcess {
                          string stderr = CommandOutput.collect(),
                          int executableDescriptor = -1,
                          Vector<ChildDescriptorMapping> descriptorMappings = ChildDescriptorMappings.empty(),
-                         int workingDirectoryDescriptor = -1) {
+                         int workingDirectoryDescriptor = -1,
+                         bool foreground = false) {
         if (executable == null || executable.isEmpty()) {
             return ChildProcess.failure(executable, "executable cannot be empty");
         }
@@ -1077,8 +1078,25 @@ class ChildProcess {
             return ChildProcess.failure(command, descriptorPreparationError);
         }
 
+        /* Resolve the controlling terminal before forking: the child branch may
+         * only use precomputed, async-signal-safe inputs. A child that owns the
+         * terminal cannot come from posix_spawn, which offers no race-free
+         * foreground handoff, so that fast path is skipped for it. */
+        int terminalDescriptor = -1;
+        pid_t callerForegroundGroup = (pid_t)0 - (pid_t)1;
+        if (foreground) {
+            terminalDescriptor = __btrc_controlling_terminal_descriptor();
+            if (terminalDescriptor >= 0) {
+                callerForegroundGroup =
+                    __btrc_terminal_foreground_group(terminalDescriptor);
+                if (callerForegroundGroup <= (pid_t)0) {
+                    terminalDescriptor = -1;
+                }
+            }
+        }
+
         pid_t child = (pid_t)0 - (pid_t)2;
-        if (!usesProcessDescriptors) {
+        if (!usesProcessDescriptors && terminalDescriptor < 0) {
             child = __btrc_posix_spawn_cloexec(
                 resolvedExecutable, execArguments, execEnvironment,
                 hasCwd ? cwd : NULL,
@@ -1108,6 +1126,10 @@ class ChildProcess {
                 write(STDERR_FILENO,
                     "failed to prepare child process\n", 32);
                 _exit(126);
+            }
+            if (terminalDescriptor >= 0) {
+                __btrc_terminal_adopt_foreground(
+                    terminalDescriptor, getpid());
             }
             if (stdoutPipe[0] >= 0) { close(stdoutPipe[0]); }
             if (stderrPipe[0] >= 0) { close(stderrPipe[0]); }
@@ -1214,6 +1236,11 @@ class ChildProcess {
         /* Both spawn paths create the process group; this parent call closes
          * the small fork scheduling window without changing child semantics. */
         setpgid(child, child);
+        /* The child performs the same handoff. Repeating it here means neither
+         * side depends on being scheduled first. */
+        if (terminalDescriptor >= 0) {
+            __btrc_terminal_adopt_foreground(terminalDescriptor, child);
+        }
 
         ChildProcessCapture output = ChildProcessCapture(
             stdoutPipe[0], maxStdoutBytes);
@@ -1283,6 +1310,13 @@ class ChildProcess {
                 output.closeCapture();
                 error.closeCapture();
             }
+        }
+
+        /* Reclaim the terminal before returning: leaving the caller in the
+         * background would make its own reads fail with EIO. */
+        if (terminalDescriptor >= 0) {
+            __btrc_terminal_adopt_foreground(
+                terminalDescriptor, callerForegroundGroup);
         }
 
         captureFailed = captureFailed || output.failed || error.failed;
@@ -1426,7 +1460,8 @@ class UnixShell {
                           string chroot = "",
                           int timeoutMilliseconds = 0,
                           int maxStdoutBytes = 8388608,
-                          int maxStderrBytes = 8388608) {
+                          int maxStderrBytes = 8388608,
+                          bool foreground = false) {
         if (!CommandOutput.valid(stdout)) { throw f"invalid stdout mode: {stdout}"; }
         if (!CommandOutput.valid(stderr)) { throw f"invalid stderr mode: {stderr}"; }
         if (stdout.equals(CommandOutput.combine())) { throw "stdout cannot use CommandOutput.combine"; }
@@ -1447,7 +1482,8 @@ class UnixShell {
             maxStderrBytes=maxStderrBytes,
             stdinData=stdin,
             stdout=stdout,
-            stderr=stderr);
+            stderr=stderr,
+            foreground=foreground);
         var code = child.code;
 
         if ((logFailure || throwOnFailure) && code != 0) {

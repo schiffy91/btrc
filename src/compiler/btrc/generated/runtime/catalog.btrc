@@ -2529,6 +2529,39 @@ class GeneratedRuntimeCatalogData {
             self.emptyStrings(),
             self.emptyStrings(),
             false));
+        self.rows.push(GeneratedRuntimeHelperRow(
+            "process",
+            "__btrc_controlling_terminal_descriptor",
+            [
+                "static int __btrc_controlling_terminal_descriptor(void) {\n    int candidates[3];\n    candidates[0] = STDIN_FILENO;\n    candidates[1] = STDOUT_FILENO;\n    candidates[2] = STDERR_FILENO;\n    for (size_t i = (size_t)0; i < sizeof(candidates) / sizeof(candidates[0]); i++) {\n        if (tcgetpgrp(candidates[i]) >= (pid_t)0)\n            return candidates[i];\n    }\n    errno = ENOTTY;\n    return -1;\n}",
+            ],
+            self.emptyStrings(),
+            ["errno.h", "stddef.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
+            true));
+        self.rows.push(GeneratedRuntimeHelperRow(
+            "process",
+            "__btrc_terminal_foreground_group",
+            [
+                "static pid_t __btrc_terminal_foreground_group(int descriptor) {\n    if (descriptor < 0) { errno = EBADF; return (pid_t)-1; }\n    return tcgetpgrp(descriptor);\n}",
+            ],
+            self.emptyStrings(),
+            ["errno.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
+            true));
+        self.rows.push(GeneratedRuntimeHelperRow(
+            "process",
+            "__btrc_terminal_adopt_foreground",
+            [
+                "/* tcsetpgrp from a background process group raises SIGTTOU at the caller, so\n * the disposition is suppressed across the handoff and restored afterwards.\n * Only async-signal-safe calls are used: the child branch runs this after fork\n * and before execve. */\nstatic int __btrc_terminal_adopt_foreground(int descriptor, pid_t group) {\n    struct sigaction ignored;\n    struct sigaction previous;\n    int result;\n    int saved;\n    if (descriptor < 0 || group <= (pid_t)0) { errno = EINVAL; return -1; }\n    memset(&ignored, 0, sizeof(ignored));\n    ignored.sa_handler = SIG_IGN;\n    if (sigemptyset(&ignored.sa_mask) != 0) return -1;\n    if (sigaction(SIGTTOU, &ignored, &previous) != 0) return -1;\n    result = tcsetpgrp(descriptor, group);\n    saved = errno;\n    if (sigaction(SIGTTOU, &previous, NULL) != 0) return -1;\n    errno = saved;\n    return result;\n}",
+            ],
+            self.emptyStrings(),
+            ["errno.h", "signal.h", "string.h", "unistd.h"],
+            self.emptyStrings(),
+            self.emptyStrings(),
+            true));
     }
 
 }

@@ -4712,6 +4712,60 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_objects=(),
         source_visible=False,
     ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_controlling_terminal_descriptor',
+        c_source=(
+            'static int __btrc_controlling_terminal_descriptor(void) {\n    int candid'
+            'ates[3];\n    candidates[0] = STDIN_FILENO;\n    candidates[1] = STDOUT_FI'
+            'LENO;\n    candidates[2] = STDERR_FILENO;\n    for (size_t i = (size_t)0; '
+            'i < sizeof(candidates) / sizeof(candidates[0]); i++) {\n        if (tcget'
+            'pgrp(candidates[i]) >= (pid_t)0)\n            return candidates[i];\n    }'
+            '\n    errno = ENOTTY;\n    return -1;\n}'
+        ),
+        depends_on=(),
+        required_headers=('errno.h', 'stddef.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_terminal_foreground_group',
+        c_source=(
+            'static pid_t __btrc_terminal_foreground_group(int descriptor) {\n    if ('
+            'descriptor < 0) { errno = EBADF; return (pid_t)-1; }\n    return tcgetpgr'
+            'p(descriptor);\n}'
+        ),
+        depends_on=(),
+        required_headers=('errno.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+    ),
+    GeneratedRuntimeHelperRow(
+        category='process',
+        name='__btrc_terminal_adopt_foreground',
+        c_source=(
+            '/* tcsetpgrp from a background process group raises SIGTTOU at the calle'
+            'r, so\n * the disposition is suppressed across the handoff and restored a'
+            'fterwards.\n * Only async-signal-safe calls are used: the child branch ru'
+            'ns this after fork\n * and before execve. */\nstatic int __btrc_terminal_a'
+            'dopt_foreground(int descriptor, pid_t group) {\n    struct sigaction igno'
+            'red;\n    struct sigaction previous;\n    int result;\n    int saved;\n    i'
+            'f (descriptor < 0 || group <= (pid_t)0) { errno = EINVAL; return -1; }\n '
+            '   memset(&ignored, 0, sizeof(ignored));\n    ignored.sa_handler = SIG_IG'
+            'N;\n    if (sigemptyset(&ignored.sa_mask) != 0) return -1;\n    if (sigact'
+            'ion(SIGTTOU, &ignored, &previous) != 0) return -1;\n    result = tcsetpgr'
+            'p(descriptor, group);\n    saved = errno;\n    if (sigaction(SIGTTOU, &pre'
+            'vious, NULL) != 0) return -1;\n    errno = saved;\n    return result;\n}'
+        ),
+        depends_on=(),
+        required_headers=('errno.h', 'signal.h', 'string.h', 'unistd.h'),
+        provided_types=(),
+        provided_objects=(),
+        source_visible=True,
+    ),
 )
 
 C_RUNTIME_CALLS: tuple[str, ...] = (

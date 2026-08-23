@@ -206,3 +206,6 @@ __btrc_mutex_arc_type
 __btrc_mutex_val_create
 __btrc_mutex_val_get
 __btrc_mutex_val_set
+__btrc_controlling_terminal_descriptor
+__btrc_terminal_foreground_group
+__btrc_terminal_adopt_foreground

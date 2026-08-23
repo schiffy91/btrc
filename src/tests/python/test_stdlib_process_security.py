@@ -151,6 +151,137 @@ def test_close_fallback_does_not_retry_an_interrupted_descriptor(
     subprocess.run([str(executable)], check=True, timeout=10)
 
 
+def test_foreground_children_take_the_terminal_from_precomputed_inputs() -> None:
+    source = PROCESS.read_text()
+    run = source.split("class ExecResult run", 1)[1]
+    child = run.split("if (child == (pid_t)0) {", 1)[1]
+    child = child.split("\n        bool signalRestoreFailed", 1)[0]
+
+    assert "bool foreground = false" in run
+    # The child branch may only use inputs resolved before fork().
+    resolve = run.index("__btrc_controlling_terminal_descriptor()")
+    fork = run.index("fork()", resolve)
+    assert resolve < fork
+    assert "__btrc_terminal_foreground_group(terminalDescriptor)" in run
+    assert "__btrc_controlling_terminal_descriptor()" not in child
+    assert "__btrc_terminal_adopt_foreground(\n                    terminalDescriptor, getpid())" in child
+
+    # posix_spawn offers no race-free handoff, so a foreground child never uses it.
+    spawn = run.index("__btrc_posix_spawn_cloexec(")
+    guard = run.rindex("terminalDescriptor < 0", 0, spawn)
+    assert "usesProcessDescriptors && terminalDescriptor < 0" in run[guard - 40 : spawn]
+
+    # Parent claims the group too, then hands the terminal back.
+    parent = run.split("setpgid(child, child);", 1)[1]
+    assert "__btrc_terminal_adopt_foreground(terminalDescriptor, child)" in parent
+    reclaim = parent.index("terminalDescriptor, callerForegroundGroup")
+    assert reclaim > parent.index("captureFailed || output.failed") - 400
+
+
+def test_terminal_handoff_survives_sigttou_from_a_background_group(
+    tmp_path: Path,
+) -> None:
+    helpers = "\n".join(
+        PROCESS_HELPERS[name].c_source
+        for name in (
+            "__btrc_controlling_terminal_descriptor",
+            "__btrc_terminal_foreground_group",
+            "__btrc_terminal_adopt_foreground",
+        )
+    )
+    assert "sigaction(SIGTTOU" in helpers
+    assert "tcsetpgrp(descriptor, group)" in helpers
+
+    harness = tmp_path / "terminal-handoff.c"
+    harness.write_text(
+        textwrap.dedent(
+            f"""
+            #define _XOPEN_SOURCE 700
+            #define _DEFAULT_SOURCE
+            #include <errno.h>
+            #include <fcntl.h>
+            #include <signal.h>
+            #include <stddef.h>
+            #include <stdlib.h>
+            #include <string.h>
+            #include <sys/ioctl.h>
+            #include <sys/wait.h>
+            #include <termios.h>
+            #include <unistd.h>
+
+            {helpers}
+
+            /* Runs inside a fresh session on `slave`, whose process group starts
+             * out as the terminal's foreground group. A child that moves itself
+             * into its own group is therefore a background group, which is the
+             * situation every spawned btrc child is in. */
+            static int background_child_claims_terminal(int slave) {{
+                pid_t child = fork();
+                if (child < 0) return 20;
+                if (child == 0) {{
+                    if (setpgid(0, 0) != 0) _exit(21);
+                    /* An unguarded tcsetpgrp here would raise SIGTTOU and stop
+                     * this process; the helper must suppress that and proceed. */
+                    if (__btrc_terminal_adopt_foreground(slave, getpid()) != 0)
+                        _exit(22);
+                    if (__btrc_terminal_foreground_group(slave) != getpgrp())
+                        _exit(23);
+                    _exit(0);
+                }}
+                int status = 0;
+                /* WUNTRACED reports a SIGTTOU stop instead of hanging forever. */
+                if (waitpid(child, &status, WUNTRACED) != child) return 24;
+                if (WIFSTOPPED(status)) {{ kill(child, SIGKILL); return 25; }}
+                if (!WIFEXITED(status)) return 26;
+                return WEXITSTATUS(status);
+            }}
+
+            int main(void) {{
+                int master = posix_openpt(O_RDWR | O_NOCTTY);
+                if (master < 0 || grantpt(master) != 0 || unlockpt(master) != 0)
+                    return 1;
+                char* name = ptsname(master);
+                if (name == NULL) return 2;
+
+                pid_t session = fork();
+                if (session < 0) return 3;
+                if (session == 0) {{
+                    if (setsid() < 0) _exit(10);
+                    int slave = open(name, O_RDWR);
+                    if (slave < 0) _exit(11);
+                    if (ioctl(slave, TIOCSCTTY, 0) != 0) _exit(12);
+                    if (dup2(slave, STDIN_FILENO) != STDIN_FILENO) _exit(13);
+                    if (__btrc_controlling_terminal_descriptor() != STDIN_FILENO)
+                        _exit(14);
+                    _exit(background_child_claims_terminal(slave));
+                }}
+                int status = 0;
+                if (waitpid(session, &status, 0) != session) return 4;
+                if (!WIFEXITED(status)) return 5;
+                return WEXITSTATUS(status);
+            }}
+            """
+        )
+    )
+    executable = tmp_path / "terminal-handoff"
+    subprocess.run(
+        [
+            "cc",
+            "-std=c11",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-pedantic-errors",
+            str(harness),
+            "-o",
+            str(executable),
+        ],
+        check=True,
+        timeout=30,
+    )
+    subprocess.run([str(executable)], check=True, timeout=30)
+
+
 def test_process_uses_platform_fast_paths_without_weakening_fallback() -> None:
     source = PROCESS.read_text()
     run = source.split("class ExecResult run", 1)[1]

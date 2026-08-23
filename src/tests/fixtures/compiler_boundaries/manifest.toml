@@ -270,6 +270,7 @@ channels = [
   "helper.__btrc_close_descriptors_from",
   "helper.__btrc_collect_cycles",
   "helper.__btrc_collect_cycles_once",
+  "helper.__btrc_controlling_terminal_descriptor",
   "helper.__btrc_copy_error_message",
   "helper.__btrc_count",
   "helper.__btrc_cycle_collector_state",
@@ -393,6 +394,8 @@ channels = [
   "helper.__btrc_suspect_locked",
   "helper.__btrc_suspect_state",
   "helper.__btrc_swapCase",
+  "helper.__btrc_terminal_adopt_foreground",
+  "helper.__btrc_terminal_foreground_group",
   "helper.__btrc_thread_arc_dispose",
   "helper.__btrc_thread_box_dispose",
   "helper.__btrc_thread_destroy_handle",
@@ -1402,6 +1405,10 @@ boundary = "runtime-helper-source"
 channel = "asset.process_c"
 baseline_path = "baseline/runtime-catalog.shared.runtime-source.asset.process_c.bin"
 baseline_sha256 = "8d35b40f606ef8d82a96f24b7f15807dcd484cd40c5b3cdef6d3ae8e1934ee1f"
+accepted_path = "accepted/runtime-catalog.shared.runtime-source.asset.process_c.bin"
+accepted_sha256 = "b61853b5cab965a22b5dcb80e38ee80113e0cfc17635fd8ba95061e4d3416f06"
+reason = "ChildProcess.run gained an opt-in foreground mode that hands the controlling terminal to the child's process group, so the process runtime asset and helper order carry three new terminal helpers."
+regressions = ["src/tests/python/test_stdlib_process_security.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-source.asset.strings_c"
@@ -3796,6 +3803,36 @@ baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0224.bin"
 baseline_sha256 = "33a693d9f393997d8aa68b9e7c5ff660042ce8a6a241db2117cf62f856691263"
 
 [[records]]
+id = "runtime-catalog.shared.runtime-metadata.0225"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_controlling_terminal_descriptor"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0225.bin"
+baseline_sha256 = "c835b596852cd2b9519133cbdbddc6e059344a82421231125d5e6a3c4e05aa24"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0226"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_terminal_adopt_foreground"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0226.bin"
+baseline_sha256 = "6ec4c105b1f03ff9e9ba85a81de4443f583a90bc2226014b70c30d7c9d617636"
+
+[[records]]
+id = "runtime-catalog.shared.runtime-metadata.0227"
+fixture = "runtime-catalog"
+capability = "shared.runtime-metadata"
+compiler = "shared"
+boundary = "runtime-helper-metadata"
+channel = "helper.__btrc_terminal_foreground_group"
+baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0227.bin"
+baseline_sha256 = "700ca75c735c5776b3d798993630c6af8e9f80e39e6c9b93f9eb415d50b4ff71"
+
+[[records]]
 id = "runtime-catalog.shared.runtime-order.python"
 fixture = "runtime-catalog"
 capability = "shared.runtime-order"
@@ -3803,11 +3840,11 @@ compiler = "shared"
 boundary = "runtime-helper-order"
 channel = "python"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.python.bin"
-baseline_sha256 = "f27deaf2aec320275a3dbe88d8003b07ca6a8b3e0a1dc0f1e8520769425931b9"
+baseline_sha256 = "a3c36dbfe5001c2da0c39c71273c845756f0c2644249f63b85ed6f646014b2ba"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.python.bin"
-accepted_sha256 = "c773019d3e73f987924bed8fe12db988feca7210938e78a3734231d61d67c1e6"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
-regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "495e4e175d5b8c7cc4447bf57a1dfbede15dc8f5f6cddfcf3599ca5df1358d1d"
+reason = "ChildProcess.run gained an opt-in foreground mode that hands the controlling terminal to the child's process group, so the process runtime asset and helper order carry three new terminal helpers."
+regressions = ["src/tests/python/test_stdlib_process_security.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-order.btrc"
@@ -3817,11 +3854,11 @@ compiler = "shared"
 boundary = "runtime-helper-order"
 channel = "btrc"
 baseline_path = "baseline/runtime-catalog.shared.runtime-order.btrc.bin"
-baseline_sha256 = "ec63f7782d406fefa9e6ece7bad6e1a4ab06d5cd80197f94f77e40fd9b74adea"
+baseline_sha256 = "a65cb39c405ddfa854262ec210a27dca389bd75a7fb67cb9d3c598a9f26248fb"
 accepted_path = "accepted/runtime-catalog.shared.runtime-order.btrc.bin"
-accepted_sha256 = "857433f3ac7fe428ce39c1df13684c61e8d24b41fe50856af432416f8261feb1"
-reason = "Runtime helper bytes or generated catalog metadata changed intentionally with the reviewed runtime refactor."
-regressions = ["src/tests/python/test_runtime_helper_registry.py"]
+accepted_sha256 = "120b8cfde94aa7c8b7356d14f516735a05a98dc7566b298504d367dfa3155528"
+reason = "ChildProcess.run gained an opt-in foreground mode that hands the controlling terminal to the child's process group, so the process runtime asset and helper order carry three new terminal helpers."
+regressions = ["src/tests/python/test_stdlib_process_security.py"]
 
 [[equalities]]
 id = "surface.tokens.artifact"

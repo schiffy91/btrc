@@ -618,7 +618,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("openPipe", "int", "method", (("int*", "descriptors"),), "openPipe"),
         BuiltinMemberSpec("failure", "ExecResult", "method", (("string", "command"), ("string", "message"),), "failure"),
         BuiltinMemberSpec("render", "string", "method", (("string", "executable"), ("Vector<string>", "arguments"),), "render"),
-        BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"),), "run"),
+        BuiltinMemberSpec("run", "ExecResult", "method", (("string", "executable"), ("Vector<string>", "arguments"), ("string", "cwd"), ("Vector<string>", "environment"), ("Vector<string>", "unsetEnvironment"), ("int", "timeoutMilliseconds"), ("int", "maxStdoutBytes"), ("int", "maxStderrBytes"), ("string", "stdinData"), ("string", "stdout"), ("string", "stderr"), ("int", "executableDescriptor"), ("Vector<ChildDescriptorMapping>", "descriptorMappings"), ("int", "workingDirectoryDescriptor"), ("bool", "foreground"),), "run"),
     )),
     ("Regex", (
         BuiltinMemberSpec("checkedLength", "int", "method", (("string", "text"),), "checkedLength"),

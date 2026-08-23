@@ -2172,6 +2172,33 @@ source_visible = true
 order = { python = 201, btrc = 186 }
 
 [[helpers]]
+name = "__btrc_controlling_terminal_descriptor"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "stddef.h", "unistd.h"]
+source_visible = true
+order = { python = 224, btrc = 209 }
+
+[[helpers]]
+name = "__btrc_terminal_foreground_group"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "unistd.h"]
+source_visible = true
+order = { python = 225, btrc = 210 }
+
+[[helpers]]
+name = "__btrc_terminal_adopt_foreground"
+category = "process"
+asset = "process.c"
+dependencies = []
+headers = ["errno.h", "signal.h", "string.h", "unistd.h"]
+source_visible = true
+order = { python = 226, btrc = 211 }
+
+[[helpers]]
 name = "__btrc_thread_types"
 category = "threads"
 asset = "threads.c"

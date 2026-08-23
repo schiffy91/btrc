@@ -15,6 +15,7 @@ functions = [
   "__btrc_close_descriptors_except",
   "__btrc_close_descriptors_except_many",
   "__btrc_close_descriptors_from",
+  "__btrc_controlling_terminal_descriptor",
   "__btrc_descriptor_close_bound",
   "__btrc_enter_working_directory_descriptor",
   "__btrc_exec_executable_descriptor",
@@ -33,6 +34,8 @@ functions = [
   "__btrc_string_length",
   "__btrc_string_live_count",
   "__btrc_string_or_empty",
+  "__btrc_terminal_adopt_foreground",
+  "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
   "__btrc_validate_working_directory_descriptor",
   "_setjmp",
@@ -6602,6 +6605,7 @@ owned = [
   "__btrc_close_descriptors_except",
   "__btrc_close_descriptors_except_many",
   "__btrc_close_descriptors_from",
+  "__btrc_controlling_terminal_descriptor",
   "__btrc_descriptor_close_bound",
   "__btrc_enter_working_directory_descriptor",
   "__btrc_exec_executable_descriptor",
@@ -6620,6 +6624,8 @@ owned = [
   "__btrc_string_length",
   "__btrc_string_live_count",
   "__btrc_string_or_empty",
+  "__btrc_terminal_adopt_foreground",
+  "__btrc_terminal_foreground_group",
   "__btrc_validate_executable_descriptor",
   "__btrc_validate_working_directory_descriptor",
   "_setjmp",
@@ -11696,6 +11702,16 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "__btrc_controlling_terminal_descriptor"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = []
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
 name = "__btrc_descriptor_close_bound"
 origin = "runtime"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -11928,6 +11944,31 @@ return_alias_parameter = 0
 return_alias_null_effect = "independent"
 raw_lifetime = false
 return_alias_shape = "exact"
+
+[[functions]]
+name = "__btrc_terminal_adopt_foreground"
+origin = "runtime"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "pid_t", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "__btrc_terminal_foreground_group"
+origin = "runtime"
+result = { base = "pid_t", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
 
 [[functions]]
 name = "__btrc_validate_executable_descriptor"
