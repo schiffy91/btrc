@@ -183,6 +183,28 @@ int btrc_tray_add_item(void* tray, char* label, char* command, bool enabled) {
     }
 }
 
+int btrc_tray_add_check_item(void* tray, char* label, char* command,
+                             bool enabled, bool checked) {
+    int index = btrc_tray_add_item(tray, label, command, enabled);
+    if (index < 0) { return index; }
+    @autoreleasepool {
+        BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
+        NSMenuItem* item = [t->menu itemAtIndex:index];
+        [item setState:(checked ? NSControlStateValueOn : NSControlStateValueOff)];
+    }
+    return index;
+}
+
+void btrc_tray_set_item_checked(void* tray, int index, bool checked) {
+    if (!tray) { return; }
+    @autoreleasepool {
+        BtrcTrayTarget* t = (__bridge BtrcTrayTarget*)tray;
+        if (t->menu == nil || index < 0 || index >= [t->menu numberOfItems]) { return; }
+        NSMenuItem* item = [t->menu itemAtIndex:index];
+        [item setState:(checked ? NSControlStateValueOn : NSControlStateValueOff)];
+    }
+}
+
 void btrc_tray_add_separator(void* tray) {
     if (!tray) { return; }
     @autoreleasepool {

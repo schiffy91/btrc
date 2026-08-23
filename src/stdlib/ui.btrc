@@ -174,11 +174,13 @@ class TrayItem {
     public string label;
     public string command;
     public bool enabled;
+    public string stateCommand;  /* non-empty: exit 0 renders a checkmark */
 
     public TrayItem(string label, string command) {
         self.label = label;
         self.command = command;
         self.enabled = true;
+        self.stateCommand = "";
     }
 
     public TrayItem disabled() {
@@ -216,6 +218,15 @@ class Tray {
 
     public Tray item(string label, string command) {
         self.items.push(TrayItem(label, command));
+        return self;
+    }
+
+    /* A checkable item: the mark mirrors stateCommand's exit status (0 = on),
+     * probed when the menu is realized and again after each activation. */
+    public Tray checkItem(string label, string command, string stateCommand) {
+        TrayItem entry = TrayItem(label, command);
+        entry.stateCommand = stateCommand;
+        self.items.push(entry);
         return self;
     }
 

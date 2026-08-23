@@ -44,6 +44,16 @@ void  btrc_tray_set_tooltip(void* tray, char* tooltip);
  * item out when false. Returns the item's index (>= 0), or -1 on error. */
 int   btrc_tray_add_item(void* tray, char* label, char* command, bool enabled);
 
+/* Append a clickable menu item rendered with a checkmark. `checked` sets the
+ * initial mark; flip it later with btrc_tray_set_item_checked(). Returns the
+ * item's index (>= 0), or -1 on error. */
+int   btrc_tray_add_check_item(void* tray, char* label, char* command,
+                               bool enabled, bool checked);
+
+/* Update a check item's mark in the live menu (no-op for plain items or
+ * out-of-range indexes). */
+void  btrc_tray_set_item_checked(void* tray, int index, bool checked);
+
 /* Append a non-interactive separator line to the menu. */
 void  btrc_tray_add_separator(void* tray);
 

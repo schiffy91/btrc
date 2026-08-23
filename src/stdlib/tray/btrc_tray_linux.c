@@ -40,6 +40,8 @@ typedef struct {
     char* command;
     bool  enabled;
     bool  separator;
+    bool  checkable;
+    bool  checked;
 } btrc_item;
 
 typedef struct {
@@ -183,6 +185,19 @@ static void dict_str(DBusMessageIter* arr, const char* key, const char* val) {
     dbus_message_iter_close_container(arr, &e);
 }
 
+static void append_variant_int32(DBusMessageIter* parent, dbus_int32_t val) {
+    DBusMessageIter v;
+    dbus_message_iter_open_container(parent, DBUS_TYPE_VARIANT, "i", &v);
+    dbus_message_iter_append_basic(&v, DBUS_TYPE_INT32, &val);
+    dbus_message_iter_close_container(parent, &v);
+}
+static void dict_int32(DBusMessageIter* arr, const char* key, dbus_int32_t val) {
+    DBusMessageIter e;
+    dbus_message_iter_open_container(arr, DBUS_TYPE_DICT_ENTRY, NULL, &e);
+    dbus_message_iter_append_basic(&e, DBUS_TYPE_STRING, &key);
+    append_variant_int32(&e, val);
+    dbus_message_iter_close_container(arr, &e);
+}
 static void dict_bool(DBusMessageIter* arr, const char* key, dbus_bool_t val) {
     DBusMessageIter e;
     dbus_message_iter_open_container(arr, DBUS_TYPE_DICT_ENTRY, NULL, &e);
@@ -278,6 +293,10 @@ static void append_menu_item(DBusMessageIter* parent, btrc_tray* t, int index) {
         dict_str(&props, "label", mi->label ? mi->label : "");
         dict_bool(&props, "enabled", mi->enabled ? TRUE : FALSE);
         dict_bool(&props, "visible", TRUE);
+        if (mi->checkable) {
+            dict_str(&props, "toggle-type", "checkmark");
+            dict_int32(&props, "toggle-state", mi->checked ? 1 : 0);
+        }
     }
     dbus_message_iter_close_container(&node, &props);
     /* No grandchildren (flat menu). */
@@ -328,6 +347,10 @@ static void append_menu_properties(DBusMessageIter* parent,
         dict_str(&properties, "label", item->label ? item->label : "");
         dict_bool(&properties, "enabled", item->enabled ? TRUE : FALSE);
         dict_bool(&properties, "visible", TRUE);
+        if (item->checkable) {
+            dict_str(&properties, "toggle-type", "checkmark");
+            dict_int32(&properties, "toggle-state", item->checked ? 1 : 0);
+        }
     }
     dbus_message_iter_close_container(&node, &properties);
     dbus_message_iter_close_container(parent, &node);
@@ -580,7 +603,19 @@ int btrc_tray_add_item(void* tray, char* label, char* command, bool enabled) {
     mi->command = new_command;
     mi->enabled = enabled;
     mi->separator = false;
+    mi->checkable = false;
+    mi->checked = false;
     return t->item_count++;
+}
+
+int btrc_tray_add_check_item(void* tray, char* label, char* command,
+                             bool enabled, bool checked) {
+    int index = btrc_tray_add_item(tray, label, command, enabled);
+    if (index < 0) { return index; }
+    btrc_tray* t = (btrc_tray*)tray;
+    t->items[index].checkable = true;
+    t->items[index].checked = checked;
+    return index;
 }
 
 void btrc_tray_add_separator(void* tray) {
@@ -592,6 +627,18 @@ void btrc_tray_add_separator(void* tray) {
     mi->command = NULL;
     mi->enabled = false;
     mi->separator = true;
+    mi->checkable = false;
+    mi->checked = false;
+}
+
+void btrc_tray_set_item_checked(void* tray, int index, bool checked) {
+    if (!tray) { return; }
+    btrc_tray* t = (btrc_tray*)tray;
+    if (index < 0 || index >= t->item_count) { return; }
+    btrc_item* mi = &t->items[index];
+    if (!mi->checkable || mi->checked == checked) { return; }
+    mi->checked = checked;
+    btrc_tray_set_menu(tray);
 }
 
 void btrc_tray_set_menu(void* tray) {

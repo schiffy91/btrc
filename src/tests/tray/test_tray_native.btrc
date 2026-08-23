@@ -21,16 +21,23 @@ int main() {
         .icon("/no/such/icon.png")
         .item("Open", "echo open")
         .add(TrayItem("Disabled", "noop").disabled())
+        .checkItem("Marked", "true", "true")
+        .checkItem("Unmarked", "true", "false")
         .item("Quit", TraySignal.quit());
 
     assert(tray.model.title.equals("btrc"));
     assert(tray.model.tooltip.equals("native tray test"));
     assert(tray.model.iconPath.equals("/no/such/icon.png"));
-    assert(tray.model.items.len == 3);
+    assert(tray.model.items.len == 5);
     assert(tray.model.items.get(0).label.equals("Open"));
     assert(tray.model.items.get(0).enabled);
     assert(!tray.model.items.get(1).enabled);
-    assert(tray.model.items.get(2).command.equals("__quit__"));
+    assert(tray.model.items.get(0).stateCommand.isEmpty());
+    assert(tray.model.items.get(2).stateCommand.equals("true"));
+    assert(tray.model.items.get(3).stateCommand.equals("false"));
+    assert(tray.probeState("true"));
+    assert(!tray.probeState("false"));
+    assert(tray.model.items.get(4).command.equals("__quit__"));
 
     /* fromTray adopts an existing portable Tray unchanged. */
     Tray portable = Tray("Adopted").item("A", "echo a");

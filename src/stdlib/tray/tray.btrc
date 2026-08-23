@@ -33,6 +33,8 @@ void* btrc_tray_create(string title);
 void  btrc_tray_set_icon(void* tray, string icon_path);
 void  btrc_tray_set_tooltip(void* tray, string tooltip);
 int   btrc_tray_add_item(void* tray, string label, string command, bool enabled);
+int   btrc_tray_add_check_item(void* tray, string label, string command, bool enabled, bool checked);
+void  btrc_tray_set_item_checked(void* tray, int index, bool checked);
 void  btrc_tray_add_separator(void* tray);
 void  btrc_tray_set_menu(void* tray);
 bool  btrc_tray_show(void* tray);
@@ -54,12 +56,14 @@ class SystemTray {
     public void* handle;      /* opaque native NSStatusItem / SNI handle */
     public bool realized;     /* true once a native item was created + shown */
     public UnixShell shell;   /* runs activated item commands */
+    public Vector<int> nativeIndexes;  /* model order -> native menu index */
 
     public SystemTray(string title) {
         self.model = Tray(title);
         self.handle = null;
         self.realized = false;
         self.shell = UnixShell();
+        self.nativeIndexes = [];
     }
 
     /* Adopt an already-built portable Tray (icon/tooltip/items preserved). */
@@ -85,6 +89,14 @@ class SystemTray {
         return self;
     }
 
+    /* A checkable item whose mark mirrors stateCommand's exit status (0 = on).
+     * Probed when the menu is realized and again after every activation, so
+     * external state changes surface on the next menu interaction. */
+    public SystemTray checkItem(string label, string command, string stateCommand) {
+        self.model.checkItem(label, command, stateCommand);
+        return self;
+    }
+
     public SystemTray add(TrayItem item) {
         self.model.add(item);
         return self;
@@ -107,10 +119,14 @@ class SystemTray {
         btrc_tray_set_tooltip(self.handle, self.model.tooltip);
         bool menuOk = true;
         for entry in self.model.items {
-            if (btrc_tray_add_item(
-                    self.handle, entry.label, entry.command, entry.enabled) < 0) {
-                menuOk = false;
-            }
+            int index = entry.stateCommand.isEmpty()
+                ? btrc_tray_add_item(
+                    self.handle, entry.label, entry.command, entry.enabled)
+                : btrc_tray_add_check_item(
+                    self.handle, entry.label, entry.command, entry.enabled,
+                    self.probeState(entry.stateCommand));
+            if (index < 0) { menuOk = false; }
+            else { self.nativeIndexes.push(index); }
         }
         if (!menuOk) {
             btrc_tray_destroy(self.handle);
@@ -141,8 +157,28 @@ class SystemTray {
                 return false;
             }
             self.shell.run(command, stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
+            self.refreshCheckItems();
         }
         return alive && !btrc_tray_should_quit(self.handle);
+    }
+
+    public bool probeState(string stateCommand) {
+        return self.shell.run(stateCommand, logFailure=false).ok();
+    }
+
+    /* Re-probe every check item; any activation may have flipped shared state. */
+    public void refreshCheckItems() {
+        if (self.handle == null) { return; }
+        int position = 0;
+        for entry in self.model.items {
+            if (position >= self.nativeIndexes.len) { break; }
+            if (!entry.stateCommand.isEmpty()) {
+                btrc_tray_set_item_checked(
+                    self.handle, self.nativeIndexes[position],
+                    self.probeState(entry.stateCommand));
+            }
+            position++;
+        }
     }
 
     /* Show, then block pumping the loop (running activated commands) until the

@@ -3,6 +3,7 @@ import select
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -112,6 +113,9 @@ def test_linux_tray_survives_session_bus_disconnect(tmp_path: Path) -> None:
         check=True,
     )
 
+    # sun_path caps unix sockets at 108 bytes; pytest's tmp_path embeds the
+    # username and test name, which can exceed that. Bind somewhere short.
+    socket_dir = tempfile.mkdtemp(dir="/tmp", prefix="btrc-bus-")
     daemon = subprocess.Popen(
         [
             daemon_path,
@@ -119,7 +123,7 @@ def test_linux_tray_survives_session_bus_disconnect(tmp_path: Path) -> None:
             "--nofork",
             "--nopidfile",
             "--print-address=1",
-            f"--address=unix:tmpdir={tmp_path}",
+            f"--address=unix:tmpdir={socket_dir}",
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -159,3 +163,4 @@ def test_linux_tray_survives_session_bus_disconnect(tmp_path: Path) -> None:
         if daemon.poll() is None:
             daemon.kill()
             daemon.wait(timeout=10)
+        shutil.rmtree(socket_dir, ignore_errors=True)
