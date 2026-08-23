@@ -73,7 +73,9 @@ def test_unlocated_analyzer_error_becomes_diagnostic(monkeypatch):
         return res
 
     monkeypatch.setattr(SemanticAnalyzer, "analyze", fake)
-    r = compute_diagnostics("file:///t.btrc", "int main() { return 0; }\n")
+    # A unique URI keeps the shared workspace's snapshot cache from serving a
+    # result computed before the monkeypatch (xdist order-dependent otherwise).
+    r = compute_diagnostics("file:///t_unlocated_diag.btrc", "int main() { return 0; }\n")
     assert any("no position" in d.message for d in r.diagnostics)
     bad = next(d for d in r.diagnostics if "no position" in d.message)
     assert (bad.range.start.line, bad.range.start.character) == (0, 0)
