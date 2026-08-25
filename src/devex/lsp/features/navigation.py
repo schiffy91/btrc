@@ -163,7 +163,11 @@ class NavigationProvider:
             return None
         target_line = position.line + 1
         for declaration in result.ast.declarations:
-            if not (isinstance(declaration, ImportDecl) and declaration.line == target_line):
+            if not (
+                isinstance(declaration, ImportDecl)
+                and declaration.line == target_line
+                and getattr(declaration, "source_file", None) in (None, result.path)
+            ):
                 continue
             source_dir = os.path.dirname(result.path)
             try:
