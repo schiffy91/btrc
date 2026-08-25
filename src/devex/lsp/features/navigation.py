@@ -10,12 +10,15 @@ from dataclasses import dataclass
 from lsprotocol import types as lsp
 
 from src.compiler.python.analyzer.program import ClassInfo, Occurrence
+from src.compiler.python.frontend.imports import ImportResolver
+from src.compiler.python.frontend.packages import ResolvedPackages
 from src.compiler.python.syntax.ast.generated import (
     ClassDecl,
     EnumDecl,
     FieldDecl,
     FunctionDecl,
     Identifier,
+    ImportDecl,
     InterfaceDecl,
     MethodDecl,
     PropertyDecl,
@@ -154,10 +157,32 @@ class NavigationProvider:
     def definition_map(self, result: DocumentAnalysis) -> DefinitionMap:
         return DefinitionMap.from_analysis(result, self.resolver)
 
+    def _import_target(self, result: DocumentAnalysis, position: lsp.Position) -> lsp.Location | None:
+        """Jump to the file an ``import`` statement's path refers to."""
+        if not result.ast or not result.path:
+            return None
+        target_line = position.line + 1
+        for declaration in result.ast.declarations:
+            if not (isinstance(declaration, ImportDecl) and declaration.line == target_line):
+                continue
+            source_dir = os.path.dirname(result.path)
+            try:
+                candidates = ImportResolver().import_paths(declaration.spec, source_dir, ResolvedPackages.empty())
+            except Exception:
+                return None
+            for candidate in candidates:
+                if os.path.isfile(candidate):
+                    return self.resolver.result_location(result, 1, 0, 0, file=candidate)
+            return None
+        return None
+
     def get_definition(self, result: DocumentAnalysis, position: lsp.Position) -> lsp.Location | None:
         """Return the definition location for the symbol at the given position."""
         if not result.tokens or not result.ast or (not result.is_current_at(position.line)):
             return None
+        import_target = self._import_target(result, position)
+        if import_target is not None:
+            return import_target
         tokens = self.resolver.nav_tokens(result)
         token = self.resolver.find_token_at_position(tokens, position, result.source)
         if token is None or token.type != TokenKind.IDENT:
