@@ -1859,7 +1859,8 @@ class StatementAnalyzer:
                 )
                 if not is_empty_literal:
                     self.session.error(
-                        f"Cannot assign '{init_type.base}' to variable '{stmt.name}' of type '{stmt.type.base}'",
+                        f"Cannot assign '{self.types.format_type(init_type)}' to variable '{stmt.name}' "
+                        f"of type '{self.types.format_type(stmt.type)}'",
                         stmt.line,
                         stmt.col,
                     )

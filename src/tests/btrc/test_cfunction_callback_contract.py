@@ -45,9 +45,7 @@ def test_cfunction_qsort_bsearch_compiles_and_runs_through_both_compilers(
             return 0;
         }
     """
-    (selfhost, selfhost_c), (reference, reference_c) = _compile_pair(
-        semantic_btrcc, tmp_path, source
-    )
+    (selfhost, selfhost_c), (reference, reference_c) = _compile_pair(semantic_btrcc, tmp_path, source)
     assert selfhost.returncode == 0, selfhost.stderr
     assert reference.returncode == 0, reference.stderr
     _strict_build_and_run(selfhost_c, tmp_path / "selfhost-cfunction")
@@ -116,15 +114,11 @@ def test_exact_qsort_declaration_accepts_only_cfunction_shape(
         int main() { return 0; }
     """
     bad = good.replace("const void*, const void*", "void*, void*")
-    (selfhost_good, _), (reference_good, _) = _compile_pair(
-        semantic_btrcc, tmp_path, good
-    )
+    (selfhost_good, _), (reference_good, _) = _compile_pair(semantic_btrcc, tmp_path, good)
     assert selfhost_good.returncode == 0, selfhost_good.stderr
     assert reference_good.returncode == 0, reference_good.stderr
 
-    (selfhost_bad, _), (reference_bad, _) = _compile_pair(
-        semantic_btrcc, tmp_path, bad
-    )
+    (selfhost_bad, _), (reference_bad, _) = _compile_pair(semantic_btrcc, tmp_path, bad)
     assert selfhost_bad.returncode != 0
     assert reference_bad.returncode != 0
     assert "does not match compiler-owned C ABI" in selfhost_bad.stderr

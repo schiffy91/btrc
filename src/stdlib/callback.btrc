@@ -1,0 +1,54 @@
+/* btrc standard library — exact owned callback closure
+ *
+ * CFunction<...> is one noncapturing C function-pointer word.  OwnedClosure
+ * keeps the distinct C interop representation needed when an API stores a
+ * callback: an exact invoke pointer, an opaque context, and the context's one
+ * terminal destroy operation.
+ *
+ * Invoke is intentionally the complete trampoline signature, including its
+ * void* context parameter.  Callers extract both values and pass the context
+ * at the position required by that C API; no hidden ABI rewriting occurs.
+ */
+
+class OwnedClosure<Invoke> {
+    private Invoke _invoke;
+    private void* _context;
+    private CFunction<void, void*> _destroy;
+    private bool _open;
+
+    public OwnedClosure(Invoke invoke, void* context,
+            CFunction<void, void*> destroy) {
+        if (destroy == null) {
+            fprintf(stderr, "OwnedClosure requires a destroy callback\n");
+            abort();
+        }
+        self._invoke = invoke;
+        self._context = context;
+        self._destroy = destroy;
+        self._open = true;
+    }
+
+    public Invoke invokePointer() {
+        return self._invoke;
+    }
+
+    public void* context() {
+        return self._context;
+    }
+
+    public bool isOpen() {
+        return self._open;
+    }
+
+    public void close() {
+        if (!self._open) { return; }
+        self._open = false;
+        void* context = self._context;
+        self._context = null;
+        self._destroy(context);
+    }
+
+    public void __del__() {
+        self.close();
+    }
+}

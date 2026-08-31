@@ -163,11 +163,7 @@ def test_qsort_rejects_wrong_callback_arity_result_and_qualifiers(declaration: s
         }}
     """
     errors = _analyze(source).errors
-    assert any(
-        "Argument 4 to hosted function 'qsort()' expects"
-        in error and "CFunction" in error
-        for error in errors
-    )
+    assert any("Argument 4 to hosted function 'qsort()' expects" in error and "CFunction" in error for error in errors)
 
 
 def test_qsort_rejects_capturing_lambda_callback() -> None:

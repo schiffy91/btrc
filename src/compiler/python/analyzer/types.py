@@ -1420,6 +1420,19 @@ class TypeSystem:
                 type_col,
             )
         canonical = self.canonical_type(type_expr)
+        if canonical and canonical.base == "OwnedClosure" and canonical.generic_args:
+            invoke_type = self.canonical_type(canonical.generic_args[0])
+            if (
+                invoke_type is not None
+                and invoke_type.base not in set(active_type_params)
+                and (invoke_type.base != "__fn_ptr" or invoke_type.pointer_depth != 0 or invoke_type.is_array)
+            ):
+                self.report_type_shape_error(
+                    "OwnedClosure<Invoke> requires an exact CFunction<Signature> invoke type",
+                    type_expr,
+                    type_line,
+                    type_col,
+                )
         if (
             canonical
             and canonical.base == "Mutex"

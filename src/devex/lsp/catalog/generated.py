@@ -89,6 +89,14 @@ ARRAY_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "i"),), "iterGet"),
 )
 
+# Generated from src/stdlib/ownedclosure.btrc
+OWNEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
+    BuiltinMemberSpec("context", "void*", "method", (), "context"),
+    BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
+    BuiltinMemberSpec("close", "void", "method", (), "close"),
+)
+
 # Generated from src/stdlib/listnode.btrc
 LISTNODE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("value", "T", "field", doc="value"),
@@ -249,6 +257,7 @@ VECTOR_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
 MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("string", STRING_MEMBERS),
     ("Array", ARRAY_MEMBERS),
+    ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
     ("ListNode", LISTNODE_MEMBERS),
     ("List", LIST_MEMBERS),
     ("Map", MAP_MEMBERS),

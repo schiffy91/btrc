@@ -42,10 +42,7 @@ class AbiType:
             row.base,
             row.pointer_depth,
             row.is_const,
-            tuple(
-                cls.from_generated(argument)
-                for argument in getattr(row, "generic_args", ())
-            ),
+            tuple(cls.from_generated(argument) for argument in getattr(row, "generic_args", ())),
         )
 
     def as_type_expr(self) -> TypeExpr:
@@ -83,10 +80,7 @@ class HostedFunction:
         if row.parameters is not None:
             parameters = tuple(AbiType.from_generated(parameter.type_shape) for parameter in row.parameters)
             effects = tuple(parameter.effect for parameter in row.parameters)
-            callback_lifetimes = tuple(
-                getattr(parameter, "callback_lifetime", None)
-                for parameter in row.parameters
-            )
+            callback_lifetimes = tuple(getattr(parameter, "callback_lifetime", None) for parameter in row.parameters)
         else:
             callback_lifetimes = ()
         return cls(

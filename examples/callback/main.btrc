@@ -1,0 +1,25 @@
+import std.callback;
+
+int destroyed = 0;
+
+int addContext(void* raw, int value) {
+    return *(int*)raw + value;
+}
+
+void destroyContext(void* raw) {
+    destroyed++;
+    free(raw);
+}
+
+int main() {
+    int* context = (int*)malloc(sizeof(int));
+    *context = 40;
+    OwnedClosure<CFunction<int, void*, int>> closure =
+        new OwnedClosure<CFunction<int, void*, int>>(
+            addContext, context, destroyContext);
+    CFunction<int, void*, int> invoke = closure.invokePointer();
+    assert(invoke(closure.context(), 2) == 42);
+    closure.close();
+    assert(destroyed == 1);
+    return 0;
+}

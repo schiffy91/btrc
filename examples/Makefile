@@ -7,15 +7,19 @@
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: all cpu gpu todo game triangle sgd gui clean
+.PHONY: all cpu gpu callback todo game triangle sgd gui clean
 
 GPU_LIB := ../build/stdlib/gpu/libbtrc_gpu.a
 
 all: cpu gpu
 
-cpu: todo gui
+cpu: callback todo gui
 
 gpu: game triangle sgd
+
+callback: ## Build the owned callback closure example
+	@echo "=== callback ==="
+	@$(MAKE) -C callback
 
 todo: ## Build the todo example
 	@echo "=== todo ==="
@@ -47,6 +51,7 @@ sgd: ## Build the GPU SGD example
 	fi
 
 clean:
+	@$(MAKE) -C callback clean 2>/dev/null || true
 	@$(MAKE) -C todo clean 2>/dev/null || true
 	@$(MAKE) -C game clean 2>/dev/null || true
 	@$(MAKE) -C triangle clean 2>/dev/null || true
