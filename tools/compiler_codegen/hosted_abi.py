@@ -497,6 +497,12 @@ class HostedAbiManifest:
             raise HostedAbiManifestError(f"{context} contains an unknown return effect")
         if function.realtime_effect not in cls._REALTIME_EFFECTS:
             raise HostedAbiManifestError(f"{context} contains an unknown realtime effect")
+        if function.realtime_effect == "safe" and any(
+            parameter.type_shape.base == "CFunction" for parameter in function.parameters
+        ):
+            raise HostedAbiManifestError(
+                f"{context} cannot be realtime-safe while callback call-graph proof is unavailable"
+            )
         if function.return_effect != "value" and function.result.pointer_depth == 0:
             raise HostedAbiManifestError(f"{context} has a pointer-lifetime scalar result")
         aliasing = function.return_effect == "alias"

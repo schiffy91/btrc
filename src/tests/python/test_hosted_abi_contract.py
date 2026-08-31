@@ -1,6 +1,7 @@
 """Canonical hosted-ABI model, provenance, and namespace contracts."""
 
 import re
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -26,7 +27,11 @@ from src.compiler.python.lexer.lexer import Lexer
 from src.compiler.python.parser.parser import Parser
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast.generated import FunctionDecl
-from tools.compiler_codegen.hosted_abi import HostedAbiCatalogGenerator, HostedAbiManifest
+from tools.compiler_codegen.hosted_abi import (
+    HostedAbiCatalogGenerator,
+    HostedAbiManifest,
+    HostedAbiManifestError,
+)
 from tools.compiler_codegen.runtime import RuntimeManifest
 
 SOURCE_ROOT = Path(__file__).parents[2]
@@ -129,6 +134,27 @@ def test_qsort_and_bsearch_have_exact_nonescaping_callback_abis() -> None:
     )
     assert bsearch.callback_lifetimes[-1] == "during_call"
     assert hosted_return_alias_parameter("bsearch") == 1
+
+
+def test_stored_callback_lifetime_is_explicit_and_cannot_be_marked_realtime_safe() -> None:
+    runtime = RuntimeManifest.load(SOURCE_ROOT / "runtime/c/manifest.toml")
+    manifest = HostedAbiManifest.load(SOURCE_ROOT / "language/hosted_abi.toml", runtime)
+    qsort = next(function for function in manifest.functions if function.name == "qsort")
+    callback_index = len(qsort.parameters) - 1
+    stored_parameters = tuple(
+        replace(parameter, callback_lifetime="stored_until_unregister") if index == callback_index else parameter
+        for index, parameter in enumerate(qsort.parameters)
+    )
+
+    HostedAbiManifest._validate_function(replace(qsort, parameters=stored_parameters))
+    with pytest.raises(HostedAbiManifestError, match="unknown callback lifetime"):
+        invalid_parameters = tuple(
+            replace(parameter, callback_lifetime="until_magic") if index == callback_index else parameter
+            for index, parameter in enumerate(qsort.parameters)
+        )
+        HostedAbiManifest._validate_function(replace(qsort, parameters=invalid_parameters))
+    with pytest.raises(HostedAbiManifestError, match="callback call-graph proof is unavailable"):
+        HostedAbiManifest._validate_function(replace(qsort, realtime_effect="safe"))
 
 
 def test_cfunction_is_public_syntax_for_one_word_noncapturing_callback() -> None:
