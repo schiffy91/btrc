@@ -14,18 +14,28 @@ int U_TIME     = 23;
 int U_SKY      = 24;
 int U_COUNT    = 32;
 
+enum SceneAcquisitionStage {
+    SCENE_ACQUIRED_NOTHING,
+    SCENE_ACQUIRED_SHADER,
+    SCENE_ACQUIRED_PIPELINE,
+    SCENE_ACQUIRED_UNIFORM
+};
+
 class Scene {
     public Camera camera;
     public Light light;
     public Material ballMaterial;
     public Ground ground;
     public Sky sky;
+    public GPUShader _shader;
     public GPURenderPipeline _pipeline;
     public GPUUniform _uniform;
     public int width;
     public int height;
+    private SceneAcquisitionStage acquisitionStage;
 
     public Scene(GPU gpu, int w, int h) {
+        self.acquisitionStage = SCENE_ACQUIRED_NOTHING;
         self.width = w;
         self.height = h;
         self.camera = new Camera();
@@ -34,7 +44,7 @@ class Scene {
         self.ground = new Ground();
         self.sky = new Sky();
 
-        var shader = gpu.createShader("""
+        string shaderSource = """
             struct VsOut {
                 @builtin(position) pos: vec4f,
                 @location(0) uv: vec2f,
@@ -63,6 +73,8 @@ class Scene {
                 sky_bot: vec3f, _pad: f32,
             }
             @group(0) @binding(0) var<uniform> u: Uniforms;
+
+        """ + """
 
             fn sdSphere(p: vec3f, c: vec3f, r: f32) -> f32 {
                 return length(p - c) - r;
@@ -152,13 +164,37 @@ class Scene {
                 col = pow(col, vec3f(1.0 / 2.2));
                 return vec4f(col, 1.0);
             }
-        """);
+        """;
+        GPUShaderOutcome shaderCreated = gpu.createShader(shaderSource);
+        if (shaderCreated.kind != GPU_RESOURCE_READY
+                || shaderCreated.shader == null) {
+            throw shaderCreated.error;
+        }
+        GPUShader shader = shaderCreated.shader;
+        self._shader = shader;
+        self.acquisitionStage = SCENE_ACQUIRED_SHADER;
 
-        self._pipeline = gpu.createPipeline(shader);
-        self._uniform = GPUUniform(gpu._handle, U_COUNT);
+        GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
+        if (pipelineCreated.kind != GPU_RESOURCE_READY
+                || pipelineCreated.pipeline == null) {
+            throw pipelineCreated.error;
+        }
+        self._pipeline = pipelineCreated.pipeline;
+        self.acquisitionStage = SCENE_ACQUIRED_PIPELINE;
+
+        GPUUniformOutcome uniformCreated = gpu.createUniform(U_COUNT);
+        if (uniformCreated.kind != GPU_RESOURCE_READY
+                || uniformCreated.uniform == null) {
+            throw uniformCreated.error;
+        }
+        self._uniform = uniformCreated.uniform;
+        self.acquisitionStage = SCENE_ACQUIRED_UNIFORM;
     }
 
-    public void render(GPU gpu, GameObject player, float time) {
+    public GPUFrameKind render(GPU gpu, GameObject player, float time) {
+        if (self.width <= 0 || self.height <= 0) {
+            return GPU_FRAME_OUTDATED;
+        }
         float aspect = 1.0 * self.width / self.height;
 
         /* Camera */
@@ -186,9 +222,36 @@ class Scene {
         /* Sky */
         self.sky.writeUniforms(self._uniform, U_SKY);
 
-        if (gpu.beginFrame(0.0, 0.0, 0.0)) {
-            gpu.drawWithUniform(self._pipeline, 3, self._uniform);
-            gpu.endFrame();
+        GPUFrameOutcome frame = gpu.beginFrame(0.0f, 0.0f, 0.0f);
+        if (frame.kind != GPU_FRAME_READY) {
+            return frame.kind;
+        }
+        if (gpu.drawWithUniform(self._pipeline, 3, self._uniform).kind
+                != GPU_DRAW_RECORDED) {
+            return GPU_FRAME_REJECTED;
+        }
+        return gpu.endFrame().kind;
+    }
+
+    public void resize(int w, int h) {
+        self.width = w;
+        self.height = h;
+    }
+
+    public void close() {
+        if (self.acquisitionStage >= SCENE_ACQUIRED_UNIFORM) {
+            self._uniform.close();
+            self.acquisitionStage = SCENE_ACQUIRED_PIPELINE;
+        }
+        if (self.acquisitionStage >= SCENE_ACQUIRED_PIPELINE) {
+            self._pipeline.close();
+            self.acquisitionStage = SCENE_ACQUIRED_SHADER;
+        }
+        if (self.acquisitionStage >= SCENE_ACQUIRED_SHADER) {
+            self._shader.close();
+            self.acquisitionStage = SCENE_ACQUIRED_NOTHING;
         }
     }
+
+    public void __del__() { self.close(); }
 }

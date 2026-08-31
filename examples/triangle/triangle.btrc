@@ -1,16 +1,25 @@
-/* Minimal WebGPU triangle in btrc
- *
- * Build:
- *   python3 -m src.compiler.python.main examples/triangle/triangle.btrc -o triangle.c
- *   make -C examples/triangle
- */
-#include "gpu/gpu.btrc"
+/* One std.app window with one attached WebGPU surface and triangle pipeline. */
+
+import ../../src/stdlib/app/app.btrc;
+import ../../src/stdlib/gpu/gpu.btrc;
 
 int main() {
-    var win = GPUWindow("btrc Triangle", 800, 600);
-    var gpu = GPU(win);
+    Application application = new Application();
+    AppWindowOpenOutcome opened = application.openWindow(
+        new AppWindowDescriptor("btrc Triangle", 800, 600));
+    if (opened.kind != APP_WINDOW_OPENED || opened.window == null) { return 1; }
+    ApplicationWindow window = opened.window;
 
-    var shader = gpu.createShader("""
+    AppSurfaceOpenOutcome surfaceOpened = window.surface();
+    if (surfaceOpened.kind != APP_SURFACE_OPENED
+            || surfaceOpened.surface == null) { return 2; }
+    AppSurfaceAttachment surface = surfaceOpened.surface;
+
+    GPUAttachOutcome attached = GPU.attach(surface);
+    if (attached.kind != GPU_ATTACHED || attached.gpu == null) { return 3; }
+    GPU gpu = attached.gpu;
+
+    GPUShaderOutcome shaderCreated = gpu.createShader("""
         @vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
             var pos = array<vec2f, 3>(
                 vec2f( 0.0,  0.5),
@@ -24,15 +33,38 @@ int main() {
             return vec4f(1.0, 0.0, 0.0, 1.0);
         }
     """);
-    var pipeline = gpu.createPipeline(shader);
+    if (shaderCreated.kind != GPU_RESOURCE_READY
+            || shaderCreated.shader == null) { return 4; }
+    GPUShader shader = shaderCreated.shader;
+    GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
+    if (pipelineCreated.kind != GPU_RESOURCE_READY
+            || pipelineCreated.pipeline == null) { return 5; }
+    GPURenderPipeline pipeline = pipelineCreated.pipeline;
 
-    while (win.isOpen()) {
-        win.poll();
-        if (gpu.beginFrame(0.0, 0.0, 0.0)) {
-            gpu.draw(pipeline, 3);
-            gpu.endFrame();
+    bool running = true;
+    while (running) {
+        AppWindowEvent event = application.poll();
+        if (event.kind == APP_EVENT_CLOSE_REQUESTED
+                || event.kind == APP_EVENT_CLOSED
+                || event.kind == APP_EVENT_FAILED) {
+            running = false;
+        }
+        if (!running) { break; }
+        GPUFrameOutcome frame = gpu.beginFrame(0.0f, 0.0f, 0.0f);
+        if (frame.kind == GPU_FRAME_READY) {
+            if (gpu.draw(pipeline, 3).kind != GPU_DRAW_RECORDED) { return 6; }
+            if (gpu.endFrame().kind != GPU_FRAME_PRESENTED) { return 7; }
+        } else if (frame.kind != GPU_FRAME_TIMEOUT
+                && frame.kind != GPU_FRAME_OUTDATED) {
+            running = false;
         }
     }
 
+    pipeline.close();
+    shader.close();
+    gpu.close();
+    surface.close();
+    window.close();
+    application.close();
     return 0;
 }

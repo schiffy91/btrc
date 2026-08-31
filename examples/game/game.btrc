@@ -4,8 +4,8 @@
  * Rendered via GPU raymarching with shadows and lighting.
  *
  * Build:
- *   make gpu && make -C examples/3d
- *   ./examples/3d/game
+ *   make gpu && make -C examples/game
+ *   ./examples/game/game
  */
 #include "engine/engine.btrc"
 
@@ -16,16 +16,19 @@ int main() {
 
     while (engine.isRunning()) {
         engine.update();
+        if (!engine.isRunning()) { continue; }
         float dt = engine.time.deltaTime;
 
-        if (engine.input.key(KEY_W)) { player.move(0.0, 0.0, speed * dt); }
-        if (engine.input.key(KEY_S)) { player.move(0.0, 0.0, -speed * dt); }
-        if (engine.input.key(KEY_A)) { player.move(speed * dt, 0.0, 0.0); }
-        if (engine.input.key(KEY_D)) { player.move(-speed * dt, 0.0, 0.0); }
-        if (engine.input.key(KEY_SPACE)) { player.jump(speed); }
+        if (engine.input.key(APP_KEY_W)) { player.move(0.0, 0.0, speed * dt); }
+        if (engine.input.key(APP_KEY_S)) { player.move(0.0, 0.0, -speed * dt); }
+        if (engine.input.key(APP_KEY_A)) { player.move(speed * dt, 0.0, 0.0); }
+        if (engine.input.key(APP_KEY_D)) { player.move(-speed * dt, 0.0, 0.0); }
+        if (engine.input.key(APP_KEY_SPACE)) { player.jump(speed); }
+        if (engine.input.key(APP_KEY_ESCAPE)) { break; }
 
         player.applyPhysics(dt);
         engine.render(player);
     }
+    engine.close();
     return 0;
 }

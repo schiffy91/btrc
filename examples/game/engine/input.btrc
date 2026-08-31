@@ -1,30 +1,81 @@
-/* btrc 3D Engine — Input
- *
- * Keyboard input via GLFW key codes.
- * Usage: engine.input.key(KEY_W)
- */
-
-/* GLFW key codes */
-int KEY_W = 87;
-int KEY_A = 65;
-int KEY_S = 83;
-int KEY_D = 68;
-int KEY_SPACE = 32;
-int KEY_ESCAPE = 256;
-int KEY_UP = 265;
-int KEY_DOWN = 264;
-int KEY_LEFT = 263;
-int KEY_RIGHT = 262;
-int KEY_SHIFT = 340;
+/* btrc 3D Engine -- typed keyboard state from std.app events. */
 
 class Input {
-    public void* _win;
+    private bool w;
+    private bool a;
+    private bool s;
+    private bool d;
+    private bool space;
+    private bool escape;
+    private bool up;
+    private bool down;
+    private bool left;
+    private bool right;
+    private bool leftShift;
+    private bool rightShift;
 
-    public Input(void* winHandle) {
-        self._win = winHandle;
+    public Input() {
+        self.w = false;
+        self.a = false;
+        self.s = false;
+        self.d = false;
+        self.space = false;
+        self.escape = false;
+        self.up = false;
+        self.down = false;
+        self.left = false;
+        self.right = false;
+        self.leftShift = false;
+        self.rightShift = false;
     }
 
-    public bool key(int code) {
-        return btrc_gpu_window_key_pressed(self._win, code);
+    public void consume(AppWindowEvent event) {
+        if (event.kind != APP_EVENT_KEYBOARD || event.keyboard == null) {
+            return;
+        }
+
+        AppKeyboardEvent keyboard = event.keyboard;
+        bool pressed = keyboard.action != APP_KEY_RELEASED;
+        if (keyboard.key == APP_KEY_W) {
+            self.w = pressed;
+        } else if (keyboard.key == APP_KEY_A) {
+            self.a = pressed;
+        } else if (keyboard.key == APP_KEY_S) {
+            self.s = pressed;
+        } else if (keyboard.key == APP_KEY_D) {
+            self.d = pressed;
+        } else if (keyboard.key == APP_KEY_SPACE) {
+            self.space = pressed;
+        } else if (keyboard.key == APP_KEY_ESCAPE) {
+            self.escape = pressed;
+        } else if (keyboard.key == APP_KEY_UP) {
+            self.up = pressed;
+        } else if (keyboard.key == APP_KEY_DOWN) {
+            self.down = pressed;
+        } else if (keyboard.key == APP_KEY_LEFT) {
+            self.left = pressed;
+        } else if (keyboard.key == APP_KEY_RIGHT) {
+            self.right = pressed;
+        } else if (keyboard.key == APP_KEY_LEFT_SHIFT) {
+            self.leftShift = pressed;
+        } else if (keyboard.key == APP_KEY_RIGHT_SHIFT) {
+            self.rightShift = pressed;
+        }
+    }
+
+    public bool key(AppKeyCode key) {
+        if (key == APP_KEY_W) { return self.w; }
+        if (key == APP_KEY_A) { return self.a; }
+        if (key == APP_KEY_S) { return self.s; }
+        if (key == APP_KEY_D) { return self.d; }
+        if (key == APP_KEY_SPACE) { return self.space; }
+        if (key == APP_KEY_ESCAPE) { return self.escape; }
+        if (key == APP_KEY_UP) { return self.up; }
+        if (key == APP_KEY_DOWN) { return self.down; }
+        if (key == APP_KEY_LEFT) { return self.left; }
+        if (key == APP_KEY_RIGHT) { return self.right; }
+        if (key == APP_KEY_LEFT_SHIFT) { return self.leftShift; }
+        if (key == APP_KEY_RIGHT_SHIFT) { return self.rightShift; }
+        return false;
     }
 }

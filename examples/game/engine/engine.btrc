@@ -8,7 +8,8 @@
  *   var engine = Engine("My Game", 800, 600);
  */
 
-#include "gpu/gpu.btrc"
+import ../../../src/stdlib/app/app.btrc;
+import ../../../src/stdlib/gpu/gpu.btrc;
 #include "input.btrc"
 #include "time.btrc"
 #include "gameobject.btrc"
@@ -20,35 +21,139 @@
 #include "scene.btrc"
 #include "renderer.btrc"
 
+enum EngineAcquisitionStage {
+    ENGINE_ACQUIRED_NOTHING,
+    ENGINE_ACQUIRED_APPLICATION,
+    ENGINE_ACQUIRED_WINDOW,
+    ENGINE_ACQUIRED_SURFACE,
+    ENGINE_ACQUIRED_GPU,
+    ENGINE_ACQUIRED_RENDERER
+};
+
 class Engine {
-    public GPUWindow window;
+    public Application application;
+    public ApplicationWindow window;
+    public AppSurfaceAttachment surface;
     public GPU gpu;
     public Input input;
     public Time time;
     public Renderer renderer;
     public int width;
     public int height;
+    private bool running;
+    private EngineAcquisitionStage acquisitionStage;
 
     public Engine(string title, int w, int h) {
+        self.acquisitionStage = ENGINE_ACQUIRED_NOTHING;
         self.width = w;
         self.height = h;
-        self.window = new GPUWindow(title, w, h);
-        self.gpu = new GPU(self.window);
-        self.input = new Input(self.window._handle);
+        self.running = false;
+
+        self.application = new Application();
+        self.acquisitionStage = ENGINE_ACQUIRED_APPLICATION;
+        if (!self.application.isOpen()) {
+            throw self.application.initializationError().message;
+        }
+
+        AppWindowOpenOutcome opened = self.application.openWindow(
+            new AppWindowDescriptor(title, w, h));
+        if (opened.kind != APP_WINDOW_OPENED || opened.window == null) {
+            if (opened.error != null) { throw opened.error.message; }
+            throw "window creation failed";
+        }
+        self.window = opened.window;
+        self.acquisitionStage = ENGINE_ACQUIRED_WINDOW;
+        AppSurfaceMetrics initialMetrics = self.window.metrics();
+        self.width = initialMetrics.framebufferWidth;
+        self.height = initialMetrics.framebufferHeight;
+
+        AppSurfaceOpenOutcome surfaceOpened = self.window.surface();
+        if (surfaceOpened.kind != APP_SURFACE_OPENED
+                || surfaceOpened.surface == null) {
+            if (surfaceOpened.error != null) {
+                throw surfaceOpened.error.message;
+            }
+            throw "surface creation failed";
+        }
+        self.surface = surfaceOpened.surface;
+        self.acquisitionStage = ENGINE_ACQUIRED_SURFACE;
+
+        GPUAttachOutcome attached = GPU.attach(self.surface);
+        if (attached.kind != GPU_ATTACHED || attached.gpu == null) {
+            throw attached.error;
+        }
+        self.gpu = attached.gpu;
+        self.acquisitionStage = ENGINE_ACQUIRED_GPU;
+        self.input = new Input();
         self.time = new Time();
-        self.renderer = new Renderer(self.gpu, w, h);
+        self.renderer = new Renderer(self.gpu, self.width, self.height);
+        self.acquisitionStage = ENGINE_ACQUIRED_RENDERER;
+        self.running = true;
     }
 
     public bool isRunning() {
-        return self.window.isOpen();
+        return self.running;
     }
 
     public void update() {
-        self.window.poll();
         self.time.update();
+        /* std.app has a 64-entry queue plus one typed overflow outcome. */
+        for (int eventIndex = 0;
+                eventIndex < 65 && self.running;
+                eventIndex++) {
+            AppWindowEvent event = self.application.poll();
+            if (event.kind == APP_EVENT_IDLE) { return; }
+
+            self.input.consume(event);
+            if ((event.kind == APP_EVENT_RESIZED
+                    || event.kind == APP_EVENT_DPI_CHANGED)
+                    && event.surface != null) {
+                AppSurfaceMetrics metrics = event.surface;
+                self.width = metrics.framebufferWidth;
+                self.height = metrics.framebufferHeight;
+                self.renderer.resize(self.width, self.height);
+            } else if (event.kind == APP_EVENT_CLOSE_REQUESTED
+                    || event.kind == APP_EVENT_CLOSED
+                    || event.kind == APP_EVENT_FAILED) {
+                self.running = false;
+            }
+        }
     }
 
     public void render(GameObject player) {
-        self.renderer.render(self.gpu, player, self.time.elapsed);
+        if (!self.running) { return; }
+        GPUFrameKind frame =
+            self.renderer.render(self.gpu, player, self.time.elapsed);
+        if (frame != GPU_FRAME_PRESENTED
+                && frame != GPU_FRAME_TIMEOUT
+                && frame != GPU_FRAME_OUTDATED) {
+            self.running = false;
+        }
     }
+
+    public void close() {
+        self.running = false;
+        if (self.acquisitionStage >= ENGINE_ACQUIRED_RENDERER) {
+            self.renderer.close();
+            self.acquisitionStage = ENGINE_ACQUIRED_GPU;
+        }
+        if (self.acquisitionStage >= ENGINE_ACQUIRED_GPU) {
+            self.gpu.close();
+            self.acquisitionStage = ENGINE_ACQUIRED_SURFACE;
+        }
+        if (self.acquisitionStage >= ENGINE_ACQUIRED_SURFACE) {
+            self.surface.close();
+            self.acquisitionStage = ENGINE_ACQUIRED_WINDOW;
+        }
+        if (self.acquisitionStage >= ENGINE_ACQUIRED_WINDOW) {
+            self.window.close();
+            self.acquisitionStage = ENGINE_ACQUIRED_APPLICATION;
+        }
+        if (self.acquisitionStage >= ENGINE_ACQUIRED_APPLICATION) {
+            self.application.close();
+            self.acquisitionStage = ENGINE_ACQUIRED_NOTHING;
+        }
+    }
+
+    public void __del__() { self.close(); }
 }

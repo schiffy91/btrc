@@ -14,7 +14,17 @@ class Renderer {
         self.scene = new Scene(gpu, w, h);
     }
 
-    public void render(GPU gpu, GameObject player, float time) {
-        self.scene.render(gpu, player, time);
+    public GPUFrameKind render(GPU gpu, GameObject player, float time) {
+        return self.scene.render(gpu, player, time);
     }
+
+    public void resize(int w, int h) {
+        self.width = w;
+        self.height = h;
+        self.scene.resize(w, h);
+    }
+
+    public void close() { self.scene.close(); }
+
+    public void __del__() { self.close(); }
 }
