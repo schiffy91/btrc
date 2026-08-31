@@ -56,7 +56,7 @@ _MUTATING_CALL_SLOT = {
     "realloc": 0,
 }
 _GPU_RUNTIME_FEATURE = "BTRC_RT_NEEDS_GPU"
-_GPU_RUNTIME_HEADER = "btrc_gpu.h"
+_GPU_RUNTIME_HEADER = "btrc_gpu_compute_internal.h"
 _SETJMP_RUNTIME_HEADER = "setjmp.h"
 _DECLARATION_GROUPS = (
     ("enum", "enum_defs"),

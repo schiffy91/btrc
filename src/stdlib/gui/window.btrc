@@ -1,7 +1,9 @@
-/* btrc standard library — GUI native window backend (GLFW).
+/* btrc standard library — legacy standalone GUI window backend (GLFW/OpenGL).
  *
  * Presents a Surface in a real OS window and feeds pointer input into a
- * GuiInput. Requires gui.btrc (Surface, GuiInput) and the GLFW backend shim.
+ * GuiInput. This compatibility/test backend owns GLFW independently and must
+ * not be used in the same process as std.app. Unified applications should use
+ * std.app/std.gpu; std.ui migration will replace this presenter.
  *
  * NOT auto-included. Use:  #include "gui/gui.btrc"   then   #include "gui/window.btrc"
  * Build:  make gui            (needs GLFW + a display to run)

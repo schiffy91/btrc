@@ -1074,7 +1074,9 @@ class GpuPipeline {
             Node declaration = program.declarations.get(declarationIndex);
             if (declaration.kind == NK_FUNCTION_DECL && declaration.is_gpu) {
                 if (!addedRuntime) {
-                    module.preprocessor_decls.push(IRPreprocessorDecl.include("btrc_gpu.h", false));
+                    module.preprocessor_decls.push(
+                        IRPreprocessorDecl.include(
+                            "btrc_gpu_compute_internal.h", false));
                     addedRuntime = true;
                 }
                 if (declaration.body_node == null) {
@@ -1918,7 +1920,8 @@ class GpuPipeline {
                     module.preprocessor_decls.get(index);
                 if (!(declaration.kind == IR_PREPROCESSOR_INCLUDE
                         && !declaration.is_system
-                        && declaration.header == "btrc_gpu.h")) {
+                        && declaration.header
+                            == "btrc_gpu_compute_internal.h")) {
                     preprocessor.push(declaration);
                 }
                 index = index + 1;

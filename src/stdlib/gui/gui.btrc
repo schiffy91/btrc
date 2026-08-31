@@ -1,9 +1,10 @@
 /* btrc standard library — GUI (immediate-mode, software-rendered)
  *
- * A simple, dependency-light native UI: build a frame of widgets each tick and
- * read back interactions. The renderer is portable C (btrc_gui.c); the optional
- * window backend (gui_window.btrc) shows it in a real native window and the
- * GuiApp runner drives the loop on a background thread by default.
+ * A simple, dependency-light UI: build a frame of widgets each tick and read
+ * back interactions. The portable C renderer (btrc_gui.c) is a deliberately
+ * separate software/headless surface until std.ui consumes std.app/std.gpu.
+ * The optional gui/window.btrc presenter is a legacy standalone GLFW backend;
+ * it must not be composed in one process with std.app.
  *
  * NOT auto-included. Use:  #include "gui/gui.btrc"
  * Build:  make gui

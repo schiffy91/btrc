@@ -32,8 +32,8 @@ typedef struct {
     bool mouse_down;
 } btrc_window;
 
-/* The GPU backend may share GLFW, so this library never tears global state
- * down while another independently-owned window could still exist. */
+/* Legacy standalone ownership: this backend must not coexist with std.app.
+ * It retains GLFW until process exit for compatibility with existing users. */
 static int g_glfw_inited = 0;
 
 static int cursor_coordinate(double value) {

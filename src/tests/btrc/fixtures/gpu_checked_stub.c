@@ -1,4 +1,4 @@
-#include "btrc_gpu.h"
+#include "btrc_gpu_compute_internal.h"
 
 #include <stdlib.h>
 #include <string.h>

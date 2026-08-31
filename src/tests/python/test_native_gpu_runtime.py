@@ -12,11 +12,12 @@ from src.tests.python.test_codegen import emit_c
 
 ROOT = Path(__file__).resolve().parents[3]
 GPU = ROOT / "src" / "stdlib" / "gpu"
+APP = ROOT / "src" / "stdlib" / "app"
 HARNESS = ROOT / "src" / "tests" / "native" / "gpu_runtime_invalid.c"
 SINGLETON_HARNESS = ROOT / "src" / "tests" / "native" / "gpu_compute_singleton.c"
 _COMPILE_TIMEOUT_SECONDS = 120
 _RUN_TIMEOUT_SECONDS = 90
-_GPU_PROBE_PREAMBLE = "#include <btrc_gpu.h>\nextern bool btrc_gpu_available();\n"
+_GPU_PROBE_PREAMBLE = "#include <btrc_gpu_compute_internal.h>\nextern bool btrc_gpu_available();\n"
 
 
 def _compile_strict_c11(compiler: str, output: Path, sources: list[Path], flags: list[str]) -> None:
@@ -27,6 +28,7 @@ def _compile_strict_c11(compiler: str, output: Path, sources: list[Path], flags:
 
 def _runtime_sources() -> list[str]:
     sources = [
+        str(APP / "btrc_app.c"),
         str(GPU / "btrc_gpu.c"),
         str(GPU / "btrc_gpu_async.c"),
         str(GPU / "btrc_gpu_surface.c"),
@@ -43,18 +45,28 @@ def test_compute_context_singleton_uses_c11_atomic_publication() -> None:
     assert '#include "btrc_gpu_compute_singleton.h"' in runtime
     assert "static _Atomic(void*) btrc_compute_singleton" in runtime
     assert "btrc_gpu_publish_compute_candidate(" in runtime
+    assert "gpu_ == atomic_load_explicit(" in runtime
     assert "#include <stdatomic.h>" in publication
     assert "atomic_compare_exchange_strong_explicit(" in publication
     assert "destroy_candidate(candidate);" in publication
 
 
-def test_render_context_retains_window() -> None:
+def test_render_context_borrows_the_application_surface() -> None:
     runtime = (GPU / "btrc_gpu.c").read_text()
 
-    assert "if (!retain_window(win))" in runtime
-    assert "release_window(gpu->window);" in runtime
-    assert "btrc_gpu_window_destroy(void* win_)" in runtime
-    assert "release_window((GPUWindow_*)win_);" in runtime
+    assert "std_app_surface_attach(surface_id, &lease)" in runtime
+    assert "gpu->app_surface = lease;" in runtime
+    assert "(void)std_app_surface_detach(gpu->app_surface);" in runtime
+    assert "attach_failed:" in runtime
+    assert "destroy_gpu_unchecked(gpu);" in runtime
+    assert "wgpuSurfaceUnconfigure(gpu->surface);" in runtime
+    assert runtime.index("wgpuSurfaceUnconfigure(gpu->surface);") < runtime.index("wgpuQueueRelease(gpu->queue)")
+    assert "static unsigned long long active_render_gpu_id" in runtime
+    assert "deviceLostCallbackInfo" in runtime
+    assert "device_is_lost(gpu)" in runtime
+    assert "glfwInit(" not in runtime
+    assert "glfwCreateWindow(" not in runtime
+    assert "btrc_gpu_window_create" not in runtime
 
 
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
@@ -67,25 +79,38 @@ def test_compute_context_cas_publication_is_deterministic(tmp_path: Path, c_comp
 
 
 def test_gpu_dispatch_abi_is_consistent() -> None:
-    declarations = [
-        (GPU / "btrc_gpu.h").read_text(),
-        (GPU / "gpu.btrc").read_text(),
+    native_declarations = [
+        (GPU / "btrc_gpu_compute_internal.h").read_text(),
         (GPU / "btrc_gpu.c").read_text(),
     ]
-    for declaration in declarations:
+    for declaration in native_declarations:
         assert re.search(r"\bbool\s+btrc_gpu_dispatch\s*\(", declaration)
         assert re.search(r"\bvoid\s*\*\s*btrc_gpu_acquire_compute\s*\(", declaration)
         assert not re.search(r"\bvoid\s+btrc_gpu_dispatch\s*\(", declaration)
+
+    public_header = (GPU / "btrc_gpu.h").read_text()
+    public_module = (GPU / "gpu.btrc").read_text()
+    assert "btrc_gpu_acquire_compute" not in public_header
+    assert "void* btrc_gpu_" not in public_header
+    assert "btrc_gpu_dispatch" not in public_module
+    assert "btrc_gpu_acquire_compute" not in public_module
+    assert "public void*" not in public_module
 
 
 @pytest.mark.parametrize("c_compiler", ["gcc", "clang"])
 def test_gpu_public_header_consumer_compiles_strict_c11(tmp_path: Path, c_compiler: str) -> None:
     if not shutil.which(c_compiler):
         pytest.skip(f"{c_compiler} is unavailable")
+    consumer = tmp_path / "gpu_public_header_consumer.c"
+    consumer.write_text(
+        "#include <btrc_gpu.h>\n"
+        "int consume(unsigned long long gpu, unsigned long long receipt) { "
+        "return std_gpu_close(gpu, receipt); }\n"
+    )
     _compile_strict_c11(
         c_compiler,
         tmp_path / f"gpu-consumer-{c_compiler}.o",
-        [HARNESS],
+        [consumer],
         [f"-I{GPU}", "-c"],
     )
 
@@ -108,6 +133,7 @@ def test_gpu_runtime_rejects_invalid_inputs_without_a_display(tmp_path: Path) ->
             "-Werror",
             "-pedantic",
             f"-I{GPU}",
+            f"-I{APP}",
             str(HARNESS),
             *_runtime_sources(),
             *shlex.split(ldflags),
@@ -228,6 +254,7 @@ def _compile_generated_gpu(tmp_path: Path, source: str) -> Path:
             "-Werror",
             "-pedantic",
             f"-I{GPU}",
+            f"-I{APP}",
             str(unit),
             *_runtime_sources(),
             *shlex.split(ldflags),

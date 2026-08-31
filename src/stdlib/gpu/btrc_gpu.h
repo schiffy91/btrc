@@ -4,7 +4,9 @@
  * Wraps the verbose webgpu.h API into simple functions callable from btrc.
  * Works with both wgpu-native and Dawn (both implement webgpu.h).
  *
- * All handles are void* for btrc compatibility.
+ * The std.gpu boundary uses monotonic integer capabilities only. Native
+ * pointers live in the separate compiler/runtime-only compute header. Owner
+ * creation also returns a private one-time receipt required for teardown.
  */
 
 #ifndef BTRC_GPU_H
@@ -13,74 +15,108 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/* ---- Window ---- */
-void* btrc_gpu_window_create(char* title, int width, int height);
-bool  btrc_gpu_window_is_open(void* win);
-void  btrc_gpu_window_poll(void* win);
-int   btrc_gpu_window_width(void* win);
-int   btrc_gpu_window_height(void* win);
-void  btrc_gpu_window_destroy(void* win);
+_Static_assert(sizeof(unsigned long long) == sizeof(uint64_t),
+    "std.gpu capabilities require a 64-bit unsigned long long");
 
-/* ---- GPU context ---- */
-void* btrc_gpu_init(void* win);
-void  btrc_gpu_destroy(void* gpu);
+enum {
+    BTRC_GPU_ATTACH_READY = 0,
+    BTRC_GPU_ATTACH_INVALID_SURFACE = 1,
+    BTRC_GPU_ATTACH_SURFACE_BUSY = 2,
+    BTRC_GPU_ATTACH_ADAPTER_UNAVAILABLE = 3,
+    BTRC_GPU_ATTACH_DEVICE_UNAVAILABLE = 4,
+    BTRC_GPU_ATTACH_SURFACE_UNSUPPORTED = 5,
+    BTRC_GPU_ATTACH_OUT_OF_MEMORY = 6,
+    BTRC_GPU_ATTACH_INTERNAL_ERROR = 7,
+    BTRC_GPU_ATTACH_NOT_OWNER_THREAD = 8,
+};
 
-/* ---- Shaders ---- */
-void* btrc_gpu_create_shader(void* gpu, char* wgsl_source);
-void  btrc_gpu_shader_destroy(void* shader);
+enum {
+    BTRC_GPU_FRAME_READY = 100,
+    BTRC_GPU_FRAME_PRESENTED = 101,
+    BTRC_GPU_FRAME_TIMEOUT = 102,
+    BTRC_GPU_FRAME_OUTDATED = 103,
+    BTRC_GPU_FRAME_SURFACE_LOST = 104,
+    BTRC_GPU_FRAME_OUT_OF_MEMORY = 105,
+    BTRC_GPU_FRAME_DEVICE_LOST = 106,
+    BTRC_GPU_FRAME_REJECTED = 107,
+};
 
-/* ---- Render Pipeline ---- */
-void* btrc_gpu_create_render_pipeline(
-    void* gpu, void* shader,
-    char* vertex_entry, char* fragment_entry);
-void btrc_gpu_pipeline_destroy(void* pipeline);
+enum {
+    BTRC_GPU_CLOSE_CLOSED = 200,
+    BTRC_GPU_CLOSE_NOT_OWNER_THREAD = 201,
+    BTRC_GPU_CLOSE_INVALID = 202,
+};
 
-/* ---- Frame rendering ---- */
-bool btrc_gpu_begin_frame(void* gpu, float r, float g, float b, float a);
-void btrc_gpu_draw(void* gpu, void* pipeline, int vertex_count);
-void btrc_gpu_end_frame(void* gpu);
+enum {
+    BTRC_GPU_RESOURCE_READY = 300,
+    BTRC_GPU_RESOURCE_INVALID_GPU = 301,
+    BTRC_GPU_RESOURCE_NOT_OWNER_THREAD = 302,
+    BTRC_GPU_RESOURCE_DEVICE_LOST = 303,
+    BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR = 304,
+    BTRC_GPU_RESOURCE_INVALID_RESOURCE = 305,
+    BTRC_GPU_RESOURCE_CREATION_FAILED = 306,
+    BTRC_GPU_RESOURCE_OUT_OF_MEMORY = 307,
+    BTRC_GPU_RESOURCE_INTERNAL_ERROR = 308,
+};
 
-/* ---- Headless compute ---- */
-bool  btrc_gpu_available(void);
-void* btrc_gpu_init_compute(void);
-void* btrc_gpu_acquire_compute(void);
+enum {
+    BTRC_GPU_DRAW_RECORDED = 400,
+    BTRC_GPU_DRAW_INVALID_GPU = 401,
+    BTRC_GPU_DRAW_NOT_OWNER_THREAD = 402,
+    BTRC_GPU_DRAW_DEVICE_LOST = 403,
+    BTRC_GPU_DRAW_INVALID_DESCRIPTOR = 404,
+    BTRC_GPU_DRAW_INVALID_RESOURCE = 405,
+    BTRC_GPU_DRAW_NO_ACTIVE_FRAME = 406,
+    BTRC_GPU_DRAW_BACKEND_FAILURE = 407,
+};
 
-/* ---- Buffers ---- */
-void* btrc_gpu_create_buffer(void* gpu, int size, int usage);
-void  btrc_gpu_write_buffer(void* gpu, void* buf, void* data, int size);
-bool  btrc_gpu_read_buffer_checked(void* gpu, void* buf, void* dst, int size);
-void  btrc_gpu_read_buffer(void* gpu, void* buf, void* dst, int size);
-void  btrc_gpu_buffer_destroy(void* buf);
+/* ---- GPU context attached to the sole std.app surface owner ---- */
+int std_gpu_attach_surface(
+    unsigned long long surface, unsigned long long* gpu_out,
+    unsigned long long* owner_receipt_out);
+char* std_gpu_status_message(int status);
+int std_gpu_close(
+    unsigned long long gpu, unsigned long long owner_receipt);
+void std_gpu_finalize(
+    unsigned long long gpu, unsigned long long owner_receipt);
+int std_gpu_begin_frame(
+    unsigned long long gpu, float r, float g, float b, float a);
+int std_gpu_end_frame(unsigned long long gpu);
 
-/* ---- Compute pipeline ---- */
-void* btrc_gpu_create_compute_pipeline(void* gpu, void* shader, char* entry);
-void  btrc_gpu_compute_pipeline_destroy(void* pipeline);
-
-/* ---- Bind group ---- */
-void* btrc_gpu_create_bind_group(void* gpu, void* pipeline,
-                                  void** buffers, int count);
-void  btrc_gpu_bind_group_destroy(void* bg);
-
-/* ---- Dispatch ---- */
-bool  btrc_gpu_dispatch(void* gpu, void* pipeline, void* bg, int workgroups_x);
-
-/* ---- Keyboard ---- */
-bool  btrc_gpu_window_key_pressed(void* win, int key);
-
-/* ---- Time ---- */
-float btrc_gpu_get_time(void);
-
-/* ---- Uniform buffer helpers (for rendering with bound data) ---- */
-void* btrc_gpu_create_uniform(void* gpu, int float_count);
-void  btrc_gpu_set_uniform(void* uniform, int index, float value);
-void  btrc_gpu_upload_uniform(void* gpu, void* uniform);
-void  btrc_gpu_draw_uniform(void* gpu, void* pipeline, int vertex_count, void* uniform);
-void  btrc_gpu_uniform_destroy(void* uniform);
-
-/* ---- Buffer usage flags ---- */
-#define BTRC_GPU_STORAGE  0x80
-#define BTRC_GPU_UNIFORM  0x40
-#define BTRC_GPU_COPY_DST 0x08
-#define BTRC_GPU_COPY_SRC 0x04
+/* Public BTRC render resources use validated identities, never native handles.
+ * Factories publish both output capabilities only with RESOURCE_READY and
+ * leave both zero for every typed failure. */
+int std_gpu_shader_create(
+    unsigned long long gpu, char* wgsl_source,
+    unsigned long long* shader_out,
+    unsigned long long* owner_receipt_out);
+int std_gpu_shader_destroy(
+    unsigned long long shader, unsigned long long owner_receipt);
+void std_gpu_shader_finalize(
+    unsigned long long shader, unsigned long long owner_receipt);
+int std_gpu_pipeline_create(
+    unsigned long long gpu, unsigned long long shader,
+    char* vertex_entry, char* fragment_entry,
+    unsigned long long* pipeline_out,
+    unsigned long long* owner_receipt_out);
+int std_gpu_pipeline_destroy(
+    unsigned long long pipeline, unsigned long long owner_receipt);
+void std_gpu_pipeline_finalize(
+    unsigned long long pipeline, unsigned long long owner_receipt);
+int std_gpu_uniform_create(
+    unsigned long long gpu, int float_count,
+    unsigned long long* uniform_out,
+    unsigned long long* owner_receipt_out);
+int std_gpu_uniform_set(
+    unsigned long long uniform, int index, float value);
+int std_gpu_uniform_destroy(
+    unsigned long long uniform, unsigned long long owner_receipt);
+void std_gpu_uniform_finalize(
+    unsigned long long uniform, unsigned long long owner_receipt);
+int std_gpu_draw(
+    unsigned long long gpu, unsigned long long pipeline, int vertex_count);
+int std_gpu_draw_uniform(
+    unsigned long long gpu, unsigned long long pipeline,
+    int vertex_count, unsigned long long uniform);
 
 #endif /* BTRC_GPU_H */

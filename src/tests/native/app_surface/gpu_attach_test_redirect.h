@@ -1,0 +1,36 @@
+#ifndef BTRC_GPU_ATTACH_TEST_REDIRECT_H
+#define BTRC_GPU_ATTACH_TEST_REDIRECT_H
+
+#include <pthread.h>
+#include <stddef.h>
+
+void* btrc_gpu_attach_test_calloc(size_t count, size_t size);
+void btrc_gpu_attach_test_free(void* allocation);
+int btrc_gpu_attach_test_mutex_init(
+    pthread_mutex_t* mutex, const pthread_mutexattr_t* attributes);
+int btrc_gpu_attach_test_mutex_destroy(pthread_mutex_t* mutex);
+
+#define calloc btrc_gpu_attach_test_calloc
+#define free btrc_gpu_attach_test_free
+#define pthread_mutex_init btrc_gpu_attach_test_mutex_init
+#define pthread_mutex_destroy btrc_gpu_attach_test_mutex_destroy
+
+#define btrc_gpu_create_surface btrc_gpu_attach_test_create_surface
+#define glfwGetFramebufferSize btrc_gpu_attach_test_get_framebuffer_size
+#define wgpuCreateInstance btrc_gpu_attach_test_create_instance
+#define wgpuInstanceRequestAdapter btrc_gpu_attach_test_request_adapter
+#define wgpuAdapterRequestDevice btrc_gpu_attach_test_request_device
+#define wgpuDeviceGetQueue btrc_gpu_attach_test_get_queue
+#define wgpuSurfaceGetCapabilities btrc_gpu_attach_test_get_capabilities
+#define wgpuSurfaceCapabilitiesFreeMembers \
+    btrc_gpu_attach_test_free_capabilities
+#define wgpuSurfaceConfigure btrc_gpu_attach_test_configure_surface
+#define wgpuSurfaceUnconfigure btrc_gpu_attach_test_unconfigure_surface
+#define wgpuQueueRelease btrc_gpu_attach_test_release_queue
+#define wgpuDeviceDestroy btrc_gpu_attach_test_destroy_device
+#define wgpuDeviceRelease btrc_gpu_attach_test_release_device
+#define wgpuAdapterRelease btrc_gpu_attach_test_release_adapter
+#define wgpuSurfaceRelease btrc_gpu_attach_test_release_surface
+#define wgpuInstanceRelease btrc_gpu_attach_test_release_instance
+
+#endif

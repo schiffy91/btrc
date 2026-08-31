@@ -97,6 +97,8 @@ functions = [
   "bsd_signal",
   "bsearch",
   "bsearch_b",
+  "btrc_app_drain_owner_finalizers",
+  "btrc_app_register_owner_drain_hook",
   "btrc_gpu_acquire_compute",
   "btrc_gpu_async_complete",
   "btrc_gpu_async_create",
@@ -119,8 +121,6 @@ functions = [
   "btrc_gpu_draw",
   "btrc_gpu_draw_uniform",
   "btrc_gpu_end_frame",
-  "btrc_gpu_get_time",
-  "btrc_gpu_init",
   "btrc_gpu_init_compute",
   "btrc_gpu_pipeline_destroy",
   "btrc_gpu_publish_compute_candidate",
@@ -130,13 +130,6 @@ functions = [
   "btrc_gpu_shader_destroy",
   "btrc_gpu_uniform_destroy",
   "btrc_gpu_upload_uniform",
-  "btrc_gpu_window_create",
-  "btrc_gpu_window_destroy",
-  "btrc_gpu_window_height",
-  "btrc_gpu_window_is_open",
-  "btrc_gpu_window_key_pressed",
-  "btrc_gpu_window_poll",
-  "btrc_gpu_window_width",
   "btrc_gpu_write_buffer",
   "btrc_gui_blend_rect",
   "btrc_gui_clear",
@@ -1003,6 +996,61 @@ functions = [
   "ssignal",
   "stat",
   "statx_np",
+  "std_app_close",
+  "std_app_create",
+  "std_app_error_code",
+  "std_app_error_message",
+  "std_app_event_framebuffer_height",
+  "std_app_event_framebuffer_width",
+  "std_app_event_key",
+  "std_app_event_key_action",
+  "std_app_event_logical_height",
+  "std_app_event_logical_width",
+  "std_app_event_modifiers",
+  "std_app_event_pointer_action",
+  "std_app_event_pointer_button",
+  "std_app_event_pointer_x",
+  "std_app_event_pointer_y",
+  "std_app_event_scale_x",
+  "std_app_event_scale_y",
+  "std_app_event_text",
+  "std_app_finalize",
+  "std_app_poll",
+  "std_app_surface_attach",
+  "std_app_surface_create",
+  "std_app_surface_detach",
+  "std_app_surface_finalize",
+  "std_app_surface_generation",
+  "std_app_surface_glfw",
+  "std_app_surface_lease_generation",
+  "std_app_surface_release",
+  "std_app_window_close",
+  "std_app_window_finalize",
+  "std_app_window_framebuffer_height",
+  "std_app_window_framebuffer_width",
+  "std_app_window_logical_height",
+  "std_app_window_logical_width",
+  "std_app_window_open",
+  "std_app_window_scale_x",
+  "std_app_window_scale_y",
+  "std_gpu_attach_surface",
+  "std_gpu_begin_frame",
+  "std_gpu_close",
+  "std_gpu_draw",
+  "std_gpu_draw_uniform",
+  "std_gpu_end_frame",
+  "std_gpu_finalize",
+  "std_gpu_pipeline_create",
+  "std_gpu_pipeline_destroy",
+  "std_gpu_pipeline_finalize",
+  "std_gpu_shader_create",
+  "std_gpu_shader_destroy",
+  "std_gpu_shader_finalize",
+  "std_gpu_status_message",
+  "std_gpu_uniform_create",
+  "std_gpu_uniform_destroy",
+  "std_gpu_uniform_finalize",
+  "std_gpu_uniform_set",
   "strcasecmp",
   "strcasecmp_l",
   "strcasestr",
@@ -6765,6 +6813,8 @@ owned = [
   "bsd_signal",
   "bsearch",
   "bsearch_b",
+  "btrc_app_drain_owner_finalizers",
+  "btrc_app_register_owner_drain_hook",
   "btrc_font_draw_fn",
   "btrc_font_height_fn",
   "btrc_font_width_fn",
@@ -6791,8 +6841,6 @@ owned = [
   "btrc_gpu_draw",
   "btrc_gpu_draw_uniform",
   "btrc_gpu_end_frame",
-  "btrc_gpu_get_time",
-  "btrc_gpu_init",
   "btrc_gpu_init_compute",
   "btrc_gpu_pipeline_destroy",
   "btrc_gpu_publish_compute_candidate",
@@ -6802,13 +6850,6 @@ owned = [
   "btrc_gpu_shader_destroy",
   "btrc_gpu_uniform_destroy",
   "btrc_gpu_upload_uniform",
-  "btrc_gpu_window_create",
-  "btrc_gpu_window_destroy",
-  "btrc_gpu_window_height",
-  "btrc_gpu_window_is_open",
-  "btrc_gpu_window_key_pressed",
-  "btrc_gpu_window_poll",
-  "btrc_gpu_window_width",
   "btrc_gpu_write_buffer",
   "btrc_gui_blend_rect",
   "btrc_gui_clear",
@@ -7961,6 +8002,61 @@ owned = [
   "stat",
   "static_assert",
   "statx_np",
+  "std_app_close",
+  "std_app_create",
+  "std_app_error_code",
+  "std_app_error_message",
+  "std_app_event_framebuffer_height",
+  "std_app_event_framebuffer_width",
+  "std_app_event_key",
+  "std_app_event_key_action",
+  "std_app_event_logical_height",
+  "std_app_event_logical_width",
+  "std_app_event_modifiers",
+  "std_app_event_pointer_action",
+  "std_app_event_pointer_button",
+  "std_app_event_pointer_x",
+  "std_app_event_pointer_y",
+  "std_app_event_scale_x",
+  "std_app_event_scale_y",
+  "std_app_event_text",
+  "std_app_finalize",
+  "std_app_poll",
+  "std_app_surface_attach",
+  "std_app_surface_create",
+  "std_app_surface_detach",
+  "std_app_surface_finalize",
+  "std_app_surface_generation",
+  "std_app_surface_glfw",
+  "std_app_surface_lease_generation",
+  "std_app_surface_release",
+  "std_app_window_close",
+  "std_app_window_finalize",
+  "std_app_window_framebuffer_height",
+  "std_app_window_framebuffer_width",
+  "std_app_window_logical_height",
+  "std_app_window_logical_width",
+  "std_app_window_open",
+  "std_app_window_scale_x",
+  "std_app_window_scale_y",
+  "std_gpu_attach_surface",
+  "std_gpu_begin_frame",
+  "std_gpu_close",
+  "std_gpu_draw",
+  "std_gpu_draw_uniform",
+  "std_gpu_end_frame",
+  "std_gpu_finalize",
+  "std_gpu_pipeline_create",
+  "std_gpu_pipeline_destroy",
+  "std_gpu_pipeline_finalize",
+  "std_gpu_shader_create",
+  "std_gpu_shader_destroy",
+  "std_gpu_shader_finalize",
+  "std_gpu_status_message",
+  "std_gpu_uniform_create",
+  "std_gpu_uniform_destroy",
+  "std_gpu_uniform_finalize",
+  "std_gpu_uniform_set",
   "stderr",
   "stdin",
   "stdout",
@@ -8198,41 +8294,6 @@ owned = [
   "ynl",
 ]
 native = [
-  "btrc_gpu_acquire_compute",
-  "btrc_gpu_available",
-  "btrc_gpu_begin_frame",
-  "btrc_gpu_bind_group_destroy",
-  "btrc_gpu_buffer_destroy",
-  "btrc_gpu_compute_pipeline_destroy",
-  "btrc_gpu_create_bind_group",
-  "btrc_gpu_create_buffer",
-  "btrc_gpu_create_compute_pipeline",
-  "btrc_gpu_create_render_pipeline",
-  "btrc_gpu_create_shader",
-  "btrc_gpu_create_uniform",
-  "btrc_gpu_destroy",
-  "btrc_gpu_dispatch",
-  "btrc_gpu_draw",
-  "btrc_gpu_draw_uniform",
-  "btrc_gpu_end_frame",
-  "btrc_gpu_get_time",
-  "btrc_gpu_init",
-  "btrc_gpu_init_compute",
-  "btrc_gpu_pipeline_destroy",
-  "btrc_gpu_read_buffer",
-  "btrc_gpu_read_buffer_checked",
-  "btrc_gpu_set_uniform",
-  "btrc_gpu_shader_destroy",
-  "btrc_gpu_uniform_destroy",
-  "btrc_gpu_upload_uniform",
-  "btrc_gpu_window_create",
-  "btrc_gpu_window_destroy",
-  "btrc_gpu_window_height",
-  "btrc_gpu_window_is_open",
-  "btrc_gpu_window_key_pressed",
-  "btrc_gpu_window_poll",
-  "btrc_gpu_window_width",
-  "btrc_gpu_write_buffer",
   "btrc_gui_blend_rect",
   "btrc_gui_clear",
   "btrc_gui_draw_text",
@@ -8273,13 +8334,84 @@ native = [
   "btrc_tray_should_quit",
   "btrc_tray_show",
   "btrc_tray_take_command",
+  "std_app_close",
+  "std_app_create",
+  "std_app_error_code",
+  "std_app_error_message",
+  "std_app_event_framebuffer_height",
+  "std_app_event_framebuffer_width",
+  "std_app_event_key",
+  "std_app_event_key_action",
+  "std_app_event_logical_height",
+  "std_app_event_logical_width",
+  "std_app_event_modifiers",
+  "std_app_event_pointer_action",
+  "std_app_event_pointer_button",
+  "std_app_event_pointer_x",
+  "std_app_event_pointer_y",
+  "std_app_event_scale_x",
+  "std_app_event_scale_y",
+  "std_app_event_text",
+  "std_app_finalize",
+  "std_app_poll",
+  "std_app_surface_create",
+  "std_app_surface_finalize",
+  "std_app_surface_generation",
+  "std_app_surface_release",
+  "std_app_window_close",
+  "std_app_window_finalize",
+  "std_app_window_framebuffer_height",
+  "std_app_window_framebuffer_width",
+  "std_app_window_logical_height",
+  "std_app_window_logical_width",
+  "std_app_window_open",
+  "std_app_window_scale_x",
+  "std_app_window_scale_y",
+  "std_gpu_attach_surface",
+  "std_gpu_begin_frame",
+  "std_gpu_close",
+  "std_gpu_draw",
+  "std_gpu_draw_uniform",
+  "std_gpu_end_frame",
+  "std_gpu_finalize",
+  "std_gpu_pipeline_create",
+  "std_gpu_pipeline_destroy",
+  "std_gpu_pipeline_finalize",
+  "std_gpu_shader_create",
+  "std_gpu_shader_destroy",
+  "std_gpu_shader_finalize",
+  "std_gpu_status_message",
+  "std_gpu_uniform_create",
+  "std_gpu_uniform_destroy",
+  "std_gpu_uniform_finalize",
+  "std_gpu_uniform_set",
 ]
 native_internal = [
+  "btrc_app_drain_owner_finalizers",
+  "btrc_app_register_owner_drain_hook",
+  "btrc_gpu_acquire_compute",
   "btrc_gpu_async_complete",
   "btrc_gpu_async_create",
   "btrc_gpu_async_release",
   "btrc_gpu_async_wait",
+  "btrc_gpu_available",
+  "btrc_gpu_begin_frame",
+  "btrc_gpu_bind_group_destroy",
+  "btrc_gpu_buffer_destroy",
+  "btrc_gpu_compute_pipeline_destroy",
+  "btrc_gpu_create_bind_group",
+  "btrc_gpu_create_buffer",
+  "btrc_gpu_create_compute_pipeline",
+  "btrc_gpu_create_render_pipeline",
+  "btrc_gpu_create_shader",
   "btrc_gpu_create_surface",
+  "btrc_gpu_create_uniform",
+  "btrc_gpu_destroy",
+  "btrc_gpu_dispatch",
+  "btrc_gpu_draw",
+  "btrc_gpu_draw_uniform",
+  "btrc_gpu_end_frame",
+  "btrc_gpu_init_compute",
   "btrc_gpu_pending_list_destroy",
   "btrc_gpu_pending_list_init",
   "btrc_gpu_pending_list_lock",
@@ -8287,10 +8419,22 @@ native_internal = [
   "btrc_gpu_pending_list_prepend",
   "btrc_gpu_pending_list_take_all",
   "btrc_gpu_pending_list_unlock",
+  "btrc_gpu_pipeline_destroy",
   "btrc_gpu_publish_compute_candidate",
+  "btrc_gpu_read_buffer",
+  "btrc_gpu_read_buffer_checked",
+  "btrc_gpu_set_uniform",
+  "btrc_gpu_shader_destroy",
+  "btrc_gpu_uniform_destroy",
+  "btrc_gpu_upload_uniform",
+  "btrc_gpu_write_buffer",
   "btrc_gui_clear_font_if_active",
   "btrc_gui_install_font_backend",
   "btrc_gui_surface_pixels",
+  "std_app_surface_attach",
+  "std_app_surface_detach",
+  "std_app_surface_glfw",
+  "std_app_surface_lease_generation",
 ]
 runtime_adopting_helpers = [
   "__btrc_str_track",
@@ -8328,6 +8472,8 @@ functions = [
   "brk",
   "bsd_signal",
   "bsearch_b",
+  "btrc_app_drain_owner_finalizers",
+  "btrc_app_register_owner_drain_hook",
   "btrc_gpu_acquire_compute",
   "btrc_gpu_async_complete",
   "btrc_gpu_async_create",
@@ -8350,8 +8496,6 @@ functions = [
   "btrc_gpu_draw",
   "btrc_gpu_draw_uniform",
   "btrc_gpu_end_frame",
-  "btrc_gpu_get_time",
-  "btrc_gpu_init",
   "btrc_gpu_init_compute",
   "btrc_gpu_pipeline_destroy",
   "btrc_gpu_publish_compute_candidate",
@@ -8361,13 +8505,6 @@ functions = [
   "btrc_gpu_shader_destroy",
   "btrc_gpu_uniform_destroy",
   "btrc_gpu_upload_uniform",
-  "btrc_gpu_window_create",
-  "btrc_gpu_window_destroy",
-  "btrc_gpu_window_height",
-  "btrc_gpu_window_is_open",
-  "btrc_gpu_window_key_pressed",
-  "btrc_gpu_window_poll",
-  "btrc_gpu_window_width",
   "btrc_gpu_write_buffer",
   "btrc_gui_blend_rect",
   "btrc_gui_clear",
@@ -8907,6 +9044,61 @@ functions = [
   "ssignal",
   "stat",
   "statx_np",
+  "std_app_close",
+  "std_app_create",
+  "std_app_error_code",
+  "std_app_error_message",
+  "std_app_event_framebuffer_height",
+  "std_app_event_framebuffer_width",
+  "std_app_event_key",
+  "std_app_event_key_action",
+  "std_app_event_logical_height",
+  "std_app_event_logical_width",
+  "std_app_event_modifiers",
+  "std_app_event_pointer_action",
+  "std_app_event_pointer_button",
+  "std_app_event_pointer_x",
+  "std_app_event_pointer_y",
+  "std_app_event_scale_x",
+  "std_app_event_scale_y",
+  "std_app_event_text",
+  "std_app_finalize",
+  "std_app_poll",
+  "std_app_surface_attach",
+  "std_app_surface_create",
+  "std_app_surface_detach",
+  "std_app_surface_finalize",
+  "std_app_surface_generation",
+  "std_app_surface_glfw",
+  "std_app_surface_lease_generation",
+  "std_app_surface_release",
+  "std_app_window_close",
+  "std_app_window_finalize",
+  "std_app_window_framebuffer_height",
+  "std_app_window_framebuffer_width",
+  "std_app_window_logical_height",
+  "std_app_window_logical_width",
+  "std_app_window_open",
+  "std_app_window_scale_x",
+  "std_app_window_scale_y",
+  "std_gpu_attach_surface",
+  "std_gpu_begin_frame",
+  "std_gpu_close",
+  "std_gpu_draw",
+  "std_gpu_draw_uniform",
+  "std_gpu_end_frame",
+  "std_gpu_finalize",
+  "std_gpu_pipeline_create",
+  "std_gpu_pipeline_destroy",
+  "std_gpu_pipeline_finalize",
+  "std_gpu_shader_create",
+  "std_gpu_shader_destroy",
+  "std_gpu_shader_finalize",
+  "std_gpu_status_message",
+  "std_gpu_uniform_create",
+  "std_gpu_uniform_destroy",
+  "std_gpu_uniform_finalize",
+  "std_gpu_uniform_set",
   "strcasecmp",
   "strcasecmp_l",
   "strcasestr",
@@ -12615,7 +12807,7 @@ raw_lifetime = false
 [[functions]]
 name = "btrc_gpu_draw_uniform"
 origin = "native_gpu"
-result = { base = "void", pointer_depth = 0, is_const = false }
+result = { base = "bool", pointer_depth = 0, is_const = false }
 parameters_known = true
 parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
@@ -12638,29 +12830,6 @@ parameters = [
 variadic = false
 return_effect = "value"
 raw_lifetime = false
-
-[[functions]]
-name = "btrc_gpu_get_time"
-origin = "native_gpu"
-result = { base = "float", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = []
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gpu_init"
-origin = "native_gpu"
-result = { base = "void", pointer_depth = 1, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "unknown" },
-]
-variadic = false
-return_effect = "independent"
-raw_lifetime = false
-return_deallocator = "btrc_gpu_destroy"
 
 [[functions]]
 name = "btrc_gpu_init_compute"
@@ -12763,95 +12932,6 @@ result = { base = "void", pointer_depth = 0, is_const = false }
 parameters_known = true
 parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gpu_window_create"
-origin = "native_gpu"
-result = { base = "void", pointer_depth = 1, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "independent"
-raw_lifetime = false
-return_deallocator = "btrc_gpu_window_destroy"
-
-[[functions]]
-name = "btrc_gpu_window_destroy"
-origin = "native_gpu"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "consume" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = true
-consume_deallocator = "btrc_gpu_window_destroy"
-
-[[functions]]
-name = "btrc_gpu_window_height"
-origin = "native_gpu"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gpu_window_is_open"
-origin = "native_gpu"
-result = { base = "bool", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gpu_window_key_pressed"
-origin = "native_gpu"
-result = { base = "bool", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "read" },
-  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gpu_window_poll"
-origin = "native_gpu"
-result = { base = "void", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
-  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
-]
-variadic = false
-return_effect = "value"
-raw_lifetime = false
-
-[[functions]]
-name = "btrc_gpu_window_width"
-origin = "native_gpu"
-result = { base = "int", pointer_depth = 0, is_const = false }
-parameters_known = true
-parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
 ]
 variadic = false
@@ -16349,6 +16429,661 @@ parameters_known = true
 parameters = [
   { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
   { base = "struct stat", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_close"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_create"
+origin = "native_app"
+result = { base = "unsigned long long", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_error_code"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_error_message"
+origin = "native_app"
+result = { base = "char", pointer_depth = 1, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "independent"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_framebuffer_height"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_framebuffer_width"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_key"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_key_action"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_logical_height"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_logical_width"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_modifiers"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_pointer_action"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_pointer_button"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_pointer_x"
+origin = "native_app"
+result = { base = "float", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_pointer_y"
+origin = "native_app"
+result = { base = "float", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_scale_x"
+origin = "native_app"
+result = { base = "float", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_scale_y"
+origin = "native_app"
+result = { base = "float", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_event_text"
+origin = "native_app"
+result = { base = "char", pointer_depth = 1, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "independent"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_finalize"
+origin = "native_app"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_poll"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_surface_create"
+origin = "native_app"
+result = { base = "unsigned long long", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_surface_finalize"
+origin = "native_app"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_surface_generation"
+origin = "native_app"
+result = { base = "unsigned long long", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_surface_release"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_close"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_finalize"
+origin = "native_app"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_framebuffer_height"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_framebuffer_width"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_logical_height"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_logical_width"
+origin = "native_app"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_open"
+origin = "native_app"
+result = { base = "unsigned long long", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_scale_x"
+origin = "native_app"
+result = { base = "float", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_app_window_scale_y"
+origin = "native_app"
+result = { base = "float", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_attach_surface"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_begin_frame"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_close"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_draw"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_draw_uniform"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_end_frame"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_finalize"
+origin = "native_gpu"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_pipeline_create"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_pipeline_destroy"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_pipeline_finalize"
+origin = "native_gpu"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_shader_create"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_shader_destroy"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_shader_finalize"
+origin = "native_gpu"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_status_message"
+origin = "native_gpu"
+result = { base = "char", pointer_depth = 1, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "independent"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_uniform_create"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "unsigned long long", pointer_depth = 1, is_const = false, effect = "mutate" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_uniform_destroy"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_uniform_finalize"
+origin = "native_gpu"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "std_gpu_uniform_set"
+origin = "native_gpu"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "unsigned long long", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "float", pointer_depth = 0, is_const = false, effect = "value" },
 ]
 variadic = false
 return_effect = "value"

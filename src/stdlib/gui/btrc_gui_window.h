@@ -12,6 +12,11 @@
 #ifndef BTRC_GUI_WINDOW_H
 #define BTRC_GUI_WINDOW_H
 
+#ifdef BTRC_APP_WINDOW_API
+#error "legacy std.gui GuiWindow cannot be composed with std.app"
+#endif
+#define BTRC_GUI_LEGACY_WINDOW_API 1
+
 #include <stdbool.h>
 
 /* All handles are opaque void* to match btrc codegen. */

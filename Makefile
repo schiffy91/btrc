@@ -1,5 +1,5 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
-        btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required gui ast-generate ast-generate-btrc \
+        btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required gui ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
@@ -157,14 +157,36 @@ test-windows: btrcc-windows-x64 ## Build Windows btrcc bundle + sample; run samp
 	  echo "SKIP: test-windows execution (install wine, or run on Windows/CI to execute)"; \
 	fi
 
-gpu: ## Build GPU runtime library (skips if deps missing)
+app: ## Build the sole application/window runtime (skips if GLFW is missing)
+	@$(NIX) bash -c '\
+		D=src/stdlib/app && O=build/stdlib/app && mkdir -p "$$O" && \
+		archive="$$O/libbtrc_app.a" && object="$$O/btrc_app.o" && \
+		rm -f "$$archive" "$$object" && \
+		trap "rm -f \"$$archive\" \"$$object\"" EXIT && \
+		if ! $(CC) $$APP_CFLAGS -std=c11 -I"$$D" -E "$$D/btrc_app.c" -o /dev/null 2>/dev/null; then \
+			echo "Application runtime skipped (missing GLFW headers)"; exit 0; \
+		fi && \
+		$(CC) $$APP_CFLAGS $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 \
+			-c "$$D/btrc_app.c" -o "$$object" && \
+		$(HOST_AR) rcs "$$archive" "$$object" && \
+		trap - EXIT && \
+		echo "Built: $$archive"'
+
+app-required: app ## Build application runtime; fail when GLFW is unavailable
+	@$(NIX) bash -c 'archive=build/stdlib/app/libbtrc_app.a; \
+		test -f "$$archive" || { \
+			echo "Application runtime is required; install GLFW development dependencies." >&2; \
+			exit 1; \
+		}'
+
+gpu: app ## Build GPU runtime library (skips if deps missing)
 	@$(NIX) bash -c '\
 		D=src/stdlib/gpu && O=build/stdlib/gpu && \
 		mkdir -p "$$O" && \
 		rm -f "$$O/libbtrc_gpu.a" && \
 		probe_ok=1 && \
 		for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c; do \
-			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) -std=c11 -I"$$D" \
+			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) -std=c11 -Isrc/stdlib/app -I"$$D" \
 				-E "$$D/$$source" -o /dev/null 2>/dev/null || probe_ok=0; \
 		done && \
 		if [ "$$(uname -s)" = Darwin ]; then \
@@ -174,7 +196,7 @@ gpu: ## Build GPU runtime library (skips if deps missing)
 		if [ "$$probe_ok" -ne 1 ]; then \
 			echo "GPU runtime skipped (missing windowing/WebGPU headers)"; exit 0; \
 		fi && \
-		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$O/btrc_gpu.o" && \
+		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -Isrc/stdlib/app -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$O/btrc_gpu.o" && \
 		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_async.c" -o "$$O/btrc_gpu_async.o" && \
 		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_surface.c" -o "$$O/btrc_gpu_surface.o" && \
 		objects="$$O/btrc_gpu.o $$O/btrc_gpu_async.o $$O/btrc_gpu_surface.o" && \
@@ -188,7 +210,7 @@ gpu: ## Build GPU runtime library (skips if deps missing)
 		$(HOST_AR) t "$$O/libbtrc_gpu.a" | grep -q "btrc_gpu_surface\\.o$$" && \
 		echo "Built: $$O/libbtrc_gpu.a"'
 
-gpu-required: gpu ## Build GPU runtime library; fail when production dependencies are missing
+gpu-required: app-required gpu ## Build GPU runtime library; fail when production dependencies are missing
 	@$(NIX) bash -c 'archive=build/stdlib/gpu/libbtrc_gpu.a; \
 		test -f "$$archive" || { \
 			echo "GPU runtime is required for production tests; install the WebGPU and GLFW development dependencies." >&2; \

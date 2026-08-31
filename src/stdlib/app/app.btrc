@@ -1,0 +1,585 @@
+/* btrc standard library -- application loop, one native window, typed events. */
+
+import std.strings;
+
+#include <btrc_app.h>
+
+unsigned long long std_app_create(unsigned long long* ownerReceiptOut);
+int std_app_error_code(unsigned long long application);
+string std_app_error_message(unsigned long long application);
+unsigned long long std_app_window_open(
+    unsigned long long application, string title, int width, int height,
+    unsigned long long* ownerReceiptOut);
+int std_app_window_close(
+    unsigned long long window, unsigned long long ownerReceipt);
+unsigned long long std_app_surface_create(
+    unsigned long long window, unsigned long long* ownerReceiptOut);
+unsigned long long std_app_surface_generation(unsigned long long surface);
+int std_app_surface_release(
+    unsigned long long surface, unsigned long long ownerReceipt);
+void std_app_surface_finalize(
+    unsigned long long surface, unsigned long long ownerReceipt);
+int std_app_poll(unsigned long long application);
+int std_app_event_pointer_action(unsigned long long application);
+int std_app_event_pointer_button(unsigned long long application);
+float std_app_event_pointer_x(unsigned long long application);
+float std_app_event_pointer_y(unsigned long long application);
+int std_app_event_key_action(unsigned long long application);
+int std_app_event_key(unsigned long long application);
+int std_app_event_modifiers(unsigned long long application);
+string std_app_event_text(unsigned long long application);
+int std_app_event_logical_width(unsigned long long application);
+int std_app_event_logical_height(unsigned long long application);
+int std_app_event_framebuffer_width(unsigned long long application);
+int std_app_event_framebuffer_height(unsigned long long application);
+float std_app_event_scale_x(unsigned long long application);
+float std_app_event_scale_y(unsigned long long application);
+int std_app_window_logical_width(unsigned long long window);
+int std_app_window_logical_height(unsigned long long window);
+int std_app_window_framebuffer_width(unsigned long long window);
+int std_app_window_framebuffer_height(unsigned long long window);
+float std_app_window_scale_x(unsigned long long window);
+float std_app_window_scale_y(unsigned long long window);
+int std_app_close(
+    unsigned long long application, unsigned long long ownerReceipt);
+void std_app_window_finalize(
+    unsigned long long window, unsigned long long ownerReceipt);
+void std_app_finalize(
+    unsigned long long application, unsigned long long ownerReceipt);
+
+enum AppErrorCode {
+    APP_ERROR_NONE = 0,
+    APP_ERROR_INVALID_ARGUMENT = 1,
+    APP_ERROR_NOT_MAIN_THREAD = 2,
+    APP_ERROR_ALREADY_RUNNING = 3,
+    APP_ERROR_BACKEND_UNAVAILABLE = 4,
+    APP_ERROR_NOT_OPEN = 5,
+    APP_ERROR_WINDOW_ALREADY_OPEN = 6,
+    APP_ERROR_WINDOW_CREATE_FAILED = 7,
+    APP_ERROR_EVENT_QUEUE_OVERFLOW = 8,
+    APP_ERROR_RESOURCE_BUSY = 9,
+    APP_ERROR_STALE_SURFACE = 10,
+    APP_ERROR_SURFACE_ALREADY_CREATED = 11,
+    APP_ERROR_CLOSED = 12,
+    APP_ERROR_SURFACE_ALREADY_ATTACHED = 13,
+    APP_ERROR_INTERNAL = 14
+};
+
+class AppError {
+    public AppErrorCode code;
+    public string message;
+
+    public AppError(AppErrorCode code, string message) {
+        self.code = code;
+        self.message = message;
+    }
+}
+
+class AppWindowDescriptor {
+    public string title;
+    public int logicalWidth;
+    public int logicalHeight;
+
+    public AppWindowDescriptor(string title, int logicalWidth, int logicalHeight) {
+        self.title = title;
+        self.logicalWidth = logicalWidth;
+        self.logicalHeight = logicalHeight;
+    }
+
+    public bool isValid() {
+        return !self.title.isEmpty()
+            && self.logicalWidth > 0 && self.logicalHeight > 0;
+    }
+}
+
+class AppSurfaceMetrics {
+    public int logicalWidth;
+    public int logicalHeight;
+    public int framebufferWidth;
+    public int framebufferHeight;
+    public float scaleX;
+    public float scaleY;
+
+    public AppSurfaceMetrics(
+            int logicalWidth,
+            int logicalHeight,
+            int framebufferWidth,
+            int framebufferHeight,
+            float scaleX,
+            float scaleY) {
+        self.logicalWidth = logicalWidth;
+        self.logicalHeight = logicalHeight;
+        self.framebufferWidth = framebufferWidth;
+        self.framebufferHeight = framebufferHeight;
+        self.scaleX = scaleX;
+        self.scaleY = scaleY;
+    }
+
+    public bool isValid() {
+        return self.logicalWidth > 0 && self.logicalHeight > 0
+            && self.framebufferWidth >= 0 && self.framebufferHeight >= 0
+            && self.scaleX > 0.0f && self.scaleY > 0.0f;
+    }
+}
+
+class AppKeyModifiers {
+    public bool shift;
+    public bool control;
+    public bool alt;
+    public bool command;
+
+    public AppKeyModifiers(bool shift, bool control, bool alt, bool command) {
+        self.shift = shift;
+        self.control = control;
+        self.alt = alt;
+        self.command = command;
+    }
+}
+
+enum AppPointerAction {
+    APP_POINTER_MOVED = 0,
+    APP_POINTER_PRESSED = 1,
+    APP_POINTER_RELEASED = 2
+};
+
+enum AppPointerButton {
+    APP_POINTER_BUTTON_NONE = 0,
+    APP_POINTER_BUTTON_PRIMARY = 1,
+    APP_POINTER_BUTTON_SECONDARY = 2,
+    APP_POINTER_BUTTON_MIDDLE = 3,
+    APP_POINTER_BUTTON_OTHER = 4
+};
+
+class AppPointerEvent {
+    public AppPointerAction action;
+    public AppPointerButton button;
+    public float logicalX;
+    public float logicalY;
+    public AppKeyModifiers modifiers;
+
+    public AppPointerEvent(
+            AppPointerAction action,
+            AppPointerButton button,
+            float logicalX,
+            float logicalY,
+            AppKeyModifiers modifiers) {
+        self.action = action;
+        self.button = button;
+        self.logicalX = logicalX;
+        self.logicalY = logicalY;
+        self.modifiers = modifiers;
+    }
+}
+
+enum AppKeyAction {
+    APP_KEY_PRESSED = 0,
+    APP_KEY_REPEATED = 1,
+    APP_KEY_RELEASED = 2
+};
+
+enum AppKeyCode {
+    APP_KEY_UNKNOWN = 0,
+    APP_KEY_ESCAPE = 1,
+    APP_KEY_ENTER = 2,
+    APP_KEY_SPACE = 3,
+    APP_KEY_LEFT = 4,
+    APP_KEY_RIGHT = 5,
+    APP_KEY_UP = 6,
+    APP_KEY_DOWN = 7,
+    APP_KEY_TAB = 8,
+    APP_KEY_BACKSPACE = 9,
+    APP_KEY_A = 10,
+    APP_KEY_D = 11,
+    APP_KEY_S = 12,
+    APP_KEY_W = 13,
+    APP_KEY_LEFT_SHIFT = 14,
+    APP_KEY_RIGHT_SHIFT = 15
+};
+
+class AppKeyboardEvent {
+    public AppKeyAction action;
+    public AppKeyCode key;
+    public AppKeyModifiers modifiers;
+
+    public AppKeyboardEvent(
+            AppKeyAction action, AppKeyCode key, AppKeyModifiers modifiers) {
+        self.action = action;
+        self.key = key;
+        self.modifiers = modifiers;
+    }
+}
+
+enum AppWindowEventKind {
+    APP_EVENT_IDLE = 0,
+    APP_EVENT_POINTER = 1,
+    APP_EVENT_KEYBOARD = 2,
+    APP_EVENT_TEXT = 3,
+    APP_EVENT_RESIZED = 4,
+    APP_EVENT_DPI_CHANGED = 5,
+    APP_EVENT_CLOSE_REQUESTED = 6,
+    APP_EVENT_CLOSED = 7,
+    APP_EVENT_FAILED = 8
+};
+
+class AppWindowEvent {
+    public AppWindowEventKind kind;
+    public AppPointerEvent? pointer;
+    public AppKeyboardEvent? keyboard;
+    public AppSurfaceMetrics? surface;
+    public string text;
+    public AppError? error;
+
+    public AppWindowEvent(AppWindowEventKind kind) {
+        self.kind = kind;
+        self.pointer = null;
+        self.keyboard = null;
+        self.surface = null;
+        self.text = "";
+        self.error = null;
+    }
+}
+
+enum AppCloseKind {
+    APP_CLOSED,
+    APP_CLOSE_REJECTED,
+    APP_ALREADY_CLOSED
+};
+
+class AppCloseOutcome {
+    public AppCloseKind kind;
+    public AppError? error;
+
+    public AppCloseOutcome(AppCloseKind kind, AppError? error) {
+        self.kind = kind;
+        self.error = error;
+    }
+}
+
+enum AppWindowOpenKind {
+    APP_WINDOW_OPENED,
+    APP_WINDOW_OPEN_REJECTED
+};
+
+class AppWindowOpenOutcome {
+    public AppWindowOpenKind kind;
+    public ApplicationWindow? window;
+    public AppError? error;
+
+    public AppWindowOpenOutcome(
+            AppWindowOpenKind kind,
+            ApplicationWindow? window,
+            AppError? error) {
+        self.kind = kind;
+        self.window = window;
+        self.error = error;
+    }
+}
+
+enum AppSurfaceOpenKind {
+    APP_SURFACE_OPENED,
+    APP_SURFACE_OPEN_REJECTED
+};
+
+class AppSurfaceOpenOutcome {
+    public AppSurfaceOpenKind kind;
+    public AppSurfaceAttachment? surface;
+    public AppError? error;
+
+    public AppSurfaceOpenOutcome(
+            AppSurfaceOpenKind kind,
+            AppSurfaceAttachment? surface,
+            AppError? error) {
+        self.kind = kind;
+        self.surface = surface;
+        self.error = error;
+    }
+}
+
+class Application {
+    private unsigned long long identity;
+    private unsigned long long ownerReceipt;
+    private AppErrorCode initializationCode;
+    private string initializationMessage;
+
+    public Application() {
+        unsigned long long ownerReceipt = 0ULL;
+        self.identity = std_app_create(&ownerReceipt);
+        self.ownerReceipt = ownerReceipt;
+        self.initializationCode =
+            (AppErrorCode)std_app_error_code(self.identity);
+        self.initializationMessage = std_app_error_message(self.identity);
+    }
+
+    private AppError lastError() {
+        return new AppError(
+            (AppErrorCode)std_app_error_code(self.identity),
+            std_app_error_message(self.identity));
+    }
+
+    public bool isOpen() {
+        return self.identity != 0ULL && self.ownerReceipt != 0ULL;
+    }
+    /* Cross-owner native bridge capability. This is a monotonic identity,
+     * never a native application or GLFW pointer. */
+    public unsigned long long applicationIdentity() { return self.identity; }
+    public AppError initializationError() {
+        return new AppError(
+            self.initializationCode, self.initializationMessage);
+    }
+
+    public AppWindowOpenOutcome openWindow(AppWindowDescriptor descriptor) {
+        if (!self.isOpen()) {
+            AppError error = self.initializationCode != APP_ERROR_NONE
+                ? self.initializationError()
+                : new AppError(APP_ERROR_CLOSED, "application is closed");
+            return new AppWindowOpenOutcome(
+                APP_WINDOW_OPEN_REJECTED, null, error);
+        }
+        if (!descriptor.isValid()) {
+            return new AppWindowOpenOutcome(
+                APP_WINDOW_OPEN_REJECTED,
+                null,
+                new AppError(APP_ERROR_INVALID_ARGUMENT, "invalid window descriptor"));
+        }
+        return ApplicationWindow.open(self, descriptor);
+    }
+
+    public AppWindowEvent poll() {
+        if (!self.isOpen()) {
+            AppWindowEvent failed = new AppWindowEvent(APP_EVENT_FAILED);
+            failed.error = new AppError(APP_ERROR_CLOSED, "application is closed");
+            return failed;
+        }
+        int kind = std_app_poll(self.identity);
+        AppWindowEvent event = new AppWindowEvent((AppWindowEventKind)kind);
+        if (kind == APP_EVENT_POINTER) {
+            int modifierBits = std_app_event_modifiers(self.identity);
+            event.pointer = new AppPointerEvent(
+                (AppPointerAction)std_app_event_pointer_action(self.identity),
+                (AppPointerButton)std_app_event_pointer_button(self.identity),
+                std_app_event_pointer_x(self.identity),
+                std_app_event_pointer_y(self.identity),
+                new AppKeyModifiers(
+                    (modifierBits & 1) != 0,
+                    (modifierBits & 2) != 0,
+                    (modifierBits & 4) != 0,
+                    (modifierBits & 8) != 0));
+        } else if (kind == APP_EVENT_KEYBOARD) {
+            int modifierBits = std_app_event_modifiers(self.identity);
+            event.keyboard = new AppKeyboardEvent(
+                (AppKeyAction)std_app_event_key_action(self.identity),
+                (AppKeyCode)std_app_event_key(self.identity),
+                new AppKeyModifiers(
+                    (modifierBits & 1) != 0,
+                    (modifierBits & 2) != 0,
+                    (modifierBits & 4) != 0,
+                    (modifierBits & 8) != 0));
+        } else if (kind == APP_EVENT_TEXT) {
+            /* The native event slot is reused by the next poll. Make the
+             * snapshot explicit at this ownership boundary. */
+            event.text = Strings.copy(
+                std_app_event_text(self.identity));
+        } else if (kind == APP_EVENT_RESIZED || kind == APP_EVENT_DPI_CHANGED) {
+            AppSurfaceMetrics metrics =
+                new AppSurfaceMetrics(0, 0, 0, 0, 0.0f, 0.0f);
+            metrics.logicalWidth =
+                std_app_event_logical_width(self.identity);
+            metrics.logicalHeight =
+                std_app_event_logical_height(self.identity);
+            metrics.framebufferWidth =
+                std_app_event_framebuffer_width(self.identity);
+            metrics.framebufferHeight =
+                std_app_event_framebuffer_height(self.identity);
+            metrics.scaleX = std_app_event_scale_x(self.identity);
+            metrics.scaleY = std_app_event_scale_y(self.identity);
+            event.surface = metrics;
+        } else if (kind == APP_EVENT_FAILED) {
+            event.error = self.lastError();
+        }
+        return event;
+    }
+
+    public AppCloseOutcome close() {
+        if (self.identity == 0ULL) {
+            return new AppCloseOutcome(APP_ALREADY_CLOSED, null);
+        }
+        int error = std_app_close(self.identity, self.ownerReceipt);
+        if (error != APP_ERROR_NONE) {
+            return new AppCloseOutcome(APP_CLOSE_REJECTED, self.lastError());
+        }
+        self.identity = 0ULL;
+        self.ownerReceipt = 0ULL;
+        return new AppCloseOutcome(APP_CLOSED, null);
+    }
+
+    public void __del__() {
+        if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
+            std_app_finalize(self.identity, self.ownerReceipt);
+        }
+    }
+}
+
+class ApplicationWindow {
+    private Application application;
+    private unsigned long long identity;
+    private unsigned long long ownerReceipt;
+
+    private ApplicationWindow(
+            Application application,
+            unsigned long long identity,
+            unsigned long long ownerReceipt) {
+        self.application = application;
+        self.identity = identity;
+        self.ownerReceipt = ownerReceipt;
+    }
+
+    class AppWindowOpenOutcome open(
+            Application application, AppWindowDescriptor descriptor) {
+        unsigned long long applicationIdentity =
+            application.applicationIdentity();
+        unsigned long long ownerReceipt = 0ULL;
+        unsigned long long windowIdentity = std_app_window_open(
+            applicationIdentity,
+            descriptor.title,
+            descriptor.logicalWidth,
+            descriptor.logicalHeight,
+            &ownerReceipt);
+        if (windowIdentity == 0ULL || ownerReceipt == 0ULL) {
+            return new AppWindowOpenOutcome(
+                APP_WINDOW_OPEN_REJECTED,
+                null,
+                new AppError(
+                    (AppErrorCode)std_app_error_code(applicationIdentity),
+                    std_app_error_message(applicationIdentity)));
+        }
+        return new AppWindowOpenOutcome(
+            APP_WINDOW_OPENED,
+            new ApplicationWindow(
+                application, windowIdentity, ownerReceipt),
+            null);
+    }
+
+    /* Cross-owner native bridge capability. This is generation-validated and
+     * never a GLFWwindow pointer. */
+    public unsigned long long windowIdentity() { return self.identity; }
+    public bool isOpen() {
+        return self.identity != 0ULL && self.ownerReceipt != 0ULL;
+    }
+
+    public AppSurfaceMetrics metrics() {
+        AppSurfaceMetrics metrics =
+            new AppSurfaceMetrics(0, 0, 0, 0, 0.0f, 0.0f);
+        metrics.logicalWidth = std_app_window_logical_width(self.identity);
+        metrics.logicalHeight = std_app_window_logical_height(self.identity);
+        metrics.framebufferWidth =
+            std_app_window_framebuffer_width(self.identity);
+        metrics.framebufferHeight =
+            std_app_window_framebuffer_height(self.identity);
+        metrics.scaleX = std_app_window_scale_x(self.identity);
+        metrics.scaleY = std_app_window_scale_y(self.identity);
+        return metrics;
+    }
+
+    public AppSurfaceOpenOutcome surface() {
+        if (self.identity == 0ULL) {
+            return new AppSurfaceOpenOutcome(
+                APP_SURFACE_OPEN_REJECTED,
+                null,
+                new AppError(APP_ERROR_CLOSED, "window is closed"));
+        }
+        return AppSurfaceAttachment.open(self);
+    }
+
+    public AppCloseOutcome close() {
+        if (self.identity == 0ULL) {
+            return new AppCloseOutcome(APP_ALREADY_CLOSED, null);
+        }
+        int error = std_app_window_close(
+            self.identity, self.ownerReceipt);
+        if (error != APP_ERROR_NONE) {
+            return new AppCloseOutcome(
+                APP_CLOSE_REJECTED,
+                new AppError(
+                    (AppErrorCode)std_app_error_code(self.identity),
+                    std_app_error_message(self.identity)));
+        }
+        self.identity = 0ULL;
+        self.ownerReceipt = 0ULL;
+        return new AppCloseOutcome(APP_CLOSED, null);
+    }
+
+    public void __del__() {
+        if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
+            std_app_window_finalize(self.identity, self.ownerReceipt);
+        }
+    }
+}
+
+class AppSurfaceAttachment {
+    private ApplicationWindow window;
+    private unsigned long long identity;
+    private unsigned long long ownerReceipt;
+
+    private AppSurfaceAttachment(
+            ApplicationWindow window,
+            unsigned long long identity,
+            unsigned long long ownerReceipt) {
+        self.window = window;
+        self.identity = identity;
+        self.ownerReceipt = ownerReceipt;
+    }
+
+    class AppSurfaceOpenOutcome open(ApplicationWindow window) {
+        unsigned long long windowIdentity = window.windowIdentity();
+        unsigned long long ownerReceipt = 0ULL;
+        unsigned long long surfaceIdentity =
+            std_app_surface_create(windowIdentity, &ownerReceipt);
+        if (surfaceIdentity == 0ULL || ownerReceipt == 0ULL) {
+            return new AppSurfaceOpenOutcome(
+                APP_SURFACE_OPEN_REJECTED,
+                null,
+                new AppError(
+                    (AppErrorCode)std_app_error_code(windowIdentity),
+                    std_app_error_message(windowIdentity)));
+        }
+        return new AppSurfaceOpenOutcome(
+            APP_SURFACE_OPENED,
+            new AppSurfaceAttachment(
+                window, surfaceIdentity, ownerReceipt),
+            null);
+    }
+
+    public bool isOpen() {
+        return self.identity != 0ULL && self.ownerReceipt != 0ULL;
+    }
+    public unsigned long long generation() {
+        return std_app_surface_generation(self.identity);
+    }
+
+    /* This is a generation-checked capability, never a native pointer. */
+    public unsigned long long attachmentIdentity() { return self.identity; }
+
+    public AppCloseOutcome close() {
+        if (self.identity == 0ULL) {
+            return new AppCloseOutcome(APP_ALREADY_CLOSED, null);
+        }
+        int error = std_app_surface_release(
+            self.identity, self.ownerReceipt);
+        if (error != APP_ERROR_NONE) {
+            return new AppCloseOutcome(
+                APP_CLOSE_REJECTED,
+                new AppError(
+                    (AppErrorCode)error,
+                    std_app_error_message(self.identity)));
+        }
+        self.identity = 0ULL;
+        self.ownerReceipt = 0ULL;
+        return new AppCloseOutcome(APP_CLOSED, null);
+    }
+
+    public void __del__() {
+        if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
+            std_app_surface_finalize(self.identity, self.ownerReceipt);
+        }
+    }
+}

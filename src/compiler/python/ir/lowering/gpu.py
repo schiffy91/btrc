@@ -1121,7 +1121,7 @@ class GpuLowerer:
         return (spec, arguments)
 
     def _register_dispatch_helper(self, spec: GpuDispatchSpec, provenance: CallableProvenance) -> None:
-        self._session.require_runtime_header("btrc_gpu.h")
+        self._session.require_runtime_header("btrc_gpu_compute_internal.h")
         uniform_types = dict(spec.kernel.uniform_params)
         uniform_fields = [
             IRStructField(

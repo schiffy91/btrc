@@ -1,4 +1,4 @@
-#include "btrc_gpu.h"
+#include "btrc_gpu_compute_internal.h"
 #include <stddef.h>
 
 bool btrc_gpu_available(void) { return false; }

@@ -1188,6 +1188,8 @@ class ExpressionValidator {
             }
             return;
         }
+        self.calls.validateConstructorAccess(
+            className, constructor, expression);
         self.calls.validateSignature(className, constructor.params, expression,
             substitutions, false,  vars);
         if (className == "CallbackRegistration") {

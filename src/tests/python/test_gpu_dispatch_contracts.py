@@ -262,7 +262,7 @@ def test_live_gpu_dispatch_materializes_runtime_header_strictly(
         "@gpu void bump(int[] xs) { int i = gpu_id(); xs[i] += 1; } "
         "int main() { int xs[1] = {1}; bump(xs); return xs[0] == 2 ? 0 : 1; }"
     )
-    assert c_source.count("#include <btrc_gpu.h>") == 1
+    assert c_source.count("#include <btrc_gpu_compute_internal.h>") == 1
     unit = tmp_path / "live_gpu.c"
     binary = tmp_path / "live_gpu"
     unit.write_text(c_source)
@@ -298,7 +298,7 @@ def test_dead_gpu_kernel_leaves_no_unused_shader_constant(
     c_source = emit_c("@gpu\nvoid dormant(int[] xs) { int i = gpu_id(); xs[i] += 1; }\nint main() { return 0; }")
     assert "dormant_wgsl" not in c_source
     assert "dormant__gpucpu" not in c_source
-    assert "#include <btrc_gpu.h>" not in c_source
+    assert "#include <btrc_gpu_compute_internal.h>" not in c_source
     unit = tmp_path / "dead_gpu.c"
     unit.write_text(c_source)
     subprocess.run(

@@ -243,6 +243,17 @@ class CallValidator {
         }
     }
 
+    public void validateConstructorAccess(
+            string className, Node constructor, Node site) {
+        if (constructor.access == "private"
+                && !self.state.owner.startsWith(className + ".")) {
+            TypeValidator.fail(
+                "Cannot call private constructor of class '"
+                    + className + "'",
+                site);
+        }
+    }
+
     public void validateCall(Node call,
             Map<string, Node> vars) {
         self.borrows.validateConditionalRawProjectionCall(call,  vars);
@@ -368,6 +379,7 @@ class CallValidator {
                             + Strings.fromInt(call.args.len) + " argument(s)", call);
                     }
                 } else {
+                    self.validateConstructorAccess(name, constructor, call);
                     self.borrows.validateOpaqueCallArguments(
                         constructor, constructor.params, call, name,
                         noSubstitutions, false,  vars);
@@ -407,6 +419,7 @@ class CallValidator {
                     }
                     return;
                 }
+                self.validateConstructorAccess(name, constructor, call);
                 Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(
                     self.state.analyzed, concreteInstance);
                 self.borrows.validateOpaqueCallArguments(

@@ -1,0 +1,6 @@
+#ifndef BTRC_INTEGRATED_GPU_ASYNC_TEST_REDIRECT_H
+#define BTRC_INTEGRATED_GPU_ASYNC_TEST_REDIRECT_H
+
+#define wgpuInstanceProcessEvents integrated_gpu_process_events
+
+#endif

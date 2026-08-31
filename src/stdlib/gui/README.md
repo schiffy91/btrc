@@ -12,14 +12,18 @@ logic lives in btrc, and it's threaded by default.
 | `geometry.btrc` | Saturating integer geometry shared by immediate and declarative layout. |
 | `gui.btrc` | btrc bindings + immediate-mode widgets (`Color`, `Surface`, `GuiInput`, `Theme`, `Gui`, `GuiApp`). |
 | `view.btrc` | Declarative UI: a `View` tree with flexbox-style layout, events-as-data (`GuiEvents`), and a one-call `Ui.frame(...)`. |
-| `btrc_gui_window.h` / `.c` | Optional native window backend (resizable GLFW window, GPU-texture present). |
-| `window.btrc` | btrc bindings for the window backend (`GuiWindow`, incl. `width`/`height`/`fit`). |
+| `btrc_gui_window.h` / `.c` | Legacy standalone native window backend (resizable GLFW/OpenGL window, GPU-texture present). It is retained for GUI compatibility tests and is not composable with `std.app`. |
+| `window.btrc` | Legacy btrc bindings for that standalone backend (`GuiWindow`, incl. `width`/`height`/`fit`). |
 | `btrc_gui_font.h` / `.c`, `font.btrc` | Optional FreeType backend (`Font`) for scalable, anti-aliased, full-Unicode text. |
 
 Not auto-included (it's in a subfolder and needs a compiled shim). Opt in with
 `#include "gui/gui.btrc"` and build with `make gui`.
 
 ## Quick start (immediate-mode)
+
+`GuiWindow` below is the legacy standalone presenter. New application code
+should own its window through `std.app`; `std.ui` has not yet been migrated to
+consume the unified `std.app`/`std.gpu` surface.
 
 ```btrc
 #include "gui/gui.btrc"
@@ -170,8 +174,10 @@ make examples-gui   # build + run the headless examples/tests (demo, declarative
 - GLFW requires window creation + event polling on the **main thread on macOS**,
   so drive the windowed loop from `main()` there; the threaded runner is for the
   offscreen surface or Linux.
-- The optional GUI and GPU backends share GLFW's process-global state. They
-  destroy their own windows but leave GLFW's global teardown to process exit,
-  so closing one backend cannot invalidate windows owned by the other.
+- The legacy `GuiWindow` backend owns GLFW and an OpenGL window independently.
+  Its header and `std.app` now reject a mixed translation unit at compile time;
+  `std.app` is the sole GLFW owner for the unified application/GPU path. The
+  headless software `Surface` remains safe and deliberately separate until
+  `std.ui` consumes that path.
 - Drawing is opaque-rect + bitmap text; it's intentionally minimal, not a
   full retained-mode toolkit.

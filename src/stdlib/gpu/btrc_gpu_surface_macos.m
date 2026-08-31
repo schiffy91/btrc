@@ -12,10 +12,14 @@
 
 WGPUSurface btrc_gpu_create_surface_macos(
     WGPUInstance instance, GLFWwindow* window) {
+    if (!instance || !window) { return NULL; }
     NSWindow* ns_window = glfwGetCocoaWindow(window);
+    if (!ns_window) { return NULL; }
     NSView* view = [ns_window contentView];
+    if (!view) { return NULL; }
     [view setWantsLayer:YES];
     CAMetalLayer* layer = [CAMetalLayer layer];
+    if (!layer) { return NULL; }
     [view setLayer:layer];
 
     WGPUSurfaceSourceMetalLayer source = {

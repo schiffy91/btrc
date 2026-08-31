@@ -118,6 +118,40 @@ def darwin_gpu_flags() -> tuple[list[str], str | None]:
     ], None
 
 
+def darwin_app_flags() -> tuple[list[str], str | None]:
+    """Resolve Homebrew GLFW flags without probing for WebGPU."""
+    brew = shutil.which("brew")
+    if brew is None:
+        return [], (
+            "GLFW toolchain is unavailable on macOS: APP_CFLAGS/APP_LDFLAGS are unset and Homebrew is not on PATH"
+        )
+    try:
+        result = subprocess.run(
+            [brew, "--prefix", "glfw"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return [], f"GLFW toolchain lookup failed for glfw: {error}"
+    prefix = result.stdout.strip()
+    if result.returncode != 0 or not prefix:
+        detail = result.stderr.strip() or "formula is not installed"
+        return [], f"GLFW toolchain is unavailable: Homebrew glfw: {detail[:300]}"
+    return [
+        "-DGLFW_INCLUDE_NONE",
+        f"-I{prefix}/include",
+        f"-L{prefix}/lib",
+        "-lglfw",
+        "-framework",
+        "Cocoa",
+        "-framework",
+        "IOKit",
+        "-framework",
+        "CoreVideo",
+    ], None
+
+
 def darwin_tray_backend_error(
     compiler: tuple[str, ...],
     cflags: tuple[str, ...],

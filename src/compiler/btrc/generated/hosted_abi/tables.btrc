@@ -122,6 +122,7 @@ class GeneratedHostedAbiData {
         self.pushFunctions8();
         self.pushFunctions9();
         self.pushFunctions10();
+        self.pushFunctions11();
         self.function_names = [];
         self.push_function_names0();
         self.push_function_names1();
@@ -164,6 +165,7 @@ class GeneratedHostedAbiData {
         self.push_owned_names13();
         self.push_owned_names14();
         self.push_owned_names15();
+        self.push_owned_names16();
         self.native_names = [];
         self.push_native_names0();
         self.native_internal_names = [];
@@ -174,6 +176,7 @@ class GeneratedHostedAbiData {
         self.push_platform_function_names0();
         self.push_platform_function_names1();
         self.push_platform_function_names2();
+        self.push_platform_function_names3();
         self.platform_macro_names = [];
         self.push_platform_macro_names0();
         self.push_platform_macro_names1();
@@ -193,7 +196,7 @@ class GeneratedHostedAbiData {
         self.push_platform_typedef_names0();
         self.stdlib_source_marker = "compiler:stdlib";
         self.user_source_marker = "compiler:user";
-        self.fingerprint = "c5447e3aa9a54993c5fc080d1092b370d2d741b04122b4c209bdb22bd3c571d9";
+        self.fingerprint = "12ba5195ea25ce05e24b93a302312dd2e60fb2f3f686637d3fd0654e26ea60a4";
     }
 
     private void pushFunctions0() {
@@ -1721,7 +1724,7 @@ class GeneratedHostedAbiData {
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_draw_uniform",
             "native_gpu",
-            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()),
             true,
             [
                 GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
@@ -1731,7 +1734,7 @@ class GeneratedHostedAbiData {
             ],
             false,
             false,
-            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()),
             "value",
             -1,
             "",
@@ -1757,44 +1760,6 @@ class GeneratedHostedAbiData {
             "",
             false,
             "",
-            "",
-            "",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_get_time",
-            "native_gpu",
-            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
-            true,
-            self.emptyParameters(),
-            false,
-            false,
-            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
-            "value",
-            -1,
-            "",
-            false,
-            "",
-            "",
-            "",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_init",
-            "native_gpu",
-            GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
-            true,
-            [
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "unknown", ""),
-            ],
-            false,
-            false,
-            GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
-            "independent",
-            -1,
-            "",
-            false,
-            "btrc_gpu_destroy",
             "",
             "",
             "",
@@ -1837,9 +1802,6 @@ class GeneratedHostedAbiData {
             "btrc_gpu_pipeline_destroy",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions2() {
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_read_buffer",
             "native_gpu",
@@ -1886,6 +1848,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions2() {
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_set_uniform",
             "native_gpu",
@@ -1960,149 +1925,6 @@ class GeneratedHostedAbiData {
             false,
             false,
             GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-            "value",
-            -1,
-            "",
-            false,
-            "",
-            "",
-            "",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_window_create",
-            "native_gpu",
-            GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
-            true,
-            [
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-            ],
-            false,
-            false,
-            GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()),
-            "independent",
-            -1,
-            "",
-            false,
-            "btrc_gpu_window_destroy",
-            "",
-            "",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_window_destroy",
-            "native_gpu",
-            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-            true,
-            [
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "consume", ""),
-            ],
-            false,
-            false,
-            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-            "value",
-            -1,
-            "",
-            true,
-            "",
-            "",
-            "btrc_gpu_window_destroy",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_window_height",
-            "native_gpu",
-            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-            true,
-            [
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-            ],
-            false,
-            false,
-            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-            "value",
-            -1,
-            "",
-            false,
-            "",
-            "",
-            "",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_window_is_open",
-            "native_gpu",
-            GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()),
-            true,
-            [
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-            ],
-            false,
-            false,
-            GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()),
-            "value",
-            -1,
-            "",
-            false,
-            "",
-            "",
-            "",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_window_key_pressed",
-            "native_gpu",
-            GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()),
-            true,
-            [
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
-            ],
-            false,
-            false,
-            GeneratedAbiTypeRow("bool", 0, false, self.emptyTypes()),
-            "value",
-            -1,
-            "",
-            false,
-            "",
-            "",
-            "",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_window_poll",
-            "native_gpu",
-            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-            true,
-            [
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-            ],
-            false,
-            false,
-            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
-            "value",
-            -1,
-            "",
-            false,
-            "",
-            "",
-            "",
-            "",
-            "unknown"));
-        self.functions.push(GeneratedHostedFunctionRow(
-            "btrc_gpu_window_width",
-            "native_gpu",
-            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
-            true,
-            [
-                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
-            ],
-            false,
-            false,
-            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
             "value",
             -1,
             "",
@@ -2682,9 +2504,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions3() {
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_add_check_item",
             "native_tray",
@@ -2876,6 +2695,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions3() {
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_set_menu",
             "native_tray",
@@ -3502,9 +3324,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions4() {
         self.functions.push(GeneratedHostedFunctionRow(
             "erfc",
             "math",
@@ -3687,6 +3506,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions4() {
         self.functions.push(GeneratedHostedFunctionRow(
             "exp2f",
             "math",
@@ -4321,9 +4143,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions5() {
         self.functions.push(GeneratedHostedFunctionRow(
             "fmaxf",
             "math",
@@ -4514,6 +4333,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions5() {
         self.functions.push(GeneratedHostedFunctionRow(
             "fopen",
             "stdio",
@@ -5157,9 +4979,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions6() {
         self.functions.push(GeneratedHostedFunctionRow(
             "isblank",
             "ctype",
@@ -5340,6 +5159,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions6() {
         self.functions.push(GeneratedHostedFunctionRow(
             "isxdigit",
             "ctype",
@@ -5973,9 +5795,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions7() {
         self.functions.push(GeneratedHostedFunctionRow(
             "memmove",
             "string",
@@ -6163,6 +5982,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions7() {
         self.functions.push(GeneratedHostedFunctionRow(
             "nextafterf",
             "math",
@@ -6805,9 +6627,6 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions8() {
         self.functions.push(GeneratedHostedFunctionRow(
             "realpath",
             "posix",
@@ -7001,6 +6820,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions8() {
         self.functions.push(GeneratedHostedFunctionRow(
             "rename",
             "stdio",
@@ -7645,9 +7467,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions9() {
         self.functions.push(GeneratedHostedFunctionRow(
             "sqrtf",
             "math",
@@ -7716,6 +7535,1075 @@ class GeneratedHostedAbiData {
             [
                 GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
                 GeneratedHostedParameterRow(GeneratedAbiTypeRow("struct stat", 1, false, self.emptyTypes()), "mutate", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_close",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_create",
+            "native_app",
+            GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_error_code",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_error_message",
+            "native_app",
+            GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
+            "independent",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_framebuffer_height",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+    }
+
+    private void pushFunctions9() {
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_framebuffer_width",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_key",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_key_action",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_logical_height",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_logical_width",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_modifiers",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_pointer_action",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_pointer_button",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_pointer_x",
+            "native_app",
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_pointer_y",
+            "native_app",
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_scale_x",
+            "native_app",
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_scale_y",
+            "native_app",
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_event_text",
+            "native_app",
+            GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
+            "independent",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_finalize",
+            "native_app",
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_poll",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_surface_create",
+            "native_app",
+            GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_surface_finalize",
+            "native_app",
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_surface_generation",
+            "native_app",
+            GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_surface_release",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_close",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_finalize",
+            "native_app",
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_framebuffer_height",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_framebuffer_width",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_logical_height",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_logical_width",
+            "native_app",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_open",
+            "native_app",
+            GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_scale_x",
+            "native_app",
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_app_window_scale_y",
+            "native_app",
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_attach_surface",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_begin_frame",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_close",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_draw",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_draw_uniform",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_end_frame",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_finalize",
+            "native_gpu",
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_pipeline_create",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_pipeline_destroy",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_pipeline_finalize",
+            "native_gpu",
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_shader_create",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_shader_destroy",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+    }
+
+    private void pushFunctions10() {
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_shader_finalize",
+            "native_gpu",
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_status_message",
+            "native_gpu",
+            GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
+            "independent",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_uniform_create",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_uniform_destroy",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_uniform_finalize",
+            "native_gpu",
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "std_gpu_uniform_set",
+            "native_gpu",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
             ],
             false,
             false,
@@ -8441,6 +9329,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions11() {
         self.functions.push(GeneratedHostedFunctionRow(
             "tanl",
             "math",
@@ -8482,9 +9373,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions10() {
         self.functions.push(GeneratedHostedFunctionRow(
             "tcsetattr",
             "posix_process",
@@ -8923,6 +9811,8 @@ class GeneratedHostedAbiData {
         self.function_names.push("bsd_signal");
         self.function_names.push("bsearch");
         self.function_names.push("bsearch_b");
+        self.function_names.push("btrc_app_drain_owner_finalizers");
+        self.function_names.push("btrc_app_register_owner_drain_hook");
         self.function_names.push("btrc_gpu_acquire_compute");
         self.function_names.push("btrc_gpu_async_complete");
         self.function_names.push("btrc_gpu_async_create");
@@ -8945,8 +9835,6 @@ class GeneratedHostedAbiData {
         self.function_names.push("btrc_gpu_draw");
         self.function_names.push("btrc_gpu_draw_uniform");
         self.function_names.push("btrc_gpu_end_frame");
-        self.function_names.push("btrc_gpu_get_time");
-        self.function_names.push("btrc_gpu_init");
         self.function_names.push("btrc_gpu_init_compute");
         self.function_names.push("btrc_gpu_pipeline_destroy");
         self.function_names.push("btrc_gpu_publish_compute_candidate");
@@ -8956,13 +9844,6 @@ class GeneratedHostedAbiData {
         self.function_names.push("btrc_gpu_shader_destroy");
         self.function_names.push("btrc_gpu_uniform_destroy");
         self.function_names.push("btrc_gpu_upload_uniform");
-        self.function_names.push("btrc_gpu_window_create");
-        self.function_names.push("btrc_gpu_window_destroy");
-        self.function_names.push("btrc_gpu_window_height");
-        self.function_names.push("btrc_gpu_window_is_open");
-        self.function_names.push("btrc_gpu_window_key_pressed");
-        self.function_names.push("btrc_gpu_window_poll");
-        self.function_names.push("btrc_gpu_window_width");
         self.function_names.push("btrc_gpu_write_buffer");
         self.function_names.push("btrc_gui_blend_rect");
         self.function_names.push("btrc_gui_clear");
@@ -9085,9 +9966,6 @@ class GeneratedHostedAbiData {
         self.function_names.push("encrypt");
         self.function_names.push("endpwent");
         self.function_names.push("endusershell");
-    }
-
-    private void push_function_names1() {
         self.function_names.push("erand48");
         self.function_names.push("erand48_r");
         self.function_names.push("erf");
@@ -9095,6 +9973,9 @@ class GeneratedHostedAbiData {
         self.function_names.push("erfcf");
         self.function_names.push("erfcl");
         self.function_names.push("erff");
+    }
+
+    private void push_function_names1() {
         self.function_names.push("erfl");
         self.function_names.push("exchangedata");
         self.function_names.push("execl");
@@ -9338,9 +10219,6 @@ class GeneratedHostedAbiData {
         self.function_names.push("initstate_r");
         self.function_names.push("iruserok");
         self.function_names.push("iruserok_sa");
-    }
-
-    private void push_function_names2() {
         self.function_names.push("isalnum");
         self.function_names.push("isalpha");
         self.function_names.push("isatty");
@@ -9348,6 +10226,9 @@ class GeneratedHostedAbiData {
         self.function_names.push("iscntrl");
         self.function_names.push("isdigit");
         self.function_names.push("isfdtype");
+    }
+
+    private void push_function_names2() {
         self.function_names.push("isgraph");
         self.function_names.push("isinff");
         self.function_names.push("isinfl");
@@ -9591,9 +10472,6 @@ class GeneratedHostedAbiData {
         self.function_names.push("pthread_getugid_np");
         self.function_names.push("pthread_join");
         self.function_names.push("pthread_key_create");
-    }
-
-    private void push_function_names3() {
         self.function_names.push("pthread_key_delete");
         self.function_names.push("pthread_kill");
         self.function_names.push("pthread_mutex_consistent");
@@ -9601,6 +10479,9 @@ class GeneratedHostedAbiData {
         self.function_names.push("pthread_mutex_getprioceiling");
         self.function_names.push("pthread_mutex_init");
         self.function_names.push("pthread_mutex_lock");
+    }
+
+    private void push_function_names3() {
         self.function_names.push("pthread_mutex_setprioceiling");
         self.function_names.push("pthread_mutex_timedlock");
         self.function_names.push("pthread_mutex_trylock");
@@ -9838,15 +10719,70 @@ class GeneratedHostedAbiData {
         self.function_names.push("ssignal");
         self.function_names.push("stat");
         self.function_names.push("statx_np");
+        self.function_names.push("std_app_close");
+        self.function_names.push("std_app_create");
+        self.function_names.push("std_app_error_code");
+        self.function_names.push("std_app_error_message");
+        self.function_names.push("std_app_event_framebuffer_height");
+        self.function_names.push("std_app_event_framebuffer_width");
+        self.function_names.push("std_app_event_key");
+        self.function_names.push("std_app_event_key_action");
+        self.function_names.push("std_app_event_logical_height");
+        self.function_names.push("std_app_event_logical_width");
+        self.function_names.push("std_app_event_modifiers");
+        self.function_names.push("std_app_event_pointer_action");
+        self.function_names.push("std_app_event_pointer_button");
+    }
+
+    private void push_function_names4() {
+        self.function_names.push("std_app_event_pointer_x");
+        self.function_names.push("std_app_event_pointer_y");
+        self.function_names.push("std_app_event_scale_x");
+        self.function_names.push("std_app_event_scale_y");
+        self.function_names.push("std_app_event_text");
+        self.function_names.push("std_app_finalize");
+        self.function_names.push("std_app_poll");
+        self.function_names.push("std_app_surface_attach");
+        self.function_names.push("std_app_surface_create");
+        self.function_names.push("std_app_surface_detach");
+        self.function_names.push("std_app_surface_finalize");
+        self.function_names.push("std_app_surface_generation");
+        self.function_names.push("std_app_surface_glfw");
+        self.function_names.push("std_app_surface_lease_generation");
+        self.function_names.push("std_app_surface_release");
+        self.function_names.push("std_app_window_close");
+        self.function_names.push("std_app_window_finalize");
+        self.function_names.push("std_app_window_framebuffer_height");
+        self.function_names.push("std_app_window_framebuffer_width");
+        self.function_names.push("std_app_window_logical_height");
+        self.function_names.push("std_app_window_logical_width");
+        self.function_names.push("std_app_window_open");
+        self.function_names.push("std_app_window_scale_x");
+        self.function_names.push("std_app_window_scale_y");
+        self.function_names.push("std_gpu_attach_surface");
+        self.function_names.push("std_gpu_begin_frame");
+        self.function_names.push("std_gpu_close");
+        self.function_names.push("std_gpu_draw");
+        self.function_names.push("std_gpu_draw_uniform");
+        self.function_names.push("std_gpu_end_frame");
+        self.function_names.push("std_gpu_finalize");
+        self.function_names.push("std_gpu_pipeline_create");
+        self.function_names.push("std_gpu_pipeline_destroy");
+        self.function_names.push("std_gpu_pipeline_finalize");
+        self.function_names.push("std_gpu_shader_create");
+        self.function_names.push("std_gpu_shader_destroy");
+        self.function_names.push("std_gpu_shader_finalize");
+        self.function_names.push("std_gpu_status_message");
+        self.function_names.push("std_gpu_uniform_create");
+        self.function_names.push("std_gpu_uniform_destroy");
+        self.function_names.push("std_gpu_uniform_finalize");
+        self.function_names.push("std_gpu_uniform_set");
         self.function_names.push("strcasecmp");
         self.function_names.push("strcasecmp_l");
         self.function_names.push("strcasestr");
         self.function_names.push("strcat");
         self.function_names.push("strchr");
         self.function_names.push("strchrnul");
-    }
-
-    private void push_function_names4() {
         self.function_names.push("strcmp");
         self.function_names.push("strcoll");
         self.function_names.push("strcoll_l");
@@ -15671,6 +16607,8 @@ class GeneratedHostedAbiData {
         self.owned_names.push("bsd_signal");
         self.owned_names.push("bsearch");
         self.owned_names.push("bsearch_b");
+        self.owned_names.push("btrc_app_drain_owner_finalizers");
+        self.owned_names.push("btrc_app_register_owner_drain_hook");
         self.owned_names.push("btrc_font_draw_fn");
         self.owned_names.push("btrc_font_height_fn");
         self.owned_names.push("btrc_font_width_fn");
@@ -15697,8 +16635,6 @@ class GeneratedHostedAbiData {
         self.owned_names.push("btrc_gpu_draw");
         self.owned_names.push("btrc_gpu_draw_uniform");
         self.owned_names.push("btrc_gpu_end_frame");
-        self.owned_names.push("btrc_gpu_get_time");
-        self.owned_names.push("btrc_gpu_init");
         self.owned_names.push("btrc_gpu_init_compute");
         self.owned_names.push("btrc_gpu_pipeline_destroy");
         self.owned_names.push("btrc_gpu_publish_compute_candidate");
@@ -15708,13 +16644,6 @@ class GeneratedHostedAbiData {
         self.owned_names.push("btrc_gpu_shader_destroy");
         self.owned_names.push("btrc_gpu_uniform_destroy");
         self.owned_names.push("btrc_gpu_upload_uniform");
-        self.owned_names.push("btrc_gpu_window_create");
-        self.owned_names.push("btrc_gpu_window_destroy");
-        self.owned_names.push("btrc_gpu_window_height");
-        self.owned_names.push("btrc_gpu_window_is_open");
-        self.owned_names.push("btrc_gpu_window_key_pressed");
-        self.owned_names.push("btrc_gpu_window_poll");
-        self.owned_names.push("btrc_gpu_window_width");
         self.owned_names.push("btrc_gpu_write_buffer");
         self.owned_names.push("btrc_gui_blend_rect");
         self.owned_names.push("btrc_gui_clear");
@@ -15886,9 +16815,6 @@ class GeneratedHostedAbiData {
         self.owned_names.push("expm1l");
         self.owned_names.push("fabs");
         self.owned_names.push("fabsf");
-    }
-
-    private void push_owned_names11() {
         self.owned_names.push("fabsl");
         self.owned_names.push("faccessat");
         self.owned_names.push("false");
@@ -15896,6 +16822,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("fattributiontag_t");
         self.owned_names.push("fchdir");
         self.owned_names.push("fchecklv");
+    }
+
+    private void push_owned_names11() {
         self.owned_names.push("fchecklv_t");
         self.owned_names.push("fchflags");
         self.owned_names.push("fchmod");
@@ -16139,9 +17068,6 @@ class GeneratedHostedAbiData {
         self.owned_names.push("inet6_opt_set_val");
         self.owned_names.push("inet6_option_alloc");
         self.owned_names.push("inet6_option_append");
-    }
-
-    private void push_owned_names12() {
         self.owned_names.push("inet6_option_find");
         self.owned_names.push("inet6_option_init");
         self.owned_names.push("inet6_option_next");
@@ -16149,6 +17075,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("inet6_rth_add");
         self.owned_names.push("inet6_rth_getaddr");
         self.owned_names.push("inet6_rth_init");
+    }
+
+    private void push_owned_names12() {
         self.owned_names.push("inet6_rth_reverse");
         self.owned_names.push("inet6_rth_segments");
         self.owned_names.push("inet6_rth_space");
@@ -16392,9 +17321,6 @@ class GeneratedHostedAbiData {
         self.owned_names.push("msghdr");
         self.owned_names.push("nan");
         self.owned_names.push("nanf");
-    }
-
-    private void push_owned_names13() {
         self.owned_names.push("nanl");
         self.owned_names.push("nanosleep");
         self.owned_names.push("nearbyint");
@@ -16402,6 +17328,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("nearbyintl");
         self.owned_names.push("nextafter");
         self.owned_names.push("nextafterf");
+    }
+
+    private void push_owned_names13() {
         self.owned_names.push("nextafterl");
         self.owned_names.push("nexttoward");
         self.owned_names.push("nexttowardf");
@@ -16645,9 +17574,6 @@ class GeneratedHostedAbiData {
         self.owned_names.push("regnexec");
         self.owned_names.push("regoff_t");
         self.owned_names.push("regwcomp");
-    }
-
-    private void push_owned_names14() {
         self.owned_names.push("regwexec");
         self.owned_names.push("regwncomp");
         self.owned_names.push("regwnexec");
@@ -16655,6 +17581,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("remainderf");
         self.owned_names.push("remainderl");
         self.owned_names.push("remove");
+    }
+
+    private void push_owned_names14() {
         self.owned_names.push("remquo");
         self.owned_names.push("remquof");
         self.owned_names.push("remquol");
@@ -16879,6 +17808,64 @@ class GeneratedHostedAbiData {
         self.owned_names.push("stat");
         self.owned_names.push("static_assert");
         self.owned_names.push("statx_np");
+        self.owned_names.push("std_app_close");
+        self.owned_names.push("std_app_create");
+        self.owned_names.push("std_app_error_code");
+        self.owned_names.push("std_app_error_message");
+        self.owned_names.push("std_app_event_framebuffer_height");
+        self.owned_names.push("std_app_event_framebuffer_width");
+        self.owned_names.push("std_app_event_key");
+        self.owned_names.push("std_app_event_key_action");
+        self.owned_names.push("std_app_event_logical_height");
+        self.owned_names.push("std_app_event_logical_width");
+        self.owned_names.push("std_app_event_modifiers");
+        self.owned_names.push("std_app_event_pointer_action");
+        self.owned_names.push("std_app_event_pointer_button");
+        self.owned_names.push("std_app_event_pointer_x");
+        self.owned_names.push("std_app_event_pointer_y");
+        self.owned_names.push("std_app_event_scale_x");
+        self.owned_names.push("std_app_event_scale_y");
+        self.owned_names.push("std_app_event_text");
+        self.owned_names.push("std_app_finalize");
+        self.owned_names.push("std_app_poll");
+        self.owned_names.push("std_app_surface_attach");
+        self.owned_names.push("std_app_surface_create");
+        self.owned_names.push("std_app_surface_detach");
+        self.owned_names.push("std_app_surface_finalize");
+        self.owned_names.push("std_app_surface_generation");
+        self.owned_names.push("std_app_surface_glfw");
+    }
+
+    private void push_owned_names15() {
+        self.owned_names.push("std_app_surface_lease_generation");
+        self.owned_names.push("std_app_surface_release");
+        self.owned_names.push("std_app_window_close");
+        self.owned_names.push("std_app_window_finalize");
+        self.owned_names.push("std_app_window_framebuffer_height");
+        self.owned_names.push("std_app_window_framebuffer_width");
+        self.owned_names.push("std_app_window_logical_height");
+        self.owned_names.push("std_app_window_logical_width");
+        self.owned_names.push("std_app_window_open");
+        self.owned_names.push("std_app_window_scale_x");
+        self.owned_names.push("std_app_window_scale_y");
+        self.owned_names.push("std_gpu_attach_surface");
+        self.owned_names.push("std_gpu_begin_frame");
+        self.owned_names.push("std_gpu_close");
+        self.owned_names.push("std_gpu_draw");
+        self.owned_names.push("std_gpu_draw_uniform");
+        self.owned_names.push("std_gpu_end_frame");
+        self.owned_names.push("std_gpu_finalize");
+        self.owned_names.push("std_gpu_pipeline_create");
+        self.owned_names.push("std_gpu_pipeline_destroy");
+        self.owned_names.push("std_gpu_pipeline_finalize");
+        self.owned_names.push("std_gpu_shader_create");
+        self.owned_names.push("std_gpu_shader_destroy");
+        self.owned_names.push("std_gpu_shader_finalize");
+        self.owned_names.push("std_gpu_status_message");
+        self.owned_names.push("std_gpu_uniform_create");
+        self.owned_names.push("std_gpu_uniform_destroy");
+        self.owned_names.push("std_gpu_uniform_finalize");
+        self.owned_names.push("std_gpu_uniform_set");
         self.owned_names.push("stderr");
         self.owned_names.push("stdin");
         self.owned_names.push("stdout");
@@ -16898,9 +17885,6 @@ class GeneratedHostedAbiData {
         self.owned_names.push("strdup");
         self.owned_names.push("strerror");
         self.owned_names.push("strerror_l");
-    }
-
-    private void push_owned_names15() {
         self.owned_names.push("strerror_r");
         self.owned_names.push("strftime");
         self.owned_names.push("strftime_l");
@@ -17103,6 +18087,9 @@ class GeneratedHostedAbiData {
         self.owned_names.push("waitid");
         self.owned_names.push("waitpid");
         self.owned_names.push("wchar_t");
+    }
+
+    private void push_owned_names16() {
         self.owned_names.push("wcstombs");
         self.owned_names.push("wctomb");
         self.owned_names.push("winsize");
@@ -17120,41 +18107,6 @@ class GeneratedHostedAbiData {
     }
 
     private void push_native_names0() {
-        self.native_names.push("btrc_gpu_acquire_compute");
-        self.native_names.push("btrc_gpu_available");
-        self.native_names.push("btrc_gpu_begin_frame");
-        self.native_names.push("btrc_gpu_bind_group_destroy");
-        self.native_names.push("btrc_gpu_buffer_destroy");
-        self.native_names.push("btrc_gpu_compute_pipeline_destroy");
-        self.native_names.push("btrc_gpu_create_bind_group");
-        self.native_names.push("btrc_gpu_create_buffer");
-        self.native_names.push("btrc_gpu_create_compute_pipeline");
-        self.native_names.push("btrc_gpu_create_render_pipeline");
-        self.native_names.push("btrc_gpu_create_shader");
-        self.native_names.push("btrc_gpu_create_uniform");
-        self.native_names.push("btrc_gpu_destroy");
-        self.native_names.push("btrc_gpu_dispatch");
-        self.native_names.push("btrc_gpu_draw");
-        self.native_names.push("btrc_gpu_draw_uniform");
-        self.native_names.push("btrc_gpu_end_frame");
-        self.native_names.push("btrc_gpu_get_time");
-        self.native_names.push("btrc_gpu_init");
-        self.native_names.push("btrc_gpu_init_compute");
-        self.native_names.push("btrc_gpu_pipeline_destroy");
-        self.native_names.push("btrc_gpu_read_buffer");
-        self.native_names.push("btrc_gpu_read_buffer_checked");
-        self.native_names.push("btrc_gpu_set_uniform");
-        self.native_names.push("btrc_gpu_shader_destroy");
-        self.native_names.push("btrc_gpu_uniform_destroy");
-        self.native_names.push("btrc_gpu_upload_uniform");
-        self.native_names.push("btrc_gpu_window_create");
-        self.native_names.push("btrc_gpu_window_destroy");
-        self.native_names.push("btrc_gpu_window_height");
-        self.native_names.push("btrc_gpu_window_is_open");
-        self.native_names.push("btrc_gpu_window_key_pressed");
-        self.native_names.push("btrc_gpu_window_poll");
-        self.native_names.push("btrc_gpu_window_width");
-        self.native_names.push("btrc_gpu_write_buffer");
         self.native_names.push("btrc_gui_blend_rect");
         self.native_names.push("btrc_gui_clear");
         self.native_names.push("btrc_gui_draw_text");
@@ -17195,14 +18147,85 @@ class GeneratedHostedAbiData {
         self.native_names.push("btrc_tray_should_quit");
         self.native_names.push("btrc_tray_show");
         self.native_names.push("btrc_tray_take_command");
+        self.native_names.push("std_app_close");
+        self.native_names.push("std_app_create");
+        self.native_names.push("std_app_error_code");
+        self.native_names.push("std_app_error_message");
+        self.native_names.push("std_app_event_framebuffer_height");
+        self.native_names.push("std_app_event_framebuffer_width");
+        self.native_names.push("std_app_event_key");
+        self.native_names.push("std_app_event_key_action");
+        self.native_names.push("std_app_event_logical_height");
+        self.native_names.push("std_app_event_logical_width");
+        self.native_names.push("std_app_event_modifiers");
+        self.native_names.push("std_app_event_pointer_action");
+        self.native_names.push("std_app_event_pointer_button");
+        self.native_names.push("std_app_event_pointer_x");
+        self.native_names.push("std_app_event_pointer_y");
+        self.native_names.push("std_app_event_scale_x");
+        self.native_names.push("std_app_event_scale_y");
+        self.native_names.push("std_app_event_text");
+        self.native_names.push("std_app_finalize");
+        self.native_names.push("std_app_poll");
+        self.native_names.push("std_app_surface_create");
+        self.native_names.push("std_app_surface_finalize");
+        self.native_names.push("std_app_surface_generation");
+        self.native_names.push("std_app_surface_release");
+        self.native_names.push("std_app_window_close");
+        self.native_names.push("std_app_window_finalize");
+        self.native_names.push("std_app_window_framebuffer_height");
+        self.native_names.push("std_app_window_framebuffer_width");
+        self.native_names.push("std_app_window_logical_height");
+        self.native_names.push("std_app_window_logical_width");
+        self.native_names.push("std_app_window_open");
+        self.native_names.push("std_app_window_scale_x");
+        self.native_names.push("std_app_window_scale_y");
+        self.native_names.push("std_gpu_attach_surface");
+        self.native_names.push("std_gpu_begin_frame");
+        self.native_names.push("std_gpu_close");
+        self.native_names.push("std_gpu_draw");
+        self.native_names.push("std_gpu_draw_uniform");
+        self.native_names.push("std_gpu_end_frame");
+        self.native_names.push("std_gpu_finalize");
+        self.native_names.push("std_gpu_pipeline_create");
+        self.native_names.push("std_gpu_pipeline_destroy");
+        self.native_names.push("std_gpu_pipeline_finalize");
+        self.native_names.push("std_gpu_shader_create");
+        self.native_names.push("std_gpu_shader_destroy");
+        self.native_names.push("std_gpu_shader_finalize");
+        self.native_names.push("std_gpu_status_message");
+        self.native_names.push("std_gpu_uniform_create");
+        self.native_names.push("std_gpu_uniform_destroy");
+        self.native_names.push("std_gpu_uniform_finalize");
+        self.native_names.push("std_gpu_uniform_set");
     }
 
     private void push_native_internal_names0() {
+        self.native_internal_names.push("btrc_app_drain_owner_finalizers");
+        self.native_internal_names.push("btrc_app_register_owner_drain_hook");
+        self.native_internal_names.push("btrc_gpu_acquire_compute");
         self.native_internal_names.push("btrc_gpu_async_complete");
         self.native_internal_names.push("btrc_gpu_async_create");
         self.native_internal_names.push("btrc_gpu_async_release");
         self.native_internal_names.push("btrc_gpu_async_wait");
+        self.native_internal_names.push("btrc_gpu_available");
+        self.native_internal_names.push("btrc_gpu_begin_frame");
+        self.native_internal_names.push("btrc_gpu_bind_group_destroy");
+        self.native_internal_names.push("btrc_gpu_buffer_destroy");
+        self.native_internal_names.push("btrc_gpu_compute_pipeline_destroy");
+        self.native_internal_names.push("btrc_gpu_create_bind_group");
+        self.native_internal_names.push("btrc_gpu_create_buffer");
+        self.native_internal_names.push("btrc_gpu_create_compute_pipeline");
+        self.native_internal_names.push("btrc_gpu_create_render_pipeline");
+        self.native_internal_names.push("btrc_gpu_create_shader");
         self.native_internal_names.push("btrc_gpu_create_surface");
+        self.native_internal_names.push("btrc_gpu_create_uniform");
+        self.native_internal_names.push("btrc_gpu_destroy");
+        self.native_internal_names.push("btrc_gpu_dispatch");
+        self.native_internal_names.push("btrc_gpu_draw");
+        self.native_internal_names.push("btrc_gpu_draw_uniform");
+        self.native_internal_names.push("btrc_gpu_end_frame");
+        self.native_internal_names.push("btrc_gpu_init_compute");
         self.native_internal_names.push("btrc_gpu_pending_list_destroy");
         self.native_internal_names.push("btrc_gpu_pending_list_init");
         self.native_internal_names.push("btrc_gpu_pending_list_lock");
@@ -17210,10 +18233,22 @@ class GeneratedHostedAbiData {
         self.native_internal_names.push("btrc_gpu_pending_list_prepend");
         self.native_internal_names.push("btrc_gpu_pending_list_take_all");
         self.native_internal_names.push("btrc_gpu_pending_list_unlock");
+        self.native_internal_names.push("btrc_gpu_pipeline_destroy");
         self.native_internal_names.push("btrc_gpu_publish_compute_candidate");
+        self.native_internal_names.push("btrc_gpu_read_buffer");
+        self.native_internal_names.push("btrc_gpu_read_buffer_checked");
+        self.native_internal_names.push("btrc_gpu_set_uniform");
+        self.native_internal_names.push("btrc_gpu_shader_destroy");
+        self.native_internal_names.push("btrc_gpu_uniform_destroy");
+        self.native_internal_names.push("btrc_gpu_upload_uniform");
+        self.native_internal_names.push("btrc_gpu_write_buffer");
         self.native_internal_names.push("btrc_gui_clear_font_if_active");
         self.native_internal_names.push("btrc_gui_install_font_backend");
         self.native_internal_names.push("btrc_gui_surface_pixels");
+        self.native_internal_names.push("std_app_surface_attach");
+        self.native_internal_names.push("std_app_surface_detach");
+        self.native_internal_names.push("std_app_surface_glfw");
+        self.native_internal_names.push("std_app_surface_lease_generation");
     }
 
     private void push_runtime_adopting_helpers0() {
@@ -17251,6 +18286,8 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("brk");
         self.platform_function_names.push("bsd_signal");
         self.platform_function_names.push("bsearch_b");
+        self.platform_function_names.push("btrc_app_drain_owner_finalizers");
+        self.platform_function_names.push("btrc_app_register_owner_drain_hook");
         self.platform_function_names.push("btrc_gpu_acquire_compute");
         self.platform_function_names.push("btrc_gpu_async_complete");
         self.platform_function_names.push("btrc_gpu_async_create");
@@ -17273,8 +18310,6 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("btrc_gpu_draw");
         self.platform_function_names.push("btrc_gpu_draw_uniform");
         self.platform_function_names.push("btrc_gpu_end_frame");
-        self.platform_function_names.push("btrc_gpu_get_time");
-        self.platform_function_names.push("btrc_gpu_init");
         self.platform_function_names.push("btrc_gpu_init_compute");
         self.platform_function_names.push("btrc_gpu_pipeline_destroy");
         self.platform_function_names.push("btrc_gpu_publish_compute_candidate");
@@ -17284,13 +18319,6 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("btrc_gpu_shader_destroy");
         self.platform_function_names.push("btrc_gpu_uniform_destroy");
         self.platform_function_names.push("btrc_gpu_upload_uniform");
-        self.platform_function_names.push("btrc_gpu_window_create");
-        self.platform_function_names.push("btrc_gpu_window_destroy");
-        self.platform_function_names.push("btrc_gpu_window_height");
-        self.platform_function_names.push("btrc_gpu_window_is_open");
-        self.platform_function_names.push("btrc_gpu_window_key_pressed");
-        self.platform_function_names.push("btrc_gpu_window_poll");
-        self.platform_function_names.push("btrc_gpu_window_width");
         self.platform_function_names.push("btrc_gpu_write_buffer");
         self.platform_function_names.push("btrc_gui_blend_rect");
         self.platform_function_names.push("btrc_gui_clear");
@@ -17472,9 +18500,6 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("getdirentries");
         self.platform_function_names.push("getdirentriesattr");
         self.platform_function_names.push("getdomainname");
-    }
-
-    private void push_platform_function_names1() {
         self.platform_function_names.push("getdtablesize");
         self.platform_function_names.push("getegid");
         self.platform_function_names.push("getentropy");
@@ -17482,6 +18507,9 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("getgid");
         self.platform_function_names.push("getgrouplist");
         self.platform_function_names.push("getgroups");
+    }
+
+    private void push_platform_function_names1() {
         self.platform_function_names.push("gethostid");
         self.platform_function_names.push("gethostname");
         self.platform_function_names.push("gethostuuid");
@@ -17725,9 +18753,6 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("regcomp");
         self.platform_function_names.push("regerror");
         self.platform_function_names.push("regexec");
-    }
-
-    private void push_platform_function_names2() {
         self.platform_function_names.push("regfree");
         self.platform_function_names.push("regncomp");
         self.platform_function_names.push("regnexec");
@@ -17735,6 +18760,9 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("regwexec");
         self.platform_function_names.push("regwncomp");
         self.platform_function_names.push("regwnexec");
+    }
+
+    private void push_platform_function_names2() {
         self.platform_function_names.push("revoke");
         self.platform_function_names.push("rewinddir");
         self.platform_function_names.push("rindex");
@@ -17836,6 +18864,61 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("ssignal");
         self.platform_function_names.push("stat");
         self.platform_function_names.push("statx_np");
+        self.platform_function_names.push("std_app_close");
+        self.platform_function_names.push("std_app_create");
+        self.platform_function_names.push("std_app_error_code");
+        self.platform_function_names.push("std_app_error_message");
+        self.platform_function_names.push("std_app_event_framebuffer_height");
+        self.platform_function_names.push("std_app_event_framebuffer_width");
+        self.platform_function_names.push("std_app_event_key");
+        self.platform_function_names.push("std_app_event_key_action");
+        self.platform_function_names.push("std_app_event_logical_height");
+        self.platform_function_names.push("std_app_event_logical_width");
+        self.platform_function_names.push("std_app_event_modifiers");
+        self.platform_function_names.push("std_app_event_pointer_action");
+        self.platform_function_names.push("std_app_event_pointer_button");
+        self.platform_function_names.push("std_app_event_pointer_x");
+        self.platform_function_names.push("std_app_event_pointer_y");
+        self.platform_function_names.push("std_app_event_scale_x");
+        self.platform_function_names.push("std_app_event_scale_y");
+        self.platform_function_names.push("std_app_event_text");
+        self.platform_function_names.push("std_app_finalize");
+        self.platform_function_names.push("std_app_poll");
+        self.platform_function_names.push("std_app_surface_attach");
+        self.platform_function_names.push("std_app_surface_create");
+        self.platform_function_names.push("std_app_surface_detach");
+        self.platform_function_names.push("std_app_surface_finalize");
+        self.platform_function_names.push("std_app_surface_generation");
+        self.platform_function_names.push("std_app_surface_glfw");
+        self.platform_function_names.push("std_app_surface_lease_generation");
+        self.platform_function_names.push("std_app_surface_release");
+        self.platform_function_names.push("std_app_window_close");
+        self.platform_function_names.push("std_app_window_finalize");
+        self.platform_function_names.push("std_app_window_framebuffer_height");
+        self.platform_function_names.push("std_app_window_framebuffer_width");
+        self.platform_function_names.push("std_app_window_logical_height");
+        self.platform_function_names.push("std_app_window_logical_width");
+        self.platform_function_names.push("std_app_window_open");
+        self.platform_function_names.push("std_app_window_scale_x");
+        self.platform_function_names.push("std_app_window_scale_y");
+        self.platform_function_names.push("std_gpu_attach_surface");
+        self.platform_function_names.push("std_gpu_begin_frame");
+        self.platform_function_names.push("std_gpu_close");
+        self.platform_function_names.push("std_gpu_draw");
+        self.platform_function_names.push("std_gpu_draw_uniform");
+        self.platform_function_names.push("std_gpu_end_frame");
+        self.platform_function_names.push("std_gpu_finalize");
+        self.platform_function_names.push("std_gpu_pipeline_create");
+        self.platform_function_names.push("std_gpu_pipeline_destroy");
+        self.platform_function_names.push("std_gpu_pipeline_finalize");
+        self.platform_function_names.push("std_gpu_shader_create");
+        self.platform_function_names.push("std_gpu_shader_destroy");
+        self.platform_function_names.push("std_gpu_shader_finalize");
+        self.platform_function_names.push("std_gpu_status_message");
+        self.platform_function_names.push("std_gpu_uniform_create");
+        self.platform_function_names.push("std_gpu_uniform_destroy");
+        self.platform_function_names.push("std_gpu_uniform_finalize");
+        self.platform_function_names.push("std_gpu_uniform_set");
         self.platform_function_names.push("strcasecmp");
         self.platform_function_names.push("strcasecmp_l");
         self.platform_function_names.push("strcasestr");
@@ -17930,6 +19013,9 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("y0");
         self.platform_function_names.push("y0f");
         self.platform_function_names.push("y0l");
+    }
+
+    private void push_platform_function_names3() {
         self.platform_function_names.push("y1");
         self.platform_function_names.push("y1f");
         self.platform_function_names.push("y1l");

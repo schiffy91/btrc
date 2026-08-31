@@ -1,0 +1,26 @@
+#ifndef BTRC_INTEGRATED_GPU_TEST_REDIRECT_H
+#define BTRC_INTEGRATED_GPU_TEST_REDIRECT_H
+
+/* Redirect only the native calls exercised by the deterministic integrated
+ * app/GPU owner-finalizer test. The production ownership implementation is
+ * otherwise compiled unchanged. */
+#define btrc_gpu_create_surface integrated_gpu_create_surface
+#define glfwGetFramebufferSize integrated_gpu_get_framebuffer_size
+#define wgpuCreateInstance integrated_gpu_create_instance
+#define wgpuInstanceRequestAdapter integrated_gpu_request_adapter
+#define wgpuAdapterRequestDevice integrated_gpu_request_device
+#define wgpuDeviceGetQueue integrated_gpu_get_queue
+#define wgpuSurfaceGetCapabilities integrated_gpu_get_capabilities
+#define wgpuSurfaceCapabilitiesFreeMembers integrated_gpu_free_capabilities
+#define wgpuSurfaceConfigure integrated_gpu_configure_surface
+#define wgpuSurfaceUnconfigure integrated_gpu_unconfigure_surface
+#define wgpuDeviceCreateBuffer integrated_gpu_create_buffer
+#define wgpuBufferRelease integrated_gpu_release_buffer
+#define wgpuQueueRelease integrated_gpu_release_queue
+#define wgpuDeviceDestroy integrated_gpu_destroy_device
+#define wgpuDeviceRelease integrated_gpu_release_device
+#define wgpuAdapterRelease integrated_gpu_release_adapter
+#define wgpuSurfaceRelease integrated_gpu_release_surface
+#define wgpuInstanceRelease integrated_gpu_release_instance
+
+#endif

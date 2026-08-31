@@ -61,6 +61,10 @@
           # btrc-lsp on PATH: the VSCode extension launches the language server
           # via `nix develop <workspace> --command btrc-lsp`.
           packages = cfg.packages pkgs ++ [ self.packages.${system}.btrc-lsp ];
+          APP_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.glfw.dev}/include";
+          APP_LDFLAGS = "-L${pkgs.glfw}/lib -lglfw"
+            + lib.optionalString isDarwin
+              " -framework Cocoa -framework IOKit -framework CoreVideo";
           GPU_CFLAGS = "-DGLFW_INCLUDE_NONE -I${pkgs.wgpu-native.dev}/include/webgpu -I${pkgs.glfw.dev}/include"
             + lib.optionalString pkgs.stdenv.hostPlatform.isLinux
               " -I${pkgs.wayland.dev}/include";

@@ -257,10 +257,10 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
             if (
                 isinstance(declaration, FunctionDecl)
                 and declaration.body is None
-                and declaration.name.startswith("btrc_")
+                and declaration.name.startswith(("btrc_", "std_"))
             ):
                 declarations.setdefault(declaration.name, []).append(declaration)
-    assert len(declarations) == 75
+    assert len(declarations) == 91
     assert declarations.keys() == HOSTED_NATIVE_FUNCTIONS.keys()
     analyzer = SemanticAnalyzer()
     for name, variants in declarations.items():
@@ -276,30 +276,41 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
             if name == "btrc_tray_take_command":
                 assert declaration.return_type.base == "char"
                 assert declaration.return_type.pointer_depth == 1
-        if name.endswith("_destroy") or name == "btrc_gui_window_close":
+        if name.startswith("btrc_") and (name.endswith("_destroy") or name == "btrc_gui_window_close"):
             assert spec.raw_lifetime
             assert spec.consume_deallocator == name
+        if name.startswith("std_"):
+            assert not spec.raw_lifetime
 
 
 def test_native_headers_are_exact_or_an_explicit_internal_seam() -> None:
     names = set()
-    pattern = re.compile(r"\b(btrc_[A-Za-z0-9_]+)\s*\(")
+    pattern = re.compile(r"\b((?:btrc|std)_[A-Za-z0-9_]+)\s*\(")
     for directory in (
+        SOURCE_ROOT / "stdlib" / "app",
         SOURCE_ROOT / "stdlib" / "gpu",
         SOURCE_ROOT / "stdlib" / "gui",
         SOURCE_ROOT / "stdlib" / "tray",
     ):
         for path in directory.glob("*.h"):
             names.update(pattern.findall(path.read_text()))
-    assert len(names) == 91
+    assert len(names) == 139
     assert names == set(HOSTED_NATIVE_FUNCTIONS) | set(HOSTED_NATIVE_INTERNAL_NAMES)
-    assert len(HOSTED_NATIVE_INTERNAL_NAMES) == 16
+    assert len(HOSTED_NATIVE_INTERNAL_NAMES) == 48
 
 
-def test_gpu_init_retained_window_effect_fails_closed() -> None:
-    gpu_init = hosted_function("btrc_gpu_init")
-    assert gpu_init is not None
-    assert gpu_init.effects == (UNKNOWN,)
+def test_gpu_surface_attachment_uses_public_capabilities_and_private_raw_compute() -> None:
+    attach = hosted_function("std_gpu_attach_surface")
+    close = hosted_function("std_gpu_close")
+
+    assert attach is not None
+    assert attach.effects == (VALUE, MUTATE, MUTATE)
+    assert close is not None
+    assert close.effects == (VALUE, VALUE)
+    assert not close.raw_lifetime
+    assert hosted_function("btrc_gpu_init") is None
+    assert "btrc_gpu_acquire_compute" not in HOSTED_NATIVE_FUNCTIONS
+    assert "btrc_gpu_acquire_compute" in HOSTED_NATIVE_INTERNAL_NAMES
 
 
 def test_gpu_bind_group_retained_buffer_handles_fail_closed() -> None:
@@ -368,11 +379,15 @@ def test_resolved_stdlib_import_receives_authenticated_provenance(tmp_path: Path
 
 
 def test_exact_public_native_abi_has_one_authoritative_diagnostic() -> None:
-    errors = _analyze("extern int btrc_gpu_available(); int main() { return 0; }").errors
-    matching = [error for error in errors if "btrc_gpu_available" in error]
+    errors = _analyze("extern bool std_gpu_attach_surface(); int main() { return 0; }").errors
+    matching = [error for error in errors if "std_gpu_attach_surface" in error]
     assert len(matching) == 1
-    assert "does not match compiler-owned C ABI 'bool (void)'" in matching[0]
-    assert not _analyze("extern bool btrc_gpu_available(); int main() { return 0; }").errors
+    assert "does not match compiler-owned C ABI" in matching[0]
+    assert not _analyze(
+        "extern int std_gpu_attach_surface(unsigned long long surface, "
+        "unsigned long long* gpu, unsigned long long* receipt); "
+        "int main() { return 0; }"
+    ).errors
 
 
 def test_hosted_function_definitions_are_mangled_source_shadows() -> None:
