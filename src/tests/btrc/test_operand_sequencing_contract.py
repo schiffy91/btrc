@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 
@@ -233,3 +234,74 @@ def test_managed_receivers_survive_later_operands_and_unwind(
         emitted = generated.read_text()
         assert "__btrc_kept_operand" in emitted
         _strict_build_and_run(generated, tmp_path / f"receiver-pin-{index}")
+
+
+def test_borrowed_receiver_is_pinned_only_across_later_effects(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <assert.h>
+
+        int alive = 0;
+        class Counter {
+            private Atomic<uint> value;
+            public int id;
+
+            public Counter(int id) {
+                self.value.init((uint)id);
+                self.id = id;
+                alive++;
+            }
+            public uint read() {
+                return self.value.load(MemoryOrder.RELAXED);
+            }
+            public uint combine(uint other) {
+                assert(self.id == 1);
+                return self.value.load(MemoryOrder.RELAXED) * 10u + other;
+            }
+            public void __del__() { alive--; }
+        }
+
+        uint readBorrowed(Counter counter) {
+            return counter.read();
+        }
+
+        void exerciseEffectfulArgument() {
+            Counter counter = new Counter(1);
+            Counter replacement = new Counter(2);
+            assert(counter.combine((counter = replacement).read()) == 12u);
+            assert(alive == 1);
+        }
+
+        int main() {
+            Counter counter = new Counter(7);
+            assert(readBorrowed(counter) == 7u);
+            delete counter;
+            exerciseEffectfulArgument();
+            assert(alive == 0);
+            return 0;
+        }
+    """
+    for index, generated in enumerate(_compile_both(semantic_btrcc, tmp_path, source)):
+        emitted = generated.read_text()
+        direct = re.search(
+            r"(?:static )?unsigned int readBorrowed\([^)]*\)\s*\{(?P<body>.*?)\n\}",
+            emitted,
+            re.DOTALL,
+        )
+        assert direct is not None
+        assert "__btrc_kept_operand" not in direct.group("body")
+
+        effectful = re.search(
+            r"(?:static )?void exerciseEffectfulArgument\([^)]*\)\s*\{(?P<body>.*?)\n\}",
+            emitted,
+            re.DOTALL,
+        )
+        assert effectful is not None
+        assert "__btrc_kept_operand" in effectful.group("body")
+        _strict_build_and_run(
+            generated,
+            tmp_path / f"receiver-pin-minimal-{index}",
+            optimization="-O3",
+        )

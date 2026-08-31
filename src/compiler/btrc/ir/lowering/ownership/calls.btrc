@@ -592,7 +592,7 @@ class CallOwnershipLowerer {
                 && !result.receiverOwned
                 && receiver.kind != NK_SELF_EXPR
                 && receiver.kind != NK_SUPER_EXPR
-                && (operandEffect || result.declaration != null);
+                && operandEffect;
         }
         bool forceCandidate = result.target.resolved()
             || result.parameters.len > 0;
