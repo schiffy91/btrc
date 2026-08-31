@@ -1,0 +1,188 @@
+#include <assert.h>
+
+import std.image;
+import std.native_ui;
+
+NativeUiElement deepVirtualGrid() {
+    NativeUiElement grid = NativeUiElement
+        .virtualGrid(
+            "albums",
+            NativeUiVirtualGrid(2000, 4, 40, 1984)
+        )
+        .className("album-grid");
+    for (int index = 1984; index < 2000; index++) {
+        grid.child(NativeUiElement
+            .button(f"album:{index}", f"Album {index}")
+            .className("album-card"));
+    }
+    return NativeUiElement
+        .column("library")
+        .className("library-root")
+        .child(NativeUiElement.text("status", "2000 albums"))
+        .child(grid);
+}
+
+void assertRejected(NativeUiFrame frame, NativeUiFrameStatus status) {
+    assert(!frame.ok());
+    assert(frame.status == status);
+    assert(frame.image.isEmpty());
+    assert(frame.boxCount() == 0);
+}
+
+int main() {
+    NativeUiStyleSheet sheet = NativeUiStyleSheet()
+        .rule("library-root", "gap: 10px; padding: 6px")
+        .rule(
+            "album-grid",
+            "gap: 4px; padding: 4px; background-color: #112233"
+        )
+        .rule(
+            "album-card",
+            "border-radius: 4px; color: #fefefe"
+        );
+    NativeUiRenderer renderer = NativeUiRenderer.styled(sheet);
+    NativeUiFrame frame = renderer.render(deepVirtualGrid(), 320, 120);
+    assert(frame.ok());
+    assert(frame.boxCount() == 19);
+    assert(frame.contentHeight == 22044);
+    assert(frame.viewport.scrollX() == 0);
+    assert(frame.viewport.scrollY() == 0);
+    assert(frame.virtualGridCount() == 1);
+    NativeUiVirtualGridViewport initialGeometry =
+        frame.virtualGridFor("albums");
+    assert(initialGeometry.gridId() == "albums");
+    assert(initialGeometry.contentOffsetY() == 38);
+    assert(initialGeometry.rowPitch() == 44);
+    assert(initialGeometry.firstVisibleDataIndex() == 0);
+    assert(initialGeometry.visibleDataCount() == 8);
+    NativeUiLayoutBox rootBox = frame.boxFor("albums");
+    assert(rootBox.style.padding == 4);
+    assert(rootBox.style.gap == 4);
+    assert(rootBox.style.hasBackground);
+    assert(rootBox.style.background.red == 17);
+
+    NativeUiEventBatch deepScroll = renderer.scrollBy(0, 1000000000);
+    assert(deepScroll.frame.ok());
+    assert(deepScroll.frame.boxCount() == 19);
+    assert(deepScroll.frame.viewport.scrollY() == 21924);
+    assert(deepScroll.eventCount() == 1);
+    assert(deepScroll.eventAt(0).kind() == NATIVE_UI_SCROLLED);
+    assert(deepScroll.eventAt(0).elementId() == "albums");
+    assert(deepScroll.eventAt(0).scroll().y() == 21924);
+    NativeUiVirtualGridViewport deepGeometry =
+        deepScroll.eventAt(0).virtualGridViewport();
+    assert(deepGeometry.gridId() == "albums");
+    assert(deepGeometry.contentOffsetY() == 38);
+    assert(deepGeometry.contentLocalScrollY() == 21886);
+    assert(deepGeometry.columns() == 4);
+    assert(deepGeometry.rowHeight() == 40);
+    assert(deepGeometry.rowPitch() == 44);
+    assert(deepGeometry.firstVisibleDataIndex() == 1988);
+    assert(deepGeometry.visibleDataCount() == 12);
+    NativeUiLayoutBox item1990 = deepScroll.frame.boxFor("album:1990");
+    assert(item1990.bounds.y == 21906);
+    NativeUiLayoutBox item1999 = deepScroll.frame.boxFor("album:1999");
+    assert(item1999.bounds.y == 21994);
+
+    NativeUiEventBatch hovered = renderer.pointerMoved(245, 80);
+    assert(hovered.eventCount() == 1);
+    assert(hovered.eventAt(0).kind() == NATIVE_UI_HOVER_ENTERED);
+    assert(hovered.eventAt(0).elementId() == "album:1999");
+    NativeUiEventBatch pressed = renderer.pointerPressed(245, 80);
+    assert(pressed.eventCount() == 0);
+    NativeUiEventBatch clicked = renderer.pointerReleased(245, 80);
+    assert(clicked.eventCount() == 1);
+    assert(clicked.eventAt(0).kind() == NATIVE_UI_CLICKED);
+    assert(clicked.eventAt(0).elementId() == "album:1999");
+    renderer.pointerPressed(245, 80);
+    renderer.pointerCancelled();
+    assert(renderer.pointerReleased(245, 80).eventCount() == 0);
+    NativeUiEventBatch resized = renderer.viewportChanged(320, 160);
+    assert(resized.eventCount() >= 1);
+    assert(resized.eventAt(0).kind() == NATIVE_UI_VIEWPORT_CHANGED);
+    assert(resized.frame.viewport.width() == 320);
+    assert(resized.frame.viewport.height() == 160);
+    assert(resized.frame.viewport.scrollY() >= 0);
+
+    NativeUiElement duplicate = NativeUiElement.column("root")
+        .child(NativeUiElement.text("same", "one"))
+        .child(NativeUiElement.text("same", "two"));
+    assertRejected(
+        NativeUiRenderer().render(duplicate, 80, 80),
+        NATIVE_UI_FRAME_INVALID_TREE);
+
+    NativeUiElement shared = NativeUiElement.text("shared", "shared");
+    NativeUiElement sharedTree = NativeUiElement.column("shared-root")
+        .child(shared)
+        .child(shared);
+    assertRejected(
+        NativeUiRenderer().render(sharedTree, 80, 80),
+        NATIVE_UI_FRAME_INVALID_TREE);
+
+    NativeUiElement cycle = NativeUiElement.column("cycle");
+    cycle.child(cycle);
+    assertRejected(
+        NativeUiRenderer().render(cycle, 80, 80),
+        NATIVE_UI_FRAME_INVALID_TREE);
+
+    NativeUiElement badStyle = NativeUiElement
+        .text("bad-style", "bad")
+        .style("position: fixed");
+    NativeUiFrame badStyleFrame = NativeUiRenderer().render(
+        badStyle, 80, 80);
+    assertRejected(badStyleFrame, NATIVE_UI_FRAME_INVALID_STYLE);
+    assert(badStyleFrame.styleIssue.code()
+        == NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY);
+
+    NativeUiElement badClass = NativeUiElement
+        .text("bad-class", "bad")
+        .className("two classes");
+    assertRejected(
+        NativeUiRenderer().render(badClass, 80, 80),
+        NATIVE_UI_FRAME_INVALID_STYLE);
+
+    NativeUiStyleSheet badSheet = NativeUiStyleSheet()
+        .rule("bad", "display: block");
+    assertRejected(
+        NativeUiRenderer.styled(badSheet).render(
+            NativeUiElement.text("sheet", "bad"), 80, 80),
+        NATIVE_UI_FRAME_INVALID_STYLE);
+
+    assertRejected(
+        NativeUiRenderer().render(
+            NativeUiElement.text("viewport", "bad"), 0, 80),
+        NATIVE_UI_FRAME_INVALID_VIEWPORT);
+
+    Image tooWide = Image(4097, 1);
+    assertRejected(
+        NativeUiRenderer().render(
+            NativeUiElement.image("too-wide", tooWide, "oversized"),
+            80,
+            80
+        ),
+        NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+
+    NativeUiElement invalidPool = NativeUiElement
+        .virtualGrid(
+            "invalid-pool",
+            NativeUiVirtualGrid(2, 1, 40, 2)
+        )
+        .child(NativeUiElement.text("past-end", "bad"));
+    assertRejected(
+        NativeUiRenderer().render(invalidPool, 80, 80),
+        NATIVE_UI_FRAME_INVALID_TREE);
+
+    NativeUiElement deep = NativeUiElement.column("depth:0");
+    NativeUiElement cursor = deep;
+    for (int index = 1; index <= 66; index++) {
+        NativeUiElement child = NativeUiElement.column(f"depth:{index}");
+        cursor.child(child);
+        cursor = child;
+    }
+    assertRejected(
+        NativeUiRenderer().render(deep, 80, 80),
+        NATIVE_UI_FRAME_LIMIT_EXCEEDED);
+
+    print("PASS: native UI layout, virtual scroll, and input");
+    return 0;
+}

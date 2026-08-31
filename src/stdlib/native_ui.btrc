@@ -86,8 +86,10 @@ class NativeUiStyle {
         if (value == null || value.len() <= 2 || !value.endsWith("px")) {
             return false;
         }
-        return NativeUiStyle.decimal(
-            value.substring(0, value.len() - 2), allowZero);
+        string digits = value.substring(0, value.len() - 2);
+        return digits.len() <= 4
+            && NativeUiStyle.decimal(digits, allowZero)
+            && Strings.toInt(digits) <= 4096;
     }
 
     class bool hexDigit(char value) {
@@ -365,22 +367,71 @@ class NativeUiScrollDelta {
     public int y() { return self.deltaY; }
 }
 
+class NativeUiVirtualGridViewport {
+    private string gridIdentity;
+    private int totalCountValue;
+    private int columnsValue;
+    private int rowHeightValue;
+    private int rowPitchValue;
+    private int contentOffsetYValue;
+    private int contentLocalScrollYValue;
+    private int firstVisibleIndexValue;
+    private int visibleCountValue;
+
+    public NativeUiVirtualGridViewport(
+        string gridId,
+        int totalCount,
+        int columns,
+        int rowHeight,
+        int rowPitch,
+        int contentOffsetY,
+        int contentLocalScrollY,
+        int firstVisibleDataIndex,
+        int visibleDataCount
+    ) {
+        self.gridIdentity = gridId;
+        self.totalCountValue = totalCount;
+        self.columnsValue = columns;
+        self.rowHeightValue = rowHeight;
+        self.rowPitchValue = rowPitch;
+        self.contentOffsetYValue = contentOffsetY;
+        self.contentLocalScrollYValue = contentLocalScrollY;
+        self.firstVisibleIndexValue = firstVisibleDataIndex;
+        self.visibleCountValue = visibleDataCount;
+    }
+
+    public string gridId() { return self.gridIdentity; }
+    public int totalCount() { return self.totalCountValue; }
+    public int columns() { return self.columnsValue; }
+    public int rowHeight() { return self.rowHeightValue; }
+    public int rowPitch() { return self.rowPitchValue; }
+    public int contentOffsetY() { return self.contentOffsetYValue; }
+    public int contentLocalScrollY() { return self.contentLocalScrollYValue; }
+    public int firstVisibleDataIndex() {
+        return self.firstVisibleIndexValue;
+    }
+    public int visibleDataCount() { return self.visibleCountValue; }
+}
+
 class NativeUiEvent {
     private NativeUiEventKind eventKind;
     private string targetIdentity;
     private NativeUiViewportMetrics viewportValue;
     private NativeUiScrollDelta scrollValue;
+    private NativeUiVirtualGridViewport? virtualGridViewportValue;
 
     private NativeUiEvent(
         NativeUiEventKind kind,
         string elementId,
         NativeUiViewportMetrics viewport,
-        NativeUiScrollDelta scroll
+        NativeUiScrollDelta scroll,
+        NativeUiVirtualGridViewport? virtualGridViewport
     ) {
         self.eventKind = kind;
         self.targetIdentity = elementId;
         self.viewportValue = viewport;
         self.scrollValue = scroll;
+        self.virtualGridViewportValue = virtualGridViewport;
     }
 
     class NativeUiEvent clicked(string elementId) {
@@ -388,7 +439,8 @@ class NativeUiEvent {
             NATIVE_UI_CLICKED,
             elementId,
             NativeUiViewportMetrics(0, 0, 0, 0),
-            NativeUiScrollDelta(0, 0)
+            NativeUiScrollDelta(0, 0),
+            null
         );
     }
 
@@ -397,7 +449,8 @@ class NativeUiEvent {
             NATIVE_UI_HOVER_ENTERED,
             elementId,
             NativeUiViewportMetrics(0, 0, 0, 0),
-            NativeUiScrollDelta(0, 0)
+            NativeUiScrollDelta(0, 0),
+            null
         );
     }
 
@@ -406,17 +459,19 @@ class NativeUiEvent {
             NATIVE_UI_HOVER_LEFT,
             elementId,
             NativeUiViewportMetrics(0, 0, 0, 0),
-            NativeUiScrollDelta(0, 0)
+            NativeUiScrollDelta(0, 0),
+            null
         );
     }
 
     class NativeUiEvent scrolled(
         string elementId,
         NativeUiViewportMetrics resultingViewport,
-        NativeUiScrollDelta delta
+        NativeUiScrollDelta delta,
+        NativeUiVirtualGridViewport? virtualGridViewport = null
     ) {
-        return NativeUiEvent(
-            NATIVE_UI_SCROLLED, elementId, resultingViewport, delta);
+        return NativeUiEvent(NATIVE_UI_SCROLLED, elementId,
+            resultingViewport, delta, virtualGridViewport);
     }
 
     class NativeUiEvent viewportChanged(
@@ -427,7 +482,8 @@ class NativeUiEvent {
             NATIVE_UI_VIEWPORT_CHANGED,
             elementId,
             metrics,
-            NativeUiScrollDelta(0, 0)
+            NativeUiScrollDelta(0, 0),
+            null
         );
     }
 
@@ -435,6 +491,9 @@ class NativeUiEvent {
     public string elementId() { return self.targetIdentity; }
     public NativeUiViewportMetrics viewport() { return self.viewportValue; }
     public NativeUiScrollDelta scroll() { return self.scrollValue; }
+    public NativeUiVirtualGridViewport? virtualGridViewport() {
+        return self.virtualGridViewportValue;
+    }
 }
 
 class NativeUiElement {
@@ -530,3 +589,5 @@ class NativeUiElement {
         return self.childValues.get(index);
     }
 }
+
+#include "native_ui/render.btrc"
