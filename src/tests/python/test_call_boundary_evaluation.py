@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from src.compiler.python.ir.lowering.calls import CallBoundaryLowerer, CallOperand
+from src.compiler.python.ir.lowering.calls import (
+    CallBoundaryLowerer,
+    CallOperand,
+    CallResultPlan,
+)
 from src.compiler.python.ir.lowering.session import LoweringSession
 from src.compiler.python.ir.nodes import IRFieldAccess, IRLiteral, IRModule, IRVar
 from src.compiler.python.syntax.ast.generated import TypeExpr
@@ -41,23 +45,59 @@ class _CleanupScope:
         return False
 
 
+class _ActiveCleanupScope:
+    @staticmethod
+    def exception_cleanup_active() -> bool:
+        return True
+
+
 class _Values:
     @staticmethod
     def is_managed(_type_expr) -> bool:
         return False
 
 
-def _boundary() -> tuple[LoweringSession, _Lifetime, CallBoundaryLowerer]:
+def _boundary(
+    cleanup_scope: object | None = None,
+) -> tuple[LoweringSession, _Lifetime, CallBoundaryLowerer]:
     session = LoweringSession(module=IRModule(), node_types={})
     lifetime = _Lifetime()
     return (
         session,
         lifetime,
-        CallBoundaryLowerer(session, lifetime, _CleanupScope(), _Values()),
+        CallBoundaryLowerer(
+            session,
+            lifetime,
+            cleanup_scope or _CleanupScope(),
+            _Values(),
+        ),
     )
 
 
 class TestCallBoundaryEvaluation:
+    def test_typed_result_is_volatile_only_across_exception_cleanup(self) -> None:
+        ordinary_declarations = []
+        _session, _lifetime, ordinary = _boundary()
+        ordinary._append_typed_result(
+            [],
+            [],
+            ordinary_declarations,
+            IRLiteral(text="probe()"),
+            CallResultPlan(c_type="Probe*"),
+        )
+        assert not ordinary_declarations[0].is_volatile
+
+        protected_declarations = []
+        _session, _lifetime, protected = _boundary(_ActiveCleanupScope())
+        protected._append_typed_result(
+            [],
+            [],
+            protected_declarations,
+            IRLiteral(text="probe()"),
+            CallResultPlan(c_type="Probe*"),
+        )
+        assert protected_declarations[0].is_volatile
+
     def test_owned_operand_is_protected_by_the_retained_lifetime_owner(self) -> None:
         session, lifetime, boundary = _boundary()
         node = object()

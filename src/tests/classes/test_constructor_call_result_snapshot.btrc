@@ -1,0 +1,49 @@
+/* Regression: GCC/Darwin -O2 used to discard these inlined constructor stores
+ * when every lowered call result was unconditionally volatile. */
+
+class CallSnapshot {
+    public int first;
+    public int second;
+    public int third;
+    public int fourth;
+    public float scaleX;
+    public float scaleY;
+
+    public CallSnapshot(
+            int first,
+            int second,
+            int third,
+            int fourth,
+            float scaleX,
+            float scaleY) {
+        self.first = first;
+        self.second = second;
+        self.third = third;
+        self.fourth = fourth;
+        self.scaleX = scaleX;
+        self.scaleY = scaleY;
+    }
+}
+
+int snapshotWidth() { return 64; }
+int snapshotHeight() { return 40; }
+float snapshotScale() { return 2.0f; }
+
+CallSnapshot snapshotCalls() {
+    return new CallSnapshot(
+        snapshotWidth(),
+        snapshotHeight(),
+        snapshotWidth() * 2,
+        snapshotHeight() * 2,
+        snapshotScale(),
+        snapshotScale());
+}
+
+int main() {
+    CallSnapshot snapshot = snapshotCalls();
+    assert(snapshot.first == 64 && snapshot.second == 40);
+    assert(snapshot.third == 128 && snapshot.fourth == 80);
+    assert(snapshot.scaleX == 2.0f && snapshot.scaleY == 2.0f);
+    print("PASS: constructor snapshots call results");
+    return 0;
+}

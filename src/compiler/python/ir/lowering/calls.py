@@ -341,7 +341,12 @@ class CallBoundaryLowerer:
     def _append_typed_result(self, sequence, suffix, declarations, call, plan: CallResultPlan) -> None:
         assert plan.c_type is not None
         result_decl = self._temporary("__btrc_call_result", plan.c_type)
-        result_decl.is_volatile = True
+        # A call result only needs volatile storage when a surrounding
+        # setjmp-based cleanup scope can observe it after longjmp.  Qualifying
+        # every result tickles a GCC/Darwin miscompile for inlined mixed-ABI
+        # constructors: the volatile pointer is returned, but the constructor
+        # field stores are incorrectly discarded at -O2/-O3.
+        result_decl.is_volatile = self._cleanup_scope.exception_cleanup_active()
         declarations.append(result_decl)
         result = IRVar(name=result_decl.name)
         sequence.append(IRBinOp(left=result, op="=", right=call))

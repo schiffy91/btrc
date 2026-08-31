@@ -233,7 +233,10 @@ class OwnershipBoundary {
             "__btrc_boundary_result");
         IRNode resultDeclaration = IRNode.variableDeclaration(
             resultC, resultName, null);
-        resultDeclaration.is_volatile = true;
+        /* setjmp cleanup needs volatile storage across longjmp. Ordinary call
+         * results do not, and unconditional volatile triggers a GCC/Darwin
+         * -O2/-O3 miscompile of inlined mixed-ABI constructors. */
+        resultDeclaration.is_volatile = self.context.exceptionsAreEnabled();
         self.declarations.push(resultDeclaration);
         self.context.recordLocal(resultDeclaration);
         IRNode result = IRNode.variable(resultName);
