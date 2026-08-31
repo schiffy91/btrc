@@ -122,6 +122,8 @@ class Analyzed {
      * expression. IR generation uses this to fail closed if an invalid VLA
      * initializer somehow bypasses validation. */
     public Map<string, bool> constantArrayBoundKeys;
+    /* Source C-for identity -> canonical realtime bounded-loop proof. */
+    public Map<string, bool> realtimeBoundedLoopKeys;
 
     public Analyzed() {
         self.funcRetTypes = {};
@@ -154,6 +156,7 @@ class Analyzed {
         self.genericConstructorIndex = {};
         self.arrayIterationCapacityKeys = {};
         self.constantArrayBoundKeys = {};
+        self.realtimeBoundedLoopKeys = {};
     }
 
     private Node primitiveType(string base) {

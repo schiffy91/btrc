@@ -5,6 +5,8 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
+import pytest
+
 pytest_plugins = ("src.tests.btrc.test_semantic_validation",)
 
 REPO = Path(__file__).resolve().parents[3]
@@ -139,6 +141,157 @@ def test_unproven_spin_wait_fails_closed_in_both_compilers(
     reference = run_reference(source, tmp_path / "spin_wait.c")
     selfhost = run_selfhost(semantic_btrcc, source)
     expected = "forbidden blocking operation 'unproven while loop' via audio"
+
+    assert reference.returncode == 1
+    assert selfhost.returncode == 1
+    assert expected in reference.stderr
+    assert expected in selfhost.stderr
+
+
+@pytest.mark.parametrize(
+    ("name", "source_text", "expected"),
+    (
+        (
+            "string_identifier",
+            'string label = "ready"; @realtime void audio() { (void*)label; }',
+            "forbidden strings operation 'string identifier 'label'' via audio",
+        ),
+        (
+            "collection_identifier",
+            "import std.vector;\nVector<int> values; @realtime void audio() { (void*)values; }",
+            "forbidden collections operation 'collection identifier 'values'' via audio",
+        ),
+        (
+            "managed_identifier",
+            "class Box {} Box box; @realtime void audio() { (void*)box; }",
+            "forbidden ARC operation 'managed identifier 'box'' via audio",
+        ),
+        (
+            "string_field",
+            "class Engine { public string label; public @realtime void audio() { (void*)self.label; } }",
+            "forbidden strings operation 'string field 'label'' via Engine.audio",
+        ),
+        (
+            "string_cast",
+            "@realtime void audio(void* raw) { (string)raw; }",
+            "forbidden strings operation 'string cast result' via audio",
+        ),
+    ),
+)
+def test_managed_value_admission_has_reference_selfhost_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    name: str,
+    source_text: str,
+    expected: str,
+) -> None:
+    source = tmp_path / f"{name}.btrc"
+    source.write_text(source_text + "\n")
+    reference = run_reference(source, tmp_path / f"{name}.c")
+    selfhost = run_selfhost(semantic_btrcc, source)
+
+    assert reference.returncode == 1
+    assert selfhost.returncode == 1
+    assert expected in reference.stderr
+    assert expected in selfhost.stderr
+
+
+@pytest.mark.parametrize(
+    ("name", "declarations"),
+    (
+        ("string", "enum class Sample { Text(string value), Empty }"),
+        ("class", "class Box {} enum class Sample { Object(Box value), Empty }"),
+        ("collection", "import std.vector;\nenum class Sample { Values(Vector<int> value), Empty }"),
+    ),
+)
+def test_managed_rich_enum_payload_has_reference_selfhost_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    name: str,
+    declarations: str,
+) -> None:
+    source = tmp_path / f"rich_{name}.btrc"
+    source.write_text(f"{declarations}\n@realtime void audio(Sample sample) {{}}\n")
+    reference = run_reference(source, tmp_path / f"rich_{name}.c")
+    selfhost = run_selfhost(semantic_btrcc, source)
+    expected = "forbidden ARC operation 'managed parameter 'sample'' via audio"
+
+    assert reference.returncode == 1
+    assert selfhost.returncode == 1
+    assert expected in reference.stderr
+    assert expected in selfhost.stderr
+
+
+def test_pod_global_self_field_and_rich_enum_compile_in_both_compilers(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "pod_values.btrc"
+    source.write_text(
+        "int globalLevel = 2;\n"
+        "enum class Sample { Value(int sample), Empty }\n"
+        "class Engine {\n"
+        "  public int level;\n"
+        "  public Engine(int level) { self.level = level; }\n"
+        "  public @realtime int render(Sample sample) { return globalLevel + self.level + sample.tag; }\n"
+        "}\n"
+        "int main() { Engine engine = new Engine(3); Sample sample = Sample.Value(4); "
+        "int result = engine.render(sample); delete engine; return result >= 5 ? 0 : 1; }\n"
+    )
+    reference_output = tmp_path / "pod_reference.c"
+    selfhost_output = tmp_path / "pod_selfhost.c"
+    reference = run_reference(source, reference_output)
+    selfhost = run_selfhost(semantic_btrcc, source)
+
+    assert reference.returncode == 0, reference.stderr
+    assert selfhost.returncode == 0, selfhost.stderr
+    selfhost_output.write_text(selfhost.stdout)
+    assert compile_and_run(reference_output, tmp_path / "pod_reference").returncode == 0
+    assert compile_and_run(selfhost_output, tmp_path / "pod_selfhost").returncode == 0
+
+
+def test_recursive_scc_has_the_same_closing_path(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "recursive.btrc"
+    source.write_text(
+        "int evenStep(int value);\n"
+        "int oddStep(int value) { return evenStep(value - 1); }\n"
+        "int evenStep(int value) { return oddStep(value - 1); }\n"
+        "@realtime int audio(int value) { return evenStep(value); }\n"
+    )
+    reference = run_reference(source, tmp_path / "recursive.c")
+    selfhost = run_selfhost(semantic_btrcc, source)
+    expected = "forbidden blocking operation 'recursive call cycle' via audio -> evenStep -> oddStep -> evenStep"
+
+    assert reference.returncode == 1
+    assert selfhost.returncode == 1
+    assert expected in reference.stderr
+    assert expected in selfhost.stderr
+
+
+@pytest.mark.parametrize(
+    "loop",
+    (
+        "for (;;) {}",
+        "for (int index = 0; ready; index++) {}",
+        "for (int index = 0; index <= count; index++) {}",
+        "for (int index = 0; index < count; index--) {}",
+        "for (int index = 0; index < count; index = 0) {}",
+        "for (int index = 0; index < count; index++) { index = 0; }",
+    ),
+)
+def test_uncertified_c_for_has_reference_selfhost_parity(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    loop: str,
+) -> None:
+    source = tmp_path / "uncertified_for.btrc"
+    source.write_text(f"@realtime void audio(int count, bool ready) {{ {loop} }}\n")
+    reference = run_reference(source, tmp_path / "uncertified_for.c")
+    selfhost = run_selfhost(semantic_btrcc, source)
+    expected = "forbidden blocking operation 'unproven C-style loop' via audio"
 
     assert reference.returncode == 1
     assert selfhost.returncode == 1

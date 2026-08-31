@@ -160,6 +160,7 @@ class SemanticAnalyzer:
             defined_global_names=frozenset(self.index.global_definitions),
             hosted_call_ids=set(state.hosted_call_ids),
             realtime_safe_callables=realtime_safe_callables,
+            realtime_bounded_loop_ids=set(state.realtime_bounded_loop_ids),
             typedef_table=self.index.typedef_table,
             struct_table=self.index.struct_table,
             node_types=state.node_types,

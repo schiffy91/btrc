@@ -1800,6 +1800,9 @@ class StatementLowerer {
         }
         IRNode lowered = self.controlFlow.materializeFor(
             ForPlan(init, cond, update, loweredBody.body));
+        lowered.realtime_bounded =
+            self.analyzed.realtimeBoundedLoopKeys.has(
+                AstIdentity.key(node));
         if (declarationScope) {
             Vector<IRNode> scopedStatements = prefix;
             scopedStatements.push(lowered);

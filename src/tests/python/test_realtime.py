@@ -10,9 +10,11 @@ from src.compiler.python.ir.nodes import (
     IRBlock,
     IRCall,
     IRExprStmt,
+    IRFor,
     IRFunctionDef,
     IRLiteral,
     IRModule,
+    IRWhile,
 )
 from src.compiler.python.ir.verifier import IRVerifier
 from src.compiler.python.lexer.lexer import Lexer
@@ -61,25 +63,30 @@ def test_realtime_is_part_of_a_function_declaration_contract() -> None:
     assert any("Conflicting declarations" in error for error in mismatched.errors)
 
 
-def test_safe_pointer_loop_and_recursive_scc_are_accepted() -> None:
+def test_safe_pointer_c_for_is_accepted() -> None:
     source = """
-        int evenStep(int value);
-        int oddStep(int value) {
-            if (value <= 0) { return 0; }
-            return evenStep(value - 1);
-        }
-        int evenStep(int value) {
-            if (value <= 0) { return 0; }
-            return oddStep(value - 1);
-        }
         @realtime void gain(float* samples, int count, float amount) {
             for (int index = 0; index < count; index++) {
                 samples[index] = samples[index] * amount;
             }
-            evenStep(count);
         }
     """
     assert realtime_errors(source) == []
+
+
+def test_reachable_recursive_scc_fails_with_the_closing_call_path() -> None:
+    errors = realtime_errors(
+        """
+        int evenStep(int value);
+        int oddStep(int value) { return evenStep(value - 1); }
+        int evenStep(int value) { return oddStep(value - 1); }
+        @realtime int audio(int value) { return evenStep(value); }
+        """
+    )
+
+    assert len(errors) == 1
+    assert "forbidden blocking operation 'recursive call cycle'" in errors[0]
+    assert "via audio -> evenStep -> oddStep -> evenStep" in errors[0]
 
 
 @pytest.mark.parametrize(
@@ -94,6 +101,122 @@ def test_unproven_wait_loops_fail_closed(loop: str, operation: str) -> None:
 
     assert len(errors) == 1
     assert f"forbidden blocking operation '{operation}' via audio" in errors[0]
+
+
+@pytest.mark.parametrize(
+    "loop",
+    (
+        "for (;;) {}",
+        "for (int index = 0; ready; index++) {}",
+        "for (int index = 0; index <= count; index++) {}",
+        "for (int index = 0; index < count; index--) {}",
+        "for (int index = 0; index < count; index = 0) {}",
+        "for (int index = 0; index < count; index++) { index = 0; }",
+        "for (int index = 0; index < count; index++) { count--; }",
+    ),
+)
+def test_only_canonical_bounded_c_for_is_admitted(loop: str) -> None:
+    errors = realtime_errors(f"@realtime void audio(int count, bool ready) {{ {loop} }}")
+
+    assert len(errors) == 1
+    assert "forbidden blocking operation 'unproven C-style loop' via audio" in errors[0]
+
+
+def test_c_for_rejects_address_escape_of_its_bound() -> None:
+    errors = realtime_errors(
+        """
+        void touch(int* value) { *value = *value; }
+        @realtime void audio(int count) {
+            for (int index = 0; index < count; index++) { touch(&count); }
+        }
+        """
+    )
+
+    assert len(errors) == 1
+    assert "forbidden blocking operation 'unproven C-style loop' via audio" in errors[0]
+
+
+def test_pod_global_and_self_field_reads_are_accepted() -> None:
+    assert (
+        realtime_errors(
+            """
+            int globalLevel = 2;
+            class Engine {
+                public int level;
+                public @realtime int render() { return globalLevel + self.level; }
+            }
+            """
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("source", "category", "operation"),
+    (
+        (
+            'string label = "ready"; @realtime void audio() { (void*)label; }',
+            "strings",
+            "string identifier 'label'",
+        ),
+        (
+            "Vector<int> values; @realtime void audio() { (void*)values; }",
+            "collections",
+            "collection identifier 'values'",
+        ),
+        (
+            "class Box {} Box box; @realtime void audio() { (void*)box; }",
+            "ARC",
+            "managed identifier 'box'",
+        ),
+        (
+            "class Engine { public string label; public @realtime void audio() { (void*)self.label; } }",
+            "strings",
+            "string field 'label'",
+        ),
+        (
+            "@realtime void audio(void* raw) { (string)raw; }",
+            "strings",
+            "string cast result",
+        ),
+    ),
+)
+def test_existing_managed_values_cannot_enter_realtime_expressions(
+    source: str,
+    category: str,
+    operation: str,
+) -> None:
+    errors = realtime_errors(source)
+
+    assert len(errors) == 1
+    assert f"forbidden {category} operation '{operation}'" in errors[0]
+
+
+def test_pod_rich_enum_payload_is_accepted() -> None:
+    assert (
+        realtime_errors(
+            """
+            enum class Sample { Value(int sample), Empty }
+            @realtime int audio(Sample sample) { return sample.tag; }
+            """
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize(
+    "declarations",
+    (
+        "enum class Sample { Text(string value), Empty }",
+        "class Box {} enum class Sample { Object(Box value), Empty }",
+        "enum class Sample { Values(Vector<int> value), Empty }",
+    ),
+)
+def test_managed_rich_enum_payload_closure_is_rejected(declarations: str) -> None:
+    errors = realtime_errors(f"{declarations} @realtime void audio(Sample sample) {{}}")
+
+    assert len(errors) == 1
+    assert "forbidden ARC operation 'managed parameter 'sample''" in errors[0]
 
 
 def test_explicitly_safe_hosted_manifest_call_is_accepted() -> None:
@@ -201,3 +324,43 @@ def test_ir_backstop_accepts_internal_closure_and_rejects_external_calls() -> No
     root.body.stmts.append(IRExprStmt(expr=IRCall(callee="malloc", args=[IRLiteral(text="4")])))
     with pytest.raises(ValueError, match=r"external/runtime call 'malloc'.*audio"):
         IRVerifier(IRModule(function_defs=[root, helper], realtime_safe_externals={"abs"})).validate_schema()
+
+
+def test_ir_backstop_rejects_recursion_and_uncertified_loops() -> None:
+    recursive = IRFunctionDef(
+        name="recursive",
+        return_type=CType("void"),
+        body=IRBlock(stmts=[IRExprStmt(expr=IRCall(callee="recursive"))]),
+        is_realtime=True,
+    )
+    with pytest.raises(ValueError, match=r"recursive call cycle.*recursive -> recursive"):
+        IRVerifier(IRModule(function_defs=[recursive])).validate_schema()
+
+    unbounded = IRFunctionDef(
+        name="unbounded",
+        return_type=CType("void"),
+        body=IRBlock(stmts=[IRWhile(condition=IRLiteral(text="1"), body=IRBlock())]),
+        is_realtime=True,
+    )
+    with pytest.raises(ValueError, match=r"unbounded loop.*unbounded"):
+        IRVerifier(IRModule(function_defs=[unbounded])).validate_schema()
+
+    uncertified = IRFunctionDef(
+        name="uncertified",
+        return_type=CType("void"),
+        body=IRBlock(
+            stmts=[
+                IRFor(
+                    condition=IRLiteral(text="1"),
+                    update=IRLiteral(text="1"),
+                    body=IRBlock(),
+                )
+            ]
+        ),
+        is_realtime=True,
+    )
+    with pytest.raises(ValueError, match=r"uncertified for loop.*uncertified"):
+        IRVerifier(IRModule(function_defs=[uncertified])).validate_schema()
+
+    uncertified.body.stmts[0].realtime_bounded = True
+    IRVerifier(IRModule(function_defs=[uncertified])).validate_schema()

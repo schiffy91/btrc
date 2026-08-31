@@ -604,6 +604,7 @@ class IRFor(IRStmt):
     condition: IRExpr = None  # loop condition (None for infinite loop)
     update: IRExpr = None  # update expression (None for no update)
     body: IRBlock = None
+    realtime_bounded: bool = False
 
 
 @dataclass

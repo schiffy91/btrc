@@ -120,6 +120,7 @@ class IRNode {
     public IRNode else_block;    /* IRIf */
     public IRNode body;          /* IRWhile/IRDoWhile/IRFor body */
     public IRNode update;        /* IRFor update */
+    public bool realtime_bounded; /* Semantic certificate for source C-for. */
     public Vector<IRNode> stmts; /* IRBlock / IRStmtExpr setup statements */
     public IRNode result;        /* IRStmtExpr result expression */
 
@@ -170,6 +171,7 @@ class IRNode {
         self.else_block = null;
         self.body = null;
         self.update = null;
+        self.realtime_bounded = false;
         self.stmts = [];
         self.result = null;
     }

@@ -334,6 +334,7 @@ class IterationLowerer:
             condition=plan.condition or IRLiteral(text="1"),
             update=IRCast(target_type=CType(text="void"), expr=plan.update) if plan.update is not None else None,
             body=body,
+            realtime_bounded=id(plan.source) in self._analyzed.realtime_bounded_loop_ids,
         )
         if not plan.managed_scope_active:
             return loop

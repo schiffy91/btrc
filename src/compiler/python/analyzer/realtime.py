@@ -11,6 +11,7 @@ from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast import generated as ast
 
 from .program import AnalysisSession, DeclarationIndex
+from .types import TypeSystem
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +52,13 @@ class RealtimeCallable:
 class RealtimeWitness:
     effect: RealtimeEffect
     path: tuple[RealtimeEdge, ...] = ()
+
+
+@dataclass(slots=True)
+class RealtimeLoopGuard:
+    names: frozenset[str]
+    site: ast.CForStmt
+    violated: bool = False
 
 
 class RealtimeAnalyzer:
@@ -119,6 +127,7 @@ class RealtimeAnalyzer:
         self._declaration_keys: dict[int, str] = {}
         self._property_keys: dict[tuple[str, str, str], str] = {}
         self._global_names = frozenset(index.global_declarations)
+        self._loop_guards: list[RealtimeLoopGuard] = []
 
     def analyze(self, program: ast.Program) -> frozenset[str]:
         """Return the callable keys proven free of every forbidden effect."""
@@ -249,6 +258,27 @@ class RealtimeAnalyzer:
             self._visit(callable_, node.body)
             self._visit(callable_, node.condition)
             return
+        if isinstance(node, ast.CForStmt):
+            protected_names = self._canonical_c_for(node, callable_)
+            if protected_names is None:
+                self._effect(callable_, "blocking", "unproven C-style loop", node)
+                self._visit(callable_, node.init)
+                self._visit(callable_, node.condition)
+                self._visit(callable_, node.update)
+                self._visit(callable_, node.body)
+                return
+            self._visit(callable_, node.init)
+            self._visit(callable_, node.condition)
+            self._visit(callable_, node.update)
+            guard = RealtimeLoopGuard(protected_names, node)
+            self._loop_guards.append(guard)
+            try:
+                self._visit(callable_, node.body)
+            finally:
+                self._loop_guards.pop()
+            if not guard.violated:
+                self.session.realtime_bounded_loop_ids.add(id(node))
+            return
         if isinstance(node, ast.CallExpr):
             self._visit(callable_, node.callee, callee=True)
             for argument in node.args:
@@ -262,6 +292,7 @@ class RealtimeAnalyzer:
             self._effect(callable_, "allocation", f"new {node.type.base}", node)
             return
         if isinstance(node, ast.AssignExpr):
+            self._guard_mutation(callable_, node.target)
             if isinstance(node.target, ast.FieldAccessExpr):
                 self._visit(callable_, node.target.obj)
                 if node.op != "=":
@@ -287,9 +318,21 @@ class RealtimeAnalyzer:
         if isinstance(node, ast.FieldAccessExpr):
             self._visit(callable_, node.obj)
             if not callee:
+                if not assignment_target:
+                    self._value_effect(callable_, node, f"field '{node.field}'")
                 self._property_event(callable_, node, "set" if assignment_target else "get")
             return
+        if isinstance(node, ast.CastExpr):
+            self._visit(callable_, node.expr)
+            if not assignment_target:
+                self._value_effect(callable_, node, "cast result", fallback=node.target_type)
+            return
+        if isinstance(node, ast.Identifier):
+            if not callee and not assignment_target:
+                self._value_effect(callable_, node, f"identifier '{node.name}'")
+            return
         if isinstance(node, ast.VarDeclStmt):
+            self._guard_mutation_name(callable_, node.name)
             self._visit(callable_, node.initializer)
             declared_type = node.type or self.session.node_types.get(id(node.initializer))
             if self._managed_type(declared_type):
@@ -301,11 +344,13 @@ class RealtimeAnalyzer:
                 self._effect(callable_, "ARC", "managed return value", node)
             return
         if isinstance(node, ast.ForInStmt):
+            self._effect(callable_, "blocking", "unproven for-in loop", node)
             self._visit(callable_, node.iterable)
             self._iteration_events(callable_, node)
             self._visit(callable_, node.body)
             return
         if isinstance(node, ast.UnaryExpr) and node.op in {"++", "--"}:
+            self._guard_mutation(callable_, node.operand)
             if isinstance(node.operand, ast.FieldAccessExpr):
                 self._visit(callable_, node.operand.obj)
                 self._property_event(callable_, node.operand, "get")
@@ -346,6 +391,8 @@ class RealtimeAnalyzer:
                 self._effect(callable_, "collections", f"collection '{node.op}' operator", node)
             return
         elif isinstance(node, ast.UnaryExpr):
+            if node.op == "&":
+                self._guard_mutation(callable_, node.operand)
             self._visit(callable_, node.operand)
             self._operator_event(callable_, node.operand, node.op, node, unary=True)
             return
@@ -503,6 +550,98 @@ class RealtimeAnalyzer:
             if declaration is not None:
                 self._source_call(callable_, declaration, loop)
 
+    def _canonical_c_for(self, loop: ast.CForStmt, callable_: RealtimeCallable) -> frozenset[str] | None:
+        if not isinstance(loop.init, ast.ForInitVar):
+            return None
+        declaration = loop.init.var_decl
+        if not isinstance(declaration, ast.VarDeclStmt) or not isinstance(declaration.initializer, ast.IntLiteral):
+            return None
+        induction_type = declaration.type or self.session.node_types.get(id(declaration.initializer))
+        if not self._integral_scalar(induction_type):
+            return None
+
+        condition = loop.condition
+        if not isinstance(condition, ast.BinaryExpr) or condition.op not in {"<", ">"}:
+            return None
+        direction = ""
+        bound = None
+        if isinstance(condition.left, ast.Identifier) and condition.left.name == declaration.name:
+            bound = condition.right
+            direction = "++" if condition.op == "<" else "--"
+        elif isinstance(condition.right, ast.Identifier) and condition.right.name == declaration.name:
+            bound = condition.left
+            direction = "--" if condition.op == "<" else "++"
+        if bound is None:
+            return None
+
+        protected = {declaration.name}
+        if isinstance(bound, ast.Identifier):
+            if (
+                bound.name == declaration.name
+                or bound.name not in callable_.local_names
+                or not self._integral_scalar(self.session.node_types.get(id(bound)))
+            ):
+                return None
+            protected.add(bound.name)
+        elif not isinstance(bound, ast.IntLiteral):
+            return None
+
+        update = loop.update
+        if (
+            not isinstance(update, ast.UnaryExpr)
+            or update.op != direction
+            or not isinstance(update.operand, ast.Identifier)
+            or update.operand.name != declaration.name
+        ):
+            return None
+        return frozenset(protected)
+
+    def _integral_scalar(self, type_expr, seen=()) -> bool:
+        if type_expr is None or type_expr.base in seen:
+            return False
+        alias = self.index.typedef_table.get(type_expr.base)
+        if alias is not None:
+            return self._integral_scalar(alias, (*seen, type_expr.base))
+        return bool(
+            type_expr.pointer_depth == 0
+            and not type_expr.is_array
+            and not type_expr.generic_args
+            and type_expr.base != "bool"
+            and type_expr.base not in self.index.enum_table
+            and not type_expr.base.startswith("enum ")
+            and TypeSystem.is_numeric_type(type_expr)
+            and not TypeSystem.is_floating_type(type_expr)
+        )
+
+    def _guard_mutation(self, callable_: RealtimeCallable, expression) -> None:
+        if isinstance(expression, ast.Identifier):
+            self._guard_mutation_name(callable_, expression.name)
+
+    def _guard_mutation_name(self, callable_: RealtimeCallable, name: str) -> None:
+        for guard in reversed(self._loop_guards):
+            if name not in guard.names:
+                continue
+            if not guard.violated:
+                self._effect(callable_, "blocking", "unproven C-style loop", guard.site)
+            guard.violated = True
+
+    def _value_effect(self, callable_: RealtimeCallable, node, operation: str, *, fallback=None) -> None:
+        type_expr = self.session.node_types.get(id(node)) or fallback
+        category = self._value_category(type_expr)
+        if category is None:
+            return
+        value_kind = {"strings": "string", "collections": "collection", "ARC": "managed"}[category]
+        self._effect(callable_, category, f"{value_kind} {operation}", node)
+
+    def _value_category(self, type_expr) -> str | None:
+        if self._string_type(type_expr):
+            return "strings"
+        if self._collection_type(type_expr):
+            return "collections"
+        if self._managed_type(type_expr):
+            return "ARC"
+        return None
+
     def _collection_type(self, type_expr) -> bool:
         return type_expr is not None and type_expr.base in self._COLLECTION_TYPES
 
@@ -587,6 +726,13 @@ class RealtimeAnalyzer:
         struct = self.index.struct_table.get(base)
         if struct is not None:
             return any(self._managed_type(field.type, (*seen, base)) for field in struct.fields)
+        rich_enum = self.index.rich_enum_table.get(base)
+        if rich_enum is not None:
+            return any(
+                self._managed_type(parameter.type, (*seen, base))
+                for variant in rich_enum.variants
+                for parameter in variant.params
+            )
         return any(self._managed_type(argument, (*seen, base)) for argument in getattr(type_expr, "generic_args", ()))
 
     def _effect(self, callable_: RealtimeCallable, category: str, operation: str, node) -> None:
@@ -601,7 +747,7 @@ class RealtimeAnalyzer:
         )
 
     def _fixed_point(self) -> dict[str, RealtimeWitness]:
-        unsafe = {
+        unsafe = self._recursive_callables() | {
             key
             for key, callable_ in self.callables.items()
             if any(isinstance(event, RealtimeEffect) for event in callable_.events)
@@ -624,6 +770,27 @@ class RealtimeAnalyzer:
                 summaries[key] = witness
         return summaries
 
+    def _recursive_callables(self) -> set[str]:
+        recursive = set()
+        for key, callable_ in self.callables.items():
+            if any(
+                isinstance(event, RealtimeEdge) and self._reaches_target(event.target, key, frozenset({key}))
+                for event in callable_.events
+            ):
+                recursive.add(key)
+        return recursive
+
+    def _reaches_target(self, key: str, target: str, visiting: frozenset[str]) -> bool:
+        if key == target:
+            return True
+        if key in visiting or key not in self.callables:
+            return False
+        visiting = visiting | {key}
+        return any(
+            isinstance(event, RealtimeEdge) and self._reaches_target(event.target, target, visiting)
+            for event in self.callables[key].events
+        )
+
     def _first_witness(self, key, unsafe, visiting) -> RealtimeWitness | None:
         if key in visiting:
             return None
@@ -634,6 +801,15 @@ class RealtimeAnalyzer:
                 return RealtimeWitness(event)
             if event.target not in unsafe:
                 continue
+            if event.target in visiting:
+                effect = RealtimeEffect(
+                    "blocking",
+                    "recursive call cycle",
+                    event.line,
+                    event.col,
+                    callable_.source_file,
+                )
+                return RealtimeWitness(effect, (event,))
             downstream = self._first_witness(event.target, unsafe, visiting)
             if downstream is not None:
                 return RealtimeWitness(downstream.effect, (event, *downstream.path))

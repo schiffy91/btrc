@@ -8,6 +8,7 @@ import ../syntax/identity.btrc;
 import ./expressions.btrc;
 import ./hosted_abi.btrc;
 import ./models.btrc;
+import ./operators.btrc;
 
 class RealtimeEvent {
     public bool is_effect;
@@ -63,6 +64,30 @@ class RealtimeWitness {
     }
 }
 
+class RealtimeLoopProof {
+    public bool valid;
+    public string induction;
+    public string bound;
+
+    public RealtimeLoopProof() {
+        self.valid = false;
+        self.induction = "";
+        self.bound = "";
+    }
+}
+
+class RealtimeLoopGuard {
+    public Map<string, bool> names;
+    public Node site;
+    public bool violated;
+
+    public RealtimeLoopGuard(Node site) {
+        self.names = {};
+        self.site = site;
+        self.violated = false;
+    }
+}
+
 class RealtimeAnalyzer {
     private Node program;
     private Analyzed analyzed;
@@ -73,6 +98,7 @@ class RealtimeAnalyzer {
     private Vector<string> order;
     private Map<string, string> declarationKeys;
     private Map<string, string> propertyKeys;
+    private Vector<RealtimeLoopGuard> loopGuards;
 
     public RealtimeAnalyzer(Node program, Analyzed analyzed,
             HostedAbiRepository hostedAbi,
@@ -87,6 +113,7 @@ class RealtimeAnalyzer {
         self.order = [];
         self.declarationKeys = {};
         self.propertyKeys = {};
+        self.loopGuards = [];
     }
 
     public void validate() {
@@ -285,6 +312,29 @@ class RealtimeAnalyzer {
             self.visit(node.condition, callable);
             return;
         }
+        if (node.kind == NK_C_FOR_STMT) {
+            RealtimeLoopProof proof = self.canonicalCFor(node, callable);
+            if (!proof.valid) {
+                self.effect(callable, "blocking",
+                    "unproven C-style loop", node);
+                self.collectChildren(node, callable, false);
+                return;
+            }
+            self.visit(node.init, callable);
+            self.visit(node.condition, callable);
+            self.visit(node.update, callable);
+            RealtimeLoopGuard guard = RealtimeLoopGuard(node);
+            guard.names.put(proof.induction, true);
+            if (proof.bound != "") { guard.names.put(proof.bound, true); }
+            self.loopGuards.push(guard);
+            self.visit(node.body_node, callable);
+            self.loopGuards.pop();
+            if (!guard.violated) {
+                self.analyzed.realtimeBoundedLoopKeys.put(
+                    AstIdentity.key(node), true);
+            }
+            return;
+        }
         if (node.kind == NK_CALL_EXPR) {
             self.visitCallee(node.callee, callable);
             int argument = 0;
@@ -306,6 +356,7 @@ class RealtimeAnalyzer {
             return;
         }
         if (node.kind == NK_ASSIGN_EXPR) {
+            self.guardMutation(node.target, callable);
             if (node.target.kind == NK_FIELD_ACCESS_EXPR) {
                 self.visit(node.target.obj, callable);
                 if (node.op != "=") {
@@ -340,10 +391,23 @@ class RealtimeAnalyzer {
         }
         if (node.kind == NK_FIELD_ACCESS_EXPR) {
             self.visit(node.obj, callable);
+            self.valueEffect(node, "field '" + node.field + "'",
+                null, callable);
             self.propertyEvent(node, "get", callable);
             return;
         }
+        if (node.kind == NK_CAST_EXPR) {
+            self.visit(node.expr, callable);
+            self.valueEffect(node, "cast result", node.target_type, callable);
+            return;
+        }
+        if (node.kind == NK_IDENTIFIER) {
+            self.valueEffect(node, "identifier '" + node.name + "'",
+                null, callable);
+            return;
+        }
         if (node.kind == NK_VAR_DECL_STMT) {
+            self.guardMutationName(node.name, callable);
             self.visit(node.initializer, callable);
             Node? declaredType = node.type;
             if (declaredType == null && node.initializer != null) {
@@ -366,6 +430,7 @@ class RealtimeAnalyzer {
             return;
         }
         if (node.kind == NK_FOR_IN_STMT) {
+            self.effect(callable, "blocking", "unproven for-in loop", node);
             self.visit(node.iterable, callable);
             self.iterationEvents(node, callable);
             self.visit(node.body_node, callable);
@@ -373,6 +438,7 @@ class RealtimeAnalyzer {
         }
         if (node.kind == NK_UNARY_EXPR
                 && (node.op == "++" || node.op == "--")) {
+            self.guardMutation(node.operand, callable);
             if (node.operand.kind == NK_FIELD_ACCESS_EXPR) {
                 self.visit(node.operand.obj, callable);
                 self.propertyEvent(node.operand, "get", callable);
@@ -429,6 +495,9 @@ class RealtimeAnalyzer {
             }
             return;
         } else if (node.kind == NK_UNARY_EXPR) {
+            if (node.op == "&") {
+                self.guardMutation(node.operand, callable);
+            }
             self.visit(node.operand, callable);
             self.operatorEvent(
                 node.operand, node.op, true, node, callable);
@@ -445,7 +514,7 @@ class RealtimeAnalyzer {
     private void visitCallee(Node callee, RealtimeCallable callable) {
         if (callee.kind == NK_FIELD_ACCESS_EXPR) {
             self.visit(callee.obj, callable);
-        } else {
+        } else if (callee.kind != NK_IDENTIFIER) {
             self.visit(callee, callable);
         }
     }
@@ -807,6 +876,132 @@ class RealtimeAnalyzer {
         }
     }
 
+    private RealtimeLoopProof canonicalCFor(
+            Node loop, RealtimeCallable callable) {
+        RealtimeLoopProof proof = RealtimeLoopProof();
+        if (loop.init == null || loop.init.kind != NK_FOR_INIT_VAR) {
+            return proof;
+        }
+        Node declaration = loop.init.var_decl;
+        if (declaration.kind != NK_VAR_DECL_STMT
+                || declaration.initializer == null
+                || declaration.initializer.kind != NK_INT_LITERAL) {
+            return proof;
+        }
+        Node? inductionType = declaration.type;
+        if (inductionType == null) {
+            inductionType = self.expressionTypes.infer(
+                declaration.initializer, callable.variables);
+        }
+        if (!self.integralScalar(inductionType, {})) { return proof; }
+
+        Node? condition = loop.condition;
+        if (condition == null || condition.kind != NK_BINARY_EXPR
+                || condition.op != "<" && condition.op != ">") {
+            return proof;
+        }
+        Node? bound = null;
+        string direction = "";
+        if (condition.left.kind == NK_IDENTIFIER
+                && condition.left.name == declaration.name) {
+            bound = condition.right;
+            direction = condition.op == "<" ? "++" : "--";
+        } else if (condition.right.kind == NK_IDENTIFIER
+                && condition.right.name == declaration.name) {
+            bound = condition.left;
+            direction = condition.op == "<" ? "--" : "++";
+        }
+        if (bound == null) { return proof; }
+
+        string boundName = "";
+        if (bound.kind == NK_IDENTIFIER) {
+            if (bound.name == declaration.name
+                    || !callable.local_names.has(bound.name)
+                    || !self.integralScalar(
+                        self.expressionTypes.infer(
+                            bound, callable.variables), {})) {
+                return proof;
+            }
+            boundName = bound.name;
+        } else if (bound.kind != NK_INT_LITERAL) {
+            return proof;
+        }
+
+        Node? update = loop.update;
+        if (update == null || update.kind != NK_UNARY_EXPR
+                || update.op != direction
+                || update.operand.kind != NK_IDENTIFIER
+                || update.operand.name != declaration.name) {
+            return proof;
+        }
+        proof.valid = true;
+        proof.induction = declaration.name;
+        proof.bound = boundName;
+        return proof;
+    }
+
+    private bool integralScalar(Node? typeExpr, Map<string, bool> seen) {
+        if (typeExpr == null || seen.has(typeExpr.base)) { return false; }
+        if (self.analyzed.typedefTable.has(typeExpr.base)) {
+            return self.integralScalar(
+                self.analyzed.typedefTable.get(typeExpr.base),
+                self.nextSeen(seen, typeExpr.base));
+        }
+        return NumericSemantics.isScalar(typeExpr)
+            && typeExpr.base != "bool"
+            && !self.analyzed.isEnum(typeExpr.base)
+            && !typeExpr.base.startsWith("enum ")
+            && NumericSemantics.isType(typeExpr, self.analyzed)
+            && !NumericSemantics.isFloating(typeExpr);
+    }
+
+    private void guardMutation(
+            Node? expression, RealtimeCallable callable) {
+        if (expression != null && expression.kind == NK_IDENTIFIER) {
+            self.guardMutationName(expression.name, callable);
+        }
+    }
+
+    private void guardMutationName(
+            string name, RealtimeCallable callable) {
+        int index = self.loopGuards.len - 1;
+        while (index >= 0) {
+            RealtimeLoopGuard guard = self.loopGuards.get(index);
+            if (guard.names.has(name)) {
+                if (!guard.violated) {
+                    self.effect(callable, "blocking",
+                        "unproven C-style loop", guard.site);
+                }
+                guard.violated = true;
+            }
+            index = index - 1;
+        }
+    }
+
+    private void valueEffect(Node expression, string operation,
+            Node? fallback, RealtimeCallable callable) {
+        Node? typeExpr = fallback;
+        if (typeExpr == null) {
+            typeExpr = self.expressionTypes.infer(
+                expression, callable.variables);
+        }
+        string category = self.valueCategory(typeExpr);
+        if (category == "") { return; }
+        string valueKind = "managed";
+        if (category == "strings") { valueKind = "string"; }
+        else if (category == "collections") { valueKind = "collection"; }
+        self.effect(callable, category,
+            valueKind + " " + operation, expression);
+    }
+
+    private string valueCategory(Node? typeExpr) {
+        if (typeExpr == null) { return ""; }
+        if (typeExpr.base == "string") { return "strings"; }
+        if (self.collectionType(typeExpr.base)) { return "collections"; }
+        if (self.managedType(typeExpr, {})) { return "ARC"; }
+        return "";
+    }
+
     private bool collectionType(string base) {
         return base == "Array" || base == "List" || base == "Map"
             || base == "Set" || base == "Vector";
@@ -900,6 +1095,23 @@ class RealtimeAnalyzer {
                 field = field + 1;
             }
         }
+        if (self.analyzed.richEnumTable.has(base)) {
+            Node declaration = self.analyzed.richEnumTable.get(base);
+            int variant = 0;
+            while (variant < declaration.variants.len) {
+                Node item = declaration.variants.get(variant);
+                int parameter = 0;
+                while (parameter < item.params.len) {
+                    if (self.managedType(
+                            item.params.get(parameter).type,
+                            self.nextSeen(seen, base))) {
+                        return true;
+                    }
+                    parameter = parameter + 1;
+                }
+                variant = variant + 1;
+            }
+        }
         int argument = 0;
         while (argument < typeExpr.generic_args.len) {
             if (self.managedType(typeExpr.generic_args.get(argument),
@@ -944,7 +1156,7 @@ class RealtimeAnalyzer {
     }
 
     private Map<string, bool> unsafeFixedPoint() {
-        Map<string, bool> unsafe = {};
+        Map<string, bool> unsafe = self.recursiveCallables();
         int index = 0;
         while (index < self.order.len) {
             string key = self.order.get(index);
@@ -982,6 +1194,44 @@ class RealtimeAnalyzer {
         return unsafe;
     }
 
+    private Map<string, bool> recursiveCallables() {
+        Map<string, bool> recursive = {};
+        int index = 0;
+        while (index < self.order.len) {
+            string key = self.order.get(index);
+            Vector<RealtimeEvent> events = self.callables.get(key).events;
+            int eventIndex = 0;
+            while (eventIndex < events.len && !recursive.has(key)) {
+                RealtimeEvent event = events.get(eventIndex);
+                if (!event.is_effect && self.reachesTarget(
+                        event.target, key, self.nextSeen({}, key))) {
+                    recursive.put(key, true);
+                }
+                eventIndex = eventIndex + 1;
+            }
+            index = index + 1;
+        }
+        return recursive;
+    }
+
+    private bool reachesTarget(string key, string target,
+            Map<string, bool> visiting) {
+        if (key == target) { return true; }
+        if (visiting.has(key) || !self.callables.has(key)) { return false; }
+        Map<string, bool> next = self.nextSeen(visiting, key);
+        Vector<RealtimeEvent> events = self.callables.get(key).events;
+        int index = 0;
+        while (index < events.len) {
+            RealtimeEvent event = events.get(index);
+            if (!event.is_effect
+                    && self.reachesTarget(event.target, target, next)) {
+                return true;
+            }
+            index = index + 1;
+        }
+        return false;
+    }
+
     private RealtimeWitness? firstWitness(string key,
             Map<string, bool> unsafe, Map<string, bool> visiting) {
         if (visiting.has(key)) { return null; }
@@ -1006,6 +1256,16 @@ class RealtimeAnalyzer {
                 return witness;
             }
             if (unsafe.has(event.target)) {
+                if (nextVisiting.has(event.target)) {
+                    RealtimeWitness cycle = RealtimeWitness();
+                    cycle.category = "blocking";
+                    cycle.operation = "recursive call cycle";
+                    cycle.line = event.line;
+                    cycle.col = event.col;
+                    cycle.path.push(
+                        self.callables.get(event.target).label);
+                    return cycle;
+                }
                 RealtimeWitness? downstream = self.firstWitness(
                     event.target, unsafe, nextVisiting);
                 if (downstream != null) {

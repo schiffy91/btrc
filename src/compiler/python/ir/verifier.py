@@ -9,7 +9,9 @@ from .nodes import (
     IRCall,
     IRCast,
     IRCleanupSlot,
+    IRDoWhile,
     IREnumDef,
+    IRFor,
     IRFunctionDecl,
     IRFunctionDef,
     IRFunctionPointerTypedef,
@@ -28,6 +30,7 @@ from .nodes import (
     IRTypedefDef,
     IRVar,
     IRVarDecl,
+    IRWhile,
 )
 
 
@@ -157,10 +160,18 @@ class IRVerifier:
 
     def _validate_realtime_function(self, function, path, visiting) -> None:
         if function.name in visiting:
-            return
+            cycle = (*path, function.name)
+            raise ValueError(f"IR realtime backstop rejected recursive call cycle via {' -> '.join(cycle)}")
         visiting = visiting | {function.name}
         path = (*path, function.name)
         for node in IRNode.walk_value(function.body):
+            if isinstance(node, (IRWhile, IRDoWhile)):
+                raise ValueError(f"IR realtime backstop rejected unbounded loop via {' -> '.join(path)}")
+            if isinstance(node, IRFor):
+                if not isinstance(node.realtime_bounded, bool):
+                    raise TypeError("IRFor.realtime_bounded requires bool")
+                if not node.realtime_bounded:
+                    raise ValueError(f"IR realtime backstop rejected uncertified for loop via {' -> '.join(path)}")
             if isinstance(node, IRLiteral) and node.text.startswith(('"', 'L"', 'u"', 'U"', 'u8"')):
                 raise ValueError(f"IR realtime backstop rejected string literal via {' -> '.join(path)}")
             if isinstance(node, IRFunctionRef):

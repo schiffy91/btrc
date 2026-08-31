@@ -43,7 +43,9 @@ class RealtimeIRVerifier {
 
     private void validateFunction(IRFunction definition, string path,
             Map<string, bool> visiting) {
-        if (visiting.has(definition.name)) { return; }
+        if (visiting.has(definition.name)) {
+            self.fail("recursive call cycle", path);
+        }
         Map<string, bool> next = {};
         Vector<string> names = visiting.keys();
         int index = 0;
@@ -58,6 +60,12 @@ class RealtimeIRVerifier {
     private void validateNode(IRNode? node, string path,
             Map<string, bool> visiting) {
         if (node == null) { return; }
+        if (node.kind == IRK_WHILE || node.kind == IRK_DO_WHILE) {
+            self.fail("unbounded loop", path);
+        }
+        if (node.kind == IRK_FOR && !node.realtime_bounded) {
+            self.fail("uncertified for loop", path);
+        }
         if (node.kind == IRK_LITERAL
                 && (node.text.startsWith("\"")
                     || node.text.startsWith("L\"")
