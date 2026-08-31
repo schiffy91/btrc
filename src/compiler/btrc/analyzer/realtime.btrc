@@ -612,6 +612,25 @@ class RealtimeAnalyzer {
         if (callee.kind == NK_FIELD_ACCESS_EXPR) {
             Node? receiver = self.expressionTypes.infer(
                 callee.obj, callable.variables);
+            if (receiver != null
+                    && ((receiver.base == "Atomic"
+                            && (callee.field == "load"
+                                || callee.field == "store"
+                                || callee.field == "exchange"
+                                || callee.field == "fetchAdd"
+                                || callee.field == "fetchSub"
+                                || callee.field == "fetchAnd"
+                                || callee.field == "fetchOr"
+                                || callee.field == "fetchXor"
+                                || callee.field == "compareExchangeStrong"))
+                        || (receiver.base == "Span"
+                            && (callee.field == "length"
+                                || callee.field == "isEmpty"
+                                || callee.field == "isValid"
+                                || callee.field == "tryGet"
+                                || callee.field == "trySet")))) {
+                return;
+            }
             if (receiver != null && self.collectionType(receiver.base)) {
                 self.effect(callable, "collections",
                     receiver.base + "." + callee.field + "()", call);

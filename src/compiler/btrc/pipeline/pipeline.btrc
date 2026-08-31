@@ -110,6 +110,24 @@ class CompilerPipeline {
         if (hasRealtimeRoot) {
             module.realtime_safe_externals =
                 self.hostedAbi.realtimeSafeFunctions();
+            module.realtime_safe_externals.put(
+                "atomic_load_explicit", true);
+            module.realtime_safe_externals.put(
+                "atomic_store_explicit", true);
+            module.realtime_safe_externals.put(
+                "atomic_exchange_explicit", true);
+            module.realtime_safe_externals.put(
+                "atomic_fetch_add_explicit", true);
+            module.realtime_safe_externals.put(
+                "atomic_fetch_sub_explicit", true);
+            module.realtime_safe_externals.put(
+                "atomic_fetch_and_explicit", true);
+            module.realtime_safe_externals.put(
+                "atomic_fetch_or_explicit", true);
+            module.realtime_safe_externals.put(
+                "atomic_fetch_xor_explicit", true);
+            module.realtime_safe_externals.put(
+                "atomic_compare_exchange_strong_explicit", true);
             Map<string, bool> runtimeRealtimeSafe =
                 runtimeHelpers.realtimeSafeFunctions();
             Vector<string> runtimeSafeNames = runtimeRealtimeSafe.keys();

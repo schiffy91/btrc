@@ -1,20 +1,49 @@
-/* btrc standard library — exact owned callback closure
+/* btrc standard library — exact owned callback closure and registration gate
  *
  * CFunction<...> is one noncapturing C function-pointer word.  OwnedClosure
  * keeps the distinct C interop representation needed when an API stores a
  * callback: an exact invoke pointer, an opaque context, and the context's one
- * terminal destroy operation.
+ * terminal destroy operation. CallbackRegistration adds the admission,
+ * unregister, in-flight drain, and destruction order required by C APIs that
+ * store that pair.
  *
  * Invoke is intentionally the complete trampoline signature, including its
  * void* context parameter.  Callers extract both values and pass the context
  * at the position required by that C API; no hidden ABI rewriting occurs.
  */
 
+/* The low bit closes admission; every admitted callback owns two units. The
+ * fetch-add linearization point makes an entry either visible to drain or a
+ * rejected entry that rolls itself back. These two operations are the only
+ * gate surface used by a stored callback trampoline. */
+@realtime bool callbackGateTryEnter(Atomic<uint>* state) {
+    if (state == null) { return false; }
+    uint previous = state->fetchAdd(2u, MemoryOrder.ACQ_REL);
+    if ((previous & 1u) != 0u) {
+        state->fetchSub(2u, MemoryOrder.RELEASE);
+        return false;
+    }
+    return true;
+}
+
+@realtime void callbackGateLeave(Atomic<uint>* state) {
+    if (state == null) { return; }
+    state->fetchSub(2u, MemoryOrder.RELEASE);
+}
+
+void callbackGateCloseAdmission(Atomic<uint>* state) {
+    state->fetchOr(1u, MemoryOrder.ACQ_REL);
+}
+
+void callbackGateDrain(Atomic<uint>* state) {
+    while (state->load(MemoryOrder.ACQUIRE) != 1u) {}
+}
+
 class OwnedClosure<Invoke> {
     private Invoke _invoke;
     private void* _context;
     private CFunction<void, void*> _destroy;
-    private bool _open;
+    private Atomic<bool> _open;
 
     public OwnedClosure(Invoke invoke, void* context,
             CFunction<void, void*> destroy) {
@@ -25,7 +54,7 @@ class OwnedClosure<Invoke> {
         self._invoke = invoke;
         self._context = context;
         self._destroy = destroy;
-        self._open = true;
+        self._open.init(true);
     }
 
     public Invoke invokePointer() {
@@ -37,12 +66,16 @@ class OwnedClosure<Invoke> {
     }
 
     public bool isOpen() {
-        return self._open;
+        return self._open.load(MemoryOrder.ACQUIRE);
     }
 
     public void close() {
-        if (!self._open) { return; }
-        self._open = false;
+        bool expected = true;
+        if (!self._open.compareExchangeStrong(
+                &expected, false,
+                MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
+            return;
+        }
         void* context = self._context;
         self._context = null;
         self._destroy(context);
@@ -50,5 +83,83 @@ class OwnedClosure<Invoke> {
 
     public void __del__() {
         self.close();
+    }
+}
+
+/* Owns one stored callback registration. `unregister` must provide an entry
+ * barrier: when it returns, no callback can later execute its first gate
+ * atomic unless that callback already published an in-flight count. This is
+ * stronger than merely promising that no new callback will be scheduled.
+ *
+ * A caller gives its exact static trampoline and raw context directly; this
+ * class never erases or exposes the OwnedClosure owner. Before registering the
+ * pair with C, the caller stores gateState() in its raw context so the
+ * trampoline can bracket its context access with callbackGateTryEnter/Leave.
+ */
+class CallbackRegistration<Invoke> {
+    private OwnedClosure<Invoke> _closure;
+    private CFunction<void, void*> _unregister;
+    private void* _unregisterContext;
+    private Atomic<uint>* _gateState;
+    private Atomic<uint> _closeState;
+
+    public CallbackRegistration(
+            Invoke invoke,
+            void* context,
+            CFunction<void, void*> destroy,
+            CFunction<void, void*> unregister,
+            void* unregisterContext) {
+        if (unregister == null) {
+            fprintf(stderr, "CallbackRegistration requires unregister\n");
+            abort();
+        }
+        self._closure = new OwnedClosure<Invoke>(invoke, context, destroy);
+        self._unregister = unregister;
+        self._unregisterContext = unregisterContext;
+        self._gateState = (Atomic<uint>*)malloc(sizeof(Atomic<uint>));
+        if (self._gateState == null) {
+            fprintf(stderr, "CallbackRegistration cannot allocate its gate\n");
+            abort();
+        }
+        self._gateState->init(0u);
+        self._closeState.init(0u);
+    }
+
+    public Invoke invokePointer() {
+        return self._closure.invokePointer();
+    }
+
+    public void* callbackContext() {
+        return self._closure.context();
+    }
+
+    public Atomic<uint>* gateState() {
+        return self._gateState;
+    }
+
+    public bool isOpen() {
+        return self._closeState.load(MemoryOrder.ACQUIRE) == 0u;
+    }
+
+    public void close() {
+        uint expected = 0u;
+        if (!self._closeState.compareExchangeStrong(
+                &expected, 1u,
+                MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
+            while (self._closeState.load(MemoryOrder.ACQUIRE) != 2u) {}
+            return;
+        }
+
+        callbackGateCloseAdmission(self._gateState);
+        self._unregister(self._unregisterContext);
+        callbackGateDrain(self._gateState);
+        self._closure.close();
+        self._closeState.store(2u, MemoryOrder.RELEASE);
+    }
+
+    public void __del__() {
+        self.close();
+        free(self._gateState);
+        self._gateState = null;
     }
 }
