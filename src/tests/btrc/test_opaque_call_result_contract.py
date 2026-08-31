@@ -24,7 +24,7 @@ def _compile_success_pair(semantic_btrcc: Path, tmp_path: Path, source: str):
     return selfhost_c, reference_c
 
 
-def test_fchmod_exact_abi_types_ordered_result_in_both_frontends(
+def test_fchmod_exact_abi_types_ordered_nonvolatile_result_in_both_frontends(
     semantic_btrcc: Path,
     tmp_path: Path,
 ) -> None:
@@ -53,11 +53,53 @@ def test_fchmod_exact_abi_types_ordered_result_in_both_frontends(
             return 0;
         }
     """
+    result = re.compile(r"\bint __btrc_(?:call|boundary)_result_\d+;")
+    volatile_result = re.compile(r"\bvolatile int __btrc_(?:call|boundary)_result_\d+;")
+    for index, generated in enumerate(_compile_success_pair(semantic_btrcc, tmp_path, source)):
+        emitted = generated.read_text()
+        assert result.search(emitted)
+        assert not volatile_result.search(emitted)
+        _strict_build_and_run(generated, tmp_path / f"exact-fchmod-{index}")
+
+
+def test_fchmod_result_is_volatile_across_exception_cleanup_in_both_frontends(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        #include <assert.h>
+        #include <sys/stat.h>
+        #include <unistd.h>
+
+        int trace = 0;
+        int descriptorValue(int expected) {
+            assert(trace == expected);
+            trace++;
+            return -1;
+        }
+        int modeValue(int expected, int mode) {
+            assert(trace == expected);
+            trace++;
+            return mode;
+        }
+
+        int main() {
+            try {
+                bool rejected = fchmod(
+                    descriptorValue(0), modeValue(1, 384)) == -1;
+                assert(trace == 2);
+                assert(rejected);
+            } catch (string error) {
+                assert(false);
+            }
+            return 0;
+        }
+    """
     result = re.compile(r"\bvolatile int __btrc_(?:call|boundary)_result_\d+;")
     for index, generated in enumerate(_compile_success_pair(semantic_btrcc, tmp_path, source)):
         emitted = generated.read_text()
         assert result.search(emitted)
-        _strict_build_and_run(generated, tmp_path / f"exact-fchmod-{index}")
+        _strict_build_and_run(generated, tmp_path / f"protected-fchmod-{index}")
 
 
 def test_opaque_wide_result_keeps_native_c_type_in_both_frontends(
