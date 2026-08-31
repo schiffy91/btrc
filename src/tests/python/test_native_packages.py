@@ -14,6 +14,7 @@ from src.compiler.python import Compiler, CompilerOptions
 from src.compiler.python.frontend.packages import (
     NATIVE_LINK_PLAN_SCHEMA,
     PACKAGE_GRAPH_LOCK_SCHEMA,
+    LockfileError,
     PackageUniverse,
 )
 from src.compiler.python.main import main as compiler_main
@@ -37,14 +38,25 @@ def _compile_plan(plan: dict, generated_c: Path, output: Path, temporary: Path) 
         pytest.skip("native package proof needs C and C++ compilers")
     includes = [f"-I{entry['path']}" for entry in plan["include-directories"]]
     defines = [
-        f"-D{entry['name']}={entry['value']}" if entry["value"] else f"-D{entry['name']}"
-        for entry in plan["defines"]
+        f"-D{entry['name']}={entry['value']}" if entry["value"] else f"-D{entry['name']}" for entry in plan["defines"]
     ]
     objects = []
     generated_object = temporary / "generated.o"
     subprocess.run(
-        [cc, "-std=c11", "-pedantic-errors", "-Wall", "-Wextra", "-Werror", *includes, *defines,
-         "-c", str(generated_c), "-o", str(generated_object)],
+        [
+            cc,
+            "-std=c11",
+            "-pedantic-errors",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            *includes,
+            *defines,
+            "-c",
+            str(generated_c),
+            "-o",
+            str(generated_object),
+        ],
         check=True,
     )
     objects.append(generated_object)
@@ -192,6 +204,31 @@ def test_recursive_package_cycle_reports_the_path(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match=r"package dependency cycle: a -> b -> a"):
         PackageUniverse().resolve_manifest(str(a / "btrc.toml"), target="linux-x64")
+
+
+def test_schema_three_lock_rejects_malformed_nested_graph(tmp_path: Path) -> None:
+    _manifest(tmp_path, "app")
+    (tmp_path / "btrc.lock").write_text(
+        json.dumps(
+            {
+                "manifest-hash": "0" * 64,
+                "packages": [
+                    {
+                        "dependencies": {},
+                        "manifest-hash": "0" * 64,
+                        "name": "app",
+                        "source": {"path": str(tmp_path)},
+                    }
+                ],
+                "root": "app",
+                "schema": PACKAGE_GRAPH_LOCK_SCHEMA,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LockfileError, match="invalid schema-3 package"):
+        PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="linux-x64")
 
 
 @pytest.mark.parametrize(

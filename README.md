@@ -198,6 +198,8 @@ Those capabilities have no pathname fallback and fail closed on other targets.
 A project can declare local or Git dependencies in the nearest `btrc.toml`:
 
 ```toml
+manifest-version = 1
+
 [package]
 name = "myapp"
 
@@ -206,15 +208,14 @@ mathx = { path = "../mathx" }
 netkit = { git = "https://example.com/netkit.git", rev = "v1.2.0" }
 ```
 
-Compiling any source below that manifest resolves dependencies and atomically
-writes `btrc.lock`. Git entries preserve the requested ref and pin its exact
-commit; path entries are stored relative to the manifest. A changed dependency
-table is detected automatically. Pass `--fetch` only when you intentionally
-want to advance a moving Git ref and rewrite its lock entry. Git checkouts use
-`~/.btrc/pkgs/` by default, or `$BTRC_PKG_CACHE` when set. Manifest input is
-bounded to 1 MiB, and Git operations are non-interactive with a five-minute
-timeout so a compiler invocation cannot hang on a credential prompt or dead
-network indefinitely.
+Version-1 manifests are strict and recursive. Both compilers resolve local path
+graphs with dependency-local aliases, reject cycles, atomically publish the
+same canonical schema-3 `btrc.lock`, and deduplicate diamonds. `btrcpy`
+additionally materializes Git entries, preserves the requested ref, and pins
+its exact commit. `btrcc` currently rejects Git acquisition precisely instead
+of invoking a shell or silently using an unpinned checkout. Pass `--fetch` to
+`btrcpy` only when you intentionally want to advance a moving Git ref. Git
+checkouts use `~/.btrc/pkgs/` by default, or `$BTRC_PKG_CACHE` when set.
 
 Package imports address the dependency name and then an optional module path:
 
@@ -224,14 +225,24 @@ import netkit.http
 ```
 
 The resolver looks under each dependency's `src/` directory first, then its
-root. The compiler and LSP keep package maps isolated per invocation/workspace,
-so one project's manifest cannot leak into another project.
+root. `btrcpy`, `btrcc`, and the LSP keep package maps isolated per invocation
+or workspace, so one project's manifest cannot leak into another project.
+Native package tables can declare validated C, C++, Objective-C, and
+Objective-C++ units plus headers, includes, defines, frameworks, pkg-config
+requirements, and platform predicates. `--target OS-ARCH --emit-link-plan
+PATH` emits the canonical plan for Make, Nix, or CMake to consume; manifests
+cannot inject flags, commands, or shell fragments. `btrcc` requires the target
+explicitly for every version-1 manifest and fails closed when it is omitted;
+`btrcpy` may infer its supported host target.
 
-Package-name imports from `btrc.toml` are currently a `btrcpy`/LSP feature.
-The self-hosted `btrcc` fails closed for imports such as `import mathx.vec`;
-it never guesses that a package name refers to a same-named local file. Use
-`btrcpy` for package projects, or spell local dependencies explicitly as
-`import ./path.btrc` (or a quoted path).
+The default Nix package installs both `btrcpy` and `btrc-native-plan`; the
+adapter is also exposed as `.#btrc-native-plan`. The standalone proof uses the
+same installed surface:
+
+```bash
+make examples-native-package TARGET=linux-x64
+nix flake check
+```
 
 ## What You Keep From C
 
@@ -1115,8 +1126,8 @@ make bootstrap               # prove btrcc reproduces itself bit-for-bit (fixed 
 
 ## Project Structure
 
-The production compiler inventories are exact: 81 Python files and 88
-self-hosted `.btrc` files (82 compiler/generated files plus six explicit tool
+The production compiler inventories are exact: 81 Python files and 89
+self-hosted `.btrc` files (83 compiler/generated files plus six explicit tool
 entry files). The complete file-by-file contract is in
 [Compiler Structure](docs/design/compiler-structure.md); the package view is:
 
@@ -1198,7 +1209,7 @@ src/
       runtime/                 # Generated helper data and RuntimeHelperCatalog
       artifacts/               # Archive, cache, publication, stdlib, selfhost
 
-    btrc/                      # Exact 88-file self-hosted compiler
+    btrc/                      # Exact 89-file self-hosted compiler
       btrcc_main.btrc          # Thin process entry point
       compiler.btrc            # Public Compiler application object
       cli/driver.btrc          # BtrccDriver command/process boundary

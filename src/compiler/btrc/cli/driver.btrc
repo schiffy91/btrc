@@ -17,6 +17,7 @@ import std.platform;
 import std.strings;
 import std.vector;
 import ../compiler.btrc;
+import ../frontend/packages.btrc;
 
 class BtrccDataPaths {
     public bool valid;
@@ -222,7 +223,8 @@ class BtrccCommandLine {
 
     public string usage() {
         return "usage: btrcc [--strict-imports | --relaxed-imports] "
-            + "[--no-stdlib] [--no-dce] [--] <file.btrc>\n"
+            + "[--no-stdlib] [--no-dce] [--target OS-ARCH] "
+            + "[--emit-link-plan PATH] [--] <file.btrc>\n"
             + "       btrcc --stdlib-dir\n\n"
             + "Strict imports are the default; --strict-imports explicitly "
             + "asserts that mode.\n"
@@ -266,6 +268,26 @@ class BtrccCommandLine {
                 options.runDce = false;
             } else if (option.equals("--stdlib-dir")) {
                 options.showStdlibDirectory = true;
+            } else if (option.equals("--target")) {
+                if (!options.target.isEmpty()) {
+                    return self.invalid(options, "--target may be specified only once");
+                }
+                index++;
+                if (index >= self.arguments.len) {
+                    return self.invalid(options, "--target requires OS-ARCH");
+                }
+                options.target = self.arguments.get(index);
+            } else if (option.equals("--emit-link-plan")) {
+                if (!options.linkPlanPath.isEmpty()) {
+                    return self.invalid(
+                        options, "--emit-link-plan may be specified only once");
+                }
+                index++;
+                if (index >= self.arguments.len) {
+                    return self.invalid(
+                        options, "--emit-link-plan requires an output path");
+                }
+                options.linkPlanPath = self.arguments.get(index);
             } else if (option.equals("--help") || option.equals("-h")) {
                 options.showHelp = true;
             } else if (option.equals("--")) {
@@ -392,6 +414,12 @@ class BtrccDriver {
         if (!FileSystem.isFile(sourcePath)) {
             return self.fail("input file does not exist: " + sourcePath);
         }
+        if (!options.linkPlanPath.isEmpty()
+                && PathTools.absolute(options.linkPlanPath).equals(
+                    PathTools.absolute(sourcePath))) {
+            return self.fail(
+                "link-plan output must differ from the input path");
+        }
         string source = self.sourceFiles.readRequired(sourcePath);
         Compiler compiler = Compiler(
             grammar, dataPaths.stdlib, self.sourceFiles);
@@ -400,6 +428,12 @@ class BtrccDriver {
         if (!result.success) {
             fprintf(stderr, "%s\n", result.diagnostic);
             return 1;
+        }
+        if (!options.linkPlanPath.isEmpty()
+                && !FePackageFileStore().writeAtomically(
+                    options.linkPlanPath, result.linkPlan)) {
+            return self.fail(
+                "cannot write native link plan: " + options.linkPlanPath);
         }
         if (self.output.write(result.output)) { return 0; }
         return self.fail("cannot write standard output");

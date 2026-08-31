@@ -534,7 +534,7 @@ class SelfhostBundlePublisher:
 
 FORMAT_VERSION = 1
 MAX_ARCHIVE_EPOCH = 0xFFFFFFFF
-RUNTIME_SUFFIXES = frozenset({".btrc", ".c", ".h", ".m", ".md"})
+RUNTIME_SUFFIXES = frozenset({".btrc", ".c", ".cc", ".cpp", ".cxx", ".h", ".m", ".md", ".mm", ".toml"})
 EXCLUDED_DIRECTORIES = frozenset({"__pycache__", "build", ".cache"})
 TARGET_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 

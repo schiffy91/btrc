@@ -380,7 +380,7 @@ and their golden output live alongside the topic-organized corpus in
 ## btrc Compiler (src/compiler/btrc/)
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
-AST and IR nodes. Its destination contains exactly 90 `.btrc` files: 84
+AST and IR nodes. Its destination contains exactly 91 `.btrc` files: 85
 compiler/generated files and six explicit developer-tool files. Only
 `compiler.btrc` and the thin `btrcc_main.btrc` process entry point remain at the
 package root. The owned packages are:
@@ -418,7 +418,7 @@ and the parse inspection tool calls that owner; generated `Node` data owns no
 formatting behavior. The unified generator check structurally verifies that
 the handwritten renderer covers every ASDL constructor and field.
 
-The exact 90-file inventory is normative in
+The exact 91-file inventory is normative in
 `docs/design/compiler-structure.md`. Stage manifests contain imports only;
 implementation behavior belongs to the concrete owner. The unified language
 runner executes the corpus through both compilers, and the bootstrap suite

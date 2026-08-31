@@ -1,0 +1,1478 @@
+/* Versioned package graph and native link-plan ownership. */
+
+import std.bytes;
+import std.fs;
+import std.json;
+import std.map;
+import std.platform;
+import std.strings;
+import std.toml;
+import std.vector;
+import ./source_io.btrc;
+
+class FePackageFailure {
+    class void fail(string diagnostic) {
+        fprintf(stderr, "error: package resolution failed: %s\n", diagnostic);
+        exit(1);
+    }
+}
+
+/* Package identities are persisted without relying on a platform crypto
+ * library.  Keeping this small SHA-256 owner here makes lockfiles portable
+ * across the same hosts that can run the compiler. */
+class FePackageSha256 {
+    private unsigned int rotateRight(unsigned int value, int count) {
+        return (value >> count) | (value << (32 - count));
+    }
+
+    private Vector<unsigned int> roundConstants() {
+        return [
+            0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U,
+            0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
+            0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U,
+            0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
+            0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU,
+            0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
+            0x983e5152U, 0xa831c66dU, 0xb00327c8U, 0xbf597fc7U,
+            0xc6e00bf3U, 0xd5a79147U, 0x06ca6351U, 0x14292967U,
+            0x27b70a85U, 0x2e1b2138U, 0x4d2c6dfcU, 0x53380d13U,
+            0x650a7354U, 0x766a0abbU, 0x81c2c92eU, 0x92722c85U,
+            0xa2bfe8a1U, 0xa81a664bU, 0xc24b8b70U, 0xc76c51a3U,
+            0xd192e819U, 0xd6990624U, 0xf40e3585U, 0x106aa070U,
+            0x19a4c116U, 0x1e376c08U, 0x2748774cU, 0x34b0bcb5U,
+            0x391c0cb3U, 0x4ed8aa4aU, 0x5b9cca4fU, 0x682e6ff3U,
+            0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U,
+            0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U
+        ];
+    }
+
+    public string digest(string source) {
+        Bytes message = Bytes();
+        int sourceLength = source.length();
+        int sourceIndex = 0;
+        while (sourceIndex < sourceLength) {
+            message.append((int)((unsigned char)source[sourceIndex]));
+            sourceIndex++;
+        }
+        unsigned long long bitLength =
+            (unsigned long long)sourceLength * 8ULL;
+        message.append(0x80);
+        while ((message.len % 64) != 56) { message.append(0); }
+        int bitShift = 56;
+        while (bitShift >= 0) {
+            message.append((int)((bitLength >> bitShift) & 0xffULL));
+            bitShift = bitShift - 8;
+        }
+
+        Vector<unsigned int> hash = [
+            0x6a09e667U, 0xbb67ae85U, 0x3c6ef372U, 0xa54ff53aU,
+            0x510e527fU, 0x9b05688cU, 0x1f83d9abU, 0x5be0cd19U
+        ];
+        Vector<unsigned int> constants = self.roundConstants();
+        int offset = 0;
+        while (offset < message.len) {
+            Vector<unsigned int> words = [];
+            int wordIndex = 0;
+            while (wordIndex < 16) {
+                int base = offset + wordIndex * 4;
+                unsigned int value = ((unsigned int)message.get(base) << 24)
+                    | ((unsigned int)message.get(base + 1) << 16)
+                    | ((unsigned int)message.get(base + 2) << 8)
+                    | (unsigned int)message.get(base + 3);
+                words.push(value);
+                wordIndex++;
+            }
+            while (wordIndex < 64) {
+                unsigned int previous15 = words.get(wordIndex - 15);
+                unsigned int previous2 = words.get(wordIndex - 2);
+                unsigned int sigma0 = self.rotateRight(previous15, 7)
+                    ^ self.rotateRight(previous15, 18)
+                    ^ (previous15 >> 3);
+                unsigned int sigma1 = self.rotateRight(previous2, 17)
+                    ^ self.rotateRight(previous2, 19)
+                    ^ (previous2 >> 10);
+                words.push(words.get(wordIndex - 16) + sigma0
+                    + words.get(wordIndex - 7) + sigma1);
+                wordIndex++;
+            }
+
+            unsigned int a = hash.get(0);
+            unsigned int b = hash.get(1);
+            unsigned int c = hash.get(2);
+            unsigned int d = hash.get(3);
+            unsigned int e = hash.get(4);
+            unsigned int f = hash.get(5);
+            unsigned int g = hash.get(6);
+            unsigned int h = hash.get(7);
+            int round = 0;
+            while (round < 64) {
+                unsigned int sum1 = self.rotateRight(e, 6)
+                    ^ self.rotateRight(e, 11) ^ self.rotateRight(e, 25);
+                unsigned int choice = (e & f) ^ ((~e) & g);
+                unsigned int temporary1 = h + sum1 + choice
+                    + constants.get(round) + words.get(round);
+                unsigned int sum0 = self.rotateRight(a, 2)
+                    ^ self.rotateRight(a, 13) ^ self.rotateRight(a, 22);
+                unsigned int majority = (a & b) ^ (a & c) ^ (b & c);
+                unsigned int temporary2 = sum0 + majority;
+                h = g;
+                g = f;
+                f = e;
+                e = d + temporary1;
+                d = c;
+                c = b;
+                b = a;
+                a = temporary1 + temporary2;
+                round++;
+            }
+            hash.set(0, hash.get(0) + a);
+            hash.set(1, hash.get(1) + b);
+            hash.set(2, hash.get(2) + c);
+            hash.set(3, hash.get(3) + d);
+            hash.set(4, hash.get(4) + e);
+            hash.set(5, hash.get(5) + f);
+            hash.set(6, hash.get(6) + g);
+            hash.set(7, hash.get(7) + h);
+            offset = offset + 64;
+        }
+
+        string digits = "0123456789abcdef";
+        StringBuilder output = StringBuilder();
+        int hashIndex = 0;
+        while (hashIndex < hash.len) {
+            int shift = 28;
+            while (shift >= 0) {
+                int nibble = (int)((hash.get(hashIndex) >> shift) & 0x0fU);
+                output.appendChar(digits[nibble]);
+                shift = shift - 4;
+            }
+            hashIndex++;
+        }
+        return output.toString();
+    }
+}
+
+class FePackageTarget {
+    public string operatingSystem;
+    public string architecture;
+
+    public FePackageTarget(string operatingSystem, string architecture) {
+        self.operatingSystem = operatingSystem;
+        self.architecture = architecture;
+    }
+
+    private bool validOperatingSystem(string value) {
+        return value.equals("linux") || value.equals("macos")
+            || value.equals("windows");
+    }
+
+    private bool validArchitecture(string value) {
+        return value.equals("x86_64") || value.equals("aarch64");
+    }
+
+    class FePackageTarget parse(string raw) {
+        if (raw == null || raw.isEmpty()) {
+            FePackageFailure.fail(
+                "version-1 package manifests require --target OS-ARCH");
+        }
+        int separator = raw.indexOf("-");
+        if (separator < 1 || separator + 1 >= raw.length()) {
+            FePackageFailure.fail(
+                f"unsupported package target '{raw}'; expected OS-ARCH");
+        }
+        string os = raw.substring(0, separator);
+        string arch = raw.substring(
+            separator + 1, raw.length() - separator - 1);
+        if (arch.equals("x64")) { arch = "x86_64"; }
+        else if (arch.equals("arm64")) { arch = "aarch64"; }
+        FePackageTarget target = FePackageTarget(os, arch);
+        if (!target.validOperatingSystem(os)
+                || !target.validArchitecture(arch)) {
+            FePackageFailure.fail(
+                f"unsupported package target '{raw}'; expected linux, macos, "
+                + "or windows with x86_64 or aarch64");
+        }
+        return target;
+    }
+}
+
+class FeNativeDeclaration {
+    public string kind;
+    public string packageName;
+    public string value;
+    public string detail;
+    public string language;
+    public string standard;
+    public Vector<string> operatingSystems;
+    public Vector<string> architectures;
+
+    public FeNativeDeclaration(
+            string kind, string packageName, string value, string detail,
+            string language, string standard,
+            Vector<string> operatingSystems,
+            Vector<string> architectures) {
+        self.kind = kind;
+        self.packageName = packageName;
+        self.value = value;
+        self.detail = detail;
+        self.language = language;
+        self.standard = standard;
+        self.operatingSystems = operatingSystems;
+        self.architectures = architectures;
+    }
+
+    private bool contains(Vector<string> values, string expected) {
+        int index = 0;
+        while (index < values.len) {
+            if (values.get(index).equals(expected)) { return true; }
+            index++;
+        }
+        return false;
+    }
+
+    public bool selectedFor(FePackageTarget target) {
+        return (self.operatingSystems.len == 0
+                || self.contains(self.operatingSystems, target.operatingSystem))
+            && (self.architectures.len == 0
+                || self.contains(self.architectures, target.architecture));
+    }
+
+    public string sortKey() {
+        return self.packageName + "\x1f" + self.kind + "\x1f" + self.value
+            + "\x1f" + self.detail + "\x1f" + self.language;
+    }
+}
+
+class FeManifestDependency {
+    public string alias;
+    public string path;
+    public string git;
+    public string revision;
+
+    public FeManifestDependency(
+            string alias, string path, string git, string revision) {
+        self.alias = alias;
+        self.path = path;
+        self.git = git;
+        self.revision = revision;
+    }
+}
+
+class FePackageNode {
+    public string name;
+    public string root;
+    public Map<string, string> dependencies;
+    public string sourcePath;
+    public string manifestHash;
+    public Vector<FeNativeDeclaration> nativeDeclarations;
+
+    public FePackageNode(
+            string name, string root, Map<string, string> dependencies,
+            string sourcePath, string manifestHash,
+            Vector<FeNativeDeclaration> nativeDeclarations) {
+        self.name = name;
+        self.root = root;
+        self.dependencies = dependencies;
+        self.sourcePath = sourcePath;
+        self.manifestHash = manifestHash;
+        self.nativeDeclarations = nativeDeclarations;
+    }
+}
+
+class FeParsedPackageManifest {
+    public string name;
+    public Vector<FeManifestDependency> dependencies;
+    public Vector<FeNativeDeclaration> nativeDeclarations;
+
+    public FeParsedPackageManifest(
+            string name, Vector<FeManifestDependency> dependencies,
+            Vector<FeNativeDeclaration> nativeDeclarations) {
+        self.name = name;
+        self.dependencies = dependencies;
+        self.nativeDeclarations = nativeDeclarations;
+    }
+}
+
+class FeNativeBlock {
+    private string tableName;
+    private string manifestPath;
+    private Map<string, string> fields;
+
+    public FeNativeBlock(string tableName, string manifestPath) {
+        self.tableName = tableName;
+        self.manifestPath = manifestPath;
+        self.fields = {};
+    }
+
+    public void set(string key, string raw) {
+        if (self.fields.has(key)) {
+            FePackageFailure.fail(
+                f"package manifest '{self.manifestPath}' {self.tableName} "
+                + f"duplicates field '{key}'");
+        }
+        self.fields.put(key, raw);
+    }
+
+    private string context() {
+        return f"package manifest '{self.manifestPath}' {self.tableName}";
+    }
+
+    private bool allowedField(string key) {
+        if (key.equals("os") || key.equals("arch")) { return true; }
+        if (self.tableName.equals("native.sources")) {
+            return key.equals("path") || key.equals("language")
+                || key.equals("standard");
+        }
+        if (self.tableName.equals("native.headers")
+                || self.tableName.equals("native.include-directories")) {
+            return key.equals("path");
+        }
+        if (self.tableName.equals("native.defines")) {
+            return key.equals("name") || key.equals("value");
+        }
+        return key.equals("name");
+    }
+
+    private string requiredText(string key) {
+        if (!self.fields.has(key)) {
+            FePackageFailure.fail(f"{self.context()} requires field '{key}'");
+        }
+        string raw = self.fields.get(key).trim();
+        int length = raw.length();
+        if (length < 2
+                || !((raw[0] == '"' && raw[length - 1] == '"')
+                    || (raw[0] == '\'' && raw[length - 1] == '\''))) {
+            FePackageFailure.fail(
+                f"{self.context()}.{key} must be a TOML string");
+        }
+        string value = Toml.unquote(raw);
+        if (value.isEmpty()) {
+            FePackageFailure.fail(f"{self.context()}.{key} must not be empty");
+        }
+        return value;
+    }
+
+    private bool identifier(string value) {
+        if (value.isEmpty()
+                || (!Strings.isAlpha(value[0]) && value[0] != '_')) {
+            return false;
+        }
+        int index = 1;
+        while (index < value.length()) {
+            if (!Strings.isAlnum(value[index]) && value[index] != '_') {
+                return false;
+            }
+            index++;
+        }
+        return true;
+    }
+
+    private bool nativeName(string value) {
+        if (value.isEmpty()) { return false; }
+        int index = 0;
+        while (index < value.length()) {
+            char current = value[index];
+            if (!Strings.isAlnum(current) && current != '_'
+                    && current != '.' && current != '+' && current != '-') {
+                return false;
+            }
+            index++;
+        }
+        return true;
+    }
+
+    private Vector<string> stringArray(
+            string key, Vector<string> allowed) {
+        Vector<string> values = [];
+        if (!self.fields.has(key)) { return values; }
+        string raw = self.fields.get(key).trim();
+        int length = raw.length();
+        if (length < 2 || raw[0] != '[' || raw[length - 1] != ']') {
+            FePackageFailure.fail(
+                f"{self.context()}.{key} must be an array of strings");
+        }
+        string body = raw.substring(1, length - 2).trim();
+        if (body.isEmpty()) { return values; }
+        Vector<string> parts = Strings.split(body, ",");
+        int index = 0;
+        while (index < parts.len) {
+            string part = parts.get(index).trim();
+            int partLength = part.length();
+            if (partLength < 2
+                    || !((part[0] == '"' && part[partLength - 1] == '"')
+                        || (part[0] == '\'' && part[partLength - 1] == '\''))) {
+                FePackageFailure.fail(
+                    f"{self.context()}.{key} must be an array of strings");
+            }
+            string value = Toml.unquote(part);
+            bool accepted = false;
+            int allowedIndex = 0;
+            while (allowedIndex < allowed.len) {
+                if (allowed.get(allowedIndex).equals(value)) {
+                    accepted = true;
+                }
+                allowedIndex++;
+            }
+            if (!accepted) {
+                FePackageFailure.fail(
+                    f"{self.context()}.{key} contains unsupported value '{value}'");
+            }
+            int prior = 0;
+            while (prior < values.len) {
+                if (values.get(prior).equals(value)) {
+                    FePackageFailure.fail(
+                        f"{self.context()}.{key} contains duplicate value '{value}'");
+                }
+                prior++;
+            }
+            values.push(value);
+            index++;
+        }
+        values.sortBy((string left, string right) =>
+            Strings.lessThan(left, right));
+        return values;
+    }
+
+    private string packagePath(
+            string root, string key, bool directory) {
+        string relative = self.requiredText(key);
+        if (PathTools.isAbsolute(relative)) {
+            FePackageFailure.fail(
+                f"{self.context()}.{key} must be package-relative");
+        }
+        string canonicalRoot = PathTools.absolute(root);
+        string candidate = PathTools.absolute(PathTools.join(root, relative));
+        string prefix = canonicalRoot.endsWith(Platform.pathSeparator())
+            ? canonicalRoot : canonicalRoot + Platform.pathSeparator();
+        string comparedRoot = Platform.isWindows()
+            ? canonicalRoot.toLower() : canonicalRoot;
+        string comparedCandidate = Platform.isWindows()
+            ? candidate.toLower() : candidate;
+        string comparedPrefix = Platform.isWindows()
+            ? prefix.toLower() : prefix;
+        if (!comparedCandidate.equals(comparedRoot)
+                && !comparedCandidate.startsWith(comparedPrefix)) {
+            FePackageFailure.fail(
+                f"{self.context()}.{key} escapes package root '{canonicalRoot}'");
+        }
+        bool present = false;
+        if (directory) { present = FileSystem.isDir(candidate); }
+        else { present = FileSystem.isFile(candidate); }
+        if (!present) {
+            string kind = directory ? "directory" : "file";
+            FePackageFailure.fail(
+                f"{self.context()}.{key} does not name a {kind}: '{relative}'");
+        }
+        return candidate;
+    }
+
+    public FeNativeDeclaration finish(string root, string packageName) {
+        Vector<string> keys = self.fields.keys();
+        int keyIndex = 0;
+        while (keyIndex < keys.len) {
+            if (!self.allowedField(keys.get(keyIndex))) {
+                FePackageFailure.fail(
+                    f"{self.context()} contains unexpected field "
+                    + f"'{keys.get(keyIndex)}'");
+            }
+            keyIndex++;
+        }
+        Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
+        Vector<string> architectureValues = ["x86_64", "aarch64"];
+        Vector<string> operatingSystems = self.stringArray(
+            "os", operatingSystemValues);
+        Vector<string> architectures = self.stringArray(
+            "arch", architectureValues);
+        if (self.tableName.equals("native.sources")) {
+            string language = self.requiredText("language");
+            string standard = self.requiredText("standard");
+            bool valid = false;
+            if (language.equals("c") || language.equals("objective-c")) {
+                valid = standard.equals("c11");
+            } else if (language.equals("c++")
+                    || language.equals("objective-c++")) {
+                valid = standard.equals("c++17")
+                    || standard.equals("c++20");
+            }
+            if (!valid) {
+                FePackageFailure.fail(
+                    f"{self.context()} has unsupported language/standard "
+                    + f"'{language}/{standard}'");
+            }
+            return FeNativeDeclaration(
+                "source", packageName,
+                self.packagePath(root, "path", false), "",
+                language, standard, operatingSystems, architectures);
+        }
+        if (self.tableName.equals("native.headers")) {
+            return FeNativeDeclaration(
+                "header", packageName,
+                self.packagePath(root, "path", false), "", "", "",
+                operatingSystems, architectures);
+        }
+        if (self.tableName.equals("native.include-directories")) {
+            return FeNativeDeclaration(
+                "include-directory", packageName,
+                self.packagePath(root, "path", true), "", "", "",
+                operatingSystems, architectures);
+        }
+        if (self.tableName.equals("native.defines")) {
+            string name = self.requiredText("name");
+            if (!self.identifier(name)) {
+                FePackageFailure.fail(
+                    f"{self.context()}.name must be an ASCII identifier");
+            }
+            string value = self.requiredText("value");
+            return FeNativeDeclaration(
+                "define", packageName, name, value, "", "",
+                operatingSystems, architectures);
+        }
+        string name = self.requiredText("name");
+        if (!self.nativeName(name)) {
+            FePackageFailure.fail(
+                f"{self.context()}.name contains unsupported characters");
+        }
+        string kind = self.tableName.equals("native.frameworks")
+            ? "framework" : "pkg-config";
+        return FeNativeDeclaration(
+            kind, packageName, name, "", "", "",
+            operatingSystems, architectures);
+    }
+}
+
+class FePackageManifestParser {
+    private string source;
+    private string manifestPath;
+    private string root;
+
+    public FePackageManifestParser(
+            string source, string manifestPath, string root) {
+        self.source = source;
+        self.manifestPath = manifestPath;
+        self.root = root;
+    }
+
+    private bool identifier(string value) {
+        if (value.isEmpty()
+                || (!Strings.isAlpha(value[0]) && value[0] != '_')) {
+            return false;
+        }
+        int index = 1;
+        while (index < value.length()) {
+            if (!Strings.isAlnum(value[index]) && value[index] != '_') {
+                return false;
+            }
+            index++;
+        }
+        return true;
+    }
+
+    private string textValue(string raw, string context) {
+        string value = raw.trim();
+        int length = value.length();
+        if (length < 2
+                || !((value[0] == '"' && value[length - 1] == '"')
+                    || (value[0] == '\'' && value[length - 1] == '\''))) {
+            FePackageFailure.fail(f"{context} must be a TOML string");
+        }
+        return Toml.unquote(value);
+    }
+
+    private FeManifestDependency dependency(
+            string alias, string raw) {
+        if (!self.identifier(alias)) {
+            FePackageFailure.fail(
+                f"package manifest '{self.manifestPath}' dependency alias "
+                + f"'{alias}' must be an ASCII identifier");
+        }
+        string value = raw.trim();
+        int length = value.length();
+        if (length < 2 || value[0] != '{' || value[length - 1] != '}') {
+            FePackageFailure.fail(
+                f"dependency '{alias}' in '{self.manifestPath}' must be an inline table");
+        }
+        Map<string, string> fields = {};
+        string body = value.substring(1, length - 2).trim();
+        Vector<string> parts = Strings.split(body, ",");
+        int index = 0;
+        while (index < parts.len) {
+            string part = parts.get(index).trim();
+            string key = Toml.key(part);
+            if (key.isEmpty() || fields.has(key)) {
+                FePackageFailure.fail(
+                    f"dependency '{alias}' in '{self.manifestPath}' has invalid fields");
+            }
+            int separator = Toml.unquotedPosition(part, '=');
+            fields.put(key, part.substring(
+                separator + 1, part.length() - separator - 1).trim());
+            index++;
+        }
+        Vector<string> keys = fields.keys();
+        int sourceCount = (fields.has("path") ? 1 : 0)
+            + (fields.has("git") ? 1 : 0);
+        if (sourceCount != 1) {
+            FePackageFailure.fail(
+                f"dependency '{alias}' in '{self.manifestPath}' must specify "
+                + "exactly one of path or git");
+        }
+        int refCount = (fields.has("rev") ? 1 : 0)
+            + (fields.has("tag") ? 1 : 0)
+            + (fields.has("branch") ? 1 : 0);
+        if (refCount > 1) {
+            FePackageFailure.fail(
+                f"dependency '{alias}' in '{self.manifestPath}' may specify only one Git ref");
+        }
+        int keyIndex = 0;
+        while (keyIndex < keys.len) {
+            string key = keys.get(keyIndex);
+            bool allowed = key.equals("path") || key.equals("git")
+                || key.equals("rev") || key.equals("tag")
+                || key.equals("branch");
+            if (!allowed || (fields.has("path") && !key.equals("path"))) {
+                FePackageFailure.fail(
+                    f"dependency '{alias}' in '{self.manifestPath}' "
+                    + f"contains unexpected field '{key}'");
+            }
+            keyIndex++;
+        }
+        string path = fields.has("path")
+            ? self.textValue(fields.get("path"), f"dependency '{alias}' path")
+            : "";
+        string git = fields.has("git")
+            ? self.textValue(fields.get("git"), f"dependency '{alias}' git")
+            : "";
+        string revision = "HEAD";
+        for refName in ["rev", "tag", "branch"] {
+            if (fields.has(refName)) {
+                revision = self.textValue(
+                    fields.get(refName), f"dependency '{alias}' Git ref");
+            }
+        }
+        return FeManifestDependency(alias, path, git, revision);
+    }
+
+    private bool nativeTable(string name) {
+        return name.equals("native.sources")
+            || name.equals("native.headers")
+            || name.equals("native.include-directories")
+            || name.equals("native.defines")
+            || name.equals("native.frameworks")
+            || name.equals("native.pkg-config");
+    }
+
+    public FeParsedPackageManifest parse() {
+        string section = "";
+        FeNativeBlock block = null;
+        bool sawVersion = false;
+        bool sawName = false;
+        string packageName = "";
+        Vector<FeManifestDependency> dependencies = [];
+        Vector<FeNativeBlock> nativeBlocks = [];
+        Vector<string> lines = Strings.split(self.source, "\n");
+        int index = 0;
+        while (index < lines.len) {
+            string line = Toml.stripInlineComment(lines.get(index));
+            index++;
+            if (line.isEmpty()) { continue; }
+            string tableArray = Toml.tableArrayName(line);
+            if (!tableArray.isEmpty()) {
+                if (!self.nativeTable(tableArray)) {
+                    FePackageFailure.fail(
+                        f"package manifest '{self.manifestPath}' contains "
+                        + f"unexpected table array '{tableArray}'");
+                }
+                block = FeNativeBlock(tableArray, self.manifestPath);
+                nativeBlocks.push(block);
+                section = tableArray;
+                continue;
+            }
+            string table = Toml.sectionName(line);
+            if (!table.isEmpty()) {
+                if (!table.equals("package") && !table.equals("dependencies")) {
+                    FePackageFailure.fail(
+                        f"package manifest '{self.manifestPath}' contains "
+                        + f"unexpected table '{table}'");
+                }
+                section = table;
+                block = null;
+                continue;
+            }
+            string key = Toml.key(line);
+            if (key.isEmpty()) {
+                FePackageFailure.fail(
+                    f"cannot parse package manifest '{self.manifestPath}' line {index}");
+            }
+            string raw = line.substring(
+                Toml.unquotedPosition(line, '=') + 1,
+                line.length() - Toml.unquotedPosition(line, '=') - 1).trim();
+            if (section.isEmpty()) {
+                if (!key.equals("manifest-version") || sawVersion
+                        || !raw.equals("1")) {
+                    FePackageFailure.fail(
+                        f"package manifest '{self.manifestPath}' must declare "
+                        + "only integer manifest-version = 1 at its root");
+                }
+                sawVersion = true;
+            } else if (section.equals("package")) {
+                if (!key.equals("name") || sawName) {
+                    FePackageFailure.fail(
+                        f"package manifest '{self.manifestPath}' [package] "
+                        + f"contains unexpected or duplicate field '{key}'");
+                }
+                packageName = self.textValue(
+                    raw, f"package manifest '{self.manifestPath}' package.name");
+                if (!self.identifier(packageName)) {
+                    FePackageFailure.fail(
+                        f"package manifest '{self.manifestPath}' package.name "
+                        + "must be an ASCII identifier");
+                }
+                sawName = true;
+            } else if (section.equals("dependencies")) {
+                dependencies.push(self.dependency(key, raw));
+            } else {
+                block.set(key, raw);
+            }
+        }
+        if (!sawVersion || !sawName) {
+            FePackageFailure.fail(
+                f"package manifest '{self.manifestPath}' requires "
+                + "manifest-version = 1 and [package].name");
+        }
+        Map<string, bool> aliases = {};
+        int dependencyIndex = 0;
+        while (dependencyIndex < dependencies.len) {
+            string alias = dependencies.get(dependencyIndex).alias;
+            if (aliases.has(alias)) {
+                FePackageFailure.fail(
+                    f"package manifest '{self.manifestPath}' duplicates dependency '{alias}'");
+            }
+            aliases.put(alias, true);
+            dependencyIndex++;
+        }
+        Vector<FeNativeDeclaration> nativeDeclarations = [];
+        int nativeIndex = 0;
+        while (nativeIndex < nativeBlocks.len) {
+            FeNativeDeclaration declaration = nativeBlocks.get(nativeIndex).finish(
+                self.root, packageName);
+            int prior = 0;
+            while (prior < nativeDeclarations.len) {
+                if (nativeDeclarations.get(prior).sortKey().equals(
+                        declaration.sortKey())) {
+                    FePackageFailure.fail(
+                        f"package manifest '{self.manifestPath}' duplicates "
+                        + "a native declaration");
+                }
+                prior++;
+            }
+            nativeDeclarations.push(declaration);
+            nativeIndex++;
+        }
+        return FeParsedPackageManifest(
+            packageName, dependencies, nativeDeclarations);
+    }
+}
+
+class FeNativeLinkPlan {
+    public FePackageTarget target;
+    public Vector<FePackageNode> packages;
+    public Vector<FeNativeDeclaration> declarations;
+
+    public FeNativeLinkPlan(
+            FePackageTarget target, Vector<FePackageNode> packages,
+            Vector<FeNativeDeclaration> declarations) {
+        self.target = target;
+        self.packages = packages;
+        self.declarations = declarations;
+    }
+
+    private Vector<FeNativeDeclaration> selected(string kind) {
+        Vector<FeNativeDeclaration> values = [];
+        int index = 0;
+        while (index < self.declarations.len) {
+            FeNativeDeclaration declaration = self.declarations.get(index);
+            if (declaration.kind.equals(kind)
+                    && declaration.selectedFor(self.target)) {
+                values.push(declaration);
+            }
+            index++;
+        }
+        values.sortBy((FeNativeDeclaration left, FeNativeDeclaration right) =>
+            Strings.lessThan(left.sortKey(), right.sortKey()));
+        return values;
+    }
+
+    private JsonValue pathRecords(string kind) {
+        JsonValue result = JsonValue.makeArray();
+        Vector<FeNativeDeclaration> values = self.selected(kind);
+        int index = 0;
+        while (index < values.len) {
+            FeNativeDeclaration declaration = values.get(index);
+            JsonValue record = JsonValue.makeObject();
+            record.set("package", JsonValue.makeString(declaration.packageName));
+            record.set("path", JsonValue.makeString(declaration.value));
+            result.push(record);
+            index++;
+        }
+        return result;
+    }
+
+    private JsonValue nameRecords(string kind) {
+        JsonValue result = JsonValue.makeArray();
+        Vector<FeNativeDeclaration> values = self.selected(kind);
+        int index = 0;
+        while (index < values.len) {
+            FeNativeDeclaration declaration = values.get(index);
+            JsonValue record = JsonValue.makeObject();
+            record.set("name", JsonValue.makeString(declaration.value));
+            record.set("package", JsonValue.makeString(declaration.packageName));
+            result.push(record);
+            index++;
+        }
+        return result;
+    }
+
+    private JsonValue defineRecords() {
+        JsonValue result = JsonValue.makeArray();
+        Vector<FeNativeDeclaration> values = self.selected("define");
+        int index = 0;
+        while (index < values.len) {
+            FeNativeDeclaration declaration = values.get(index);
+            JsonValue record = JsonValue.makeObject();
+            record.set("name", JsonValue.makeString(declaration.value));
+            record.set("package", JsonValue.makeString(declaration.packageName));
+            record.set("value", JsonValue.makeString(declaration.detail));
+            result.push(record);
+            index++;
+        }
+        return result;
+    }
+
+    private JsonValue unitRecords() {
+        JsonValue result = JsonValue.makeArray();
+        Vector<FeNativeDeclaration> values = self.selected("source");
+        int index = 0;
+        while (index < values.len) {
+            FeNativeDeclaration declaration = values.get(index);
+            JsonValue record = JsonValue.makeObject();
+            record.set("language", JsonValue.makeString(declaration.language));
+            record.set("package", JsonValue.makeString(declaration.packageName));
+            record.set("path", JsonValue.makeString(declaration.value));
+            record.set("standard", JsonValue.makeString(declaration.standard));
+            result.push(record);
+            index++;
+        }
+        return result;
+    }
+
+    private JsonValue packageRecords() {
+        Vector<FePackageNode> sorted = [];
+        int copyIndex = 0;
+        while (copyIndex < self.packages.len) {
+            sorted.push(self.packages.get(copyIndex));
+            copyIndex++;
+        }
+        sorted.sortBy((FePackageNode left, FePackageNode right) =>
+            Strings.lessThan(left.name, right.name));
+        JsonValue result = JsonValue.makeArray();
+        int index = 0;
+        while (index < sorted.len) {
+            FePackageNode package = sorted.get(index);
+            JsonValue dependencies = JsonValue.makeObject();
+            Vector<string> aliases = package.dependencies.keys();
+            aliases.sortBy((string left, string right) =>
+                Strings.lessThan(left, right));
+            int aliasIndex = 0;
+            while (aliasIndex < aliases.len) {
+                string alias = aliases.get(aliasIndex);
+                dependencies.set(
+                    alias, JsonValue.makeString(package.dependencies.get(alias)));
+                aliasIndex++;
+            }
+            JsonValue record = JsonValue.makeObject();
+            record.set("dependencies", dependencies);
+            record.set("name", JsonValue.makeString(package.name));
+            record.set("root", JsonValue.makeString(package.root));
+            result.push(record);
+            index++;
+        }
+        return result;
+    }
+
+    public string linkerLanguage() {
+        Vector<FeNativeDeclaration> sources = self.selected("source");
+        int index = 0;
+        while (index < sources.len) {
+            string language = sources.get(index).language;
+            if (language.equals("c++") || language.equals("objective-c++")) {
+                return "c++";
+            }
+            index++;
+        }
+        return "c";
+    }
+
+    public string canonicalJson() {
+        JsonValue targetValue = JsonValue.makeObject();
+        targetValue.set("arch", JsonValue.makeString(self.target.architecture));
+        targetValue.set("os", JsonValue.makeString(self.target.operatingSystem));
+
+        JsonValue root = JsonValue.makeObject();
+        root.set("defines", self.defineRecords());
+        root.set("frameworks", self.nameRecords("framework"));
+        root.set("headers", self.pathRecords("header"));
+        root.set("include-directories", self.pathRecords("include-directory"));
+        root.set("linker-language", JsonValue.makeString(self.linkerLanguage()));
+        root.set("packages", self.packageRecords());
+        root.set("pkg-config", self.nameRecords("pkg-config"));
+        root.set("schema", JsonValue.makeInt(1));
+        root.set("target", targetValue);
+        root.set("units", self.unitRecords());
+        return root.stringify() + "\n";
+    }
+}
+
+/* One same-directory temporary followed by rename is the only publication
+ * path for package state and plan sidecars.  Manifests never supply this path
+ * or any command-shaped data. */
+class FePackageFileStore {
+    public bool writeAtomically(string path, string content) {
+        if (path == null || path.isEmpty() || content == null) { return false; }
+        string directory = PathTools.dirname(path);
+        if (!FileSystem.isDir(directory)) { return false; }
+        string templatePath = PathTools.join(directory, ".btrc-package-XXXXXX");
+        int templateLength = templatePath.length();
+        char* mutablePath = (char*)__btrc_safe_realloc(
+            NULL, (size_t)templateLength + (size_t)1);
+        memcpy(mutablePath, templatePath, (size_t)templateLength + (size_t)1);
+        int descriptor = mkstemp(mutablePath);
+        if (descriptor < 0) {
+            free(mutablePath);
+            return false;
+        }
+        string temporaryPath = Strings.copy(mutablePath);
+        free(mutablePath);
+        bool modeSet = fchmod(descriptor, (mode_t)0644) == 0;
+        size_t length = strlen(content);
+        size_t offset = (size_t)0;
+        bool written = modeSet;
+        while (written && offset < length) {
+            ssize_t count = write(
+                descriptor, (char*)content + offset, length - offset);
+            if (count > (ssize_t)0) { offset = offset + (size_t)count; }
+            else if (count < (ssize_t)0 && errno == EINTR) { continue; }
+            else { written = false; }
+        }
+        bool durable = written && fsync(descriptor) == 0;
+        bool closed = close(descriptor) == 0;
+        if (!durable || !closed || rename(temporaryPath, path) != 0) {
+            unlink(temporaryPath);
+            return false;
+        }
+        int directoryDescriptor = open(
+            directory, (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC);
+        if (directoryDescriptor >= 0) {
+            fsync(directoryDescriptor);
+            close(directoryDescriptor);
+        }
+        return true;
+    }
+}
+
+class FePackageLock {
+    private FeSourceFileReader sourceFiles;
+
+    public FePackageLock(FeSourceFileReader sourceFiles) {
+        self.sourceFiles = sourceFiles;
+    }
+
+    private bool exactKeys(JsonValue value, Vector<string> expected) {
+        if (!value.isObject() || value.size() != expected.len) { return false; }
+        int index = 0;
+        while (index < expected.len) {
+            if (!value.has(expected.get(index))) { return false; }
+            index++;
+        }
+        return true;
+    }
+
+    private bool identifier(string value) {
+        if (value.isEmpty()
+                || (!Strings.isAlpha(value[0]) && value[0] != '_')) {
+            return false;
+        }
+        int index = 1;
+        while (index < value.length()) {
+            if (!Strings.isAlnum(value[index]) && value[index] != '_') {
+                return false;
+            }
+            index++;
+        }
+        return true;
+    }
+
+    private bool hexadecimal(string value, int length) {
+        if (value.length() != length) { return false; }
+        int index = 0;
+        while (index < length) {
+            char current = value[index];
+            if (!((current >= '0' && current <= '9')
+                    || (current >= 'a' && current <= 'f'))) {
+                return false;
+            }
+            index++;
+        }
+        return true;
+    }
+
+    private bool validPathSource(JsonValue source) {
+        return self.exactKeys(source, ["path"])
+            && source.get("path").isString()
+            && !source.get("path").asString().isEmpty()
+            && !PathTools.isAbsolute(source.get("path").asString());
+    }
+
+    private bool validGitSource(JsonValue source) {
+        return self.exactKeys(source, ["commit", "git", "rev"])
+            && source.get("commit").isString()
+            && source.get("git").isString()
+            && source.get("rev").isString()
+            && self.hexadecimal(source.get("commit").asString(), 40)
+            && !source.get("git").asString().isEmpty()
+            && !source.get("rev").asString().isEmpty()
+            && !source.get("rev").asString().startsWith("-");
+    }
+
+    private bool validPackage(JsonValue package) {
+        if (!self.exactKeys(
+                package, ["dependencies", "manifest-hash", "name", "source"])) {
+            return false;
+        }
+        if (!package.get("dependencies").isObject()
+                || !package.get("manifest-hash").isString()
+                || !self.hexadecimal(
+                    package.get("manifest-hash").asString(), 64)
+                || !package.get("name").isString()
+                || !self.identifier(package.get("name").asString())) {
+            return false;
+        }
+        Vector<string> aliases = package.get("dependencies").keys();
+        int aliasIndex = 0;
+        while (aliasIndex < aliases.len) {
+            string alias = aliases.get(aliasIndex);
+            JsonValue target = package.get("dependencies").get(alias);
+            if (!self.identifier(alias) || !target.isString()
+                    || !self.identifier(target.asString())) { return false; }
+            aliasIndex++;
+        }
+        JsonValue source = package.get("source");
+        return self.validPathSource(source) || self.validGitSource(source);
+    }
+
+    public string validatedExisting(string path) {
+        if (!FileSystem.exists(path)) { return ""; }
+        if (!FileSystem.isFile(path)) {
+            FePackageFailure.fail(f"strict package lock '{path}' is not a file");
+        }
+        string source = self.sourceFiles.readRequired(path);
+        JsonValue lock = JsonValue.parse(source);
+        if (!lock.isObject() || lock.isError()) {
+            FePackageFailure.fail(
+                f"cannot parse strict package lock '{path}' as UTF-8 JSON");
+        }
+        JsonValue schema = lock.get("schema");
+        if (!schema.isInt()) {
+            FePackageFailure.fail(f"invalid package lock schema in '{path}'");
+        }
+        if (schema.asInt() == 1 || schema.asInt() == 2) { return ""; }
+        if (schema.asInt() != 3) {
+            FePackageFailure.fail(
+                f"unsupported btrc.lock schema {schema.asInt()} in '{path}' "
+                + "(this compiler supports schema 3 for version-1 manifests)");
+        }
+        if (!self.exactKeys(lock, ["manifest-hash", "packages", "root", "schema"])
+                || !lock.get("manifest-hash").isString()
+                || !self.hexadecimal(
+                    lock.get("manifest-hash").asString(), 64)
+                || !lock.get("root").isString()
+                || !self.identifier(lock.get("root").asString())
+                || !lock.get("packages").isArray()) {
+            FePackageFailure.fail(
+                f"invalid schema-3 package lock '{path}'");
+        }
+        Map<string, bool> names = {};
+        Vector<string> dependencyTargets = [];
+        int index = 0;
+        while (index < lock.get("packages").size()) {
+            JsonValue package = lock.get("packages").at(index);
+            if (!self.validPackage(package)
+                    || names.has(package.get("name").asString())) {
+                FePackageFailure.fail(
+                    f"invalid schema-3 package in '{path}'");
+            }
+            names.put(package.get("name").asString(), true);
+            Vector<string> aliases = package.get("dependencies").keys();
+            int aliasIndex = 0;
+            while (aliasIndex < aliases.len) {
+                dependencyTargets.push(package.get("dependencies").get(
+                    aliases.get(aliasIndex)).asString());
+                aliasIndex++;
+            }
+            index++;
+        }
+        if (!names.has(lock.get("root").asString())) {
+            FePackageFailure.fail(f"invalid schema-3 package graph in '{path}'");
+        }
+        int targetIndex = 0;
+        while (targetIndex < dependencyTargets.len) {
+            if (!names.has(dependencyTargets.get(targetIndex))) {
+                FePackageFailure.fail(
+                    f"invalid schema-3 package graph in '{path}'");
+            }
+            targetIndex++;
+        }
+        return source;
+    }
+
+    private string relativePath(string root, string target) {
+        bool windows = Platform.isWindows();
+        string rootSlash = Strings.replace(root, "\\", "/");
+        string targetSlash = Strings.replace(target, "\\", "/");
+        int rootPrefixLength = PathTools.rootLengthFor(rootSlash, windows);
+        int targetPrefixLength = PathTools.rootLengthFor(targetSlash, windows);
+        string rootPrefix = rootSlash.substring(0, rootPrefixLength);
+        string targetPrefix = targetSlash.substring(0, targetPrefixLength);
+        bool samePrefix = false;
+        if (windows) {
+            samePrefix = rootPrefix.toLower().equals(targetPrefix.toLower());
+        } else {
+            samePrefix = rootPrefix.equals(targetPrefix);
+        }
+        if (!samePrefix) {
+            FePackageFailure.fail(
+                f"package path '{target}' is not portable relative to '{root}'");
+        }
+        Vector<string> rootParts = Strings.split(
+            rootSlash.substring(
+                rootPrefixLength, rootSlash.length() - rootPrefixLength), "/");
+        Vector<string> targetParts = Strings.split(
+            targetSlash.substring(
+                targetPrefixLength, targetSlash.length() - targetPrefixLength), "/");
+        int common = 0;
+        int rootCount = rootParts.len;
+        int targetCount = targetParts.len;
+        while (common < rootCount && common < targetCount) {
+            string left = rootParts.get(common);
+            string right = targetParts.get(common);
+            bool equal = false;
+            if (windows) { equal = left.toLower().equals(right.toLower()); }
+            else { equal = left.equals(right); }
+            if (!equal) { break; }
+            common++;
+        }
+        Vector<string> result = [];
+        int rootIndex = common;
+        while (rootIndex < rootCount) {
+            if (!rootParts.get(rootIndex).isEmpty()) { result.push(".."); }
+            rootIndex++;
+        }
+        int targetIndex = common;
+        while (targetIndex < targetCount) {
+            if (!targetParts.get(targetIndex).isEmpty()) {
+                result.push(targetParts.get(targetIndex));
+            }
+            targetIndex++;
+        }
+        return result.len == 0
+            ? "." : Strings.join(result, Platform.pathSeparator());
+    }
+
+    public string payload(
+            string root, string rootPackage, Vector<FePackageNode> packages) {
+        Vector<FePackageNode> sorted = [];
+        int copyIndex = 0;
+        while (copyIndex < packages.len) {
+            sorted.push(packages.get(copyIndex));
+            copyIndex++;
+        }
+        sorted.sortBy((FePackageNode left, FePackageNode right) =>
+            Strings.lessThan(left.name, right.name));
+        JsonValue packageValues = JsonValue.makeArray();
+        int packageIndex = 0;
+        while (packageIndex < sorted.len) {
+            FePackageNode package = sorted.get(packageIndex);
+            JsonValue dependencies = JsonValue.makeObject();
+            Vector<string> aliases = package.dependencies.keys();
+            aliases.sortBy((string left, string right) =>
+                Strings.lessThan(left, right));
+            int aliasIndex = 0;
+            while (aliasIndex < aliases.len) {
+                string alias = aliases.get(aliasIndex);
+                dependencies.set(alias, JsonValue.makeString(
+                    package.dependencies.get(alias)));
+                aliasIndex++;
+            }
+            JsonValue source = JsonValue.makeObject();
+            source.set("path", JsonValue.makeString(
+                self.relativePath(root, package.sourcePath)));
+            JsonValue record = JsonValue.makeObject();
+            record.set("dependencies", dependencies);
+            record.set("manifest-hash", JsonValue.makeString(package.manifestHash));
+            record.set("name", JsonValue.makeString(package.name));
+            record.set("source", source);
+            packageValues.push(record);
+            packageIndex++;
+        }
+        string graphHash = FePackageSha256().digest(packageValues.stringify());
+        JsonValue lock = JsonValue.makeObject();
+        lock.set("manifest-hash", JsonValue.makeString(graphHash));
+        lock.set("packages", packageValues);
+        lock.set("root", JsonValue.makeString(rootPackage));
+        lock.set("schema", JsonValue.makeInt(3));
+        return lock.stringify();
+    }
+}
+
+class FeResolvedPackages {
+    public bool versioned;
+    public string manifestPath;
+    public string rootPackage;
+    public Map<string, FePackageNode> nodes;
+    public FeNativeLinkPlan linkPlan;
+
+    public FeResolvedPackages(
+            bool versioned, string manifestPath, string rootPackage,
+            Map<string, FePackageNode> nodes, FeNativeLinkPlan linkPlan) {
+        self.versioned = versioned;
+        self.manifestPath = manifestPath;
+        self.rootPackage = rootPackage;
+        self.nodes = nodes;
+        self.linkPlan = linkPlan;
+    }
+
+    private FePackageNode ownerFor(string sourcePath) {
+        string source = PathTools.absolute(sourcePath);
+        Vector<string> names = self.nodes.keys();
+        FePackageNode best = null;
+        int bestLength = -1;
+        int index = 0;
+        while (index < names.len) {
+            FePackageNode package = self.nodes.get(names.get(index));
+            string prefix = package.root.endsWith(Platform.pathSeparator())
+                ? package.root : package.root + Platform.pathSeparator();
+            string comparedSource = Platform.isWindows()
+                ? source.toLower() : source;
+            string comparedRoot = Platform.isWindows()
+                ? package.root.toLower() : package.root;
+            string comparedPrefix = Platform.isWindows()
+                ? prefix.toLower() : prefix;
+            if ((comparedSource.equals(comparedRoot)
+                    || comparedSource.startsWith(comparedPrefix))
+                    && package.root.length() > bestLength) {
+                best = package;
+                bestLength = package.root.length();
+            }
+            index++;
+        }
+        return best;
+    }
+
+    public Vector<string> pathsForImport(string spec, string sourcePath) {
+        Vector<string> result = [];
+        if (!self.versioned) { return result; }
+        int separator = spec.indexOf(".");
+        string alias = separator < 0 ? spec : spec.substring(0, separator);
+        string rest = separator < 0 ? "" : spec.substring(
+            separator + 1, spec.length() - separator - 1);
+        FePackageNode owner = self.ownerFor(sourcePath);
+        if (owner == null || !owner.dependencies.has(alias)) { return result; }
+        string targetName = owner.dependencies.get(alias);
+        if (!self.nodes.has(targetName)) {
+            FePackageFailure.fail(
+                f"package graph is missing dependency target '{targetName}'");
+        }
+        FePackageNode target = self.nodes.get(targetName);
+        string module = rest.isEmpty() ? target.name : rest;
+        string relative = Strings.replace(module, ".", "/") + ".btrc";
+        string underSource = PathTools.join(
+            PathTools.join(target.root, "src"), relative);
+        string underRoot = PathTools.join(target.root, relative);
+        if (FileSystem.isFile(underSource)) {
+            result.push(PathTools.absolute(underSource));
+            return result;
+        }
+        if (FileSystem.isFile(underRoot)) {
+            result.push(PathTools.absolute(underRoot));
+            return result;
+        }
+        FePackageFailure.fail(
+            f"package import '{spec}' not found in dependency '{alias}'\n"
+            + f"  package root: {target.root}");
+        return result;
+    }
+}
+
+class FePackageGraphResolver {
+    private FeSourceFileReader sourceFiles;
+    private Map<string, FePackageNode> nodesByRoot;
+    private Map<string, string> rootsByName;
+    private Map<string, bool> visiting;
+    private Vector<string> visitingOrder;
+
+    public FePackageGraphResolver(FeSourceFileReader sourceFiles) {
+        self.sourceFiles = sourceFiles;
+        self.nodesByRoot = {};
+        self.rootsByName = {};
+        self.visiting = {};
+        self.visitingOrder = [];
+    }
+
+    private string findManifest(string sourcePath) {
+        string directory = PathTools.absolute(PathTools.dirname(sourcePath));
+        while (!directory.isEmpty()) {
+            string manifest = PathTools.join(directory, "btrc.toml");
+            if (FileSystem.isFile(manifest)) { return manifest; }
+            string parent = PathTools.dirname(directory);
+            if (parent.equals(directory)) { break; }
+            directory = parent;
+        }
+        return "";
+    }
+
+    private string cycleDiagnostic(string repeated) {
+        Vector<string> names = [];
+        bool collecting = false;
+        int index = 0;
+        while (index < self.visitingOrder.len) {
+            string root = self.visitingOrder.get(index);
+            if (root.equals(repeated)) { collecting = true; }
+            if (collecting) { names.push(PathTools.basename(root)); }
+            index++;
+        }
+        names.push(PathTools.basename(repeated));
+        return Strings.join(names, " -> ");
+    }
+
+    private string resolveNode(string root) {
+        string canonical = PathTools.absolute(root);
+        if (self.nodesByRoot.has(canonical)) {
+            return self.nodesByRoot.get(canonical).name;
+        }
+        if (self.visiting.has(canonical)) {
+            FePackageFailure.fail(
+                "package dependency cycle: " + self.cycleDiagnostic(canonical));
+        }
+        string manifestPath = PathTools.join(canonical, "btrc.toml");
+        if (!FileSystem.isFile(manifestPath)) {
+            FePackageFailure.fail(
+                f"package dependency root '{canonical}' is missing btrc.toml");
+        }
+        string source = self.sourceFiles.readRequired(manifestPath);
+        FeParsedPackageManifest manifest = FePackageManifestParser(
+            source, manifestPath, canonical).parse();
+        if (self.rootsByName.has(manifest.name)
+                && !self.rootsByName.get(manifest.name).equals(canonical)) {
+            FePackageFailure.fail(
+                f"package name '{manifest.name}' resolves to both "
+                + f"'{self.rootsByName.get(manifest.name)}' and '{canonical}'");
+        }
+        self.rootsByName.put(manifest.name, canonical);
+        self.visiting.put(canonical, true);
+        self.visitingOrder.push(canonical);
+        Map<string, string> dependencies = {};
+        Vector<FeManifestDependency> sortedDependencies = [];
+        int copyIndex = 0;
+        while (copyIndex < manifest.dependencies.len) {
+            sortedDependencies.push(manifest.dependencies.get(copyIndex));
+            copyIndex++;
+        }
+        sortedDependencies.sortBy((FeManifestDependency left,
+                                   FeManifestDependency right) =>
+            Strings.lessThan(left.alias, right.alias));
+        int index = 0;
+        while (index < sortedDependencies.len) {
+            FeManifestDependency dependency = sortedDependencies.get(index);
+            if (!dependency.git.isEmpty()) {
+                FePackageFailure.fail(
+                    f"Git dependency '{dependency.alias}' is not yet supported by btrcc");
+            }
+            if (PathTools.isAbsolute(dependency.path)) {
+                FePackageFailure.fail(
+                    f"path dependency '{dependency.alias}' must be relative");
+            }
+            string dependencyRoot = PathTools.absolute(
+                PathTools.join(canonical, dependency.path));
+            if (!FileSystem.isDir(dependencyRoot)) {
+                FePackageFailure.fail(
+                    f"path dependency '{dependency.alias}' does not name a directory: "
+                    + f"'{dependency.path}'");
+            }
+            dependencies.put(
+                dependency.alias, self.resolveNode(dependencyRoot));
+            index++;
+        }
+        self.visiting.remove(canonical);
+        self.visitingOrder.pop();
+        FePackageNode node = FePackageNode(
+            manifest.name, canonical, dependencies, canonical,
+            FePackageSha256().digest(source),
+            manifest.nativeDeclarations);
+        self.nodesByRoot.put(canonical, node);
+        return manifest.name;
+    }
+
+    public FeResolvedPackages resolveFor(
+            string sourcePath, string targetValue) {
+        string manifestPath = self.findManifest(sourcePath);
+        if (manifestPath.isEmpty()) {
+            Map<string, FePackageNode> emptyNodes = {};
+            Vector<FePackageNode> emptyPackages = [];
+            Vector<FeNativeDeclaration> emptyDeclarations = [];
+            FeNativeLinkPlan emptyPlan = FeNativeLinkPlan(
+                FePackageTarget("", ""), emptyPackages, emptyDeclarations);
+            return FeResolvedPackages(
+                false, "", "", emptyNodes, emptyPlan);
+        }
+        string rootSource = self.sourceFiles.readRequired(manifestPath);
+        if (rootSource.indexOf("manifest-version") < 0) {
+            Map<string, FePackageNode> legacyNodes = {};
+            Vector<FePackageNode> legacyPackages = [];
+            Vector<FeNativeDeclaration> legacyDeclarations = [];
+            FeNativeLinkPlan legacyPlan = FeNativeLinkPlan(
+                FePackageTarget("", ""), legacyPackages, legacyDeclarations);
+            return FeResolvedPackages(
+                false, manifestPath, "", legacyNodes, legacyPlan);
+        }
+        FePackageTarget target = FePackageTarget.parse(targetValue);
+        string root = PathTools.absolute(PathTools.dirname(manifestPath));
+        string lockPath = PathTools.join(root, "btrc.lock");
+        FePackageLock lock = FePackageLock(self.sourceFiles);
+        string existingLock = lock.validatedExisting(lockPath);
+        string rootPackage = self.resolveNode(root);
+        Map<string, FePackageNode> nodes = {};
+        Vector<FePackageNode> packages = [];
+        Vector<FeNativeDeclaration> declarations = [];
+        Vector<string> roots = self.nodesByRoot.keys();
+        int index = 0;
+        while (index < roots.len) {
+            FePackageNode node = self.nodesByRoot.get(roots.get(index));
+            nodes.put(node.name, node);
+            packages.push(node);
+            int nativeIndex = 0;
+            while (nativeIndex < node.nativeDeclarations.len) {
+                declarations.push(node.nativeDeclarations.get(nativeIndex));
+                nativeIndex++;
+            }
+            index++;
+        }
+        FeNativeLinkPlan plan = FeNativeLinkPlan(
+            target, packages, declarations);
+        string lockPayload = lock.payload(root, rootPackage, packages);
+        if (!existingLock.equals(lockPayload)
+                && !FePackageFileStore().writeAtomically(lockPath, lockPayload)) {
+            FePackageFailure.fail(
+                f"cannot atomically publish package lock '{lockPath}'");
+        }
+        return FeResolvedPackages(
+            true, manifestPath, rootPackage, nodes, plan);
+    }
+}

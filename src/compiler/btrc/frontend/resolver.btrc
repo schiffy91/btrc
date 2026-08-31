@@ -8,6 +8,7 @@ import ../lexer/lexer.btrc;
 import ../syntax/grammar.btrc;
 import ../syntax/tokens.btrc;
 import ./models.btrc;
+import ./packages.btrc;
 import ./source_io.btrc;
 import ./stdlib.btrc;
 
@@ -267,14 +268,17 @@ class FeImportResolver {
     private FeStdlibRootSnapshot stdlibSnapshot;
     private FeSourceDirectoryScanner sourceDirectories;
     private FeSourcePathPolicy sourcePaths;
+    private FeResolvedPackages packages;
 
     public FeImportResolver(
             FeStdlibRepository stdlib, FeStdlibRootSnapshot stdlibSnapshot,
-            FeSourceDirectoryScanner sourceDirectories) {
+            FeSourceDirectoryScanner sourceDirectories,
+            FeResolvedPackages packages = null) {
         self.stdlib = stdlib;
         self.stdlibSnapshot = stdlibSnapshot;
         self.sourceDirectories = sourceDirectories;
         self.sourcePaths = FeSourcePathPolicy();
+        self.packages = packages;
     }
 
     /* Resolve a #include path against the including file's directory, then the
@@ -429,8 +433,7 @@ class FeImportResolver {
         exit(1);
     }
 
-    /* Resolve the exact raw import form captured by FeDirectiveScanner.
-     * Package paths fail closed because btrc.toml resolution is not self-hosted. */
+    /* Resolve the exact raw import form captured by FeDirectiveScanner. */
     public Vector<string> resolveSpec(string spec, string sourceDir) {
         int length = spec.length();
         if (length >= 2 && spec[0] == '"' && spec[length - 1] == '"') {
@@ -463,9 +466,24 @@ class FeImportResolver {
             return self.resolveRelative(spec, sourceDir);
         }
         if (self.packageImportSpec(spec)) {
-            fprintf(stderr,
-                "error: package import '%s' is unsupported by btrcc; use btrcpy, or use an explicit local path beginning with './'\n",
-                spec);
+            if (self.packages == null) {
+                fprintf(stderr,
+                    "error: package import '%s' is unsupported by btrcc without a version-1 btrc.toml; use an explicit local path beginning with './'\n",
+                    spec);
+                exit(1);
+            }
+            Vector<string> packagePaths = self.packages.pathsForImport(
+                spec, sourceDir);
+            if (packagePaths.len > 0) { return packagePaths; }
+            if (!self.packages.versioned) {
+                fprintf(stderr,
+                    "error: package import '%s' is unsupported by btrcc without a version-1 btrc.toml; use an explicit local path beginning with './'\n",
+                    spec);
+            } else {
+                fprintf(stderr,
+                    "error: package import '%s' is not declared by the owning btrc.toml; use an explicit local path beginning with './' for local files\n",
+                    spec);
+            }
             exit(1);
         }
         self.rejectInvalidSpec(spec);
@@ -592,21 +610,24 @@ class FeFrontendResolver {
     private Map<string, bool> included;
     private FeDependencyGraphBuilder dependencies;
     private FeSourcePathPolicy sourcePaths;
+    private FeResolvedPackages packages;
 
     public FeFrontendResolver(
             GrammarInfo grammar, FeStdlibRepository stdlib,
-            bool includeStdlib, bool strictImports) {
+            bool includeStdlib, bool strictImports,
+            FeResolvedPackages packages = null) {
         self.directiveScanner = FeDirectiveScanner(grammar);
         self.sourceDirectories = FeSourceDirectoryScanner();
         self.sourcePaths = FeSourcePathPolicy();
         self.stdlib = stdlib;
+        self.packages = packages;
         Vector<string> emptyPaths = [];
         Vector<string> emptySources = [];
         FeStdlibRootSnapshot emptySnapshot = FeStdlibRootSnapshot(
             emptyPaths, emptySources);
         self.stdlibSnapshot = emptySnapshot;
         self.importResolver = FeImportResolver(
-            stdlib, emptySnapshot, self.sourceDirectories);
+            stdlib, emptySnapshot, self.sourceDirectories, packages);
         self.includeStdlib = includeStdlib;
         self.strictImports = strictImports;
         self.included = {};
@@ -734,7 +755,8 @@ class FeFrontendResolver {
         FeStdlibRootSnapshot currentSnapshot = self.stdlib.rootSnapshot();
         self.stdlibSnapshot = currentSnapshot;
         self.importResolver = FeImportResolver(
-            self.stdlib, currentSnapshot, self.sourceDirectories);
+            self.stdlib, currentSnapshot, self.sourceDirectories,
+            self.packages);
 
         Vector<FeLine> userLines = [];
         self.resolveGraph(source, sourcePath, userLines);

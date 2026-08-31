@@ -2,7 +2,7 @@
         btrcc-windows-x64 btrcc-dist test-windows gpu gpu-required gui ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
         generated-check compiler-codegen-generate compiler-codegen-check lint format format-check \
-        examples examples-todo examples-game examples-triangle examples-sgd examples-gui bench \
+        examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer clean
 
@@ -322,6 +322,10 @@ examples-sgd: generated-check gpu-required ## Build the GPU SGD example
 
 examples-gui: generated-check ## Build + run the headless GUI example
 	$(NIX) $(MAKE) -C examples gui
+
+examples-native-package: generated-check ## Build recursive native package from its canonical plan (set TARGET)
+	@test -n "$(TARGET)" || { echo "TARGET is required (for example TARGET=linux-x64)" >&2; exit 2; }
+	$(NIX) $(MAKE) -C examples native-package TARGET="$(TARGET)"
 
 bench: generated-check ## Build + run the benchmark suite (times transpile + compile + run)
 	$(NIX) $(MAKE) -C bench

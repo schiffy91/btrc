@@ -7,7 +7,7 @@
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: all cpu gpu callback todo game triangle sgd gui clean
+.PHONY: all cpu gpu callback todo game triangle sgd gui native-package clean
 
 GPU_LIB := ../build/stdlib/gpu/libbtrc_gpu.a
 
@@ -58,3 +58,8 @@ clean:
 	@$(MAKE) -C sgd clean 2>/dev/null || true
 	@$(MAKE) -C gui clean 2>/dev/null || true
 	@$(MAKE) -C tray clean 2>/dev/null || true
+	@$(MAKE) -C native-package clean 2>/dev/null || true
+
+native-package: ## Build the recursive C/C++ package through its emitted plan
+	@test -n "$(TARGET)" || { echo "TARGET is required" >&2; exit 2; }
+	@$(MAKE) -C native-package TARGET="$(TARGET)" run

@@ -46,6 +46,7 @@ EXPECTED_BTRC_FILES = frozenset(
     cli/driver.btrc
     compiler.btrc
     frontend/models.btrc
+    frontend/packages.btrc
     frontend/resolver.btrc
     frontend/source_io.btrc
     frontend/stage.btrc
@@ -151,6 +152,7 @@ REQUIRED_OWNER_BY_PATH = {
     "parser/parser.btrc": "Parser",
     "parser/source_macros.btrc": "SourceMacroDefinition",
     "frontend/source_io.btrc": "FeSourceFileReader",
+    "frontend/packages.btrc": "FePackageGraphResolver",
     "frontend/stdlib.btrc": "FeStdlibRepository",
     "frontend/resolver.btrc": "FeFrontendResolver",
     "frontend/visibility.btrc": "FeImportVisibilityChecker",
@@ -418,7 +420,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 90
+    assert len(actual) == 91
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"btrcc_main.btrc", "compiler.btrc"}
 
 

@@ -44,6 +44,8 @@ NATIVE_LINK_PLAN_SCHEMA = 1
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _NATIVE_NAME = re.compile(r"^[A-Za-z0-9_.+-]+$")
+_SHA256 = re.compile(r"^[0-9a-f]{64}$")
+_GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _TARGET_OPERATING_SYSTEMS = frozenset({"linux", "macos", "windows"})
 _TARGET_ARCHITECTURES = frozenset({"x86_64", "aarch64"})
 _SOURCE_STANDARDS = MappingProxyType(
@@ -240,9 +242,7 @@ class NativeLinkPlan:
         return (
             "c++"
             if any(
-                item.selected_for(self.target)
-                and item.kind == "source"
-                and item.language in {"c++", "objective-c++"}
+                item.selected_for(self.target) and item.kind == "source" and item.language in {"c++", "objective-c++"}
                 for item in self.declarations
             )
             else "c"
@@ -306,13 +306,16 @@ class NativeLinkPlan:
         }
 
     def canonical_json(self) -> str:
-        return json.dumps(
-            self.as_dict(),
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ) + "\n"
+        return (
+            json.dumps(
+                self.as_dict(),
+                allow_nan=False,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            + "\n"
+        )
 
 
 @dataclass(frozen=True)
@@ -384,8 +387,8 @@ class PackageManifestReader:
     ) -> None:
         self.file_store = file_store or PackageFileStore()
 
-    def read(self, path: str) -> dict:
-        """Load one regular manifest without unbounded input allocation."""
+    def read_document(self, path: str) -> tuple[dict, bytes]:
+        """Load and parse one manifest while retaining the exact hashed bytes."""
         manifest_file = self.file_store.open_regular_binary(
             path,
             follow_symlinks=True,
@@ -407,6 +410,12 @@ class PackageManifestReader:
             raise ValueError(f"cannot parse package manifest '{path}': {error}") from error
         if not isinstance(manifest, dict):
             raise ValueError(f"package manifest '{path}' must contain a TOML table")
+        return manifest, encoded
+
+    def read(self, path: str) -> dict:
+        """Load one regular manifest without unbounded input allocation."""
+
+        manifest, _ = self.read_document(path)
         return manifest
 
 
@@ -414,9 +423,7 @@ class PackageManifestValidator:
     """Validate the closed version-1 manifest model."""
 
     _TOP_LEVEL_FIELDS = frozenset({"manifest-version", "package", "dependencies", "native"})
-    _NATIVE_FIELDS = frozenset(
-        {"sources", "headers", "include-directories", "defines", "frameworks", "pkg-config"}
-    )
+    _NATIVE_FIELDS = frozenset({"sources", "headers", "include-directories", "defines", "frameworks", "pkg-config"})
 
     @staticmethod
     def _reject_unknown(value: Mapping, allowed: frozenset[str], context: str) -> None:
@@ -489,6 +496,8 @@ class PackageManifestValidator:
                 value = specification["path"]
                 if not isinstance(value, str) or not value:
                     raise ValueError(f"dependency {alias!r} in {path!r} path must be non-empty text")
+                if os.path.isabs(value):
+                    raise ValueError(f"dependency {alias!r} in {path!r} path must be relative")
             else:
                 self._reject_unknown(
                     specification,
@@ -720,10 +729,14 @@ class PackageUniverse:
             raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} lockfile {path!r}: unexpected fields")
         if (
             not isinstance(lock["manifest-hash"], str)
+            or _SHA256.fullmatch(lock["manifest-hash"]) is None
             or not isinstance(lock["root"], str)
+            or _IDENTIFIER.fullmatch(lock["root"]) is None
             or not isinstance(lock["packages"], list)
         ):
             raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} lockfile {path!r}")
+        names: set[str] = set()
+        dependency_targets: list[str] = []
         for entry in lock["packages"]:
             if not isinstance(entry, dict) or set(entry) != {
                 "dependencies",
@@ -739,6 +752,44 @@ class PackageUniverse:
                 or not isinstance(entry["source"], dict)
             ):
                 raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} package in {path!r}")
+            name = entry["name"]
+            dependencies = entry["dependencies"]
+            source = entry["source"]
+            valid_dependencies = all(
+                isinstance(alias, str)
+                and _IDENTIFIER.fullmatch(alias) is not None
+                and isinstance(target, str)
+                and _IDENTIFIER.fullmatch(target) is not None
+                for alias, target in dependencies.items()
+            )
+            valid_path_source = (
+                set(source) == {"path"}
+                and isinstance(source["path"], str)
+                and bool(source["path"])
+                and not os.path.isabs(source["path"])
+            )
+            valid_git_source = (
+                set(source) == {"commit", "git", "rev"}
+                and isinstance(source["commit"], str)
+                and _GIT_COMMIT.fullmatch(source["commit"]) is not None
+                and isinstance(source["git"], str)
+                and bool(source["git"])
+                and isinstance(source["rev"], str)
+                and bool(source["rev"])
+                and not source["rev"].startswith("-")
+            )
+            if (
+                _IDENTIFIER.fullmatch(name) is None
+                or name in names
+                or _SHA256.fullmatch(entry["manifest-hash"]) is None
+                or not valid_dependencies
+                or not (valid_path_source or valid_git_source)
+            ):
+                raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} package in {path!r}")
+            names.add(name)
+            dependency_targets.extend(dependencies.values())
+        if lock["root"] not in names or any(target not in names for target in dependency_targets):
+            raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} package graph in {path!r}")
         return lock
 
     @staticmethod
@@ -804,7 +855,7 @@ class PackageUniverse:
         manifest_path = os.path.join(root, "btrc.toml")
         if not os.path.isfile(manifest_path):
             raise ValueError(f"package dependency root {root!r} is missing btrc.toml")
-        manifest = self.manifest_reader.read(manifest_path)
+        manifest, manifest_bytes = self.manifest_reader.read_document(manifest_path)
         name = self.manifest_validator.validate_identity(manifest, manifest_path)
         previous_root = roots_by_name.get(name)
         if previous_root is not None and previous_root != root:
@@ -830,9 +881,7 @@ class PackageUniverse:
                 refresh=refresh,
             )
         visiting.pop()
-        manifest_hash = hashlib.sha256(
-            json.dumps(manifest, allow_nan=False, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest()
+        manifest_hash = hashlib.sha256(manifest_bytes).hexdigest()
         node = PackageNode(
             name=name,
             root=root,
@@ -899,10 +948,7 @@ class PackageUniverse:
         if lock != payload:
             self.file_store.write_json(lock_path, payload, file_mode=0o644)
         root_node = nodes[root_package]
-        entries = {
-            alias: {"path": nodes[package].root}
-            for alias, package in root_node.dependencies.items()
-        }
+        entries = {alias: {"path": nodes[package].root} for alias, package in root_node.dependencies.items()}
         declarations = tuple(
             declaration
             for package in sorted(nodes.values(), key=lambda item: item.name)

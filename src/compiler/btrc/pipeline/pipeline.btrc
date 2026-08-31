@@ -3,6 +3,7 @@
 import std.map;
 import std.strings;
 import std.vector;
+import ../frontend/packages.btrc;
 import ../ir/stage.btrc;
 import ./models.btrc;
 
@@ -11,6 +12,7 @@ class CompilerPipeline {
     private FeStdlibRepository stdlib;
     private FeStdlibSymbolIndex stdlibSymbols;
     private HostedAbiRepository hostedAbi;
+    private FeSourceFileReader sourceFiles;
 
     public CompilerPipeline(GrammarInfo grammar, string stdlibDirectory,
                             FeSourceFileReader sourceFiles) {
@@ -20,10 +22,11 @@ class CompilerPipeline {
         self.stdlibSymbols = FeStdlibSymbolIndex();
         self.hostedAbi = HostedAbiRepository(
             GeneratedHostedAbiData());
+        self.sourceFiles = sourceFiles;
     }
 
     private BtrccCompilationResult failure(string diagnostic) {
-        return BtrccCompilationResult(false, "", diagnostic);
+        return BtrccCompilationResult(false, "", diagnostic, "");
     }
 
     private string visibilityDiagnostic(
@@ -39,9 +42,11 @@ class CompilerPipeline {
 
     public BtrccCompilationResult compile(string source, string sourcePath,
                                           BtrccOptions options) {
+        FeResolvedPackages packages = FePackageGraphResolver(
+            self.sourceFiles).resolveFor(sourcePath, options.target);
         FeFrontendResolver resolver = FeFrontendResolver(
             self.grammar, self.stdlib,
-            options.includeStdlib, options.strictImports);
+            options.includeStdlib, options.strictImports, packages);
         FeResolvedSource resolved = resolver.resolve(source, sourcePath);
 
         Lexer lexer = Lexer(resolved.source, self.grammar);
@@ -123,6 +128,7 @@ class CompilerPipeline {
             IROptimizer(setjmpSafety, runtimeHelpers);
         optimizer.optimize(module, options.runDce);
         CEmitter emitter = CEmitter();
-        return BtrccCompilationResult(true, emitter.emit(module), "");
+        return BtrccCompilationResult(
+            true, emitter.emit(module), "", packages.linkPlan.canonicalJson());
     }
 }

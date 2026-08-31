@@ -30,6 +30,7 @@ examples/game/game
 examples/triangle/triangle
 examples/sgd/sgd
 examples/tray/tray_demo
+examples/native-package/build/
 
 # macOS
 .DS_Store

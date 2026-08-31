@@ -20,7 +20,7 @@ orchestration, and `pipeline/pipeline.btrc` owns ordered compilation.
 `BtrccOptions` defaults to strict imports before any of those owners can observe
 it.
 
-The destination contains exactly 88 `.btrc` files: 82 compiler/generated files
+The destination contains exactly 89 `.btrc` files: 83 compiler/generated files
 and six explicit developer-tool files. `compiler.btrc` and
 `btrcc_main.btrc` are the only `.btrc` files at this package root.
 
@@ -31,7 +31,7 @@ public stages.
 | Domain | Manifest or primary owner |
 |---|---|
 | Application and command | `compiler.btrc`, `cli/driver.btrc`, `pipeline/stage.btrc` |
-| Front end and import visibility | `frontend/stage.btrc`, `frontend/resolver.btrc`, `frontend/visibility.btrc` |
+| Packages, front end, and visibility | `frontend/stage.btrc`, `frontend/packages.btrc`, `frontend/resolver.btrc`, `frontend/visibility.btrc` |
 | Grammar and lexer | `lexer/stage.btrc` |
 | Parser | `parser/stage.btrc` |
 | Semantic analysis | `analyzer/stage.btrc`, `analyzer/analyzer.btrc` |
@@ -43,7 +43,7 @@ The exact owner packages are `cli/`, `pipeline/`, `syntax/`, `lexer/`,
 `frontend/`, `parser/`, `analyzer/`, `analyzer/ownership/`,
 `analyzer/validation/`, `ir/`, `ir/runtime/`, `ir/lowering/`,
 `ir/lowering/ownership/`, `ir/gpu/`, `ir/optimization/`,
-`ir/optimization/setjmp/`, `generated/`, and `tools/`. The complete 88-file
+`ir/optimization/setjmp/`, `generated/`, and `tools/`. The complete 89-file
 inventory is recorded in
 [`docs/design/compiler-structure.md`](../../../docs/design/compiler-structure.md).
 
@@ -108,11 +108,16 @@ stdlib and relevant module directory on the include path, such as
 `-I "$(btrcc --stdlib-dir)" -I "$(btrcc --stdlib-dir)/gui"`, then link the
 module runtime described in that stdlib directory.
 
-`btrcc` intentionally rejects package-style imports (`import dep` or
-`import dep.module`) because the `btrc.toml`/lockfile resolver has not yet been
-self-hosted. Use `btrcpy` for package projects. Local imports remain supported
-when written as explicit paths such as `import ./dep.btrc` or a quoted path;
-btrcc never falls back from a package name to a same-named file.
+`btrcc` resolves strict version-1 local package graphs with dependency-local
+aliases, recursive cycle detection, canonical schema-3 locks, and native link
+plans. `--target OS-ARCH --emit-link-plan PATH` emits the same plan bytes as
+the reference compiler. `btrcc` requires the target explicitly for a
+version-1 manifest and fails closed if it is omitted. Git acquisition remains
+owned by `btrcpy`; `btrcc`
+rejects Git dependencies precisely instead of invoking a shell or accepting an
+unpinned checkout. Local path imports remain supported explicitly as
+`import ./dep.btrc` or a quoted path, and a package name never falls back to a
+same-named local file.
 
 For parser-stage inspection:
 

@@ -13,6 +13,7 @@
 import std.console;
 import ../cli/driver.btrc;
 import ../frontend/models.btrc;
+import ../frontend/packages.btrc;
 import ../frontend/resolver.btrc;
 import ../frontend/source_io.btrc;
 import ../frontend/stdlib.btrc;
@@ -29,7 +30,7 @@ class FrontendInspectionCommand {
 
     private string usage() {
         return "usage: frontend [--strict-imports | --relaxed-imports] "
-            + "[--no-stdlib] <file.btrc>";
+            + "[--no-stdlib] [--target OS-ARCH] <file.btrc>";
     }
 
     public int run(int argc, char** argv) {
@@ -40,6 +41,7 @@ class FrontendInspectionCommand {
 
         bool includeStdlib = true;
         bool strictImports = true;
+        string target = "";
         int argumentIndex = 1;
         while (argumentIndex < argc) {
             string option = Strings.copy(argv[argumentIndex]);
@@ -49,6 +51,13 @@ class FrontendInspectionCommand {
                 strictImports = true;
             } else if (option.equals("--relaxed-imports")) {
                 strictImports = false;
+            } else if (option.equals("--target")) {
+                argumentIndex++;
+                if (argumentIndex >= argc) {
+                    Console.error("--target requires OS-ARCH");
+                    return 1;
+                }
+                target = Strings.copy(argv[argumentIndex]);
             } else {
                 break;
             }
@@ -72,8 +81,11 @@ class FrontendInspectionCommand {
             self.sourceFiles.readRequired(dataPaths.grammar)).parse();
         FeStdlibRepository stdlib = FeStdlibRepository(
             dataPaths.stdlib, self.sourceFiles);
+        FeResolvedPackages packages = FePackageGraphResolver(
+            self.sourceFiles).resolveFor(path, target);
         FeFrontendResolver resolver = FeFrontendResolver(
-            grammar, stdlib, includeStdlib, strictImports);
+            grammar, stdlib, includeStdlib, strictImports,
+            packages);
         FeResolvedSource resolved = resolver.resolve(source, path);
         if (self.output.write(resolved.source)) { return 0; }
         fprintf(

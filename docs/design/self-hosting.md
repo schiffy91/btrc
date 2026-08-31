@@ -9,7 +9,7 @@ Both consume `src/language/grammar.ebnf` and `src/language/ast.asdl`, then run
 lexer, parser, analyzer, IR generation, optimization, and C emission. Language
 tests share the same source fixtures and golden runtime output.
 
-The self-hosted destination is an exact 90-file `.btrc` inventory: 84
+The self-hosted destination is an exact 91-file `.btrc` inventory: 85
 compiler/generated files and six explicit developer-tool files. At the package
 root, `compiler.btrc` is the public application object and `btrcc_main.btrc` is
 the only production process entry point. The file-by-file inventory is recorded
@@ -34,6 +34,7 @@ self-built binary.
 
 | Stage | Self-host modules | Output |
 |---|---|---|
+| Package graph | `frontend/packages.btrc` | strict lock and native link plan |
 | Grammar/lexer | `syntax/grammar.btrc`, `syntax/tokens.btrc`, `lexer/lexer.btrc` | token stream |
 | Parser | `parser/parser.btrc` | fat tagged `Node` AST |
 | Analyzer | `analyzer/stage.btrc`, `analyzer/analyzer.btrc` | symbol/type/generic metadata |
@@ -42,8 +43,9 @@ self-built binary.
 | C emission | `ir/emitter.btrc` | strict C11 text |
 
 The frontend package composes imports and the standard library through
-`frontend/resolver.btrc`, with source I/O, stdlib, and visibility retained by
-their sibling owners.
+`frontend/resolver.btrc`; `frontend/packages.btrc` owns recursive local package
+graphs, schema-3 locks, and native plans, with source I/O, stdlib, and
+visibility retained by their sibling owners.
 `btrcc_main.btrc` is the thin production entry point; `cli/driver.btrc` owns
 the command. The small lexer, parser, and front-end drivers under `tools/`
 exist for stage-boundary inspection.

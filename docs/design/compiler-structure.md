@@ -4,7 +4,7 @@ Status: **active architecture contract**.
 
 This document records the ownership-driven destination shared by the Python
 reference compiler, the self-hosted compiler, and developer tooling. The
-normative inventory is exactly 82 production Python compiler files and 90
+normative inventory is exactly 82 production Python compiler files and 91
 self-hosted `.btrc` files. File size is a review signal, not a boundary:
 independent state, invariants, and change reasons justify a separate owner.
 
@@ -211,7 +211,7 @@ src/compiler/python/
 
 ## Exact self-hosted destination
 
-The self-hosted compiler contains exactly 90 `.btrc` files: 84
+The self-hosted compiler contains exactly 91 `.btrc` files: 85
 compiler/generated files and six explicit developer-tool files. Only the
 public compiler application object and thin process entry point remain at the
 package root:
@@ -253,6 +253,7 @@ src/compiler/btrc/
   frontend/
     stage.btrc                    # public package manifest
     models.btrc                   # source/dependency value types
+    packages.btrc                 # recursive packages, locks, native plans
     source_io.btrc                # bounded UTF-8 filesystem owner
     stdlib.btrc                   # FeStdlibRepository
     resolver.btrc                 # FeFrontendResolver

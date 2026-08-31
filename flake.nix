@@ -48,6 +48,10 @@
           type = "app";
           program = "${self.packages.${system}.btrc-lsp}/bin/btrc-lsp";
         };
+        btrc-native-plan = {
+          type = "app";
+          program = "${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan";
+        };
       });
       devShells = eachSystem (pkgs: let
         isDarwin = pkgs.stdenv.hostPlatform.isDarwin;
@@ -102,6 +106,10 @@
           prefixes = runtimePrefixes;
           excludedPrefixes = [ ];
         };
+        nativePlanSource = sourceSubset {
+          prefixes = [ "tools/native_plan.py" ];
+          excludedPrefixes = [ ];
+        };
         extensionVersion = (builtins.fromJSON (builtins.readFile ./src/devex/vscode/package.json)).version;
         extensionSource = sourceSubset {
           prefixes = runtimePrefixes ++ [
@@ -131,6 +139,18 @@
             export PYTHONPATH="${runtimeSource}''${PYTHONPATH:+:$PYTHONPATH}"
             exec python3 -m src.devex.lsp "$@"
           '';
+        };
+        nativePlan = pkgs.writeShellApplication {
+          name = "btrc-native-plan";
+          runtimeInputs = [ pkgs.python314 pkgs.stdenv.cc pkgs.pkg-config ];
+          text = ''
+            export PYTHONPATH="${nativePlanSource}''${PYTHONPATH:+:$PYTHONPATH}"
+            exec ${pkgs.python314}/bin/python3 -m tools.native_plan "$@"
+          '';
+        };
+        btrc = pkgs.symlinkJoin {
+          name = "btrc-tools";
+          paths = [ btrcpy nativePlan ];
         };
         btrc-vscode = pkgs.buildNpmPackage {
           pname = "vscode-extension-btrc";
@@ -168,9 +188,10 @@
         };
       in {
         inherit btrcpy btrc-lsp btrc-vscode;
+        btrc-native-plan = nativePlan;
         btrc-vscode-extension = btrc-vscode;
-        btrc = btrcpy;
-        default = btrcpy;
+        inherit btrc;
+        default = btrc;
         devcontainer = pkgs.linkFarm "${cfg.name}-devcontainer" # nix build .#devcontainer — generates .devcontainer/ files
           (lib.mapAttrsToList (name: content: {
             inherit name;
@@ -180,6 +201,35 @@
               executable = lib.hasSuffix ".sh" name;
             };
           }) files);
+      });
+      checks = eachSystem (pkgs: let
+        system = pkgs.stdenv.hostPlatform.system;
+        nativeTarget = {
+          aarch64-darwin = "macos-arm64";
+          x86_64-darwin = "macos-x64";
+          x86_64-linux = "linux-x64";
+          aarch64-linux = "linux-arm64";
+        }.${system};
+      in {
+        native-package-plan = pkgs.runCommand "btrc-native-package-plan-check" {
+          nativeBuildInputs = [
+            pkgs.gnumake
+            pkgs.stdenv.cc
+            self.packages.${system}.btrcpy
+            self.packages.${system}.btrc-native-plan
+          ];
+        } ''
+          mkdir source
+          cp -R ${./examples/native-package}/. source/
+          chmod -R u+w source
+          make -C source run \
+            TARGET=${nativeTarget} \
+            BTRCPY=${self.packages.${system}.btrcpy}/bin/btrcpy \
+            NATIVE_PLAN=${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan \
+            CC=cc CXX=c++ PKG_CONFIG=pkg-config
+          mkdir -p "$out"
+          cp source/build/native-package.link.json "$out/"
+        '';
       });
     };
 }
