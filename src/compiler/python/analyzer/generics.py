@@ -374,9 +374,12 @@ class GenericAnalyzer:
         substitution_names = substitutions.keys()
         for type_expr, referenced_names in plan.type_uses:
             resolved = type_expr
-            if substitutions and (not referenced_names.isdisjoint(substitution_names)):
+            specialized = bool(substitutions) and (not referenced_names.isdisjoint(substitution_names))
+            if specialized:
                 resolved = self.types.substitute_type(type_expr, substitutions)
             if resolved is not None and resolved.generic_args:
+                if specialized:
+                    self._validate_specialized_contracts(resolved, resolved.line, resolved.col)
                 self.collect_type_instances(resolved, unresolved)
         self._scan_compound_operator_dependencies(plan.compound_assignments, substitutions)
 
@@ -680,7 +683,29 @@ class GenericAnalyzer:
                 continue
             if not self._validate_nested_class_arguments(owner, resolved, line, col):
                 valid = False
+            if not self._validate_specialized_contracts(resolved, line, col):
+                valid = False
             self.session.generic_resolved_type_facts.append((resolved, line, col))
+        return valid
+
+    def _validate_specialized_contracts(self, type_expr, line=0, col=0):
+        if type_expr is None:
+            return True
+        valid = True
+        if not self.types.owned_closure_invoke_is_admissible(type_expr):
+            contract_key = ("OwnedClosure.invoke", self.types.type_shape_key(type_expr))
+            if contract_key not in self.session.reported_type_shape_errors:
+                self.session.reported_type_shape_errors.add(contract_key)
+                self.types.report_type_shape_error(
+                    "OwnedClosure<Invoke> requires an exact CFunction<Signature> invoke type",
+                    type_expr,
+                    line,
+                    col,
+                )
+            valid = False
+        for argument in type_expr.generic_args or []:
+            if not self._validate_specialized_contracts(argument, line, col):
+                valid = False
         return valid
 
     def _validate_nested_class_arguments(self, owner, type_expr, line=0, col=0):

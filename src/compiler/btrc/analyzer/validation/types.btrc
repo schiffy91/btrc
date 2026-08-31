@@ -1012,20 +1012,12 @@ class TypeValidator {
                 + "C discards qualifiers on returned values", site);
         }
         Node? canonical = self.resolveAliases(typeExpr);
-        if (canonical != null && canonical.base == "OwnedClosure"
-                && canonical.generic_args.len > 0) {
-            Node? invokeType = self.resolveAliases(
-                canonical.generic_args.get(0));
-            if (invokeType != null
-                    && !self.state.typeParams.has(invokeType.base)
-                    && (invokeType.base != "__fn_ptr"
-                        || invokeType.pointer_depth != 0
-                        || invokeType.is_array)) {
-                TypeValidator.fail(
-                    "OwnedClosure<Invoke> requires an exact "
-                        + "CFunction<Signature> invoke type",
-                    site);
-            }
+        if (!SemanticTypeSystem.ownedClosureInvokeIsAdmissible(
+                typeExpr, self.state.analyzed, self.state.typeParams)) {
+            TypeValidator.fail(
+                "OwnedClosure<Invoke> requires an exact "
+                    + "CFunction<Signature> invoke type",
+                site);
         }
         if (canonical != null && canonical.base == "SpscQueue"
                 && canonical.generic_args.len > 0

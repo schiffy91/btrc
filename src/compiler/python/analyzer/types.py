@@ -1473,19 +1473,13 @@ class TypeSystem:
                 type_col,
             )
         canonical = self.canonical_type(type_expr)
-        if canonical and canonical.base == "OwnedClosure" and canonical.generic_args:
-            invoke_type = self.canonical_type(canonical.generic_args[0])
-            if (
-                invoke_type is not None
-                and invoke_type.base not in set(active_type_params)
-                and (invoke_type.base != "__fn_ptr" or invoke_type.pointer_depth != 0 or invoke_type.is_array)
-            ):
-                self.report_type_shape_error(
-                    "OwnedClosure<Invoke> requires an exact CFunction<Signature> invoke type",
-                    type_expr,
-                    type_line,
-                    type_col,
-                )
+        if not self.owned_closure_invoke_is_admissible(type_expr, active_type_params):
+            self.report_type_shape_error(
+                "OwnedClosure<Invoke> requires an exact CFunction<Signature> invoke type",
+                type_expr,
+                type_line,
+                type_col,
+            )
         if (
             canonical
             and canonical.base == "SpscQueue"
@@ -1638,6 +1632,16 @@ class TypeSystem:
                 role=argument_role,
                 active_type_params=active_type_params,
             )
+
+    def owned_closure_invoke_is_admissible(self, type_expr, active_type_params=()) -> bool:
+        """Whether an owned callback's invoke slot is exact or still unresolved."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None or canonical.base != "OwnedClosure" or not canonical.generic_args:
+            return True
+        invoke_type = self.canonical_type(canonical.generic_args[0])
+        if invoke_type is None or invoke_type.base in set(active_type_params):
+            return True
+        return invoke_type.base == "__fn_ptr" and invoke_type.pointer_depth == 0 and not invoke_type.is_array
 
     def _validate_generic_arity(self, type_expr, is_active_type_parameter=False) -> None:
         if type_expr is None:

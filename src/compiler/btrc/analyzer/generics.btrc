@@ -416,6 +416,24 @@ class GenericSpecializer {
         Node resolved = SemanticTypeSystem.resolveGenericType(
             declared, substitutions, a);
         self.validateNestedClassArguments(owner, resolved, a);
+        self.validateSpecializedContracts(resolved, a);
+    }
+
+    private void validateSpecializedContracts(Node? typeExpr, Analyzed analyzed) {
+        if (typeExpr == null) { return; }
+        Map<string, bool> noUnresolvedParameters = {};
+        if (!SemanticTypeSystem.ownedClosureInvokeIsAdmissible(
+                typeExpr, analyzed, noUnresolvedParameters)) {
+            TypeIdentity.fail(
+                "OwnedClosure<Invoke> requires an exact "
+                    + "CFunction<Signature> invoke type");
+        }
+        int argumentIndex = 0;
+        while (argumentIndex < typeExpr.generic_args.len) {
+            self.validateSpecializedContracts(
+                typeExpr.generic_args.get(argumentIndex), analyzed);
+            argumentIndex = argumentIndex + 1;
+        }
     }
 
     private void validateGenericClassSpecialization(Node typeExpr, Analyzed a) {
@@ -928,6 +946,7 @@ class GenericSpecializer {
         Node resolved = SemanticTypeSystem.resolveGenericType(
             typeExpr, substitutions, analyzed);
         if (resolved.generic_args.len > 0) {
+            self.validateSpecializedContracts(resolved, analyzed);
             self.registerGenericInstanceWithUnresolved(
                 resolved, analyzed, unresolved);
         }

@@ -126,3 +126,77 @@ def test_owned_closure_requires_cfunction_invoke_type(
     expected = "OwnedClosure<Invoke> requires an exact CFunction<Signature> invoke type"
     assert expected in selfhost.stderr
     assert expected in reference.stderr
+
+
+def test_generic_owned_closure_revalidates_invoke_type_after_specialization(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        import std.callback;
+
+        void destroy(void* context) {}
+
+        class Factory {
+            public Factory() {}
+
+            public void make<Invoke>(Invoke invoke, void* context) {
+                new OwnedClosure<Invoke>(invoke, context, destroy);
+            }
+        }
+
+        int main() {
+            Factory factory = Factory();
+            factory.make(1, null);
+            return 0;
+        }
+    """
+    (selfhost, _), (reference, _) = _compile_pair(semantic_btrcc, tmp_path, source)
+    assert selfhost.returncode != 0
+    assert reference.returncode != 0
+    expected = "OwnedClosure<Invoke> requires an exact CFunction<Signature> invoke type"
+    assert selfhost.stderr.count(expected) == 1, selfhost.stderr
+    assert reference.stderr.count(expected) == 1, reference.stderr
+
+
+def test_generic_owned_closure_accepts_exact_cfunction_specialization(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = """
+        import std.callback;
+
+        int addContext(void* raw, int value) {
+            return *(int*)raw + value;
+        }
+
+        void destroyContext(void* raw) {
+            free(raw);
+        }
+
+        class Factory {
+            public Factory() {}
+
+            public OwnedClosure<Invoke> make<Invoke>(
+                    Invoke invoke, void* context) {
+                return new OwnedClosure<Invoke>(invoke, context, destroyContext);
+            }
+        }
+
+        int main() {
+            int* context = (int*)malloc(sizeof(int));
+            *context = 40;
+            Factory factory = Factory();
+            OwnedClosure<CFunction<int, void*, int>> closure =
+                factory.make(addContext, context);
+            CFunction<int, void*, int> invoke = closure.invokePointer();
+            assert(invoke(closure.context(), 2) == 42);
+            closure.close();
+            return 0;
+        }
+    """
+    (selfhost, selfhost_c), (reference, reference_c) = _compile_pair(semantic_btrcc, tmp_path, source)
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-generic-owned-closure")
+    _strict_build_and_run(reference_c, tmp_path / "reference-generic-owned-closure")
