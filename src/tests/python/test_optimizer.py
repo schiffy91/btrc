@@ -366,6 +366,39 @@ def test_helper_dependencies_are_helper_names_not_categories():
     ]
 
 
+def test_helper_names_in_comments_and_literals_do_not_create_dependencies():
+    live = IRHelperDecl(
+        category="live",
+        name="live_helper",
+        c_source=(
+            "static void live_helper(void) {\n"
+            "    /* dead_helper is explanatory prose. */\n"
+            '    const char* text = "dead_helper";\n'
+            "    const char marker = 'd';\n"
+            "    (void)text; (void)marker;\n"
+            "}"
+        ),
+    )
+    dead = IRHelperDecl(
+        category="dead",
+        name="dead_helper",
+        c_source="static void dead_helper(void) {}",
+    )
+    module = IRModule(
+        function_defs=[
+            _fn(
+                "main",
+                [IRExprStmt(expr=IRCall(callee="live_helper", helper_ref="live_helper"))],
+            )
+        ],
+        helper_decls=[live, dead],
+    )
+
+    IROptimizer(module).optimize()
+
+    assert [helper.name for helper in module.helper_decls] == ["live_helper"]
+
+
 def test_helper_used_as_function_pointer_survives_elimination():
     callback = IRHelperDecl(
         category="callbacks",

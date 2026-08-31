@@ -76,6 +76,10 @@ class IROptimizer:
     """Own the complete ordered optimization cascade for one mutable IR module."""
 
     _C_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    _C_NON_CODE = re.compile(
+        r"/\*.*?\*/|//(?:\\\n|[^\n])*(?:\n|$)|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
+        re.DOTALL,
+    )
 
     def __init__(
         self,
@@ -126,7 +130,10 @@ class IROptimizer:
         out: set[str],
     ) -> None:
         if pattern is not None:
-            out.update(pattern.findall(text))
+            # Runtime helpers and macro replacements are C source, not bags of
+            # words.  A helper name in prose or literal data is not a semantic
+            # dependency and must not keep an otherwise dead helper alive.
+            out.update(pattern.findall(IROptimizer._C_NON_CODE.sub(" ", text)))
 
     @classmethod
     def _scan_macro_replacements(
@@ -478,7 +485,7 @@ class IROptimizer:
         self._collect_runtime_provider_references(self._module, provider_helpers)
         used.update(provider_helpers & names)
         self._scan_macro_replacements(pattern, self._module.preprocessor_decls, used)
-        keep = self._helper_dependency_closure(used, helpers_by_name, pattern)
+        keep = self._helper_dependency_closure(used, helpers_by_name)
         self._module.helper_decls = [helper for helper in self._module.helper_decls if helper.name in keep]
 
     @staticmethod
@@ -504,19 +511,16 @@ class IROptimizer:
         used.update(self._runtime_catalog.helper_names_providing_types(type_names))
         used.update(self._runtime_catalog.helper_names_providing_objects(object_names))
 
-    @classmethod
+    @staticmethod
     def _helper_dependency_closure(
-        cls,
         roots: set[str],
         helpers_by_name: dict[str, IRHelperDecl],
-        pattern: re.Pattern[str] | None,
     ) -> set[str]:
         keep = set(roots)
         worklist = list(roots)
         while worklist:
             helper = helpers_by_name[worklist.pop()]
             dependencies = {dependency for dependency in helper.depends_on if dependency in helpers_by_name}
-            cls._scan_identifiers(pattern, helper.c_source, dependencies)
             for dependency in dependencies - keep:
                 keep.add(dependency)
                 worklist.append(dependency)

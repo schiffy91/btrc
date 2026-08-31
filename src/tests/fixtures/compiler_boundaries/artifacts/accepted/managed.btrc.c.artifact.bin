@@ -233,7 +233,7 @@ int main(void) {
     (void)(__btrc_string_retain(text));
     char* __btrc_operand_1;
     char* __btrc_released_operand_2 = NULL;
-    char* volatile __btrc_boundary_result_3;
+    char* __btrc_boundary_result_3;
     char* result = ((__btrc_operand_1 = __btrc_str_track(__btrc_substring(text, 1, 2))), (__btrc_boundary_result_3 = __btrc_str_track(__btrc_toUpper(__btrc_operand_1))), (__btrc_released_operand_2 = __btrc_operand_1), (__btrc_operand_1 = NULL), ((__btrc_released_operand_2 != NULL) ? (((void)__btrc_string_release(__btrc_released_operand_2))) : ((void)0)), __btrc_boundary_result_3);
     bool __btrc_assert_condition_4 = (strcmp(result, "EL") == 0);
     (void)(((void)__btrc_assert_condition_4));

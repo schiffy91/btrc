@@ -754,9 +754,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.raw-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.raw-ir.artifact.bin"
-accepted_sha256 = "cb22883d3bc612e17e76caf6be3b25f2d65f229b5a49f855c358970c3fc1a246"
-reason = "Structured realtime provenance and canonical intrinsic targets are now explicit IR data."
-regressions = ["src/tests/btrc/test_callback_registration_contract.py", "src/tests/btrc/test_realtime_parity.py", "src/tests/python/test_boundary_renderers.py", "src/tests/python/test_realtime.py"]
+accepted_sha256 = "001f8c391adb458a69b4c9b392fa97f6340d2c9325328827c50c113f1e321485"
+reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment."
+regressions = ["src/tests/classes/test_constructor_call_result_snapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py"]
 
 [[records]]
 id = "managed.python.raw-ir.status"
@@ -782,9 +782,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.optimized-ir.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.optimized-ir.artifact.bin"
-accepted_sha256 = "892230e9961a7eea7be0eb30cc4de9d5aee99d9e79e49ba27e22c5e0611637e5"
-reason = "Structured realtime provenance and canonical intrinsic targets are now explicit IR data."
-regressions = ["src/tests/btrc/test_callback_registration_contract.py", "src/tests/btrc/test_realtime_parity.py", "src/tests/python/test_boundary_renderers.py", "src/tests/python/test_realtime.py"]
+accepted_sha256 = "cd053f40164c83ea132aff17bdeaff072d6ddaa66724fadff20b1ec1fb737536"
+reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment."
+regressions = ["src/tests/classes/test_constructor_call_result_snapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py"]
 
 [[records]]
 id = "managed.python.optimized-ir.status"
@@ -810,9 +810,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.python.c.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.python.c.artifact.bin"
-accepted_sha256 = "d1c2d680f37f500354059a5ae4b04f4405bac13fb48c61f525593472974d8af4"
-reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
-regressions = ["src/tests/python/test_boundary_renderers.py"]
+accepted_sha256 = "2d85fc0f33f71620d9867ee1cdbfe0f6c4a8654d43a8b006b0d08f2813fe4286"
+reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment."
+regressions = ["src/tests/classes/test_constructor_call_result_snapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py"]
 
 [[records]]
 id = "managed.python.c.status"
@@ -838,9 +838,9 @@ channel = "artifact"
 baseline_path = "baseline/managed.btrc.c.artifact.bin"
 baseline_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 accepted_path = "accepted/managed.btrc.c.artifact.bin"
-accepted_sha256 = "7fc3f4816830901eded4cf2c637c4a5b074425251fbfe5405a089e5e6de1fc8c"
-reason = "The current pipeline now reaches this frozen boundary after the reviewed structured-IR and self-host correctness fixes."
-regressions = ["src/tests/python/test_boundary_renderers.py"]
+accepted_sha256 = "1458de2fda7663f65c0797493ff7e24978bfa1b2d91ea20ca151b3a5d5b0be41"
+reason = "Managed call-result temporaries are volatile only when a reachable setjmp can bypass their assignment."
+regressions = ["src/tests/classes/test_constructor_call_result_snapshot.btrc", "src/tests/python/test_call_boundary_evaluation.py"]
 
 [[records]]
 id = "managed.btrc.c.status"
@@ -1685,6 +1685,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_adopt_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0022.bin"
 baseline_sha256 = "db0b453df600752f98f1f28bba53fc71fdd71884ff5dfe67a0d4e404d7b47229"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0022.bin"
+accepted_sha256 = "d4c927342f7d3e3bf0e3454e965fe3497e069f27f60f2ccfe5ae96698ff0c53b"
+reason = "Runtime-helper references are exact manifest dependencies; compiler reachability no longer infers a second graph from source text."
+regressions = ["src/tests/btrc/test_runtime_dependency_closure.py", "src/tests/python/test_optimizer.py", "src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0023"
@@ -1899,6 +1903,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_retain_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0043.bin"
 baseline_sha256 = "be024f3cf6448d6ad60638c2291a567d8c2507232843a14019a16e98da96ee43"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0043.bin"
+accepted_sha256 = "ebfdc01a48006088fd920828a54aa0c046d7b60bb2b843f5e8de961a6a622efb"
+reason = "Runtime-helper references are exact manifest dependencies; compiler reachability no longer infers a second graph from source text."
+regressions = ["src/tests/btrc/test_runtime_dependency_closure.py", "src/tests/python/test_optimizer.py", "src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0044"
@@ -2039,6 +2047,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_arc_unlink_edge"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0057.bin"
 baseline_sha256 = "73287766c5beae7e6c4f9cef3bee1b49ad5699207639048ffc655a6b5c34d7a1"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0057.bin"
+accepted_sha256 = "229a35051a9f09a2ff6d8519cc54f9a9f847288f1e568da5c25456be32406b84"
+reason = "Runtime-helper references are exact manifest dependencies; compiler reachability no longer infers a second graph from source text."
+regressions = ["src/tests/btrc/test_runtime_dependency_closure.py", "src/tests/python/test_optimizer.py", "src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0058"
@@ -2253,6 +2265,10 @@ boundary = "runtime-helper-metadata"
 channel = "helper.__btrc_cycle_collector_state"
 baseline_path = "baseline/runtime-catalog.shared.runtime-metadata.0078.bin"
 baseline_sha256 = "a34a228f3c245c7c4f0e2fa052c5b3328ef31ba2d01110e42c274f11a3b0708a"
+accepted_path = "accepted/runtime-catalog.shared.runtime-metadata.0078.bin"
+accepted_sha256 = "4d57ae0733a0f7501914fec97f6f32598b1b78883bbf535a5d045ad3a19b3b73"
+reason = "Manifest-owned helper reachability now declares semantic C dependencies explicitly; compiler selection no longer infers dependencies from comments or literals."
+regressions = ["src/tests/btrc/test_runtime_dependency_closure.py", "src/tests/python/test_optimizer.py", "src/tests/python/test_runtime_helper_registry.py"]
 
 [[records]]
 id = "runtime-catalog.shared.runtime-metadata.0079"

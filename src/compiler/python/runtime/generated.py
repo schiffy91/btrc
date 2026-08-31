@@ -3116,7 +3116,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             ' owner);\n    header->rc++;\n    header->edge_rc++;\n    __btrc_arc_validat'
             'e(object);\n    __btrc_arc_unlock_mutation();\n    return 0;\n}'
         ),
-        depends_on=('__btrc_arc_register_incoming', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
+        depends_on=('__btrc_arc_register_incoming', '__btrc_arc_validate', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -3143,7 +3143,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'ng(object, owner);\n    header->edge_rc++;\n    __btrc_arc_validate(object'
             ');\n    __btrc_arc_unlock_mutation();\n    return 0;\n}'
         ),
-        depends_on=('__btrc_arc_register_incoming', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
+        depends_on=('__btrc_arc_register_incoming', '__btrc_arc_validate', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -3170,7 +3170,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             ');\n    }\n    __btrc_arc_unregister_incoming(object, owner);\n    __btrc_a'
             'rc_unlock_mutation();\n    return 0;\n}'
         ),
-        depends_on=('__btrc_arc_unregister_incoming', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
+        depends_on=('__btrc_arc_unregister_incoming', '__btrc_arc_validate', '__btrc_arc_mutation_lock', '__btrc_arc_deferred_state'),
         required_headers=(),
         provided_types=(),
         provided_objects=(),
@@ -3452,7 +3452,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
             'slot_epoch;\n} __btrc_cycle_context;\nstatic __btrc_cycle_context __btrc_c'
             'ycle_scratch;\nstatic int __btrc_collecting = 0;\n'
         ),
-        depends_on=(),
+        depends_on=('__btrc_arc_callback_types',),
         required_headers=(),
         provided_types=(),
         provided_objects=(),

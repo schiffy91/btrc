@@ -1681,7 +1681,11 @@ order = { python = 160, btrc = 141 }
 name = "__btrc_arc_retain"
 category = "cycles"
 asset = "cycles.c"
-dependencies = ["__btrc_arc_validate", "__btrc_arc_mutation_lock", "__btrc_arc_deferred_state"]
+dependencies = [
+  "__btrc_arc_validate",
+  "__btrc_arc_mutation_lock",
+  "__btrc_arc_deferred_state",
+]
 headers = []
 source_visible = false
 order = { python = 161, btrc = 142 }
@@ -1692,6 +1696,7 @@ category = "cycles"
 asset = "cycles.c"
 dependencies = [
   "__btrc_arc_register_incoming",
+  "__btrc_arc_validate",
   "__btrc_arc_mutation_lock",
   "__btrc_arc_deferred_state",
 ]
@@ -1705,6 +1710,7 @@ category = "cycles"
 asset = "cycles.c"
 dependencies = [
   "__btrc_arc_register_incoming",
+  "__btrc_arc_validate",
   "__btrc_arc_mutation_lock",
   "__btrc_arc_deferred_state",
 ]
@@ -1718,6 +1724,7 @@ category = "cycles"
 asset = "cycles.c"
 dependencies = [
   "__btrc_arc_unregister_incoming",
+  "__btrc_arc_validate",
   "__btrc_arc_mutation_lock",
   "__btrc_arc_deferred_state",
 ]
@@ -1842,7 +1849,7 @@ order = { python = 173, btrc = 153 }
 name = "__btrc_cycle_collector_state"
 category = "cycles"
 asset = "cycles.c"
-dependencies = []
+dependencies = ["__btrc_arc_callback_types"]
 headers = []
 source_visible = false
 order = { python = 174, btrc = 127 }

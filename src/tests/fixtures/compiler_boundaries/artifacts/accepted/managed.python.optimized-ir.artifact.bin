@@ -472,7 +472,7 @@
                     "init": null,
                     "array_size": null,
                     "is_unsized_array": false,
-                    "is_volatile": true,
+                    "is_volatile": false,
                     "is_static": false,
                     "is_extern": false,
                     "cleanup_slot": null,

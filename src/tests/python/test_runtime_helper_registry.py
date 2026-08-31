@@ -1,6 +1,7 @@
 """Contracts for the generated, shared runtime-helper specification."""
 
 import ast
+import shutil
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,7 @@ import pytest
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog, RuntimeHelperSelection
 from src.compiler.python.runtime.generated import INTRINSIC_EFFECT_ROWS, RUNTIME_HELPER_ROWS
 from tools.compiler_codegen.intrinsic_effects import IntrinsicEffectManifest, IntrinsicEffectManifestError
-from tools.compiler_codegen.runtime import RuntimeCatalogGenerator, RuntimeManifest
+from tools.compiler_codegen.runtime import RuntimeCatalogGenerator, RuntimeManifest, RuntimeManifestError
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 RUNTIME_ROOT = REPOSITORY_ROOT / "src/runtime/c"
@@ -152,6 +153,58 @@ def test_manifest_dependencies_are_known_and_catalog_complete() -> None:
     assert python_names - btrc_names == {
         helper.name for helper in manifest.helpers if helper.category in {"collections", "gpu"}
     }
+
+
+def test_manifest_rejects_an_undeclared_helper_source_reference(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    shutil.copytree(RUNTIME_ROOT, runtime_root)
+    manifest_path = runtime_root / "manifest.toml"
+    source = manifest_path.read_text()
+    with_dependency = '''name = "__btrc_arc_retain_edge"
+category = "cycles"
+asset = "cycles.c"
+dependencies = [
+  "__btrc_arc_register_incoming",
+  "__btrc_arc_validate",
+  "__btrc_arc_mutation_lock",'''
+    without_dependency = with_dependency.replace('  "__btrc_arc_validate",\n', "")
+    assert source.count(with_dependency) == 1
+    manifest_path.write_text(source.replace(with_dependency, without_dependency, 1))
+
+    with pytest.raises(
+        RuntimeManifestError,
+        match=(
+            "helper __btrc_arc_retain_edge source references helpers outside "
+            "its declared dependency closure: __btrc_arc_validate"
+        ),
+    ):
+        RuntimeManifest.load(manifest_path)
+
+
+def test_manifest_rejects_an_unreachable_provided_type(tmp_path: Path) -> None:
+    runtime_root = tmp_path / "runtime"
+    shutil.copytree(RUNTIME_ROOT, runtime_root)
+    manifest_path = runtime_root / "manifest.toml"
+    source = manifest_path.read_text()
+    with_dependency = '''name = "__btrc_cycle_collector_state"
+category = "cycles"
+asset = "cycles.c"
+dependencies = ["__btrc_arc_callback_types"]'''
+    without_dependency = with_dependency.replace(
+        'dependencies = ["__btrc_arc_callback_types"]',
+        "dependencies = []",
+    )
+    assert source.count(with_dependency) == 1
+    manifest_path.write_text(source.replace(with_dependency, without_dependency, 1))
+
+    with pytest.raises(
+        RuntimeManifestError,
+        match=(
+            "helper __btrc_cycle_collector_state source references helpers outside "
+            "its declared dependency closure: __btrc_arc_callback_types"
+        ),
+    ):
+        RuntimeManifest.load(manifest_path)
 
 
 def test_btrc_catalog_order_is_unique_and_dependency_topological() -> None:

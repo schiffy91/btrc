@@ -201,6 +201,11 @@ class RuntimeManifest:
         "gpu.c",
     )
     _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+    _C_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+    _C_NON_CODE = re.compile(
+        r"/\*.*?\*/|//(?:\\\n|[^\n])*(?:\n|$)|\"(?:\\.|[^\"\\])*\"|'(?:\\.|[^'\\])*'",
+        re.DOTALL,
+    )
 
     @classmethod
     def load(cls, manifest_path: Path) -> RuntimeManifest:
@@ -375,6 +380,7 @@ class RuntimeManifest:
         if len(object_providers) != provided_object_count:
             raise RuntimeManifestError("runtime provided objects must have exactly one provider")
         known = set(names)
+        helpers_by_name = {helper.name: helper for helper in self.helpers}
         for helper in self.helpers:
             self._unique(helper.dependencies, f"helper {helper.name} dependencies")
             self._unique(helper.headers, f"helper {helper.name} headers")
@@ -382,6 +388,27 @@ class RuntimeManifest:
             if unknown:
                 raise RuntimeManifestError(
                     f"helper {helper.name} has unknown dependencies: {', '.join(sorted(unknown))}"
+                )
+        for helper in self.helpers:
+            code = self._C_NON_CODE.sub(" ", helper.source)
+            tokens = set(self._C_IDENTIFIER.findall(code))
+            references = tokens & known
+            references.update(type_providers[token] for token in tokens if token in type_providers)
+            references.update(object_providers[token] for token in tokens if token in object_providers)
+            references.discard(helper.name)
+            reachable: set[str] = set()
+            worklist = list(helper.dependencies)
+            while worklist:
+                dependency = worklist.pop()
+                if dependency in reachable:
+                    continue
+                reachable.add(dependency)
+                worklist.extend(helpers_by_name[dependency].dependencies)
+            missing = references - reachable
+            if missing:
+                raise RuntimeManifestError(
+                    f"helper {helper.name} source references helpers outside its declared dependency closure: "
+                    f"{', '.join(sorted(missing))}"
                 )
         for asset, sections in sections_by_asset.items():
             actual = [section.name for section in sections]
