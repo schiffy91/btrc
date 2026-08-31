@@ -56,8 +56,10 @@ def test_selfhost_preserves_aggregate_mutations_across_longjmp(
             int values[1] = {0};
             struct Probe probe = {0};
             try {
-                values[0] = 7;
-                probe.value = 9;
+                values[0] = 3;
+                values[0] += 4;
+                probe.value = 4;
+                probe.value += 5;
                 throw "done";
             } catch (string message) {}
             return values[0] == 7 && probe.value == 9 ? 0 : 1;

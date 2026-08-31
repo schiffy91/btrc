@@ -329,6 +329,9 @@ class Vector<T> implements Iterable {
 
     public string join(string sep) {
         if (sep == null) { sep = ""; }
+        /* The empty join has one canonical non-null representation and needs
+         * no allocation or string-registry bookkeeping. */
+        if (self.len == 0) { return ""; }
         int total = 0;
         int sepLen = __btrc_string_length(sep);
         for (int i = 0; i < self.len; i++) {

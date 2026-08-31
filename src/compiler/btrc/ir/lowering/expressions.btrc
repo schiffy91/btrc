@@ -1781,6 +1781,28 @@ class ExpressionLowerer {
                 || self.context.callDefaultTypeDepth > 0));
     }
 
+    private string directLvaluePointerType(
+            IRNode target, Node? targetType, string targetC) {
+        /* A known direct root is an aggregate/array subobject whose automatic
+         * may later become volatile in the setjmp pass. An explicitly volatile
+         * target also needs the qualified pointer. Otherwise an empty known
+         * root is storage reached through a pointer (including class fields
+         * and raw pointer indexes); qualifying that pointee volatile is
+         * unnecessary and destroys useful non-null/store facts in GCC. */
+        Node? resolvedTarget = targetType == null
+            ? null
+            : self.cTypes.resolveBodyType(
+                targetType, self.context.activeTypeMap,
+                self.context.genericBody
+                    || self.context.callDefaultTypeDepth > 0);
+        bool targetIsVolatile =
+            SemanticTypeSystem.typeEffectiveOuterVolatile(
+                resolvedTarget, self.analyzed.typedefTable);
+        return IRNode.directStorageRoot(target) == "" && !targetIsVolatile
+            ? targetC + "*"
+            : targetC + " volatile*";
+    }
+
     public IRNode lowerDirectCompound(string compoundOp,
             IRNode target, IRNode right, Node? targetType, Node? rightType,
             string targetC) {
@@ -1790,7 +1812,8 @@ class ExpressionLowerer {
         /* The setjmp pass can qualify the backing automatic after lowering.
          * A pointer-to-volatile is valid for ordinary storage too and keeps
          * this synthesized lvalue compatible when that happens. */
-        string pointerType = targetC + " volatile*";
+        string pointerType = self.directLvaluePointerType(
+            target, targetType, targetC);
         string pointerName = self.context.freshTemporary("__btrc_lvalue");
         string oldName = self.context.freshTemporary("__btrc_update_old");
         IRNode pointer = IRNode.variable(pointerName);
@@ -1822,7 +1845,8 @@ class ExpressionLowerer {
     public IRNode lowerDirectStore(
             IRNode target, IRNode value, Node targetType,
             string targetC) {
-        string pointerType = targetC + " volatile*";
+        string pointerType = self.directLvaluePointerType(
+            target, targetType, targetC);
         string pointerName = self.context.freshTemporary("__btrc_lvalue");
         IRNode pointer = IRNode.variable(pointerName);
         IRNode loaded = IRNode.dereference(pointer);
