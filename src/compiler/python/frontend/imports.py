@@ -101,12 +101,12 @@ class ImportResolver:
             return [self._stdlib_module_path(name) for name in spec.names]
         if isinstance(spec, PackagePath):
             dotted = ".".join(spec.segments)
-            return list(packages.paths_for_import(dotted)) or self._relative_paths(
+            return list(packages.paths_for_import(dotted, source_dir)) or self._relative_paths(
                 dotted,
                 source_dir,
             )
         if isinstance(spec, (RelativePath, QuotedPath)):
-            return list(packages.paths_for_import(spec.path)) or self._relative_paths(
+            return list(packages.paths_for_import(spec.path, source_dir)) or self._relative_paths(
                 spec.path,
                 source_dir,
             )

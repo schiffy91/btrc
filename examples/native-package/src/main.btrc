@@ -1,0 +1,9 @@
+import middle.api
+
+#include <assert.h>
+
+int main() {
+    assert(middle_answer() == 42);
+    print("PASS: native package graph");
+    return 0;
+}

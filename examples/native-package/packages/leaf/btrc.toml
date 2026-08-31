@@ -1,0 +1,15 @@
+manifest-version = 1
+
+[package]
+name = "leaf"
+
+[[native.sources]]
+path = "native/leaf.c"
+language = "c"
+standard = "c11"
+
+[[native.headers]]
+path = "native/leaf.h"
+
+[[native.include-directories]]
+path = "native"

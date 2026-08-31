@@ -23,7 +23,7 @@ from ..lexer.lexer import Lexer
 from ..parser.parser import Parser
 from ..syntax.ast.codec import AstJsonCodec
 from ..syntax.tokens import SourceSymbolDirective, Token, TokenKind
-from .packages import IncludeResolutionError, PackageUniverse
+from .packages import IncludeResolutionError, NativeLinkPlan, PackageUniverse
 
 
 class CompilerStdlibSource(str):
@@ -234,6 +234,7 @@ class ResolvedSource:
     graph: SourceDependencyGraph = field(default_factory=SourceDependencyGraph)
     strict_imports: bool = True
     root_source_path: str = ""
+    native_plan: NativeLinkPlan = field(default_factory=NativeLinkPlan.empty)
 
     def source_map(self, *, split_spaces: bool) -> SourceMap:
         """Return the immutable source map used by IR lowering."""
@@ -282,6 +283,7 @@ class ResolvedSource:
 
         add_text("btrc-source-provenance-v2")
         add_text(self.root_source_path)
+        add_text(self.native_plan.canonical_json())
         for source_file, native_line in self.source_positions:
             normalized = os.path.abspath(source_file) if os.path.exists(source_file) else source_file
             add_text(normalized)
@@ -933,6 +935,7 @@ class SourceResolver:
         strict_imports: bool = True,
         map_stdlib_positions: bool = False,
         refresh_packages: bool = False,
+        target: str | None = None,
         profile: dict[str, float] | None = None,
     ) -> ResolvedSource:
         """Resolve one root file into text, provenance, and dependency graph."""
@@ -940,6 +943,7 @@ class SourceResolver:
         packages = self.package_universe.resolve_for(
             source_path,
             refresh=refresh_packages,
+            target=target,
         )
         start = time.perf_counter()
         user_source, provenance, source_positions, graph = self.imports.resolve_mapped(
@@ -972,6 +976,7 @@ class SourceResolver:
             graph=graph,
             strict_imports=strict_imports,
             root_source_path=os.path.realpath(source_path),
+            native_plan=packages.native_plan,
         )
 
     def resolve_includes(

@@ -10,6 +10,7 @@ from types import MappingProxyType
 from src.compiler.python.syntax.ast.generated import Program
 
 from ..analyzer.program import AnalyzedProgram
+from ..frontend.packages import NativeLinkPlan
 from ..frontend.sources import ResolvedSource, SourceDependencyGraph
 from ..ir.nodes import IRCanonicalRenderer, IRModule
 from ..syntax.ast.codec import AstCanonicalRenderer
@@ -92,6 +93,7 @@ class CompilerOptions:
     refresh_packages: bool = False
     stdlib_archive: str | None = None
     generated_c_path: str | None = None
+    target: str | None = None
 
     @property
     def parses_program(self) -> bool:
@@ -138,6 +140,7 @@ class CompilerResult:
     analyzed: AnalyzedProgram | None = None
     ir_module: IRModule | None = None
     c_source: str | None = None
+    native_plan: NativeLinkPlan = field(default_factory=NativeLinkPlan.empty)
     failure: CompilerFailure | None = None
     diagnostics: tuple[CompilerDiagnostic, ...] = ()
     split_source_spaces: bool = False

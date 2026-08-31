@@ -174,6 +174,7 @@ class Compiler:
                     options=options,
                     source_bundle=resolved,
                     c_source=cached,
+                    native_plan=resolved.native_plan,
                     cache_hit=True,
                     profile=CompilerResult.profile_snapshot(profile),
                 )

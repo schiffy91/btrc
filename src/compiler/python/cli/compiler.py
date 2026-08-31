@@ -54,6 +54,16 @@ class CompilerCommand:
             help="Reference a prebuilt stdlib archive in DIR and emit program-only C",
         )
         parser.add_argument("-o", "--output", help="Output .c file (default: <input>.c)")
+        parser.add_argument(
+            "--emit-link-plan",
+            metavar="PATH",
+            help="Atomically write the canonical native link plan to PATH",
+        )
+        parser.add_argument(
+            "--target",
+            metavar="OS-ARCH",
+            help="Select native package predicates (for example linux-x86_64 or macos-arm64)",
+        )
         emit_group = parser.add_mutually_exclusive_group()
         emit_group.add_argument("--emit-tokens", action="store_true", help="Print token stream")
         emit_group.add_argument("--emit-ast", action="store_true", help="Print AST")
@@ -204,6 +214,7 @@ class CompilerCommand:
             refresh_packages=args.fetch,
             stdlib_archive=args.stdlib,
             generated_c_path=out_path,
+            target=args.target,
         )
 
         result = self.compiler.compile(input_source, args.input, options)
@@ -214,6 +225,16 @@ class CompilerCommand:
             input_source,
         )
         self._emit_failure(result, printer)
+
+        if args.emit_link_plan:
+            plan_path = os.path.realpath(args.emit_link_plan)
+            aliases = {os.path.realpath(args.input)}
+            if out_path is not None:
+                aliases.add(os.path.realpath(out_path))
+            if plan_path in aliases:
+                print("error: link-plan output must differ from the input and generated C paths", file=sys.stderr)
+                raise SystemExit(1)
+            self._file_io.write_output(args.emit_link_plan, result.native_plan.canonical_json())
 
         if output is CompilerOutput.TOKENS:
             for token in result.tokens:

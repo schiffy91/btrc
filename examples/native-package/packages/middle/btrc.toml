@@ -1,0 +1,42 @@
+manifest-version = 1
+
+[package]
+name = "middle"
+
+[dependencies]
+leaf = { path = "../leaf" }
+
+[[native.sources]]
+path = "native/middle.cpp"
+language = "c++"
+standard = "c++17"
+
+[[native.sources]]
+path = "native/middle_objc.m"
+language = "objective-c"
+standard = "c11"
+os = ["macos"]
+
+[[native.sources]]
+path = "native/middle_objcxx.mm"
+language = "objective-c++"
+standard = "c++17"
+os = ["macos"]
+
+[[native.headers]]
+path = "native/middle.h"
+
+[[native.include-directories]]
+path = "native"
+
+[[native.defines]]
+name = "MIDDLE_ABI"
+value = "1"
+
+[[native.frameworks]]
+name = "Foundation"
+os = ["macos"]
+
+[[native.pkg-config]]
+name = "native-package-proof"
+os = ["windows"]

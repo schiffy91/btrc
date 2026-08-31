@@ -1,0 +1,1 @@
+extern int leaf_value();

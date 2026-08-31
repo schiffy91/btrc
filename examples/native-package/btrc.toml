@@ -1,0 +1,7 @@
+manifest-version = 1
+
+[package]
+name = "native_app"
+
+[dependencies]
+middle = { path = "packages/middle" }

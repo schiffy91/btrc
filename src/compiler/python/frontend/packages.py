@@ -12,6 +12,8 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import platform
+import re
 import shutil
 import stat
 import subprocess
@@ -36,6 +38,22 @@ class LockfileVersionError(LockfileError):
 
 
 LOCK_SCHEMA = 2
+PACKAGE_GRAPH_LOCK_SCHEMA = 3
+PACKAGE_MANIFEST_VERSION = 1
+NATIVE_LINK_PLAN_SCHEMA = 1
+
+_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_NATIVE_NAME = re.compile(r"^[A-Za-z0-9_.+-]+$")
+_TARGET_OPERATING_SYSTEMS = frozenset({"linux", "macos", "windows"})
+_TARGET_ARCHITECTURES = frozenset({"x86_64", "aarch64"})
+_SOURCE_STANDARDS = MappingProxyType(
+    {
+        "c": frozenset({"c11"}),
+        "c++": frozenset({"c++17", "c++20"}),
+        "objective-c": frozenset({"c11"}),
+        "objective-c++": frozenset({"c++17", "c++20"}),
+    }
+)
 
 
 class PackageFileStore:
@@ -130,31 +148,220 @@ class PackageFileStore:
         raise ValueError(f"invalid JSON constant: {value}")
 
 
+@dataclass(frozen=True, order=True)
+class PackageTarget:
+    """One normalized native-plan target."""
+
+    operating_system: str
+    architecture: str
+
+    @classmethod
+    def parse(cls, value: str | None) -> PackageTarget:
+        if value is None:
+            system = platform.system().lower()
+            operating_system = {"darwin": "macos", "linux": "linux", "windows": "windows"}.get(system)
+            machine = platform.machine().lower()
+            architecture = {
+                "amd64": "x86_64",
+                "x86_64": "x86_64",
+                "arm64": "aarch64",
+                "aarch64": "aarch64",
+            }.get(machine)
+            if operating_system is None or architecture is None:
+                raise ValueError(f"cannot infer a supported package target from {system}-{machine}")
+            return cls(operating_system, architecture)
+        if not isinstance(value, str) or not value:
+            raise ValueError("package target must be OS-ARCH")
+        operating_system, separator, raw_architecture = value.partition("-")
+        architecture = {"x64": "x86_64", "arm64": "aarch64"}.get(raw_architecture, raw_architecture)
+        if (
+            not separator
+            or operating_system not in _TARGET_OPERATING_SYSTEMS
+            or architecture not in _TARGET_ARCHITECTURES
+        ):
+            raise ValueError(
+                f"unsupported package target {value!r}; expected linux, macos, or windows with x86_64 or aarch64"
+            )
+        return cls(operating_system, architecture)
+
+    def as_dict(self) -> dict[str, str]:
+        return {"arch": self.architecture, "os": self.operating_system}
+
+
+@dataclass(frozen=True, order=True)
+class NativeDeclaration:
+    """One validated native manifest declaration before target filtering."""
+
+    kind: str
+    package: str
+    value: str
+    detail: str = ""
+    language: str = ""
+    standard: str = ""
+    operating_systems: tuple[str, ...] = ()
+    architectures: tuple[str, ...] = ()
+
+    def selected_for(self, target: PackageTarget) -> bool:
+        return (not self.operating_systems or target.operating_system in self.operating_systems) and (
+            not self.architectures or target.architecture in self.architectures
+        )
+
+
+@dataclass(frozen=True)
+class PackageNode:
+    """One package identity with dependency-local aliases."""
+
+    name: str
+    root: str
+    dependencies: Mapping[str, str]
+    source: Mapping[str, str]
+    manifest_hash: str
+    native: tuple[NativeDeclaration, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "dependencies", MappingProxyType(dict(self.dependencies)))
+        object.__setattr__(self, "source", MappingProxyType(dict(self.source)))
+
+
+@dataclass(frozen=True)
+class NativeLinkPlan:
+    """Canonical, target-filtered native build requirements."""
+
+    target: PackageTarget
+    packages: tuple[PackageNode, ...] = ()
+    declarations: tuple[NativeDeclaration, ...] = ()
+
+    @classmethod
+    def empty(cls, target: PackageTarget | None = None) -> NativeLinkPlan:
+        return cls(target or PackageTarget.parse(None))
+
+    @property
+    def linker_language(self) -> str:
+        return (
+            "c++"
+            if any(
+                item.selected_for(self.target)
+                and item.kind == "source"
+                and item.language in {"c++", "objective-c++"}
+                for item in self.declarations
+            )
+            else "c"
+        )
+
+    @staticmethod
+    def _path_record(item: NativeDeclaration) -> dict[str, str]:
+        return {"package": item.package, "path": item.value}
+
+    @staticmethod
+    def _name_record(item: NativeDeclaration) -> dict[str, str]:
+        return {"name": item.value, "package": item.package}
+
+    def as_dict(self) -> dict:
+        selected = tuple(item for item in self.declarations if item.selected_for(self.target))
+        sources = [
+            {
+                "language": item.language,
+                "package": item.package,
+                "path": item.value,
+                "standard": item.standard,
+            }
+            for item in selected
+            if item.kind == "source"
+        ]
+        defines = [
+            {"name": item.value, "package": item.package, "value": item.detail}
+            for item in selected
+            if item.kind == "define"
+        ]
+        return {
+            "defines": sorted(defines, key=lambda item: (item["package"], item["name"], item["value"])),
+            "frameworks": sorted(
+                (self._name_record(item) for item in selected if item.kind == "framework"),
+                key=lambda item: (item["package"], item["name"]),
+            ),
+            "headers": sorted(
+                (self._path_record(item) for item in selected if item.kind == "header"),
+                key=lambda item: (item["package"], item["path"]),
+            ),
+            "include-directories": sorted(
+                (self._path_record(item) for item in selected if item.kind == "include-directory"),
+                key=lambda item: (item["package"], item["path"]),
+            ),
+            "linker-language": self.linker_language,
+            "packages": [
+                {
+                    "dependencies": dict(sorted(package.dependencies.items())),
+                    "name": package.name,
+                    "root": package.root,
+                }
+                for package in sorted(self.packages, key=lambda package: package.name)
+            ],
+            "pkg-config": sorted(
+                (self._name_record(item) for item in selected if item.kind == "pkg-config"),
+                key=lambda item: (item["package"], item["name"]),
+            ),
+            "schema": NATIVE_LINK_PLAN_SCHEMA,
+            "target": self.target.as_dict(),
+            "units": sorted(sources, key=lambda item: (item["package"], item["path"], item["language"])),
+        }
+
+    def canonical_json(self) -> str:
+        return json.dumps(
+            self.as_dict(),
+            allow_nan=False,
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        ) + "\n"
+
+
 @dataclass(frozen=True)
 class ResolvedPackages:
     """Immutable dependency universe governing one compiler invocation."""
 
     manifest_path: str | None
     entries: Mapping[str, Mapping[str, str]]
+    nodes: Mapping[str, PackageNode] | None = None
+    root_package: str = ""
+    native_plan: NativeLinkPlan | None = None
 
     def __post_init__(self) -> None:
         frozen = {name: MappingProxyType(dict(entry)) for name, entry in self.entries.items()}
         object.__setattr__(self, "entries", MappingProxyType(frozen))
+        object.__setattr__(self, "nodes", MappingProxyType(dict(self.nodes or {})))
+        if self.native_plan is None:
+            object.__setattr__(self, "native_plan", NativeLinkPlan.empty())
 
     @classmethod
     def empty(cls) -> ResolvedPackages:
         return cls(manifest_path=None, entries={})
 
-    def paths_for_import(self, spec: str) -> tuple[str, ...]:
+    def _owner_for(self, source_path: str | None) -> PackageNode | None:
+        if not source_path or not self.nodes:
+            return None
+        source = os.path.realpath(source_path)
+        matches = []
+        for package in self.nodes.values():
+            try:
+                if os.path.commonpath((source, package.root)) == package.root:
+                    matches.append(package)
+            except ValueError:
+                continue
+        return max(matches, key=lambda package: len(package.root), default=None)
+
+    def paths_for_import(self, spec: str, source_path: str | None = None) -> tuple[str, ...]:
         """Resolve a package import, or return empty when its head is local."""
 
         spec = spec.strip()
         head, _, rest = spec.partition(".")
-        package = self.entries.get(head)
+        owner = self._owner_for(source_path)
+        target = owner.dependencies.get(head) if owner is not None else None
+        node = self.nodes.get(target) if target is not None else None
+        package = self.entries.get(head) if node is None else {"path": node.root}
         if package is None:
             return ()
         root = package["path"]
-        module = rest if rest else head
+        module = rest if rest else (node.name if node is not None else head)
         relative = module.replace(".", "/")
         for candidate in (
             os.path.join(root, "src", relative + ".btrc"),
@@ -203,6 +410,186 @@ class PackageManifestReader:
         return manifest
 
 
+class PackageManifestValidator:
+    """Validate the closed version-1 manifest model."""
+
+    _TOP_LEVEL_FIELDS = frozenset({"manifest-version", "package", "dependencies", "native"})
+    _NATIVE_FIELDS = frozenset(
+        {"sources", "headers", "include-directories", "defines", "frameworks", "pkg-config"}
+    )
+
+    @staticmethod
+    def _reject_unknown(value: Mapping, allowed: frozenset[str], context: str) -> None:
+        unknown = sorted(set(value) - allowed)
+        if unknown:
+            raise ValueError(f"{context} contains unexpected field {unknown[0]!r}")
+
+    @staticmethod
+    def _identifier(value, context: str) -> str:
+        if not isinstance(value, str) or _IDENTIFIER.fullmatch(value) is None:
+            raise ValueError(f"{context} must be an ASCII identifier")
+        return value
+
+    @staticmethod
+    def _target_values(entry: Mapping, field: str, allowed: frozenset[str], context: str) -> tuple[str, ...]:
+        value = entry.get(field, [])
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ValueError(f"{context}.{field} must be an array of strings")
+        if len(set(value)) != len(value):
+            raise ValueError(f"{context}.{field} contains a duplicate value")
+        invalid = sorted(set(value) - allowed)
+        if invalid:
+            raise ValueError(f"{context}.{field} contains unsupported value {invalid[0]!r}")
+        return tuple(sorted(value))
+
+    @staticmethod
+    def _inside_path(root: str, relative, context: str, *, directory: bool) -> str:
+        if not isinstance(relative, str) or not relative or os.path.isabs(relative):
+            raise ValueError(f"{context} must be a non-empty package-relative path")
+        root = os.path.realpath(root)
+        candidate = os.path.realpath(os.path.join(root, relative))
+        try:
+            inside = os.path.commonpath((root, candidate)) == root
+        except ValueError:
+            inside = False
+        if not inside:
+            raise ValueError(f"{context} escapes package root {root!r}")
+        present = os.path.isdir(candidate) if directory else os.path.isfile(candidate)
+        if not present:
+            kind = "directory" if directory else "file"
+            raise ValueError(f"{context} does not name a {kind}: {relative!r}")
+        return candidate
+
+    def validate_identity(self, manifest: Mapping, path: str) -> str:
+        self._reject_unknown(manifest, self._TOP_LEVEL_FIELDS, f"package manifest {path!r}")
+        if manifest.get("manifest-version") != PACKAGE_MANIFEST_VERSION:
+            raise ValueError(
+                f"package manifest {path!r} must declare integer manifest-version = {PACKAGE_MANIFEST_VERSION}"
+            )
+        package = manifest.get("package")
+        if not isinstance(package, dict):
+            raise ValueError(f"package manifest {path!r} must contain a [package] table")
+        self._reject_unknown(package, frozenset({"name"}), f"package manifest {path!r} [package]")
+        return self._identifier(package.get("name"), f"package manifest {path!r} package.name")
+
+    def dependencies(self, manifest: Mapping, path: str) -> dict[str, Mapping]:
+        dependencies = manifest.get("dependencies", {})
+        if not isinstance(dependencies, dict):
+            raise ValueError(f"package manifest {path!r} [dependencies] must be a table")
+        validated = {}
+        for alias, specification in dependencies.items():
+            self._identifier(alias, f"package manifest {path!r} dependency alias")
+            if not isinstance(specification, dict):
+                raise ValueError(f"dependency {alias!r} in {path!r} must be an inline table")
+            source_fields = set(specification) & {"path", "git"}
+            if len(source_fields) != 1:
+                raise ValueError(f"dependency {alias!r} in {path!r} must specify exactly one of path or git")
+            if "path" in specification:
+                self._reject_unknown(specification, frozenset({"path"}), f"dependency {alias!r} in {path!r}")
+                value = specification["path"]
+                if not isinstance(value, str) or not value:
+                    raise ValueError(f"dependency {alias!r} in {path!r} path must be non-empty text")
+            else:
+                self._reject_unknown(
+                    specification,
+                    frozenset({"git", "rev", "tag", "branch"}),
+                    f"dependency {alias!r} in {path!r}",
+                )
+                if not isinstance(specification["git"], str) or not specification["git"]:
+                    raise ValueError(f"dependency {alias!r} in {path!r} git must be non-empty text")
+                refs = [field for field in ("rev", "tag", "branch") if field in specification]
+                if len(refs) > 1:
+                    raise ValueError(f"dependency {alias!r} in {path!r} may specify only one Git ref")
+                if refs and (not isinstance(specification[refs[0]], str) or not specification[refs[0]]):
+                    raise ValueError(f"dependency {alias!r} in {path!r} Git ref must be non-empty text")
+            validated[alias] = specification
+        return validated
+
+    def native(self, manifest: Mapping, root: str, package: str, path: str) -> tuple[NativeDeclaration, ...]:
+        native = manifest.get("native", {})
+        if not isinstance(native, dict):
+            raise ValueError(f"package manifest {path!r} [native] must be a table")
+        self._reject_unknown(native, self._NATIVE_FIELDS, f"package manifest {path!r} [native]")
+        declarations: list[NativeDeclaration] = []
+        for field in sorted(self._NATIVE_FIELDS):
+            entries = native.get(field, [])
+            if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+                raise ValueError(f"package manifest {path!r} native.{field} must be an array of tables")
+            for index, entry in enumerate(entries):
+                context = f"package manifest {path!r} native.{field}[{index}]"
+                operating_systems = self._target_values(entry, "os", _TARGET_OPERATING_SYSTEMS, context)
+                architectures = self._target_values(entry, "arch", _TARGET_ARCHITECTURES, context)
+                predicate_fields = frozenset({"os", "arch"})
+                if field == "sources":
+                    self._reject_unknown(
+                        entry,
+                        predicate_fields | {"path", "language", "standard"},
+                        context,
+                    )
+                    language = entry.get("language")
+                    standard = entry.get("standard")
+                    if language not in _SOURCE_STANDARDS:
+                        raise ValueError(f"{context}.language is unsupported")
+                    if standard not in _SOURCE_STANDARDS[language]:
+                        raise ValueError(f"{context}.standard is unsupported for {language}")
+                    value = self._inside_path(root, entry.get("path"), f"{context}.path", directory=False)
+                    declaration = NativeDeclaration(
+                        "source",
+                        package,
+                        value,
+                        language=language,
+                        standard=standard,
+                        operating_systems=operating_systems,
+                        architectures=architectures,
+                    )
+                elif field in {"headers", "include-directories"}:
+                    self._reject_unknown(entry, predicate_fields | {"path"}, context)
+                    kind = "header" if field == "headers" else "include-directory"
+                    value = self._inside_path(
+                        root,
+                        entry.get("path"),
+                        f"{context}.path",
+                        directory=field == "include-directories",
+                    )
+                    declaration = NativeDeclaration(
+                        kind,
+                        package,
+                        value,
+                        operating_systems=operating_systems,
+                        architectures=architectures,
+                    )
+                elif field == "defines":
+                    self._reject_unknown(entry, predicate_fields | {"name", "value"}, context)
+                    name = self._identifier(entry.get("name"), f"{context}.name")
+                    value = entry.get("value")
+                    if not isinstance(value, str):
+                        raise ValueError(f"{context}.value must be text")
+                    declaration = NativeDeclaration(
+                        "define",
+                        package,
+                        name,
+                        detail=value,
+                        operating_systems=operating_systems,
+                        architectures=architectures,
+                    )
+                else:
+                    self._reject_unknown(entry, predicate_fields | {"name"}, context)
+                    name = entry.get("name")
+                    if not isinstance(name, str) or _NATIVE_NAME.fullmatch(name) is None:
+                        raise ValueError(f"{context}.name contains unsupported characters")
+                    declaration = NativeDeclaration(
+                        "framework" if field == "frameworks" else "pkg-config",
+                        package,
+                        name,
+                        operating_systems=operating_systems,
+                        architectures=architectures,
+                    )
+                if declaration in declarations:
+                    raise ValueError(f"{context} duplicates an earlier native declaration")
+                declarations.append(declaration)
+        return tuple(sorted(declarations))
+
+
 class PackageUniverse:
     """Own manifest discovery, lockfile policy, and dependency materialization."""
 
@@ -212,6 +599,7 @@ class PackageUniverse:
         *,
         manifest_reader: PackageManifestReader | None = None,
         file_store: PackageFileStore | None = None,
+        manifest_validator: PackageManifestValidator | None = None,
     ) -> None:
         owned_store = file_store
         if owned_store is None and git_dependencies is not None:
@@ -225,6 +613,7 @@ class PackageUniverse:
             raise ValueError("PackageUniverse and manifest reader must share one file store")
         self.git_dependencies = git_dependencies or GitDependencyCache(file_store=self.file_store)
         self.manifest_reader = manifest_reader or PackageManifestReader(file_store=self.file_store)
+        self.manifest_validator = manifest_validator or PackageManifestValidator()
 
     @staticmethod
     def find_manifest(start_directory: str) -> str | None:
@@ -245,6 +634,7 @@ class PackageUniverse:
         input_path: str,
         *,
         refresh: bool = False,
+        target: str | PackageTarget | None = None,
     ) -> ResolvedPackages:
         """Resolve the dependencies governing one input file."""
 
@@ -252,7 +642,7 @@ class PackageUniverse:
         if manifest is None:
             return ResolvedPackages.empty()
         try:
-            return self.resolve_manifest(manifest, refresh=refresh)
+            return self.resolve_manifest(manifest, refresh=refresh, target=target)
         except (subprocess.SubprocessError, ValueError, OSError) as error:
             detail = (getattr(error, "stderr", None) or "").strip()
             message = f"package resolution failed: {error}"
@@ -265,6 +655,7 @@ class PackageUniverse:
         manifest_path: str,
         *,
         refresh: bool = False,
+        target: str | PackageTarget | None = None,
     ) -> ResolvedPackages:
         """Resolve one manifest, using its lock when current."""
 
@@ -272,6 +663,14 @@ class PackageUniverse:
         manifest_directory = os.path.dirname(manifest_path)
         lock_path = os.path.join(manifest_directory, "btrc.lock")
         manifest = self.manifest_reader.read(manifest_path)
+        if "manifest-version" in manifest:
+            selected_target = target if isinstance(target, PackageTarget) else PackageTarget.parse(target)
+            return self._resolve_version_one(
+                manifest_path,
+                manifest,
+                selected_target,
+                refresh=refresh,
+            )
         dependencies = manifest.get("dependencies", {})
         if not isinstance(dependencies, dict):
             raise ValueError("manifest 'dependencies' must be a table")
@@ -302,6 +701,220 @@ class PackageUniverse:
             manifest_directory,
         )
         return ResolvedPackages(manifest_path, resolved)
+
+    def _strict_lock(self, path: str) -> dict | None:
+        if not os.path.exists(path):
+            return None
+        lock = self.file_store.read_json(path)
+        if not isinstance(lock, dict):
+            raise LockfileError(f"cannot parse strict package lock {path!r} as UTF-8 JSON")
+        schema = lock.get("schema")
+        if schema in (1, LOCK_SCHEMA):
+            return None
+        if schema != PACKAGE_GRAPH_LOCK_SCHEMA:
+            raise LockfileVersionError(
+                f"unsupported btrc.lock schema {schema!r} in {path!r} "
+                f"(this compiler supports schema {PACKAGE_GRAPH_LOCK_SCHEMA} for version-1 manifests)"
+            )
+        if set(lock) != {"manifest-hash", "packages", "root", "schema"}:
+            raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} lockfile {path!r}: unexpected fields")
+        if (
+            not isinstance(lock["manifest-hash"], str)
+            or not isinstance(lock["root"], str)
+            or not isinstance(lock["packages"], list)
+        ):
+            raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} lockfile {path!r}")
+        for entry in lock["packages"]:
+            if not isinstance(entry, dict) or set(entry) != {
+                "dependencies",
+                "manifest-hash",
+                "name",
+                "source",
+            }:
+                raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} package in {path!r}")
+            if (
+                not isinstance(entry["name"], str)
+                or not isinstance(entry["manifest-hash"], str)
+                or not isinstance(entry["dependencies"], dict)
+                or not isinstance(entry["source"], dict)
+            ):
+                raise LockfileError(f"invalid schema-{PACKAGE_GRAPH_LOCK_SCHEMA} package in {path!r}")
+        return lock
+
+    @staticmethod
+    def _pinned_commits(lock: dict | None) -> dict[tuple[str, str], str]:
+        pinned = {}
+        for package in () if lock is None else lock["packages"]:
+            source = package["source"]
+            if set(source) == {"commit", "git", "rev"}:
+                pinned[(source["git"], source["rev"])] = source["commit"]
+        return pinned
+
+    def _strict_dependency_source(
+        self,
+        alias: str,
+        specification: Mapping,
+        manifest_directory: str,
+        pinned: Mapping[tuple[str, str], str],
+        *,
+        refresh: bool,
+    ) -> tuple[str, dict[str, str]]:
+        if "path" in specification:
+            root = os.path.realpath(os.path.join(manifest_directory, specification["path"]))
+            if not os.path.isdir(root):
+                raise ValueError(f"path dependency {alias!r} does not name a directory: {specification['path']!r}")
+            return root, {"path": root}
+        revision = next(
+            (specification[field] for field in ("rev", "tag", "branch") if field in specification),
+            "HEAD",
+        )
+        pinned_commit = None if refresh else pinned.get((specification["git"], revision))
+        root = self.git_dependencies.resolve(
+            alias,
+            specification["git"],
+            revision,
+            refresh=refresh,
+            pinned_commit=pinned_commit,
+        )
+        return os.path.realpath(root), {
+            "commit": self.git_dependencies.resolved_commit(root),
+            "git": specification["git"],
+            "rev": revision,
+        }
+
+    def _resolve_strict_node(
+        self,
+        root: str,
+        source: Mapping[str, str],
+        nodes_by_root: dict[str, PackageNode],
+        roots_by_name: dict[str, str],
+        visiting: list[str],
+        pinned: Mapping[tuple[str, str], str],
+        *,
+        refresh: bool,
+    ) -> str:
+        root = os.path.realpath(root)
+        if root in nodes_by_root:
+            return nodes_by_root[root].name
+        if root in visiting:
+            start = visiting.index(root)
+            cycle_roots = visiting[start:] + [root]
+            cycle = " -> ".join(os.path.basename(path) or path for path in cycle_roots)
+            raise ValueError(f"package dependency cycle: {cycle}")
+        manifest_path = os.path.join(root, "btrc.toml")
+        if not os.path.isfile(manifest_path):
+            raise ValueError(f"package dependency root {root!r} is missing btrc.toml")
+        manifest = self.manifest_reader.read(manifest_path)
+        name = self.manifest_validator.validate_identity(manifest, manifest_path)
+        previous_root = roots_by_name.get(name)
+        if previous_root is not None and previous_root != root:
+            raise ValueError(f"package name {name!r} resolves to both {previous_root!r} and {root!r}")
+        roots_by_name[name] = root
+        visiting.append(root)
+        aliases = {}
+        for alias, specification in sorted(self.manifest_validator.dependencies(manifest, manifest_path).items()):
+            dependency_root, dependency_source = self._strict_dependency_source(
+                alias,
+                specification,
+                root,
+                pinned,
+                refresh=refresh,
+            )
+            aliases[alias] = self._resolve_strict_node(
+                dependency_root,
+                dependency_source,
+                nodes_by_root,
+                roots_by_name,
+                visiting,
+                pinned,
+                refresh=refresh,
+            )
+        visiting.pop()
+        manifest_hash = hashlib.sha256(
+            json.dumps(manifest, allow_nan=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        node = PackageNode(
+            name=name,
+            root=root,
+            dependencies=aliases,
+            source=source,
+            manifest_hash=manifest_hash,
+            native=self.manifest_validator.native(manifest, root, name, manifest_path),
+        )
+        nodes_by_root[root] = node
+        return name
+
+    @staticmethod
+    def _strict_lock_payload(
+        root: str,
+        root_package: str,
+        nodes: Mapping[str, PackageNode],
+    ) -> dict:
+        packages = []
+        for package in sorted(nodes.values(), key=lambda item: item.name):
+            source = dict(package.source)
+            if "path" in source:
+                source["path"] = os.path.relpath(source["path"], root)
+            packages.append(
+                {
+                    "dependencies": dict(sorted(package.dependencies.items())),
+                    "manifest-hash": package.manifest_hash,
+                    "name": package.name,
+                    "source": source,
+                }
+            )
+        graph_hash = hashlib.sha256(
+            json.dumps(packages, allow_nan=False, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        return {
+            "manifest-hash": graph_hash,
+            "packages": packages,
+            "root": root_package,
+            "schema": PACKAGE_GRAPH_LOCK_SCHEMA,
+        }
+
+    def _resolve_version_one(
+        self,
+        manifest_path: str,
+        manifest: Mapping,
+        target: PackageTarget,
+        *,
+        refresh: bool,
+    ) -> ResolvedPackages:
+        root = os.path.realpath(os.path.dirname(manifest_path))
+        lock_path = os.path.join(root, "btrc.lock")
+        lock = self._strict_lock(lock_path)
+        nodes_by_root: dict[str, PackageNode] = {}
+        root_package = self._resolve_strict_node(
+            root,
+            {"path": root},
+            nodes_by_root,
+            {},
+            [],
+            self._pinned_commits(lock),
+            refresh=refresh,
+        )
+        nodes = {node.name: node for node in nodes_by_root.values()}
+        payload = self._strict_lock_payload(root, root_package, nodes)
+        if lock != payload:
+            self.file_store.write_json(lock_path, payload, file_mode=0o644)
+        root_node = nodes[root_package]
+        entries = {
+            alias: {"path": nodes[package].root}
+            for alias, package in root_node.dependencies.items()
+        }
+        declarations = tuple(
+            declaration
+            for package in sorted(nodes.values(), key=lambda item: item.name)
+            for declaration in package.native
+        )
+        return ResolvedPackages(
+            manifest_path,
+            entries,
+            nodes=nodes,
+            root_package=root_package,
+            native_plan=NativeLinkPlan(target, tuple(nodes.values()), declarations),
+        )
 
     @staticmethod
     def dependencies_hash(dependencies: Mapping) -> str:

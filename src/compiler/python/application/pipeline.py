@@ -557,6 +557,7 @@ class CompilationPipeline:
             strict_imports=options.strict_imports,
             map_stdlib_positions=options.map_stdlib_positions,
             refresh_packages=options.refresh_packages,
+            target=options.target,
             profile=profile,
         )
 
@@ -652,6 +653,7 @@ class CompilationPipeline:
         return CompilerResult(
             options=options,
             source_bundle=source,
+            native_plan=source.native_plan,
             profile=CompilerResult.profile_snapshot(profile),
             **values,
         )
