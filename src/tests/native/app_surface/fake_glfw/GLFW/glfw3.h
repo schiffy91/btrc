@@ -10,6 +10,7 @@ typedef struct GLFWmonitor GLFWmonitor;
 
 typedef void (*GLFWcursorposfun)(GLFWwindow*, double, double);
 typedef void (*GLFWmousebuttonfun)(GLFWwindow*, int, int, int);
+typedef void (*GLFWscrollfun)(GLFWwindow*, double, double);
 typedef void (*GLFWkeyfun)(GLFWwindow*, int, int, int, int);
 typedef void (*GLFWcharfun)(GLFWwindow*, unsigned int);
 typedef void (*GLFWwindowsizefun)(GLFWwindow*, int, int);
@@ -72,6 +73,8 @@ GLFWcursorposfun glfwSetCursorPosCallback(
     GLFWwindow* window, GLFWcursorposfun callback);
 GLFWmousebuttonfun glfwSetMouseButtonCallback(
     GLFWwindow* window, GLFWmousebuttonfun callback);
+GLFWscrollfun glfwSetScrollCallback(
+    GLFWwindow* window, GLFWscrollfun callback);
 GLFWkeyfun glfwSetKeyCallback(GLFWwindow* window, GLFWkeyfun callback);
 GLFWcharfun glfwSetCharCallback(GLFWwindow* window, GLFWcharfun callback);
 GLFWwindowsizefun glfwSetWindowSizeCallback(

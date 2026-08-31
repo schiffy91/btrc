@@ -16,6 +16,7 @@ void fake_glfw_set_cursor(double x, double y);
 void fake_glfw_set_key(int key, int state);
 void fake_glfw_emit_cursor(double x, double y);
 void fake_glfw_emit_mouse_button(int button, int action, int modifiers);
+void fake_glfw_emit_scroll(double x, double y);
 void fake_glfw_emit_key(int key, int action, int modifiers);
 void fake_glfw_emit_character(unsigned int codepoint);
 void fake_glfw_emit_window_size(void);

@@ -154,6 +154,7 @@ void orderedEventsAndOverflow() {
         12.5f,
         18.25f,
         9);
+    fake_platform_push_scroll(-1.5f, 2.25f);
     fake_platform_push_keyboard(APP_KEY_REPEATED, APP_KEY_SPACE, 6);
     fake_platform_push_text("é");
     fake_platform_push_surface(
@@ -172,6 +173,13 @@ void orderedEventsAndOverflow() {
     assert(pointerValue.logicalX == 12.5f && pointerValue.logicalY == 18.25f);
     assert(pointerValue.modifiers.shift && pointerValue.modifiers.command);
     assert(!pointerValue.modifiers.control && !pointerValue.modifiers.alt);
+
+    AppWindowEvent scrollEvent = application.poll();
+    assert(scrollEvent.kind == APP_EVENT_SCROLLED);
+    AppScrollEvent? scroll = scrollEvent.scroll;
+    if (scroll == null) { assert(false); return; }
+    AppScrollEvent scrollValue = scroll;
+    assert(scrollValue.deltaX == -1.5f && scrollValue.deltaY == 2.25f);
 
     AppWindowEvent keyboardEvent = application.poll();
     assert(keyboardEvent.kind == APP_EVENT_KEYBOARD);

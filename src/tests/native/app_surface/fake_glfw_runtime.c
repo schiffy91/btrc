@@ -18,12 +18,13 @@ enum {
 enum {
     CALLBACK_CURSOR = 1u << 0,
     CALLBACK_MOUSE_BUTTON = 1u << 1,
-    CALLBACK_KEY = 1u << 2,
-    CALLBACK_CHARACTER = 1u << 3,
-    CALLBACK_WINDOW_SIZE = 1u << 4,
-    CALLBACK_FRAMEBUFFER_SIZE = 1u << 5,
-    CALLBACK_CONTENT_SCALE = 1u << 6,
-    CALLBACK_CLOSE = 1u << 7,
+    CALLBACK_SCROLL = 1u << 2,
+    CALLBACK_KEY = 1u << 3,
+    CALLBACK_CHARACTER = 1u << 4,
+    CALLBACK_WINDOW_SIZE = 1u << 5,
+    CALLBACK_FRAMEBUFFER_SIZE = 1u << 6,
+    CALLBACK_CONTENT_SCALE = 1u << 7,
+    CALLBACK_CLOSE = 1u << 8,
 };
 
 struct GLFWwindow {
@@ -40,6 +41,7 @@ struct GLFWwindow {
     int keys[FAKE_KEY_CAPACITY];
     GLFWcursorposfun cursor_callback;
     GLFWmousebuttonfun mouse_button_callback;
+    GLFWscrollfun scroll_callback;
     GLFWkeyfun key_callback;
     GLFWcharfun character_callback;
     GLFWwindowsizefun window_size_callback;
@@ -174,6 +176,12 @@ void fake_glfw_emit_mouse_button(int button, int action, int modifiers) {
     GLFWwindow* window = current_window();
     assert(window != NULL && window->mouse_button_callback != NULL);
     window->mouse_button_callback(window, button, action, modifiers);
+}
+
+void fake_glfw_emit_scroll(double x, double y) {
+    GLFWwindow* window = current_window();
+    assert(window != NULL && window->scroll_callback != NULL);
+    window->scroll_callback(window, x, y);
 }
 
 void fake_glfw_emit_key(int key, int action, int modifiers) {
@@ -340,6 +348,15 @@ GLFWmousebuttonfun glfwSetMouseButtonCallback(
     GLFWmousebuttonfun previous = window->mouse_button_callback;
     window->mouse_button_callback = callback;
     callback_mask |= CALLBACK_MOUSE_BUTTON;
+    return previous;
+}
+
+GLFWscrollfun glfwSetScrollCallback(
+        GLFWwindow* window, GLFWscrollfun callback) {
+    native_call();
+    GLFWscrollfun previous = window->scroll_callback;
+    window->scroll_callback = callback;
+    callback_mask |= CALLBACK_SCROLL;
     return previous;
 }
 

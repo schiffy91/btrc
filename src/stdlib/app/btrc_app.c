@@ -24,6 +24,8 @@ typedef struct {
     int pointer_button;
     float pointer_x;
     float pointer_y;
+    float scroll_x;
+    float scroll_y;
     int key_action;
     int key;
     int modifiers;
@@ -387,6 +389,18 @@ static void on_mouse_button(
     state_lock_leave();
 }
 
+static void on_scroll(GLFWwindow* window, double x, double y) {
+    state_lock_enter();
+    BtrcApplication* application =
+        (BtrcApplication*)glfwGetWindowUserPointer(window);
+    BtrcAppEvent event = { 0 };
+    event.kind = BTRC_APP_EVENT_SCROLLED;
+    event.scroll_x = (float)x;
+    event.scroll_y = (float)y;
+    push_event(application, event);
+    state_lock_leave();
+}
+
 static void on_key(
         GLFWwindow* window, int key, int scancode, int action, int mods) {
     (void)scancode;
@@ -662,6 +676,7 @@ unsigned long long std_app_window_open(
     glfwSetWindowUserPointer(window, application);
     glfwSetCursorPosCallback(window, on_cursor);
     glfwSetMouseButtonCallback(window, on_mouse_button);
+    glfwSetScrollCallback(window, on_scroll);
     glfwSetKeyCallback(window, on_key);
     glfwSetCharCallback(window, on_character);
     glfwSetWindowSizeCallback(window, on_window_size);
@@ -969,6 +984,8 @@ BTRC_APP_INT_EVENT_ACCESSOR(
     std_app_event_pointer_button, pointer_button)
 BTRC_APP_FLOAT_EVENT_ACCESSOR(std_app_event_pointer_x, pointer_x)
 BTRC_APP_FLOAT_EVENT_ACCESSOR(std_app_event_pointer_y, pointer_y)
+BTRC_APP_FLOAT_EVENT_ACCESSOR(std_app_event_scroll_x, scroll_x)
+BTRC_APP_FLOAT_EVENT_ACCESSOR(std_app_event_scroll_y, scroll_y)
 BTRC_APP_INT_EVENT_ACCESSOR(std_app_event_key_action, key_action)
 BTRC_APP_INT_EVENT_ACCESSOR(std_app_event_key, key)
 BTRC_APP_INT_EVENT_ACCESSOR(std_app_event_modifiers, modifiers)

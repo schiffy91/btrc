@@ -24,6 +24,8 @@ int std_app_event_pointer_action(unsigned long long application);
 int std_app_event_pointer_button(unsigned long long application);
 float std_app_event_pointer_x(unsigned long long application);
 float std_app_event_pointer_y(unsigned long long application);
+float std_app_event_scroll_x(unsigned long long application);
+float std_app_event_scroll_y(unsigned long long application);
 int std_app_event_key_action(unsigned long long application);
 int std_app_event_key(unsigned long long application);
 int std_app_event_modifiers(unsigned long long application);
@@ -171,6 +173,16 @@ class AppPointerEvent {
     }
 }
 
+class AppScrollEvent {
+    public float deltaX;
+    public float deltaY;
+
+    public AppScrollEvent(float deltaX, float deltaY) {
+        self.deltaX = deltaX;
+        self.deltaY = deltaY;
+    }
+}
+
 enum AppKeyAction {
     APP_KEY_PRESSED = 0,
     APP_KEY_REPEATED = 1,
@@ -218,12 +230,14 @@ enum AppWindowEventKind {
     APP_EVENT_DPI_CHANGED = 5,
     APP_EVENT_CLOSE_REQUESTED = 6,
     APP_EVENT_CLOSED = 7,
-    APP_EVENT_FAILED = 8
+    APP_EVENT_FAILED = 8,
+    APP_EVENT_SCROLLED = 9
 };
 
 class AppWindowEvent {
     public AppWindowEventKind kind;
     public AppPointerEvent? pointer;
+    public AppScrollEvent? scroll;
     public AppKeyboardEvent? keyboard;
     public AppSurfaceMetrics? surface;
     public string text;
@@ -232,6 +246,7 @@ class AppWindowEvent {
     public AppWindowEvent(AppWindowEventKind kind) {
         self.kind = kind;
         self.pointer = null;
+        self.scroll = null;
         self.keyboard = null;
         self.surface = null;
         self.text = "";
@@ -364,6 +379,10 @@ class Application {
                     (modifierBits & 2) != 0,
                     (modifierBits & 4) != 0,
                     (modifierBits & 8) != 0));
+        } else if (kind == APP_EVENT_SCROLLED) {
+            event.scroll = new AppScrollEvent(
+                std_app_event_scroll_x(self.identity),
+                std_app_event_scroll_y(self.identity));
         } else if (kind == APP_EVENT_KEYBOARD) {
             int modifierBits = std_app_event_modifiers(self.identity);
             event.keyboard = new AppKeyboardEvent(

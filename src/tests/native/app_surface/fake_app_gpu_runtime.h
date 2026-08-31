@@ -4,6 +4,7 @@
 void fake_platform_reset(void);
 void fake_platform_push_pointer(
     int action, int button, float x, float y, int modifiers);
+void fake_platform_push_scroll(float x, float y);
 void fake_platform_push_keyboard(int action, int key, int modifiers);
 void fake_platform_push_text(char* text);
 void fake_platform_push_surface(

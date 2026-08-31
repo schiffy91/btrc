@@ -19,6 +19,8 @@ typedef struct {
     int pointer_button;
     float pointer_x;
     float pointer_y;
+    float scroll_x;
+    float scroll_y;
     int key_action;
     int key;
     int modifiers;
@@ -265,6 +267,14 @@ void fake_platform_push_pointer(
     event.pointer_x = x;
     event.pointer_y = y;
     event.modifiers = modifiers;
+    push(event);
+}
+
+void fake_platform_push_scroll(float x, float y) {
+    FakeEvent event = { 0 };
+    event.kind = BTRC_APP_EVENT_SCROLLED;
+    event.scroll_x = x;
+    event.scroll_y = y;
     push(event);
 }
 
@@ -531,6 +541,12 @@ float std_app_event_pointer_x(unsigned long long identity) {
 }
 float std_app_event_pointer_y(unsigned long long identity) {
     (void)identity; return current_event.pointer_y;
+}
+float std_app_event_scroll_x(unsigned long long identity) {
+    (void)identity; return current_event.scroll_x;
+}
+float std_app_event_scroll_y(unsigned long long identity) {
+    (void)identity; return current_event.scroll_y;
 }
 int std_app_event_key_action(unsigned long long identity) {
     (void)identity; return current_event.key_action;

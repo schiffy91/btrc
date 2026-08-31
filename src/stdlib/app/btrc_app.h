@@ -50,6 +50,7 @@ enum {
     BTRC_APP_EVENT_CLOSE_REQUESTED = 6,
     BTRC_APP_EVENT_CLOSED = 7,
     BTRC_APP_EVENT_FAILED = 8,
+    BTRC_APP_EVENT_SCROLLED = 9,
 };
 
 enum {
@@ -121,6 +122,8 @@ int std_app_event_pointer_action(unsigned long long application);
 int std_app_event_pointer_button(unsigned long long application);
 float std_app_event_pointer_x(unsigned long long application);
 float std_app_event_pointer_y(unsigned long long application);
+float std_app_event_scroll_x(unsigned long long application);
+float std_app_event_scroll_y(unsigned long long application);
 int std_app_event_key_action(unsigned long long application);
 int std_app_event_key(unsigned long long application);
 int std_app_event_modifiers(unsigned long long application);

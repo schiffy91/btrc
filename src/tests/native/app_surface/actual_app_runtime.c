@@ -120,7 +120,7 @@ static void test_sole_owner_and_cleanup(void) {
     assert(fake_glfw_create_calls() == 1);
     assert(fake_glfw_hint_value(GLFW_CLIENT_API) == GLFW_NO_API);
     assert(fake_glfw_hint_value(GLFW_RESIZABLE) == GLFW_TRUE);
-    assert(fake_glfw_callback_mask() == 0xFFu);
+    assert(fake_glfw_callback_mask() == 0x1FFu);
     assert(std_app_window_logical_width(window.capability) == 64);
     assert(std_app_window_logical_height(window.capability) == 40);
     assert(std_app_window_framebuffer_width(window.capability) == 128);
@@ -281,6 +281,7 @@ static void test_ordered_events_and_overflow(void) {
     fake_glfw_emit_mouse_button(
         GLFW_MOUSE_BUTTON_LEFT, GLFW_PRESS,
         GLFW_MOD_CONTROL | GLFW_MOD_SUPER);
+    fake_glfw_emit_scroll(-1.5, 2.25);
     fake_glfw_emit_key(
         GLFW_KEY_SPACE, GLFW_REPEAT, GLFW_MOD_CONTROL | GLFW_MOD_ALT);
     fake_glfw_emit_character(0xE9u);
@@ -309,6 +310,10 @@ static void test_ordered_events_and_overflow(void) {
     assert(std_app_event_pointer_y(application.capability) == 18.25f);
     assert(std_app_event_modifiers(application.capability) ==
            (BTRC_APP_MOD_CONTROL | BTRC_APP_MOD_COMMAND));
+
+    assert(std_app_poll(application.capability) == BTRC_APP_EVENT_SCROLLED);
+    assert(std_app_event_scroll_x(application.capability) == -1.5f);
+    assert(std_app_event_scroll_y(application.capability) == 2.25f);
 
     assert(std_app_poll(application.capability) == BTRC_APP_EVENT_KEYBOARD);
     assert(std_app_event_key_action(application.capability) ==
