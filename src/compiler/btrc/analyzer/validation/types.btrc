@@ -372,6 +372,11 @@ class TypeValidator {
         if (canonical == null) { return false; }
         if (query == 1 && canonical.base == "Mutex") { return true; }
         if (query == 2 && canonical.base == "Thread") { return true; }
+        if (query == 6 && canonical.base == "Span") { return true; }
+        if (query == 7 && canonical.base == "Atomic"
+                && canonical.pointer_depth == 0) {
+            return true;
+        }
         if (canonical.is_array) {
             if (query == 3 && canonical.array_size == null) { return true; }
             if (query == 4) { return true; }
@@ -437,6 +442,16 @@ class TypeValidator {
     public bool containsMutexStorage(Node? typeExpr) {
         Map<string, bool> visiting = {};
         return self.aggregateTypeMatches(typeExpr, 1, visiting);
+    }
+
+    public bool containsSpanStorage(Node? typeExpr) {
+        Map<string, bool> visiting = {};
+        return self.aggregateTypeMatches(typeExpr, 6, visiting);
+    }
+
+    public bool containsAtomicStorage(Node? typeExpr) {
+        Map<string, bool> visiting = {};
+        return self.aggregateTypeMatches(typeExpr, 7, visiting);
     }
 
     public bool threadAggregateHasManagedReference(Node? typeExpr,
@@ -859,10 +874,80 @@ class TypeValidator {
             || base.startsWith("union ");
     }
 
+    public bool atomicPayload(Node? typeExpr) {
+        Node? canonical = self.resolveAliases(typeExpr);
+        if (canonical == null || canonical.is_array || canonical.is_nullable
+                || canonical.generic_args.len > 0) {
+            return false;
+        }
+        if (canonical.pointer_depth > 0) {
+            return canonical.base != "string"
+                && canonical.base != "Atomic"
+                && canonical.base != "Span"
+                && !self.state.analyzed.isClass(canonical.base)
+                && !self.state.analyzed.isGenericClass(canonical.base);
+        }
+        if (canonical.is_const || canonical.is_volatile) { return false; }
+        return canonical.base == "bool" || canonical.base == "int"
+            || canonical.base == "signed"
+            || canonical.base == "signed int"
+            || canonical.base == "uint"
+            || canonical.base == "unsigned"
+            || canonical.base == "unsigned int";
+    }
+
+    private bool realtimePodInner(
+            Node? typeExpr, Map<string, bool> visiting) {
+        Node? canonical = self.resolveAliases(typeExpr);
+        if (canonical == null || canonical.is_array || canonical.is_nullable) {
+            return false;
+        }
+        if (canonical.pointer_depth > 0) {
+            return canonical.base != "string"
+                && !self.state.analyzed.isClass(canonical.base)
+                && !self.state.analyzed.isGenericClass(canonical.base);
+        }
+        if (canonical.generic_args.len > 0) { return false; }
+        if (canonical.base == "bool"
+                || NumericSemantics.isType(
+                    canonical, self.state.analyzed)
+                || self.state.analyzed.isEnum(canonical.base)) {
+            return true;
+        }
+        string name = canonical.base;
+        if (name.startsWith("struct ")) {
+            name = name.substring(7, name.length() - 7);
+        }
+        if (visiting.has(name)
+                || !self.state.analyzed.structTable.has(name)) {
+            return false;
+        }
+        Node declaration = self.state.analyzed.structTable.get(name);
+        if (declaration.is_forward) { return false; }
+        Map<string, bool> nested = self.cloneFlags(visiting);
+        nested.put(name, true);
+        int fieldIndex = 0;
+        while (fieldIndex < declaration.fields.len) {
+            if (!self.realtimePodInner(
+                    declaration.fields.get(fieldIndex).type, nested)) {
+                return false;
+            }
+            fieldIndex = fieldIndex + 1;
+        }
+        return true;
+    }
+
+    public bool realtimePod(Node? typeExpr) {
+        Map<string, bool> visiting = {};
+        return self.realtimePodInner(typeExpr, visiting);
+    }
+
     public bool runtimeTypeBase(string base) {
         return base == "Array" || base == "List" || base == "Map"
-            || base == "Mutex" || base == "Set" || base == "Thread"
-            || base == "Tuple" || base == "Vector" || base == "__fn_ptr";
+            || base == "Atomic" || base == "MemoryOrder"
+            || base == "Mutex" || base == "Set" || base == "Span"
+            || base == "Thread" || base == "Tuple" || base == "Vector"
+            || base == "__fn_ptr";
     }
 
     public bool knownDeclarationType(
@@ -890,11 +975,29 @@ class TypeValidator {
     public void validateDeclaredType(Node? typeExpr, string subject,
             string role, Node site) {
         if (typeExpr == null) { return; }
+        int expectedArguments = -1;
+        if (typeExpr.base == "Array" || typeExpr.base == "Atomic"
+                || typeExpr.base == "List" || typeExpr.base == "Mutex"
+                || typeExpr.base == "Set" || typeExpr.base == "Span"
+                || typeExpr.base == "Thread" || typeExpr.base == "Vector") {
+            expectedArguments = 1;
+        } else if (typeExpr.base == "Map") {
+            expectedArguments = 2;
+        }
+        if (expectedArguments >= 0
+                && !self.state.typeParams.has(typeExpr.base)
+                && typeExpr.generic_args.len != expectedArguments) {
+            TypeValidator.fail("Type '" + typeExpr.base + "' expects "
+                + Strings.fromInt(expectedArguments)
+                + " generic argument(s) but got "
+                + Strings.fromInt(typeExpr.generic_args.len), site);
+        }
         if (typeExpr.is_static && typeExpr.is_extern) {
             TypeValidator.fail(
                 subject + " cannot be both static and extern", site);
         }
-        if ((role == "parameter" || role == "field")
+        if ((role == "parameter" || role == "field"
+                || role == "stable_field")
                 && (typeExpr.is_static || typeExpr.is_extern)) {
             TypeValidator.fail(subject
                 + " cannot carry static/extern storage qualifiers", site);
@@ -924,6 +1027,86 @@ class TypeValidator {
                     site);
             }
         }
+        if (canonical != null && canonical.base == "SpscQueue"
+                && canonical.generic_args.len > 0
+                && !self.state.typeParams.has(
+                    canonical.generic_args.get(0).base)
+                && !self.realtimePod(canonical.generic_args.get(0))) {
+            TypeValidator.fail(
+                "SpscQueue<T> payload must be realtime POD without managed ownership",
+                site);
+        }
+        if (canonical != null && canonical.base == "Span") {
+            bool directSpan = canonical.pointer_depth == 0
+                && !canonical.is_array;
+            if (!directSpan || canonical.is_const || canonical.is_nullable) {
+                TypeValidator.fail(
+                    "Span<T> must be one direct, nonnullable borrowed view",
+                    site);
+            }
+            if (directSpan
+                    && (role == "field" || role == "stable_field")) {
+                TypeValidator.fail(subject
+                    + " cannot store nonescaping Span<T>", site);
+            }
+            if (directSpan && role == "return") {
+                TypeValidator.fail(subject
+                    + " cannot be nonescaping Span<T>", site);
+            }
+            if (directSpan && canonical.generic_args.len > 0
+                    && !self.state.typeParams.has(
+                        canonical.generic_args.get(0).base)
+                    && !self.realtimePod(canonical.generic_args.get(0))) {
+                TypeValidator.fail(
+                    "Span<T> element type must be realtime POD without managed ownership",
+                    site);
+            }
+        }
+        if (canonical != null && canonical.base == "Atomic") {
+            bool directAtomic = canonical.pointer_depth == 0
+                && !canonical.is_array;
+            if (canonical.is_array || canonical.is_const
+                    || canonical.is_nullable) {
+                TypeValidator.fail(
+                    "Atomic<T> owner type must be direct mutable stable storage",
+                    site);
+            }
+            if (directAtomic && role == "parameter") {
+                TypeValidator.fail(
+                    "Atomic<T> owner cannot be passed by value; pass Atomic<T>*",
+                    site);
+            }
+            if (directAtomic && role == "return") {
+                TypeValidator.fail(
+                    "Atomic<T> owner cannot be returned by value", site);
+            }
+            if (directAtomic && role == "field") {
+                TypeValidator.fail(subject
+                    + " cannot embed an Atomic<T> owner in shallow copyable "
+                    + "storage; keep Atomic<T> as a direct class field or "
+                    + "local owner", typeExpr);
+            }
+            if (canonical.generic_args.len > 0
+                    && !self.state.typeParams.has(
+                        canonical.generic_args.get(0).base)
+                    && !self.atomicPayload(canonical.generic_args.get(0))) {
+                TypeValidator.fail(
+                    "Atomic<T> payload must be bool, int, uint, or a raw pointer",
+                    site);
+            }
+        }
+        if (canonical != null && canonical.base != "Span"
+                && self.containsSpanStorage(canonical)) {
+            TypeValidator.fail(subject
+                + " cannot contain nonescaping Span<T> in aggregate or managed "
+                + "storage", site);
+        }
+        if (canonical != null && canonical.base != "Atomic"
+                && self.containsAtomicStorage(canonical)) {
+            TypeValidator.fail(subject
+                + " cannot embed an Atomic<T> owner in shallow copyable storage; "
+                + "keep Atomic<T> as a direct class field or local owner", site);
+        }
         if (canonical != null && canonical.base == "Mutex"
                 && (canonical.pointer_depth > 0 || canonical.is_array
                     || canonical.is_const)) {
@@ -952,7 +1135,8 @@ class TypeValidator {
                     + "supported",
                 site);
         }
-        if ((role == "field" || role == "parameter")
+        if ((role == "field" || role == "stable_field"
+                || role == "parameter")
                 && self.containsThreadStorage(typeExpr)) {
             TypeValidator.fail(subject
                 + " cannot own a Thread handle; keep each Thread<T> in one "
@@ -1072,7 +1256,7 @@ class TypeValidator {
                         self.validateDeclaredType(parameter.type,
                             "Rich-enum payload '" + declaration.name + "."
                                 + variant.name + "." + parameter.name + "'",
-                            "parameter", parameter);
+                            "field", parameter);
                         if (SemanticTypeSystem.typeEffectiveOuterConst(
                                 parameter.type,
                                 self.state.analyzed.typedefTable)) {

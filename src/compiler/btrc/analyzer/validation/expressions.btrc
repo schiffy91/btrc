@@ -523,6 +523,17 @@ class ExpressionValidator {
         if (expression.obj == null) { return; }
         if (expression.obj.kind == NK_IDENTIFIER
                 && !vars.has(expression.obj.name)) {
+            if (expression.obj.name == "MemoryOrder") {
+                if (expression.field != "RELAXED"
+                        && expression.field != "ACQUIRE"
+                        && expression.field != "RELEASE"
+                        && expression.field != "ACQ_REL"
+                        && expression.field != "SEQ_CST") {
+                    TypeValidator.fail("MemoryOrder has no member '"
+                        + expression.field + "'", expression);
+                }
+                return;
+            }
             if (self.state.analyzed.isEnum(expression.obj.name)) {
                 if (!self.state.analyzed.enumContains(
                         expression.obj.name, expression.field)) {
@@ -550,6 +561,28 @@ class ExpressionValidator {
         }
         Node? receiver = self.types.inferType(expression.obj,  vars);
         if (receiver == null) { return; }
+        if (receiver.base == "Atomic") {
+            string member = expression.field;
+            if (member != "init" && member != "load" && member != "store"
+                    && member != "exchange" && member != "fetchAdd"
+                    && member != "fetchSub" && member != "fetchAnd"
+                    && member != "fetchOr" && member != "fetchXor"
+                    && member != "compareExchangeStrong") {
+                TypeValidator.fail("Atomic<T> has no method '"
+                    + member + "'", expression);
+            }
+            return;
+        }
+        if (receiver.base == "Span") {
+            string member = expression.field;
+            if (member != "length" && member != "isEmpty"
+                    && member != "isValid" && member != "tryGet"
+                    && member != "trySet") {
+                TypeValidator.fail("Span<T> has no method '"
+                    + member + "'", expression);
+            }
+            return;
+        }
         if (self.state.analyzed.isRichEnum(receiver.base)) {
             if (expression.field != "tag" && expression.field != "data") {
                 TypeValidator.fail("Rich enum '" + receiver.base
@@ -851,7 +884,12 @@ class ExpressionValidator {
             self.validateExpr(expression.index,  vars);
             self.storage.validateIndex(expression,  vars, true);
         } else if (expression.kind == NK_FIELD_ACCESS_EXPR) {
-            self.validateExpr(expression.obj,  vars);
+            if (expression.obj == null
+                    || expression.obj.kind != NK_IDENTIFIER
+                    || expression.obj.name != "MemoryOrder"
+                    || vars.has(expression.obj.name)) {
+                self.validateExpr(expression.obj,  vars);
+            }
             self.validateField(expression, true,  vars);
         } else if (expression.kind == NK_TERNARY_EXPR) {
             self.validateExpr(expression.condition,  vars);
@@ -940,6 +978,15 @@ class ExpressionValidator {
                             + "'; join it before capture or create a fresh owner "
                             + "inside the lambda",
                         expression);
+                }
+                Node? captured = self.types.resolveAliases(vars.get(name));
+                if (captured != null && (captured.base == "Span"
+                        || captured.base == "Atomic")
+                        && captured.pointer_depth == 0
+                        && !captured.is_array) {
+                    TypeValidator.fail("A lambda cannot capture "
+                        + captured.base + " value '" + name
+                        + "' by value", expression);
                 }
             }
             captureIndex = captureIndex + 1;
@@ -1031,6 +1078,14 @@ class ExpressionValidator {
                     && !self.state.analyzed.globalVarTypes.has(name)) {
                 Node captureType = vars.get(name);
                 Node? canonical = self.types.resolveAliases(captureType);
+                if (canonical != null && (canonical.base == "Span"
+                        || canonical.base == "Atomic")
+                        && canonical.pointer_depth == 0
+                        && !canonical.is_array) {
+                    TypeValidator.fail("spawn cannot capture "
+                        + canonical.base + " value '" + name
+                        + "' by value", expression);
+                }
                 Map<string, bool> visiting = {};
                 if ((canonical != null && canonical.is_array)
                         || self.ownership.threadResultHasUnsizedArray(
@@ -1411,6 +1466,13 @@ class ExpressionValidator {
             return;
         }
         string name = expression.callee.name;
+        if ((name == "Atomic" || name == "Span")
+                && concrete.base == name
+                && concrete.generic_args.len == 1) {
+            self.state.analyzed.genericConstructorTypes.put(
+                AstIdentity.key(expression), concrete);
+            return;
+        }
         if (!self.state.analyzed.isGenericClass(name)
                 || concrete.base != name) { return; }
         Node declaration = self.state.analyzed.genericClassTable.get(name);

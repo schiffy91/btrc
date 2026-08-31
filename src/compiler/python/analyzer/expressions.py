@@ -569,6 +569,13 @@ class ExpressionAnalyzer:
         )
         target = self.infer_type(expression.target)
         canonical_target = self.types.canonical_type(target)
+        if canonical_target is not None and canonical_target.base == "Atomic" and canonical_target.pointer_depth == 0:
+            self.session.error(
+                "Atomic<T> owner cannot be assigned or copied; use Atomic.init/store on stable storage",
+                expression.line,
+                expression.col,
+            )
+            return
         if self._reject_borrowed_managed_rebind(expression, canonical_target):
             return
         virtual_target = self.storage.is_virtual_projection(expression.target)
@@ -775,6 +782,8 @@ class ExpressionAnalyzer:
         if self.session.record_occurrences:
             self._record_identifier_occurrence(expression)
         name = expression.name
+        if (direct_callee and name in {"Atomic", "Span"}) or (qualification_receiver and name == "MemoryOrder"):
+            return
         if self.session.scope.lookup(name) is not None:
             return
         if self.ownership.validate_raw_lifetime_value(expression, direct_callee):
@@ -1249,6 +1258,14 @@ class ExpressionAnalyzer:
 
     def _infer_field_access_type(self, expr):
         if isinstance(expr.obj, Identifier):
+            if expr.obj.name == "MemoryOrder" and expr.field in {
+                "RELAXED",
+                "ACQUIRE",
+                "RELEASE",
+                "ACQ_REL",
+                "SEQ_CST",
+            }:
+                return TypeExpr(base="MemoryOrder")
             enum_values = self.index.enum_table.get(expr.obj.name)
             if enum_values is not None and expr.field in enum_values:
                 return TypeExpr(base=expr.obj.name or "int")
@@ -1959,6 +1976,10 @@ class ExpressionAnalyzer:
                 self._collect_lambda_return_types(child, result)
 
     def _analyze_field_access(self, expr, *, call_target=False):
+        if isinstance(expr.obj, Identifier) and expr.obj.name == "MemoryOrder":
+            if expr.field not in {"RELAXED", "ACQUIRE", "RELEASE", "ACQ_REL", "SEQ_CST"}:
+                self.session.error(f"MemoryOrder has no member '{expr.field}'", expr.line, expr.col)
+            return
         if isinstance(expr.obj, Identifier):
             self._analyze_identifier_value(expr.obj, qualification_receiver=True)
         else:
@@ -2000,6 +2021,25 @@ class ExpressionAnalyzer:
             valid = {"get", "set", "destroy"}
             if expr.field not in valid:
                 self.session.error(f"Mutex<T> has no method '{expr.field}'", expr.line, expr.col)
+            return
+        if obj_type and obj_type.base == "Atomic":
+            if expr.field not in {
+                "init",
+                "load",
+                "store",
+                "exchange",
+                "fetchAdd",
+                "fetchSub",
+                "fetchAnd",
+                "fetchOr",
+                "fetchXor",
+                "compareExchangeStrong",
+            }:
+                self.session.error(f"Atomic<T> has no method '{expr.field}'", expr.line, expr.col)
+            return
+        if obj_type and obj_type.base == "Span":
+            if expr.field not in {"length", "isEmpty", "isValid", "tryGet", "trySet"}:
+                self.session.error(f"Span<T> has no method '{expr.field}'", expr.line, expr.col)
             return
         if obj_type and obj_type.base in self.index.rich_enum_table:
             if expr.field not in {"tag", "data"} and (not (call_target and expr.field == "toString")):

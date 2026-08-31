@@ -411,6 +411,41 @@ class ConcurrencyLowerer {
         return IRNode.call("__btrc_thread_" + method, fargs);
     }
 
+    public IRNode lowerAtomicMethod(IRNode obj, string method, Node ot,
+            Vector<IRNode> args) {
+        IRNode storage = ot.pointer_depth > 0
+            ? obj : IRNode.addressOf(obj);
+        Vector<IRNode> callArgs = [];
+        callArgs.push(storage);
+        int index = 0;
+        while (index < args.len) {
+            callArgs.push(args.get(index));
+            index = index + 1;
+        }
+        string callee = "";
+        if (method == "init") { callee = "atomic_init"; }
+        else if (method == "load") {
+            callee = "atomic_load_explicit";
+        } else if (method == "store") {
+            callee = "atomic_store_explicit";
+        } else if (method == "exchange") {
+            callee = "atomic_exchange_explicit";
+        } else if (method == "fetchAdd") {
+            callee = "atomic_fetch_add_explicit";
+        } else if (method == "fetchSub") {
+            callee = "atomic_fetch_sub_explicit";
+        } else if (method == "fetchAnd") {
+            callee = "atomic_fetch_and_explicit";
+        } else if (method == "fetchOr") {
+            callee = "atomic_fetch_or_explicit";
+        } else if (method == "fetchXor") {
+            callee = "atomic_fetch_xor_explicit";
+        } else if (method == "compareExchangeStrong") {
+            callee = "atomic_compare_exchange_strong_explicit";
+        }
+        return IRNode.call(callee, callArgs);
+    }
+
     /* Lower a Mutex<T> method call: .get() unboxes the stored void*; .set(v) boxes
      * the value; .destroy() tears down the mutex. Mirrors methods._lower_mutex_method. */
     public IRNode lowerMutexMethod(IRNode obj, string method, Node ot,

@@ -28,13 +28,17 @@ from src.compiler.python.ir.nodes import (
     IRCall,
     IRCast,
     IRCommaExpr,
+    IRCompoundLiteral,
     IRExpr,
     IRFieldAccess,
     IRFunctionDecl,
+    IRIndex,
     IRLiteral,
     IRParam,
+    IRSizeof,
     IRStmtExpr,
     IRTernary,
+    IRUnaryOp,
     IRVar,
     IRVarDecl,
 )
@@ -1843,6 +1847,9 @@ class CallDispatch(StrEnum):
     BUILTIN_LEN = "builtin_len"
     BUILTIN_PRINT = "builtin_print"
     MUTEX_CONSTRUCTOR = "mutex_constructor"
+    ATOMIC_CONSTRUCTOR = "atomic_constructor"
+    SPAN_CONSTRUCTOR = "span_constructor"
+    SPAN_METHOD = "span_method"
     IMMEDIATE_LAMBDA = "immediate_lambda"
 
 
@@ -1923,6 +1930,11 @@ class CallLowerer:
         self._mutex_constructor = mutex_constructor
         self._default_argument_helpers: set[str] = set()
 
+    def _temporary(self, prefix: str, c_type: str, init=None) -> IRVarDecl:
+        declaration = IRVarDecl(c_type=CType(text=c_type), name=self._session.fresh_temp(prefix), init=init)
+        self._session.record_declaration(declaration)
+        return declaration
+
     def plan(self, node: CallExpr) -> CallPlan:
         result_type = self._types.resolve_active_type(self._session.type_of(node))
         dispatch = CallDispatch.DIRECT
@@ -1957,6 +1969,14 @@ class CallLowerer:
                 elif declaration is None and node.callee.name == "Mutex":
                     dispatch = CallDispatch.MUTEX_CONSTRUCTOR
                     callee = None
+                elif declaration is None and node.callee.name == "Atomic":
+                    dispatch = CallDispatch.ATOMIC_CONSTRUCTOR
+                    callee = None
+                    receiver_type = result_type
+                elif declaration is None and node.callee.name == "Span":
+                    dispatch = CallDispatch.SPAN_CONSTRUCTOR
+                    callee = None
+                    receiver_type = result_type
                 elif declaration is None and node.callee.name == "len" and node.args:
                     dispatch = CallDispatch.BUILTIN_LEN
                     callee = None
@@ -2096,6 +2116,35 @@ class CallLowerer:
             if result_type is None or result_type.base != "Mutex" or len(result_type.generic_args) != 1:
                 raise CodegenError("Mutex constructor has no concrete analyzed payload type")
             return (self._synthetic_parameter("value", result_type.generic_args[0]),)
+        if dispatch is CallDispatch.ATOMIC_CONSTRUCTOR:
+            if result_type is None or result_type.base != "Atomic" or len(result_type.generic_args) != 1:
+                raise CodegenError("Atomic constructor has no concrete analyzed payload type")
+            return (self._synthetic_parameter("value", result_type.generic_args[0]),)
+        if dispatch is CallDispatch.SPAN_CONSTRUCTOR:
+            if result_type is None or result_type.base != "Span" or len(result_type.generic_args) != 1:
+                raise CodegenError("Span constructor has no concrete analyzed element type")
+            parameters = [self._synthetic_parameter("data", TypeSystem.add_outer_pointer(result_type.generic_args[0]))]
+            if len(node.args) == 2:
+                parameters.append(self._synthetic_parameter("length", TypeExpr(base="size_t")))
+            return tuple(parameters)
+        if dispatch is CallDispatch.SPAN_METHOD:
+            if receiver_type is None or receiver_type.base != "Span" or len(receiver_type.generic_args) != 1:
+                raise CodegenError("Span method has no concrete analyzed receiver type")
+            element = receiver_type.generic_args[0]
+            signatures = {
+                "length": (),
+                "isEmpty": (),
+                "isValid": (),
+                "tryGet": (
+                    self._synthetic_parameter("index", TypeExpr(base="size_t")),
+                    self._synthetic_parameter("output", TypeSystem.add_outer_pointer(element)),
+                ),
+                "trySet": (
+                    self._synthetic_parameter("index", TypeExpr(base="size_t")),
+                    self._synthetic_parameter("value", element),
+                ),
+            }
+            return signatures.get(getattr(node.callee, "field", ""), ())
         if dispatch is CallDispatch.BUILTIN_PRINT:
             return tuple(
                 self._synthetic_parameter(
@@ -2226,6 +2275,19 @@ class CallLowerer:
         member_name: str,
     ) -> CallDispatch | None:
         """Classify calls owned by the language rather than a source declaration."""
+        if (
+            receiver_type is not None
+            and receiver_type.base == "Span"
+            and member_name
+            in {
+                "length",
+                "isEmpty",
+                "isValid",
+                "tryGet",
+                "trySet",
+            }
+        ):
+            return CallDispatch.SPAN_METHOD
         if self._type_identity.is_scalar_string(receiver_type):
             if member_name in _STRING_METHODS:
                 return CallDispatch.STRING_HELPER
@@ -2367,9 +2429,116 @@ class CallLowerer:
                 arguments[0],
                 plan.parameters[0].type,
             )
+        if plan.dispatch is CallDispatch.ATOMIC_CONSTRUCTOR:
+            if len(arguments) != 1:
+                raise CodegenError("Atomic construction requires one typed value")
+            return arguments[0]
+        if plan.dispatch is CallDispatch.SPAN_CONSTRUCTOR:
+            return self._materialize_span_constructor(plan, arguments)
+        if plan.dispatch is CallDispatch.SPAN_METHOD:
+            if lowered_receiver is None:
+                raise CodegenError("Span method requires a receiver")
+            return self._materialize_span_method(plan, lowered_receiver, arguments)
         if lowered_callee is None:
             raise ValueError("direct or callable dispatch requires a lowered callee")
         return IRCall(callee=lowered_callee, args=operands)
+
+    def _materialize_span_constructor(self, plan: CallPlan, arguments: list[IRExpr]) -> IRExpr:
+        span_type = plan.receiver_type
+        if span_type is None or span_type.base != "Span" or len(span_type.generic_args) != 1:
+            raise CodegenError("Span construction has no concrete analyzed element type")
+        if len(arguments) not in {1, 2}:
+            raise CodegenError("Span construction requires a backing pointer and optional extent")
+        data = arguments[0]
+        if len(arguments) == 2:
+            length = arguments[1]
+        else:
+            source = plan.source.args[0]
+            source_type = self._types.canonical_type(self._session.type_of(source))
+            if (
+                source_type is None
+                or not source_type.is_array
+                or source_type.array_size is None
+                or id(source_type.array_size) not in self._analyzed.constant_array_bound_ids
+            ):
+                raise CodegenError("Span construction without an extent requires fixed-array storage")
+            length = IRBinOp(
+                left=IRSizeof(operand=data),
+                op="/",
+                right=IRSizeof(operand=IRIndex(obj=data, index=IRLiteral(text="0"))),
+            )
+        return IRCompoundLiteral(
+            c_type=CType(text=self._types.render(span_type)),
+            fields=[("data", data), ("length", length)],
+        )
+
+    def _materialize_span_method(self, plan: CallPlan, receiver: IRExpr, arguments: list[IRExpr]) -> IRExpr:
+        receiver_type = plan.receiver_type
+        if receiver_type is None or receiver_type.base != "Span" or len(receiver_type.generic_args) != 1:
+            raise CodegenError("Span method has no concrete analyzed receiver type")
+        method = plan.member_name
+        span_decl = self._temporary("__btrc_span", self._types.render(receiver_type))
+        span = IRVar(name=span_decl.name)
+        declarations = [span_decl]
+        sequence: list[IRExpr] = [IRBinOp(left=span, op="=", right=receiver)]
+        data = IRFieldAccess(obj=span, field="data", arrow=False)
+        length = IRFieldAccess(obj=span, field="length", arrow=False)
+        if method == "length":
+            result = length
+        elif method == "isEmpty":
+            result = IRBinOp(left=length, op="==", right=IRLiteral(text="0"))
+        elif method == "isValid":
+            result = IRBinOp(
+                left=IRBinOp(left=data, op="!=", right=IRLiteral(text="NULL")),
+                op="||",
+                right=IRBinOp(left=length, op="==", right=IRLiteral(text="0")),
+            )
+        else:
+            if method not in {"tryGet", "trySet"} or len(arguments) != 2:
+                raise CodegenError(f"unsupported Span<T> method '{method}'")
+            index_decl = self._temporary("__btrc_span_index", "size_t")
+            declarations.append(index_decl)
+            index = IRVar(name=index_decl.name)
+            sequence.append(IRBinOp(left=index, op="=", right=arguments[0]))
+            condition = IRBinOp(
+                left=IRBinOp(left=data, op="!=", right=IRLiteral(text="NULL")),
+                op="&&",
+                right=IRBinOp(left=index, op="<", right=length),
+            )
+            target = IRIndex(obj=data, index=index)
+            if method == "tryGet":
+                element_type = replace(
+                    receiver_type.generic_args[0],
+                    is_const=False,
+                    is_volatile=False,
+                )
+                output_decl = self._temporary(
+                    "__btrc_span_output",
+                    f"{self._types.render(element_type)}*",
+                )
+                declarations.append(output_decl)
+                output = IRVar(name=output_decl.name)
+                sequence.append(IRBinOp(left=output, op="=", right=arguments[1]))
+                condition = IRBinOp(
+                    left=condition,
+                    op="&&",
+                    right=IRBinOp(left=output, op="!=", right=IRLiteral(text="NULL")),
+                )
+                target = IRUnaryOp(op="*", operand=output)
+                assigned = IRBinOp(
+                    left=target,
+                    op="=",
+                    right=IRIndex(obj=data, index=index),
+                )
+            else:
+                assigned = IRBinOp(left=target, op="=", right=arguments[1])
+            result = IRTernary(
+                condition=condition,
+                true_expr=IRCommaExpr(expressions=[assigned, IRLiteral(text="true")]),
+                false_expr=IRLiteral(text="false"),
+            )
+        sequence.append(result)
+        return IRStmtExpr(stmts=declarations, result=IRCommaExpr(expressions=sequence))
 
     def _materialize_builtin_len(
         self,

@@ -815,9 +815,24 @@ _C_PREDEFINED_INT_IDENTIFIERS = frozenset({"__LINE__", "__STDC__", "__STDC_HOSTE
 _PRIMITIVE_TYPE_NAMES = frozenset(
     ("void", "bool", "byte", "char", "short", "int", "long", "float", "double", "string", "uint", "unsigned", "signed")
 )
-_BUILTIN_CAST_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Thread", "Mutex", "Tuple"))
+_BUILTIN_CAST_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Atomic", "Span", "Thread", "Mutex", "Tuple"))
 _RUNTIME_AGGREGATE_BASES = frozenset(("Vector", "List", "Map", "Set", "Array", "Tuple"))
-_RUNTIME_TYPE_BASES = frozenset({"Array", "List", "Map", "Mutex", "Set", "Thread", "Tuple", "Vector", "__fn_ptr"})
+_RUNTIME_TYPE_BASES = frozenset(
+    {
+        "Array",
+        "Atomic",
+        "List",
+        "Map",
+        "MemoryOrder",
+        "Mutex",
+        "Set",
+        "Span",
+        "Thread",
+        "Tuple",
+        "Vector",
+        "__fn_ptr",
+    }
+)
 _EXPLICIT_C_TAG_PREFIXES = ("struct ", "enum ", "union ")
 _FLOATING_BASES = frozenset(("float", "double", "long double"))
 _INTEGRAL_KINDS = {
@@ -1226,7 +1241,7 @@ class TypeSystem:
             return TypeExpr(base="char")
         if iter_type.is_array:
             return self.strip_outer_storage(iter_type, array=True)
-        if iter_type.base in {"Array", "List", "Set", "Vector"} and len(iter_type.generic_args) == 1:
+        if iter_type.base in {"Array", "List", "Set", "Span", "Vector"} and len(iter_type.generic_args) == 1:
             return iter_type.generic_args[0]
         if iter_type.base == "Map" and len(iter_type.generic_args) == 2:
             return iter_type.generic_args[0]
@@ -1322,6 +1337,44 @@ class TypeSystem:
             return False
         return any(
             self._contains_mutex_storage(field, nested)
+            for field, nested in self._aggregate_field_types(canonical, visiting)
+        )
+
+    def contains_span_storage(self, type_expr, visiting=frozenset()) -> bool:
+        """Return whether storage transitively contains a borrowed Span owner."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return False
+        if canonical.base == "Span":
+            return True
+        arguments = canonical.generic_args or []
+        if canonical.base == "__fn_ptr":
+            arguments = arguments[1:]
+        if any(self.contains_span_storage(argument, visiting) for argument in arguments):
+            return True
+        if canonical.pointer_depth > 0:
+            return False
+        return any(
+            self.contains_span_storage(field, nested)
+            for field, nested in self._aggregate_field_types(canonical, visiting)
+        )
+
+    def contains_atomic_storage(self, type_expr, visiting=frozenset()) -> bool:
+        """Return whether storage transitively contains a direct Atomic owner."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None:
+            return False
+        if canonical.base == "Atomic" and canonical.pointer_depth == 0:
+            return True
+        arguments = canonical.generic_args or []
+        if canonical.base == "__fn_ptr":
+            arguments = arguments[1:]
+        if any(self.contains_atomic_storage(argument, visiting) for argument in arguments):
+            return True
+        if canonical.pointer_depth > 0:
+            return False
+        return any(
+            self.contains_atomic_storage(field, nested)
             for field, nested in self._aggregate_field_types(canonical, visiting)
         )
 
@@ -1435,6 +1488,83 @@ class TypeSystem:
                 )
         if (
             canonical
+            and canonical.base == "SpscQueue"
+            and canonical.generic_args
+            and canonical.generic_args[0].base not in set(active_type_params)
+            and not self.is_realtime_pod(canonical.generic_args[0])
+        ):
+            self.session.error(
+                "SpscQueue<T> payload must be realtime POD without managed ownership",
+                type_line,
+                type_col,
+            )
+        if canonical and canonical.base == "Span":
+            direct_span = canonical.pointer_depth == 0 and not canonical.is_array
+            if not direct_span or canonical.is_const or canonical.is_nullable:
+                self.session.error(
+                    "Span<T> must be one direct, nonnullable borrowed view",
+                    type_line,
+                    type_col,
+                )
+            if direct_span and role in {"field", "stable_field"}:
+                self.session.error(f"{subject} cannot store nonescaping Span<T>", type_line, type_col)
+            if direct_span and role == "return":
+                self.session.error(f"{subject} cannot be nonescaping Span<T>", type_line, type_col)
+            if (
+                direct_span
+                and canonical.generic_args
+                and canonical.generic_args[0].base not in set(active_type_params)
+                and not self.is_realtime_pod(canonical.generic_args[0])
+            ):
+                self.session.error(
+                    "Span<T> element type must be realtime POD without managed ownership",
+                    type_line,
+                    type_col,
+                )
+        if canonical and canonical.base == "Atomic":
+            direct_atomic = canonical.pointer_depth == 0 and not canonical.is_array
+            if canonical.is_array or canonical.is_const or canonical.is_nullable:
+                self.session.error(
+                    "Atomic<T> owner type must be direct mutable stable storage",
+                    type_line,
+                    type_col,
+                )
+            if direct_atomic and role == "parameter":
+                self.session.error("Atomic<T> owner cannot be passed by value; pass Atomic<T>*", type_line, type_col)
+            if direct_atomic and role == "return":
+                self.session.error("Atomic<T> owner cannot be returned by value", type_line, type_col)
+            if direct_atomic and role == "field":
+                self.session.error(
+                    f"{subject} cannot embed an Atomic<T> owner in shallow copyable storage; "
+                    "keep Atomic<T> as a direct class field or local owner",
+                    type_line,
+                    type_col,
+                )
+            if (
+                canonical.generic_args
+                and canonical.generic_args[0].base not in set(active_type_params)
+                and not self.is_atomic_payload(canonical.generic_args[0])
+            ):
+                self.session.error(
+                    "Atomic<T> payload must be bool, int, uint, or a raw pointer",
+                    type_line,
+                    type_col,
+                )
+        if canonical and canonical.base != "Span" and self.contains_span_storage(canonical):
+            self.session.error(
+                f"{subject} cannot contain nonescaping Span<T> in aggregate or managed storage",
+                type_line,
+                type_col,
+            )
+        if canonical and canonical.base != "Atomic" and self.contains_atomic_storage(canonical):
+            self.session.error(
+                f"{subject} cannot embed an Atomic<T> owner in shallow copyable storage; "
+                "keep Atomic<T> as a direct class field or local owner",
+                type_line,
+                type_col,
+            )
+        if (
+            canonical
             and canonical.base == "Mutex"
             and (canonical.pointer_depth > 0 or canonical.is_array or canonical.is_const)
         ):
@@ -1464,7 +1594,7 @@ class TypeSystem:
                 type_line,
                 type_col,
             )
-        if role in {"field", "parameter"} and self.contains_thread_storage(type_expr):
+        if role in {"field", "stable_field", "parameter"} and self.contains_thread_storage(type_expr):
             self.session.error(
                 f"{subject} cannot own a Thread handle; keep each Thread<T> in one initialized local variable or return it",
                 type_line,
@@ -1517,7 +1647,7 @@ class TypeSystem:
             expected = len(self.index.class_table[type_expr.base].generic_params)
         elif type_expr.base in self.index.interface_table:
             expected = len(self.index.interface_table[type_expr.base].generic_params)
-        elif type_expr.base in {"Array", "List", "Mutex", "Set", "Thread", "Vector"}:
+        elif type_expr.base in {"Array", "Atomic", "List", "Mutex", "Set", "Span", "Thread", "Vector"}:
             expected = 1
         elif type_expr.base == "Map":
             expected = 2
@@ -1614,6 +1744,36 @@ class TypeSystem:
             return True
         return base.startswith(_EXPLICIT_C_TAG_PREFIXES)
 
+    def is_atomic_payload(self, type_expr) -> bool:
+        """Whether a value has an exact lock-free C11 atomic representation."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None or canonical.is_array or canonical.is_nullable or canonical.generic_args:
+            return False
+        if canonical.pointer_depth > 0:
+            return canonical.base not in {"string", "Atomic", "Span"} and canonical.base not in self.index.class_table
+        if canonical.is_const or canonical.is_volatile:
+            return False
+        return canonical.base in {"bool", "int", "signed", "signed int", "uint", "unsigned", "unsigned int"}
+
+    def is_realtime_pod(self, type_expr, visiting=frozenset()) -> bool:
+        """Classify shallow-copyable values usable by borrowed/realtime storage."""
+        canonical = self.canonical_type(type_expr)
+        if canonical is None or canonical.is_array or canonical.is_nullable:
+            return False
+        if canonical.pointer_depth > 0:
+            return canonical.base != "string" and canonical.base not in self.index.class_table
+        if canonical.generic_args:
+            return False
+        if canonical.base == "bool" or canonical.base in self.NUMERIC_TYPES or canonical.base in self.index.enum_table:
+            return True
+        name = canonical.base.removeprefix("struct ")
+        if name in visiting:
+            return False
+        declaration = self.index.struct_table.get(name)
+        if declaration is None or declaration.is_forward:
+            return False
+        return all(self.is_realtime_pod(field.type, visiting | {name}) for field in declaration.fields)
+
     def is_nonpointer_void_object(self, type_expr) -> bool:
         return self._type_identity.is_scalar_void(type_expr)
 
@@ -1632,7 +1792,7 @@ class TypeSystem:
     def _validate_storage_qualifiers(self, type_expr, subject, role, line, col) -> None:
         if type_expr.is_static and type_expr.is_extern:
             self.session.error(f"{subject} cannot be both static and extern", line, col)
-        if role in {"parameter", "field"} and (type_expr.is_static or type_expr.is_extern):
+        if role in {"parameter", "field", "stable_field"} and (type_expr.is_static or type_expr.is_extern):
             self.session.error(f"{subject} cannot carry static/extern storage qualifiers", line, col)
 
     def upgrade_class_type(self, type_expr, shadowed_names=None):

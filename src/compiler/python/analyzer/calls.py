@@ -52,6 +52,32 @@ if TYPE_CHECKING:
 
 
 _CONTEXT_SENSITIVE_PREDEFINED = frozenset({"__func__", "__LINE__", "__FILE__"})
+_MEMORY_ORDERS = frozenset({"RELAXED", "ACQUIRE", "RELEASE", "ACQ_REL", "SEQ_CST"})
+_ATOMIC_METHODS = frozenset(
+    {
+        "init",
+        "load",
+        "store",
+        "exchange",
+        "fetchAdd",
+        "fetchSub",
+        "fetchAnd",
+        "fetchOr",
+        "fetchXor",
+        "compareExchangeStrong",
+    }
+)
+_ATOMIC_ORDER_DOMAINS = {
+    "load": frozenset({"RELAXED", "ACQUIRE", "SEQ_CST"}),
+    "store": frozenset({"RELAXED", "RELEASE", "SEQ_CST"}),
+}
+_CAS_FAILURE_ORDERS = {
+    "RELAXED": frozenset({"RELAXED"}),
+    "ACQUIRE": frozenset({"RELAXED", "ACQUIRE"}),
+    "RELEASE": frozenset({"RELAXED"}),
+    "ACQ_REL": frozenset({"RELAXED", "ACQUIRE"}),
+    "SEQ_CST": frozenset({"RELAXED", "ACQUIRE", "SEQ_CST"}),
+}
 
 
 class CallAnalyzer:
@@ -213,6 +239,26 @@ class CallAnalyzer:
             else:
                 self.session.error(f"Mutex<T> has no method '{callee.field}'", expression.line, expression.col)
             return True
+        if receiver_type and receiver_type.base == "Atomic" and receiver_type.generic_args:
+            self._validate_atomic_method(expression, receiver_type)
+            return True
+        if receiver_type and receiver_type.base == "Span" and receiver_type.generic_args:
+            element = receiver_type.generic_args[0]
+            output_element = replace(element, is_const=False, is_volatile=False)
+            signatures = {
+                "length": [],
+                "isEmpty": [],
+                "isValid": [],
+                "tryGet": [TypeExpr(base="size_t"), self.types.add_outer_pointer(output_element)],
+                "trySet": [TypeExpr(base="size_t"), element],
+            }
+            if callee.field not in signatures:
+                self.session.error(f"Span<T> has no method '{callee.field}'", expression.line, expression.col)
+            else:
+                self._validate_builtin_signature(f"Span.{callee.field}", signatures[callee.field], expression)
+                if callee.field == "trySet" and element.is_const:
+                    self.session.error("Span<const T>.trySet is not available", expression.line, expression.col)
+            return True
         if receiver_type and receiver_type.base in self.index.rich_enum_table:
             if callee.field != "toString":
                 self.session.error(
@@ -232,6 +278,72 @@ class CallAnalyzer:
                 self._validate_builtin_signature(f"{self.types.format_type(receiver_type)}.toString", [], expression)
             return True
         return False
+
+    def _validate_atomic_method(self, expression, receiver_type) -> None:
+        method = expression.callee.field
+        if method not in _ATOMIC_METHODS:
+            self.session.error(f"Atomic<T> has no method '{method}'", expression.line, expression.col)
+            return
+        payload = receiver_type.generic_args[0]
+        order = TypeExpr(base="MemoryOrder")
+        signatures = {
+            "init": [payload],
+            "load": [order],
+            "store": [payload, order],
+            "exchange": [payload, order],
+            "fetchAdd": [payload, order],
+            "fetchSub": [payload, order],
+            "fetchAnd": [payload, order],
+            "fetchOr": [payload, order],
+            "fetchXor": [payload, order],
+            "compareExchangeStrong": [self.types.add_outer_pointer(payload), payload, order, order],
+        }
+        self._validate_builtin_signature(f"Atomic.{method}", signatures[method], expression)
+        if method.startswith("fetch") and not self.types.is_integral_value(payload):
+            self.session.error(f"Atomic.{method} requires an integral payload", expression.line, expression.col)
+        order_indices = {
+            "load": (0,),
+            "store": (1,),
+            "exchange": (1,),
+            "fetchAdd": (1,),
+            "fetchSub": (1,),
+            "fetchAnd": (1,),
+            "fetchOr": (1,),
+            "fetchXor": (1,),
+            "compareExchangeStrong": (2, 3),
+        }.get(method, ())
+        names = [
+            self._literal_memory_order(expression.args[index], f"Atomic.{method}")
+            for index in order_indices
+            if index < len(expression.args)
+        ]
+        if method in _ATOMIC_ORDER_DOMAINS and names:
+            accepted = _ATOMIC_ORDER_DOMAINS[method]
+            if names[0] is not None and names[0] not in accepted:
+                self.session.error(
+                    f"Atomic.{method} does not accept MemoryOrder.{names[0]}",
+                    expression.line,
+                    expression.col,
+                )
+        if method == "compareExchangeStrong" and len(names) == 2 and all(name is not None for name in names):
+            success, failure = names
+            if failure not in _CAS_FAILURE_ORDERS[success]:
+                self.session.error(
+                    f"Atomic.compareExchangeStrong failure order MemoryOrder.{failure} is not allowed with success order MemoryOrder.{success}",
+                    expression.line,
+                    expression.col,
+                )
+
+    def _literal_memory_order(self, argument, operation: str) -> str | None:
+        if (
+            not isinstance(argument, FieldAccessExpr)
+            or not isinstance(argument.obj, Identifier)
+            or argument.obj.name != "MemoryOrder"
+            or argument.field not in _MEMORY_ORDERS
+        ):
+            self.session.error(f"{operation} requires a literal MemoryOrder member", argument.line, argument.col)
+            return None
+        return argument.field
 
     def _is_builtin_scalar_receiver(self, type_expr) -> bool:
         return bool(
@@ -600,6 +712,18 @@ class CallAnalyzer:
             if name == "Mutex" and expr.args:
                 argument_type = self.type_of(expr.args[0])
                 return TypeExpr(base="Mutex", generic_args=[argument_type or TypeExpr(base="int")])
+            if name == "Atomic" and expr.args:
+                argument_type = self.type_of(expr.args[0])
+                return TypeExpr(base="Atomic", generic_args=[argument_type or TypeExpr(base="int")])
+            if name == "Span" and expr.args:
+                argument_type = self.types.canonical_type(self.type_of(expr.args[0]))
+                if argument_type is not None and argument_type.is_array:
+                    element = self.types.strip_outer_storage(argument_type, array=True)
+                elif argument_type is not None and argument_type.pointer_depth > 0:
+                    element = self.types.strip_outer_storage(argument_type)
+                else:
+                    element = TypeExpr(base="int")
+                return TypeExpr(base="Span", generic_args=[element])
             if name in self.index.class_table:
                 return self._infer_constructor_call_type(expr, self.index.class_table[name])
             if name == "len":
@@ -669,6 +793,18 @@ class CallAnalyzer:
                 return object_type.generic_args[0]
             if callee.field in ("set", "destroy"):
                 return TypeExpr(base="void")
+        if object_type and object_type.base == "Atomic" and object_type.generic_args:
+            if callee.field in {"load", "exchange", "fetchAdd", "fetchSub", "fetchAnd", "fetchOr", "fetchXor"}:
+                return object_type.generic_args[0]
+            if callee.field == "compareExchangeStrong":
+                return TypeExpr(base="bool")
+            if callee.field in {"init", "store"}:
+                return TypeExpr(base="void")
+        if object_type and object_type.base == "Span" and object_type.generic_args:
+            if callee.field == "length":
+                return TypeExpr(base="size_t")
+            if callee.field in {"isEmpty", "isValid", "tryGet", "trySet"}:
+                return TypeExpr(base="bool")
         if object_type and object_type.base in {"Array", "List", "Map", "Set", "Vector"} and (callee.field == "size"):
             return TypeExpr(base="int")
         if object_type and object_type.base in self.index.class_table:
@@ -800,6 +936,9 @@ class CallAnalyzer:
             if len(expr.args) != 1:
                 self.session.error(f"'Mutex()' expects 1 argument but got {len(expr.args)}", expr.line, expr.col)
             return
+        if name in {"Atomic", "Span"}:
+            self._validate_realtime_constructor(expr, name)
+            return
         if name in GENERIC_INTRINSICS:
             self._validate_generic_intrinsic_call(expr)
             return
@@ -815,6 +954,49 @@ class CallAnalyzer:
                 substitutions = dict(zip(cls.generic_params, inferred.generic_args))
             self.validate_constructor_args(cls, expr.args, expr.arg_names, expr.line, expr.col, substitutions)
             return
+
+    def _validate_realtime_constructor(self, expression, name: str) -> None:
+        if any(expression.arg_names or []):
+            self.session.error(f"'{name}()' does not accept named arguments", expression.line, expression.col)
+        if name == "Atomic":
+            if len(expression.args) != 1:
+                self.session.error(
+                    f"'Atomic()' expects 1 argument but got {len(expression.args)}", expression.line, expression.col
+                )
+                return
+            argument_type = self.types.canonical_type(self.type_of(expression.args[0]))
+            if argument_type is not None and not self.types.is_atomic_payload(argument_type):
+                self.session.error(
+                    "Atomic<T> payload must be bool, int, uint, or a raw pointer",
+                    expression.line,
+                    expression.col,
+                )
+            return
+        if len(expression.args) not in {1, 2}:
+            self.session.error(
+                f"'Span()' expects 1 or 2 arguments but got {len(expression.args)}", expression.line, expression.col
+            )
+            return
+        source = self.types.canonical_type(self.type_of(expression.args[0]))
+        if source is None or (not source.is_array and source.pointer_depth == 0):
+            self.session.error("Span() backing must be a fixed array or raw pointer", expression.line, expression.col)
+        if len(expression.args) == 1 and (source is None or not source.is_array):
+            self.session.error("Span(pointer) requires an explicit element count", expression.line, expression.col)
+        if (
+            len(expression.args) == 1
+            and source is not None
+            and source.is_array
+            and (source.array_size is None or id(source.array_size) not in self.session.constant_array_bound_ids)
+        ):
+            self.session.error(
+                "Span(array) requires a fixed constant extent",
+                expression.line,
+                expression.col,
+            )
+        if len(expression.args) == 2:
+            count_type = self.types.canonical_type(self.type_of(expression.args[1]))
+            if count_type is not None and not self.types.is_integral_value(count_type):
+                self.session.error("Span() element count must be integral", expression.line, expression.col)
 
     def _validate_method_call(self, expr):
         callee = expr.callee
@@ -953,6 +1135,9 @@ class CallAnalyzer:
             return left or right
         if not (isinstance(expression, CallExpr) and isinstance(expression.callee, Identifier)):
             return False
+        if expression.callee.name in {"Atomic", "Span"} and expected.base == expression.callee.name:
+            self.session.record_node_type(expression, expected)
+            return True
         cls = self.index.class_table.get(expression.callee.name)
         if not (
             cls

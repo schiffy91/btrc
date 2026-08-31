@@ -260,9 +260,13 @@ class ConcurrencyLowerer:
         obj_type: TypeExpr | None,
         method_name: str,
     ) -> SyncMethodPlan | None:
-        """Classify a Thread/Mutex method without traversing source operands."""
+        """Classify a Thread/Mutex/Atomic method without traversing source operands."""
         receiver_type = self._types.canonical_type(obj_type)
-        if receiver_type is None or receiver_type.base not in {"Thread", "Mutex"} or not receiver_type.generic_args:
+        if (
+            receiver_type is None
+            or receiver_type.base not in {"Thread", "Mutex", "Atomic"}
+            or not receiver_type.generic_args
+        ):
             return None
         return SyncMethodPlan(receiver_type=receiver_type, method_name=method_name)
 
@@ -279,12 +283,46 @@ class ConcurrencyLowerer:
                 plan.method_name,
                 plan.receiver_type,
             )
+        if plan.receiver_type.base == "Atomic":
+            return self.lower_atomic_method(
+                obj,
+                plan.method_name,
+                plan.receiver_type,
+                args,
+            )
         return self.lower_mutex_method(
             obj,
             plan.method_name,
             plan.receiver_type,
             args,
         )
+
+    def lower_atomic_method(
+        self,
+        atomic: IRExpr,
+        method_name: str,
+        receiver_type: TypeExpr,
+        args: list[IRExpr],
+    ) -> IRExpr:
+        """Lower one validated typed operation directly to its explicit C11 form."""
+        self._session.require_runtime_header("stdatomic.h")
+        address = atomic if receiver_type.pointer_depth > 0 else IRUnaryOp(op="&", operand=atomic)
+        functions = {
+            "init": "atomic_init",
+            "load": "atomic_load_explicit",
+            "store": "atomic_store_explicit",
+            "exchange": "atomic_exchange_explicit",
+            "fetchAdd": "atomic_fetch_add_explicit",
+            "fetchSub": "atomic_fetch_sub_explicit",
+            "fetchAnd": "atomic_fetch_and_explicit",
+            "fetchOr": "atomic_fetch_or_explicit",
+            "fetchXor": "atomic_fetch_xor_explicit",
+            "compareExchangeStrong": "atomic_compare_exchange_strong_explicit",
+        }
+        function = functions.get(method_name)
+        if function is None:
+            raise CodegenError(f"unsupported Atomic<T> method '{method_name}'")
+        return IRCall(callee=function, args=[address, *args])
 
     def managed_capture_type(self, capture):
         """Return a direct managed capture type, excluding arrays/raw pointers."""

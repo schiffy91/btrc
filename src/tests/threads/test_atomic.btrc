@@ -1,0 +1,36 @@
+uint readAtomic(Atomic<uint>* value) {
+    return value->load(MemoryOrder.ACQUIRE);
+}
+
+bool advanceAtomic(Atomic<uint>* value) {
+    uint expected = 9u;
+    return value->compareExchangeStrong(
+        &expected, 11u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE);
+}
+
+int main() {
+    Atomic<uint> value = Atomic(1u);
+    if (value.load(MemoryOrder.RELAXED) != 1u) { return 1; }
+    value.store(2u, MemoryOrder.RELEASE);
+    if (value.exchange(3u, MemoryOrder.ACQ_REL) != 2u) { return 2; }
+    if (value.fetchAdd(4u, MemoryOrder.RELAXED) != 3u) { return 3; }
+    uint expected = 7u;
+    if (!value.compareExchangeStrong(
+            &expected, 9u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
+        return 4;
+    }
+    expected = 7u;
+    if (value.compareExchangeStrong(
+            &expected, 10u, MemoryOrder.ACQUIRE, MemoryOrder.RELAXED)) {
+        return 5;
+    }
+    if (expected != 9u || value.load(MemoryOrder.ACQUIRE) != 9u) { return 6; }
+    if (readAtomic(&value) != 9u || !advanceAtomic(&value)) { return 7; }
+    if (value.load(MemoryOrder.ACQUIRE) != 11u) { return 8; }
+    int pointee = 42;
+    Atomic<const int*> pointer = Atomic((const int*)&pointee);
+    pointer.store((const int*)&pointee, MemoryOrder.RELEASE);
+    if (*pointer.load(MemoryOrder.ACQUIRE) != 42) { return 9; }
+    print("PASS atomic");
+    return 0;
+}

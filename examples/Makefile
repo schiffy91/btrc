@@ -7,13 +7,13 @@
 #         make clean    Clean all build artifacts
 # ─────────────────────────────────────────────────────────────────────────────
 
-.PHONY: all cpu gpu callback todo game triangle sgd gui native-package clean
+.PHONY: all cpu gpu callback realtime-primitives todo game triangle sgd gui native-package clean
 
 GPU_LIB := ../build/stdlib/gpu/libbtrc_gpu.a
 
 all: cpu gpu
 
-cpu: callback todo gui
+cpu: callback realtime-primitives todo gui
 
 gpu: game triangle sgd
 
@@ -24,6 +24,10 @@ callback: ## Build the owned callback closure example
 todo: ## Build the todo example
 	@echo "=== todo ==="
 	@$(MAKE) -C todo
+
+realtime-primitives: ## Build and run the bounded primitive example
+	@echo "=== realtime-primitives ==="
+	@$(MAKE) -C realtime-primitives
 
 gui: ## Build + run the headless GUI example (offscreen, no display needed)
 	@echo "=== gui ==="
@@ -53,6 +57,7 @@ sgd: ## Build the GPU SGD example
 clean:
 	@$(MAKE) -C callback clean 2>/dev/null || true
 	@$(MAKE) -C todo clean 2>/dev/null || true
+	@$(MAKE) -C realtime-primitives clean 2>/dev/null || true
 	@$(MAKE) -C game clean 2>/dev/null || true
 	@$(MAKE) -C triangle clean 2>/dev/null || true
 	@$(MAKE) -C sgd clean 2>/dev/null || true

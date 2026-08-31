@@ -977,6 +977,31 @@ class StorageValidator {
         self.types.validateDeclaredType(
             declaration.type, subject, "object", declaration);
         Node? canonical = self.types.resolveAliases(declaration.type);
+        if (canonical != null && canonical.base == "Span"
+                && canonical.pointer_depth == 0) {
+            if (isGlobal || canonical.is_static || canonical.is_extern) {
+                TypeValidator.fail(subject
+                    + " cannot store nonescaping Span<T>", declaration);
+            }
+            if (!isGlobal && declaration.initializer == null) {
+                TypeValidator.fail(subject
+                    + " must initialize its Span<T> borrow", declaration);
+            }
+        }
+        if (canonical != null && canonical.base == "Atomic"
+                && canonical.pointer_depth == 0
+                && declaration.initializer != null) {
+            Node initializer = declaration.initializer;
+            bool validConstructor = initializer.kind == NK_CALL_EXPR
+                && initializer.callee != null
+                && initializer.callee.kind == NK_IDENTIFIER
+                && initializer.callee.name == "Atomic";
+            if (!validConstructor) {
+                TypeValidator.fail(subject
+                    + " cannot copy an Atomic<T> owner; initialize with Atomic(value)",
+                    declaration);
+            }
+        }
         if (canonical != null && canonical.base == "Mutex"
                 && (isGlobal || canonical.is_static
                     || canonical.is_extern)) {
@@ -1743,6 +1768,15 @@ class StorageValidator {
         }
         Node? storageTarget = self.types.inferType(
             expression.target,  vars);
+        Node? canonicalStorageTarget = self.types.resolveAliases(storageTarget);
+        if (canonicalStorageTarget != null
+                && canonicalStorageTarget.base == "Atomic"
+                && canonicalStorageTarget.pointer_depth == 0
+                && !canonicalStorageTarget.is_array) {
+            TypeValidator.fail(
+                "Atomic<T> owner cannot be assigned or copied; use Atomic.init/store on stable storage",
+                expression);
+        }
         bool gpuArrayOutput = expression.op == "="
             && self.types.gpuArrayResultCall(expression.value_node,  vars);
         bool gpuCollectionOutput = gpuArrayOutput

@@ -215,6 +215,10 @@ class IRLowerer {
         self.declarations.emitDeclarations(program, module);
         self.functions.materializeDeferredClosure();
         self.cTypes.appendFunctionPointerTypedefs(module);
+        self.cTypes.appendRealtimeTypeDeclarations(module);
+        if (self.cTypes.usesAtomic()) {
+            self.declarations.requireSystemInclude(module, "stdatomic.h");
+        }
         self.cleanupSlots.finalize(module);
         self.expressionTypes.disableMemo();
         return module;

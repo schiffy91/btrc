@@ -20,8 +20,20 @@ if TYPE_CHECKING:
     from src.compiler.python.analyzer.program import AnalysisSession
     from src.compiler.python.analyzer.types import TypeSystem
 
-_UNREGISTERED_GENERIC_INSTANCE_BASES = frozenset({"Array", "List", "Map", "Mutex", "Set", "Thread", "Vector"})
-_RUNTIME_GENERIC_ARITIES = {"Array": 1, "List": 1, "Map": 2, "Mutex": 1, "Set": 1, "Thread": 1, "Vector": 1}
+_UNREGISTERED_GENERIC_INSTANCE_BASES = frozenset(
+    {"Array", "Atomic", "List", "Map", "Mutex", "Set", "Span", "Thread", "Vector"}
+)
+_RUNTIME_GENERIC_ARITIES = {
+    "Array": 1,
+    "Atomic": 1,
+    "List": 1,
+    "Map": 2,
+    "Mutex": 1,
+    "Set": 1,
+    "Span": 1,
+    "Thread": 1,
+    "Vector": 1,
+}
 _RUNTIME_GENERIC_MIN_ARITIES = {"Tuple": 2, "__fn_ptr": 1}
 
 

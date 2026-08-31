@@ -1,0 +1,61 @@
+/* btrc standard library — one bounded SPSC queue composition.
+ *
+ * Construction/destruction belong off the realtime path. Exactly one producer
+ * calls tryPush and exactly one consumer calls tryPop while the queue is live.
+ */
+
+class SpscQueue<T> {
+    private T* storage;
+    private uint slotCount;
+    private Atomic<uint> writeCursor;
+    private Atomic<uint> readCursor;
+
+    public SpscQueue(uint capacity) {
+        if (capacity == 0u || capacity == UINT_MAX) {
+            fprintf(stderr, "SpscQueue capacity must be in 1..UINT_MAX-1\n");
+            exit(1);
+        }
+        uint slots = capacity + 1u;
+        if ((size_t)slots > (size_t)(-1) / sizeof(T)) {
+            fprintf(stderr, "SpscQueue allocation size overflow\n");
+            exit(1);
+        }
+        self.storage = (T*)__btrc_safe_calloc((size_t)slots, sizeof(T));
+        self.slotCount = slots;
+        self.writeCursor.init(0u);
+        self.readCursor.init(0u);
+    }
+
+    public bool tryPush(T value) {
+        uint write = self.writeCursor.load(MemoryOrder.RELAXED);
+        uint nextWrite = write + 1u;
+        if (nextWrite == self.slotCount) { nextWrite = 0u; }
+        uint read = self.readCursor.load(MemoryOrder.ACQUIRE);
+        if (nextWrite == read) { return false; }
+        self.storage[write] = value;
+        self.writeCursor.store(nextWrite, MemoryOrder.RELEASE);
+        return true;
+    }
+
+    public bool tryPop(T* output) {
+        if (output == null) { return false; }
+        uint read = self.readCursor.load(MemoryOrder.RELAXED);
+        uint write = self.writeCursor.load(MemoryOrder.ACQUIRE);
+        if (read == write) { return false; }
+        *output = self.storage[read];
+        uint nextRead = read + 1u;
+        if (nextRead == self.slotCount) { nextRead = 0u; }
+        self.readCursor.store(nextRead, MemoryOrder.RELEASE);
+        return true;
+    }
+
+    public void close() {
+        free(self.storage);
+        self.storage = null;
+        self.slotCount = 0u;
+    }
+
+    public void __del__() {
+        self.close();
+    }
+}

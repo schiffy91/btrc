@@ -360,6 +360,24 @@ class StatementAnalyzer:
             active_type_params=self.storage.active_type_parameters(),
         )
         canonical = self.types.canonical_type(type_expr)
+        if canonical and canonical.base == "Span" and canonical.pointer_depth == 0:
+            if is_global or canonical.is_static or canonical.is_extern:
+                self.session.error(f"{subject} cannot store nonescaping Span<T>", declaration.line, declaration.col)
+            if not is_global and declaration.initializer is None:
+                self.session.error(f"{subject} must initialize its Span<T> borrow", declaration.line, declaration.col)
+        if canonical and canonical.base == "Atomic" and canonical.pointer_depth == 0:
+            initializer = declaration.initializer
+            valid_constructor = bool(
+                isinstance(initializer, CallExpr)
+                and isinstance(initializer.callee, Identifier)
+                and initializer.callee.name == "Atomic"
+            )
+            if initializer is not None and not valid_constructor:
+                self.session.error(
+                    f"{subject} cannot copy an Atomic<T> owner; initialize with Atomic(value)",
+                    declaration.line,
+                    declaration.col,
+                )
         if canonical and canonical.base == "Mutex" and (is_global or canonical.is_static or canonical.is_extern):
             self.session.error(
                 f"{subject} cannot own a Mutex handle with static storage until managed global teardown is supported",
@@ -671,6 +689,24 @@ class StatementAnalyzer:
                 expr.line,
                 expr.col,
             )
+        for name, capture_type in captures.items():
+            canonical_capture = self.types.canonical_type(capture_type)
+            if canonical_capture is not None and canonical_capture.base == "Span":
+                self.session.error(
+                    f"A lambda cannot capture nonescaping Span '{name}'",
+                    expr.line,
+                    expr.col,
+                )
+            if (
+                canonical_capture is not None
+                and canonical_capture.base == "Atomic"
+                and canonical_capture.pointer_depth == 0
+            ):
+                self.session.error(
+                    f"A lambda cannot copy Atomic owner '{name}'; capture an Atomic<T>*",
+                    expr.line,
+                    expr.col,
+                )
         expr.captures = [Capture(name=name, type=captures[name]) for name in sorted(captures)]
         self.session.lambda_body_facts[id(expr)] = LambdaBodyFacts(
             terminates=bool(isinstance(expr.body, LambdaBlock) and self.flow.block_must_terminate(expr.body.body))
@@ -1109,7 +1145,7 @@ class StatementAnalyzer:
                     f"Field '{declaration.name}.{member.name}'",
                     member.line,
                     member.col,
-                    role="field",
+                    role="stable_field",
                     active_type_params=class_parameters,
                 )
                 self._validate_class_field_contract(declaration, member)

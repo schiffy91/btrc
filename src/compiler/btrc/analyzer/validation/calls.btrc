@@ -73,6 +73,167 @@ class CallValidator {
         return null;
     }
 
+    private void validateBuiltinSignature(string label,
+            Vector<Node> expectedTypes, Node call,
+            Map<string, Node> vars) {
+        int namedIndex = 0;
+        while (namedIndex < call.arg_names.len) {
+            if (call.arg_names.get(namedIndex) != "") {
+                TypeValidator.fail("'" + label
+                    + "()' does not accept named arguments", call);
+            }
+            namedIndex = namedIndex + 1;
+        }
+        if (call.args.len != expectedTypes.len) {
+            TypeValidator.fail("'" + label + "()' expects "
+                + Strings.fromInt(expectedTypes.len)
+                + " argument(s) but got "
+                + Strings.fromInt(call.args.len), call);
+        }
+        int index = 0;
+        while (index < expectedTypes.len) {
+            Node expected = expectedTypes.get(index);
+            Node argument = call.args.get(index);
+            self.storage.validateVolatileReferenceConversion(
+                expected, argument,
+                "Argument " + Strings.fromInt(index + 1)
+                    + " to '" + label + "()'", vars);
+            Node? actual = self.types.inferType(argument, vars);
+            if (actual != null
+                    && !self.types.assignmentCompatible(expected, actual)) {
+                TypeValidator.fail("Argument "
+                    + Strings.fromInt(index + 1) + " to '" + label
+                    + "()' expects '" + self.types.formatType(expected)
+                    + "' but got '" + self.types.formatType(actual) + "'",
+                    argument);
+            }
+            index = index + 1;
+        }
+    }
+
+    private string literalMemoryOrder(Node argument, string operation) {
+        if (argument.kind != NK_FIELD_ACCESS_EXPR
+                || argument.obj == null
+                || argument.obj.kind != NK_IDENTIFIER
+                || argument.obj.name != "MemoryOrder"
+                || (argument.field != "RELAXED"
+                    && argument.field != "ACQUIRE"
+                    && argument.field != "RELEASE"
+                    && argument.field != "ACQ_REL"
+                    && argument.field != "SEQ_CST")) {
+            TypeValidator.fail(operation
+                + " requires a literal MemoryOrder member", argument);
+        }
+        return argument.field;
+    }
+
+    private bool compareExchangeFailureAllowed(
+            string success, string failure) {
+        if (success == "RELAXED") { return failure == "RELAXED"; }
+        if (success == "ACQUIRE") {
+            return failure == "RELAXED" || failure == "ACQUIRE";
+        }
+        if (success == "RELEASE") { return failure == "RELAXED"; }
+        if (success == "ACQ_REL") {
+            return failure == "RELAXED" || failure == "ACQUIRE";
+        }
+        return failure == "RELAXED" || failure == "ACQUIRE"
+            || failure == "SEQ_CST";
+    }
+
+    private void validateAtomicMethod(Node call, Node receiver,
+            Map<string, Node> vars) {
+        string method = call.callee.field;
+        Node payload = receiver.generic_args.get(0);
+        Node order = SemanticTypeSystem.primitive("MemoryOrder");
+        Vector<Node> expected = [];
+        if (method == "init") {
+            expected.push(payload);
+        } else if (method == "load") {
+            expected.push(order);
+        } else if (method == "store" || method == "exchange"
+                || method == "fetchAdd" || method == "fetchSub"
+                || method == "fetchAnd" || method == "fetchOr"
+                || method == "fetchXor") {
+            expected.push(payload);
+            expected.push(order);
+        } else if (method == "compareExchangeStrong") {
+            expected.push(TypeShape.withOuterPointer(payload));
+            expected.push(payload);
+            expected.push(order);
+            expected.push(order);
+        } else {
+            TypeValidator.fail("Atomic<T> has no method '"
+                + method + "'", call);
+        }
+        self.validateBuiltinSignature(
+            "Atomic." + method, expected, call, vars);
+        if (method.startsWith("fetch")
+                && (payload.base == "bool"
+                    || !self.types.integralType(
+                        payload, self.state.analyzed))) {
+            TypeValidator.fail("Atomic." + method
+                + " requires an integral payload", call);
+        }
+        if (method == "load") {
+            string actualOrder = self.literalMemoryOrder(
+                call.args.get(0), "Atomic.load");
+            if (actualOrder == "RELEASE" || actualOrder == "ACQ_REL") {
+                TypeValidator.fail("Atomic.load does not accept MemoryOrder."
+                    + actualOrder, call);
+            }
+        } else if (method == "store") {
+            string actualOrder = self.literalMemoryOrder(
+                call.args.get(1), "Atomic.store");
+            if (actualOrder == "ACQUIRE" || actualOrder == "ACQ_REL") {
+                TypeValidator.fail("Atomic.store does not accept MemoryOrder."
+                    + actualOrder, call);
+            }
+        } else if (method == "exchange" || method.startsWith("fetch")) {
+            self.literalMemoryOrder(
+                call.args.get(1), "Atomic." + method);
+        } else if (method == "compareExchangeStrong") {
+            string success = self.literalMemoryOrder(
+                call.args.get(2), "Atomic.compareExchangeStrong");
+            string failure = self.literalMemoryOrder(
+                call.args.get(3), "Atomic.compareExchangeStrong");
+            if (!self.compareExchangeFailureAllowed(success, failure)) {
+                TypeValidator.fail(
+                    "Atomic.compareExchangeStrong failure order MemoryOrder."
+                        + failure + " is not allowed with success order MemoryOrder."
+                        + success,
+                    call);
+            }
+        }
+    }
+
+    private void validateSpanMethod(Node call, Node receiver,
+            Map<string, Node> vars) {
+        string method = call.callee.field;
+        Node element = receiver.generic_args.get(0);
+        Vector<Node> expected = [];
+        if (method == "tryGet") {
+            expected.push(SemanticTypeSystem.primitive("size_t"));
+            Node outputElement = TypeShape.copy(element);
+            outputElement.is_const = false;
+            outputElement.is_volatile = false;
+            expected.push(TypeShape.withOuterPointer(outputElement));
+        } else if (method == "trySet") {
+            expected.push(SemanticTypeSystem.primitive("size_t"));
+            expected.push(element);
+        } else if (method != "length" && method != "isEmpty"
+                && method != "isValid") {
+            TypeValidator.fail("Span<T> has no method '"
+                + method + "'", call);
+        }
+        self.validateBuiltinSignature(
+            "Span." + method, expected, call, vars);
+        if (method == "trySet" && element.is_const) {
+            TypeValidator.fail(
+                "Span<const T>.trySet is not available", call);
+        }
+    }
+
     private void validateMethodAccess(string className, Node method,
             Node site) {
         if (method.access != "private") { return; }
@@ -131,6 +292,65 @@ class CallValidator {
                             "'Mutex()' does not accept named arguments", call);
                     }
                     mutexArgIndex = mutexArgIndex + 1;
+                }
+                return;
+            }
+            if (name == "Atomic" || name == "Span") {
+                int namedIndex = 0;
+                while (namedIndex < call.arg_names.len) {
+                    if (call.arg_names.get(namedIndex) != "") {
+                        TypeValidator.fail("'" + name
+                            + "()' does not accept named arguments", call);
+                    }
+                    namedIndex = namedIndex + 1;
+                }
+                if (name == "Atomic") {
+                    if (call.args.len != 1) {
+                        TypeValidator.fail("'Atomic()' expects 1 argument but got "
+                            + Strings.fromInt(call.args.len), call);
+                    }
+                    Node? payload = self.types.resolveAliases(
+                        self.types.inferType(call.args.get(0), vars));
+                    if (payload != null && !self.types.atomicPayload(payload)) {
+                        TypeValidator.fail(
+                            "Atomic<T> payload must be bool, int, uint, or a raw pointer",
+                            call);
+                    }
+                    return;
+                }
+                if (call.args.len != 1 && call.args.len != 2) {
+                    TypeValidator.fail("'Span()' expects 1 or 2 arguments but got "
+                        + Strings.fromInt(call.args.len), call);
+                }
+                Node? backing = self.types.resolveAliases(
+                    self.types.inferType(call.args.get(0), vars));
+                if (backing == null
+                        || (!backing.is_array
+                            && backing.pointer_depth == 0)) {
+                    TypeValidator.fail(
+                        "Span() backing must be a fixed array or raw pointer",
+                        call);
+                }
+                Node concreteBacking = backing;
+                if (call.args.len == 1 && !concreteBacking.is_array) {
+                    TypeValidator.fail(
+                        "Span(pointer) requires an explicit element count", call);
+                }
+                if (call.args.len == 1 && concreteBacking.is_array
+                        && (concreteBacking.array_size == null
+                            || !self.state.analyzed.constantArrayBoundKeys.has(
+                                AstIdentity.key(concreteBacking.array_size)))) {
+                    TypeValidator.fail(
+                        "Span(array) requires a fixed constant extent", call);
+                }
+                if (call.args.len == 2) {
+                    Node? countType = self.types.resolveAliases(
+                        self.types.inferType(call.args.get(1), vars));
+                    if (countType != null && !self.types.integralType(
+                            countType, self.state.analyzed)) {
+                        TypeValidator.fail(
+                            "Span() element count must be integral", call);
+                    }
                 }
                 return;
             }
@@ -295,6 +515,18 @@ class CallValidator {
                 && canonicalReceiver.generic_args.len == 1) {
             self.ownership.validateMutexCall(
                 call, canonicalReceiver,  vars);
+            return;
+        }
+        if (canonicalReceiver != null
+                && canonicalReceiver.base == "Atomic"
+                && canonicalReceiver.generic_args.len == 1) {
+            self.validateAtomicMethod(call, canonicalReceiver, vars);
+            return;
+        }
+        if (canonicalReceiver != null
+                && canonicalReceiver.base == "Span"
+                && canonicalReceiver.generic_args.len == 1) {
+            self.validateSpanMethod(call, canonicalReceiver, vars);
             return;
         }
         if (canonicalReceiver != null

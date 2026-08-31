@@ -20,6 +20,10 @@ class CTypeLowerer {
     private HostedAbiRepository hostedAbi;
     private Map<string, Node> functionPointerTypes;
     private Vector<string> functionPointerOrder;
+    private Map<string, Node> spanTypes;
+    private Vector<string> spanTypeOrder;
+    private Map<string, Node> atomicTypes;
+    private Vector<string> atomicTypeOrder;
 
     public CTypeLowerer(
             Analyzed analyzed, HostedAbiRepository hostedAbi) {
@@ -27,6 +31,10 @@ class CTypeLowerer {
         self.hostedAbi = hostedAbi;
         self.functionPointerTypes = {};
         self.functionPointerOrder = [];
+        self.spanTypes = {};
+        self.spanTypeOrder = [];
+        self.atomicTypes = {};
+        self.atomicTypeOrder = [];
     }
 
     private string lexicalBindingCName(string name) {
@@ -89,6 +97,26 @@ class CTypeLowerer {
         string rendered = base;
         if (base == "__fn_ptr" && concrete.generic_args.len > 0) {
             rendered = self.functionPointerName(concrete);
+        } else if (base == "Atomic" && concrete.generic_args.len == 1) {
+            string name = TypeIdentity.mangleGenericSymbol(
+                base, concrete.generic_args);
+            if (!self.atomicTypes.has(name)) {
+                self.atomicTypes.put(name, concrete.generic_args.get(0));
+                self.atomicTypeOrder.push(name);
+            }
+            rendered = "_Atomic(" + self.lower(
+                concrete.generic_args.get(0)) + ")";
+        } else if (base == "MemoryOrder"
+                && concrete.generic_args.len == 0) {
+            rendered = "memory_order";
+        } else if (base == "Span" && concrete.generic_args.len == 1) {
+            string name = TypeIdentity.mangleGenericSymbol(
+                base, concrete.generic_args);
+            if (!self.spanTypes.has(name)) {
+                self.spanTypes.put(name, concrete.generic_args.get(0));
+                self.spanTypeOrder.push(name);
+            }
+            rendered = name;
         } else if (base == "Thread" && concrete.generic_args.len > 0) {
             rendered = "__btrc_thread_t*";
         } else if (base == "Mutex" && concrete.generic_args.len > 0) {
@@ -266,6 +294,49 @@ class CTypeLowerer {
             }
             module.function_pointer_typedefs.push(declaration);
             index = index + 1;
+        }
+    }
+
+    private string atomicLockFreeMacro(Node payload) {
+        if (payload.pointer_depth > 0) {
+            return "ATOMIC_POINTER_LOCK_FREE";
+        }
+        if (payload.base == "bool") { return "ATOMIC_BOOL_LOCK_FREE"; }
+        return "ATOMIC_INT_LOCK_FREE";
+    }
+
+    public bool usesAtomic() {
+        return self.atomicTypeOrder.len > 0;
+    }
+
+    public void appendRealtimeTypeDeclarations(IRModule module) {
+        int spanIndex = 0;
+        while (spanIndex < self.spanTypeOrder.len) {
+            string name = self.spanTypeOrder.get(spanIndex);
+            Node element = self.spanTypes.get(name);
+            module.struct_forwards.push(IRStructForward(name));
+            IRStructDef definition = IRStructDef();
+            definition.name = name;
+            definition.fields.push(IRStructField(
+                self.lower(element) + "*", "data"));
+            definition.fields.push(IRStructField("size_t", "length"));
+            module.struct_defs.push(definition);
+            spanIndex = spanIndex + 1;
+        }
+        int atomicIndex = 0;
+        while (atomicIndex < self.atomicTypeOrder.len) {
+            string name = self.atomicTypeOrder.get(atomicIndex);
+            Node payload = self.atomicTypes.get(name);
+            IREnumDef proof = IREnumDef("");
+            proof.values.push(IREnumValue(
+                "__btrc_atomic_lock_free_" + name,
+                IRNode.binary(
+                    IRNode.literal("1"), "/",
+                    IRNode.binary(
+                        IRNode.variable(self.atomicLockFreeMacro(payload)),
+                        "==", IRNode.literal("2")))));
+            module.enum_defs.push(proof);
+            atomicIndex = atomicIndex + 1;
         }
     }
 }

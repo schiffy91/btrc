@@ -2268,6 +2268,19 @@ class ExpressionLowerer:
 
     def _lower_field_access_plain(self, node: FieldAccessExpr, provenance: CallableProvenance) -> IRExpr:
         """Lower one field access after any owning receiver is stabilized."""
+        if isinstance(node.obj, Identifier) and node.obj.name == "MemoryOrder":
+            names = {
+                "RELAXED": "memory_order_relaxed",
+                "ACQUIRE": "memory_order_acquire",
+                "RELEASE": "memory_order_release",
+                "ACQ_REL": "memory_order_acq_rel",
+                "SEQ_CST": "memory_order_seq_cst",
+            }
+            member = names.get(node.field)
+            if member is None:
+                raise CodegenError(f"unsupported MemoryOrder member '{node.field}'")
+            self._session.require_runtime_header("stdatomic.h")
+            return IRVar(name=member)
         obj = self.lower_expr(
             node.obj,
             provenance,

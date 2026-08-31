@@ -575,6 +575,12 @@ class IROptimizer:
         self._scan_macro_replacements(value_pattern, self._module.preprocessor_decls, referenced_values)
         keep = self._provider_keys(referenced_types, type_providers)
         keep.update(self._provider_keys(referenced_values, value_providers))
+        keep.update(
+            key
+            for key, declaration in declarations.items()
+            if isinstance(declaration, IREnumDef)
+            and any(value.name.startswith("__btrc_atomic_lock_free_") for value in declaration.values)
+        )
         worklist = list(keep)
         while worklist:
             declaration = declarations[worklist.pop()]
@@ -716,6 +722,13 @@ class IROptimizer:
             headers.add(_GPU_RUNTIME_HEADER)
         if any(isinstance(node, IRCall) and node.callee == "setjmp" for node in IRNode.walk_value(self._module)):
             headers.add(_SETJMP_RUNTIME_HEADER)
+        if any(
+            (isinstance(node, CType) and ("_Atomic(" in node.text or node.text == "memory_order"))
+            or (isinstance(node, IRCall) and isinstance(node.callee, str) and node.callee.startswith("atomic_"))
+            or (isinstance(node, IRVar) and node.name.startswith(("memory_order_", "ATOMIC_")))
+            for node in IRNode.walk_value(self._module)
+        ):
+            headers.add("stdatomic.h")
         return headers
 
     def _remove_generated_preprocessor(self) -> tuple[IRInclude | IRMacroDef, ...]:

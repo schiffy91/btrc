@@ -170,6 +170,14 @@ class CTypeLowerer:
         prefix = "const " if getattr(type_expr, "is_const", False) else ""
         if base == "__fn_ptr" and type_expr.generic_args:
             c_type = self._function_pointer_name(type_expr)
+        elif base == "Atomic" and len(type_expr.generic_args) == 1:
+            self._session.require_runtime_header("stdatomic.h")
+            c_type = f"_Atomic({self.render(type_expr.generic_args[0])})"
+        elif base == "MemoryOrder" and not type_expr.generic_args:
+            self._session.require_runtime_header("stdatomic.h")
+            c_type = "memory_order"
+        elif base == "Span" and len(type_expr.generic_args) == 1:
+            c_type = self._identity.generic_symbol("Span", type_expr.generic_args)
         elif base in _RUNTIME_GENERIC_TYPES and type_expr.generic_args:
             c_type, provider = _RUNTIME_GENERIC_TYPES[base]
             self._session.require_helper(provider)

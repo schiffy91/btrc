@@ -552,6 +552,14 @@ class ControlFlowValidator {
                     TypeValidator.fail(
                         "Array iteration has exactly one loop variable", statement);
                 }
+            } else if (iterableType != null
+                    && iterableType.base == "Span"
+                    && iterableType.generic_args.len == 1) {
+                first = iterableType.generic_args.get(0);
+                if (statement.var_name2 != null) {
+                    TypeValidator.fail(
+                        "Span iteration has exactly one loop variable", statement);
+                }
             } else {
                 first = self.iterableElementType(
                     iterableType,  statement, false);

@@ -681,7 +681,7 @@ class DeclarationValidator {
             if (member.kind == NK_FIELD_DECL) {
                 self.types.validateDeclaredType(member.type,
                     "Field '" + declaration.name + "." + member.name + "'",
-                    "field", member);
+                    "stable_field", member);
                 self.types.rejectRuntimeInterfaceType(member.type, member);
                 self.storage.validateArrayBound(member.type,
                     "field '" + declaration.name + "." + member.name + "'",

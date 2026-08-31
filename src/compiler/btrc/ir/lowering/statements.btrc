@@ -1880,6 +1880,15 @@ class StatementLowerer {
         }
         IRNode irIter = self.expressions.lowerExpr(iterable, loopTypes, callableFlow);
 
+        if (iterType != null && iterType.base == "Span"
+                && iterType.generic_args.len == 1) {
+            self.lowerSpanForIn(
+                node, irIter, iterType, varName,
+                loopTypes, out, callableFlow);
+            self.context.restoreSourceBindings(sourceBindings);
+            return;
+        }
+
         /* Iterable protocol: generic class with iterLen + iterGet methods. */
         if (iterType != null
                 && ControlFlowValidator.iterableMethod(
@@ -1904,6 +1913,45 @@ class StatementLowerer {
         self.context.restoreSourceBindings(sourceBindings);
         print("internal compiler error: unproven for-in iterable reached IR generation");
         exit(1);
+    }
+
+    private void lowerSpanForIn(Node node, IRNode irIter, Node iterType,
+            string varName, Map<string, Node> varTypes,
+            Vector<IRNode> out, CallableFlowState callableFlow) {
+        string indexName = self.context.freshTemporary("__i");
+        string iterName = self.context.freshTemporary("__span");
+        out.push(IRNode.variableDeclaration(
+            self.cTypes.lower(iterType), iterName, irIter));
+        Node elementType = iterType.generic_args.get(0);
+        varTypes.put(varName, elementType);
+        self.context.activateSourceName(
+            varName, self.lexicalBindingCName(varName));
+        string valueName = self.context.sourceCName(varName);
+        IRNode data = IRNode.fieldAccess(
+            IRNode.variable(iterName), "data", false);
+        Vector<IRNode> prefix = [];
+        prefix.push(IRNode.variableDeclaration(
+            self.iterValueC(elementType), valueName,
+            IRNode.indexAccess(data, IRNode.variable(indexName))));
+        Vector<string> bindingNames = [];
+        bindingNames.push(varName);
+        Vector<Node> bindingTypes = [];
+        bindingTypes.push(elementType);
+        Vector<bool> bindingOwned = [];
+        bindingOwned.push(false);
+        IRNode body = self.loopBodyWithPrefix(
+            node.body_node, varTypes, prefix, bindingNames,
+            bindingTypes, bindingOwned, callableFlow);
+        IRNode init = IRNode.variableDeclaration(
+            "size_t", indexName, IRNode.literal("0"));
+        IRNode condition = IRNode.binary(
+            IRNode.variable(indexName), "<",
+            IRNode.fieldAccess(
+                IRNode.variable(iterName), "length", false));
+        IRNode update = IRNode.unary(
+            "++", IRNode.variable(indexName), false);
+        out.push(self.controlFlow.materializeFor(
+            ForPlan(init, condition, update, body)));
     }
 
     /* for-in via Iterable protocol (iterLen/iterGet/iterValueAt). */

@@ -3415,6 +3415,123 @@ class ExpressionLowerer {
         return self.calls.materializeArguments(plan, evaluated);
     }
 
+    private IRNode lowerSpanConstructor(Node node, Vector<IRNode> args,
+            Map<string, Node> varTypes) {
+        Node? resultType = self.resolvedExpressionType(node, varTypes);
+        self.operandPlanner.requireType(resultType, node);
+        Node spanType = resultType;
+        Node element = spanType.generic_args.get(0);
+        if (args.len == 1) {
+            Node? sourceType = self.resolvedExpressionType(
+                node.args.get(0), varTypes);
+            if (sourceType == null || !sourceType.is_array
+                    || sourceType.array_size == null
+                    || !self.analyzed.constantArrayBoundKeys.has(
+                        AstIdentity.key(sourceType.array_size))) {
+                print("internal compiler error: Span construction without an extent requires fixed-array storage");
+                exit(1);
+            }
+        }
+        string dataName = self.context.freshTemporary("__btrc_span_data");
+        string lengthName = self.context.freshTemporary("__btrc_span_length");
+        IRNode data = IRNode.variable(dataName);
+        IRNode length = IRNode.variable(lengthName);
+        Vector<IRNode> declarations = [];
+        declarations.push(IRNode.variableDeclaration(
+            self.cTypes.lower(element) + "*", dataName, null));
+        declarations.push(IRNode.variableDeclaration(
+            "size_t", lengthName, null));
+        Vector<IRNode> sequence = [];
+        sequence.push(IRNode.binary(data, "=", args.get(0)));
+        IRNode extent = IRNode.literal("0");
+        if (args.len == 1) {
+            IRNode source = args.get(0);
+            extent = IRNode.binary(
+                IRNode.sizeofExpression(source), "/",
+                IRNode.sizeofExpression(
+                    IRNode.indexAccess(source, IRNode.literal("0"))));
+        } else {
+            extent = IRNode.cast("size_t", args.get(1));
+        }
+        sequence.push(IRNode.binary(length, "=", extent));
+        Vector<string> fields = [];
+        fields.push("data");
+        fields.push("length");
+        Vector<IRNode> values = [];
+        values.push(data);
+        values.push(length);
+        sequence.push(IRNode.compoundLiteral(
+            self.cTypes.lower(spanType), fields, values));
+        return IRNode.statementExpression(
+            declarations, IRNode.commaExpression(sequence));
+    }
+
+    private IRNode lowerSpanMethod(IRNode receiver, string method,
+            Node receiverType, Vector<IRNode> args) {
+        Node element = receiverType.generic_args.get(0);
+        string spanName = self.context.freshTemporary("__btrc_span");
+        IRNode span = IRNode.variable(spanName);
+        Vector<IRNode> declarations = [];
+        declarations.push(IRNode.variableDeclaration(
+            self.cTypes.lower(receiverType), spanName, null));
+        Vector<IRNode> sequence = [];
+        sequence.push(IRNode.binary(span, "=", receiver));
+        IRNode data = IRNode.fieldAccess(span, "data", false);
+        IRNode length = IRNode.fieldAccess(span, "length", false);
+        if (method == "length") {
+            sequence.push(length);
+        } else if (method == "isEmpty") {
+            sequence.push(IRNode.binary(
+                length, "==", IRNode.literal("0")));
+        } else if (method == "isValid") {
+            sequence.push(IRNode.binary(
+                IRNode.binary(data, "!=", IRNode.literal("NULL")),
+                "||", IRNode.binary(
+                    length, "==", IRNode.literal("0"))));
+        } else {
+            string indexName = self.context.freshTemporary(
+                "__btrc_span_index");
+            IRNode index = IRNode.variable(indexName);
+            declarations.push(IRNode.variableDeclaration(
+                "size_t", indexName, null));
+            sequence.push(IRNode.binary(index, "=", args.get(0)));
+            IRNode condition = IRNode.binary(
+                IRNode.binary(data, "!=", IRNode.literal("NULL")),
+                "&&", IRNode.binary(index, "<", length));
+            IRNode success = null;
+            if (method == "tryGet") {
+                Node outputElement = TypeShape.copy(element);
+                outputElement.is_const = false;
+                outputElement.is_volatile = false;
+                string outputName = self.context.freshTemporary(
+                    "__btrc_span_output");
+                IRNode output = IRNode.variable(outputName);
+                declarations.push(IRNode.variableDeclaration(
+                    self.cTypes.lower(outputElement) + "*", outputName, null));
+                sequence.push(IRNode.binary(output, "=", args.get(1)));
+                condition = IRNode.binary(condition, "&&",
+                    IRNode.binary(
+                        output, "!=", IRNode.literal("NULL")));
+                Vector<IRNode> successSequence = [];
+                successSequence.push(IRNode.binary(
+                    IRNode.dereference(output), "=",
+                    IRNode.indexAccess(data, index)));
+                successSequence.push(IRNode.literal("1"));
+                success = IRNode.commaExpression(successSequence);
+            } else {
+                Vector<IRNode> successSequence = [];
+                successSequence.push(IRNode.binary(
+                    IRNode.indexAccess(data, index), "=", args.get(1)));
+                successSequence.push(IRNode.literal("1"));
+                success = IRNode.commaExpression(successSequence);
+            }
+            sequence.push(IRNode.ternary(
+                condition, success, IRNode.literal("0")));
+        }
+        return IRNode.statementExpression(
+            declarations, IRNode.commaExpression(sequence));
+    }
+
     public IRNode lowerCallCore(Node node, Map<string, Node> varTypes, CallableFlowState callableFlow) {
         self.rejectCallClosureEscapes(node, varTypes, callableFlow);
         Node callee = node.callee;
@@ -3460,6 +3577,14 @@ class ExpressionLowerer {
             IRNode? intrinsic = self.lowerGenericIntrinsic(
                 name, node, args, varTypes);
             if (intrinsic != null) { return intrinsic; }
+            if (name == "Atomic" && !self.analyzed.funcNames.has(name)
+                    && !self.analyzed.isClass(name)) {
+                return args.get(0);
+            }
+            if (name == "Span" && !self.analyzed.funcNames.has(name)
+                    && !self.analyzed.isClass(name)) {
+                return self.lowerSpanConstructor(node, args, varTypes);
+            }
             /* Mutex(val) constructor -> __btrc_mutex_val_create(boxed_val).
              * Exact typed storage preserves every scalar, aggregate, data
              * pointer, and function-pointer representation. Checked before the
@@ -3682,6 +3807,17 @@ class ExpressionLowerer {
             return self.concurrency.lowerMutexMethod(
                 obj, method, ot, arguments);
         }
+        if (ot != null && ot.base == "Atomic"
+                && ot.generic_args.len > 0) {
+            IRNode obj = self.lowerExpr(objNode, varTypes, callableFlow);
+            return self.concurrency.lowerAtomicMethod(
+                obj, method, ot, arguments);
+        }
+        if (ot != null && ot.base == "Span"
+                && ot.generic_args.len > 0) {
+            IRNode obj = self.lowerExpr(objNode, varTypes, callableFlow);
+            return self.lowerSpanMethod(obj, method, ot, arguments);
+        }
         print("irgen: unsupported method call");
         exit(1);
         return IRNode.literal("0");
@@ -3752,6 +3888,15 @@ class ExpressionLowerer {
         bool lexicalReceiver = node.obj != null
             && node.obj.kind == NK_IDENTIFIER
             && varTypes.has(node.obj.name);
+        if (node.obj != null && node.obj.kind == NK_IDENTIFIER
+                && !lexicalReceiver && node.obj.name == "MemoryOrder") {
+            string suffix = "relaxed";
+            if (node.field == "ACQUIRE") { suffix = "acquire"; }
+            else if (node.field == "RELEASE") { suffix = "release"; }
+            else if (node.field == "ACQ_REL") { suffix = "acq_rel"; }
+            else if (node.field == "SEQ_CST") { suffix = "seq_cst"; }
+            return IRNode.variable("memory_order_" + suffix);
+        }
         /* Namespaced enum value: Color.RED -> Color_RED (the qualified form of
          * bare RED). Mirrors fields._lower_field_access's enum_table branch. */
         if (node.obj != null && node.obj.kind == NK_IDENTIFIER

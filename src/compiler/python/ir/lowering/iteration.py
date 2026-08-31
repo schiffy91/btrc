@@ -475,6 +475,42 @@ class IterationLowerer:
             owners=(owner,) if owner is not None else (),
         )
 
+    def plan_span_for_in(
+        self,
+        node,
+        iterable: IRExpr,
+        span_type: TypeExpr,
+        provenance: CallableProvenance,
+    ) -> IterationPlan:
+        """Plan bounded iteration over one already-proven nonescaping view."""
+        temporary = self._session.fresh_temp("__span")
+        index = self._session.fresh_temp("__i")
+        element = span_type.generic_args[0]
+        view = IRVar(name=temporary)
+        return IterationPlan(
+            source_body=node.body,
+            prefix=[IRVarDecl(c_type=CType(text=self._types.render(span_type)), name=temporary, init=iterable)],
+            bindings=(
+                IterationBinding(
+                    name=node.var_name,
+                    c_type=self._types.render(element),
+                    type_expr=element,
+                    value=IRIndex(
+                        obj=IRFieldAccess(obj=view, field="data", arrow=False),
+                        index=IRVar(name=index),
+                    ),
+                    owned=False,
+                ),
+            ),
+            init=IRVarDecl(c_type=CType(text="size_t"), name=index, init=IRLiteral(text="0")),
+            condition=IRBinOp(
+                left=IRVar(name=index),
+                op="<",
+                right=IRFieldAccess(obj=view, field="length", arrow=False),
+            ),
+            update=IRUnaryOp(op="++", operand=IRVar(name=index), prefix=False),
+        )
+
     @staticmethod
     def is_range_loop(node) -> bool:
         """Whether one for-in source uses the intrinsic range iterator."""
@@ -521,6 +557,9 @@ class IterationLowerer:
                 provenance,
                 projection_storage,
             )
+            return
+        if iter_type and iter_type.base == "Span" and len(iter_type.generic_args) == 1:
+            yield self.plan_span_for_in(node, lowered_iterable, iter_type, provenance)
             return
         if iter_type:
             cls_info = self._analyzed.class_table.get(iter_type.base)

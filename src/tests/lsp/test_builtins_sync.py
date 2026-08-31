@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from src.devex.lsp.catalog.builtins import BuiltinCatalog
 from tools.compiler_codegen.builtins import BuiltinCatalogGenerator
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -15,3 +16,32 @@ def test_checked_in_builtins_matches_generator_output():
     assert artifact.content == CHECKED_IN.read_bytes(), (
         "src/devex/lsp/catalog/generated.py is stale — regenerate it with `make compiler-codegen-generate`"
     )
+
+
+def test_realtime_primitive_surfaces_are_in_the_builtin_catalog():
+    catalog = BuiltinCatalog()
+
+    assert {member.name for member in catalog.members("Atomic<uint>")} == {
+        "init",
+        "load",
+        "store",
+        "exchange",
+        "fetchAdd",
+        "fetchSub",
+        "fetchAnd",
+        "fetchOr",
+        "fetchXor",
+        "compareExchangeStrong",
+    }
+    assert {member.name for member in catalog.members("Span<int>")} == {
+        "length",
+        "isEmpty",
+        "isValid",
+        "tryGet",
+        "trySet",
+    }
+    assert {member.name for member in catalog.members("SpscQueue<int>")} == {
+        "tryPush",
+        "tryPop",
+        "close",
+    }

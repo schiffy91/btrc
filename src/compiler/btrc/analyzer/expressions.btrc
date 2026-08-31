@@ -510,6 +510,11 @@ class ExpressionTypeResolver {
             return SemanticTypeSystem.classReference(node.type);
         }
         if (node.kind == NK_FIELD_ACCESS_EXPR) {
+            if (node.obj != null && node.obj.kind == NK_IDENTIFIER
+                    && !varTypes.has(node.obj.name)
+                    && node.obj.name == "MemoryOrder") {
+                return SemanticTypeSystem.primitive("MemoryOrder");
+            }
             /* A class-qualified field is translation-unit storage, but its value
              * still has the declaration's type.  Nested projections and managed
              * static replacement both rely on this result. */
@@ -655,6 +660,29 @@ class ExpressionTypeResolver {
                     mutexType.generic_args.push(argumentType);
                     return mutexType;
                 }
+                if (callee.name == "Atomic" && node.args.len > 0) {
+                    Node atomicType = SemanticTypeSystem.primitive("Atomic");
+                    Node? argumentType = self.inferSpecializationType(
+                        node.args.get(0), a, operators, varTypes);
+                    atomicType.generic_args.push(argumentType == null
+                        ? SemanticTypeSystem.primitive("int") : argumentType);
+                    return atomicType;
+                }
+                if (callee.name == "Span" && node.args.len > 0) {
+                    Node spanType = SemanticTypeSystem.primitive("Span");
+                    Node? backingType = self.inferSpecializationType(
+                        node.args.get(0), a, operators, varTypes);
+                    Node elementType = SemanticTypeSystem.primitive("int");
+                    if (backingType != null && backingType.is_array) {
+                        elementType = TypeShape.withoutOuterArray(backingType);
+                    } else if (backingType != null
+                            && backingType.pointer_depth > 0) {
+                        elementType = TypeShape.withoutOuterPointers(
+                            backingType, 1);
+                    }
+                    spanType.generic_args.push(elementType);
+                    return spanType;
+                }
                 if (a.isGenericClass(callee.name)) {
                     return self.inferGenericConstructorCall(
                         node, callee.name, varTypes);
@@ -710,6 +738,31 @@ class ExpressionTypeResolver {
                 if (ot != null && ot.base == "Mutex" && ot.generic_args.len > 0) {
                     if (method == "get") { return ot.generic_args.get(0); }
                     if (method == "set" || method == "destroy") { return SemanticTypeSystem.primitive("void"); }
+                }
+                if (ot != null && ot.base == "Atomic"
+                        && ot.generic_args.len > 0) {
+                    if (method == "load" || method == "exchange"
+                            || method == "fetchAdd" || method == "fetchSub"
+                            || method == "fetchAnd" || method == "fetchOr"
+                            || method == "fetchXor") {
+                        return ot.generic_args.get(0);
+                    }
+                    if (method == "compareExchangeStrong") {
+                        return SemanticTypeSystem.primitive("bool");
+                    }
+                    if (method == "init" || method == "store") {
+                        return SemanticTypeSystem.primitive("void");
+                    }
+                }
+                if (ot != null && ot.base == "Span"
+                        && ot.generic_args.len > 0) {
+                    if (method == "length") {
+                        return SemanticTypeSystem.primitive("size_t");
+                    }
+                    if (method == "isEmpty" || method == "isValid"
+                            || method == "tryGet" || method == "trySet") {
+                        return SemanticTypeSystem.primitive("bool");
+                    }
                 }
                 if (ot != null && a.isClass(ot.base)) {
                     Node? mm = a.classMethod(ot.base, method);

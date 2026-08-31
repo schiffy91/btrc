@@ -72,6 +72,29 @@ STRING_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("zfill", "string", "method", (("int", "width"),), "Left-pad with zeros (preserves sign)"),
 )
 
+# Atomic is a compiler intrinsic (not defined in stdlib source)
+ATOMIC_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("init", "void", "method", (("T", "value"),), "Initialize stable atomic storage"),
+    BuiltinMemberSpec("load", "T", "method", (("MemoryOrder", "order"),), "Load with explicit C11 ordering"),
+    BuiltinMemberSpec("store", "void", "method", (("T", "value"), ("MemoryOrder", "order"),), "Store with explicit C11 ordering"),
+    BuiltinMemberSpec("exchange", "T", "method", (("T", "value"), ("MemoryOrder", "order"),), "Exchange with explicit C11 ordering"),
+    BuiltinMemberSpec("fetchAdd", "T", "method", (("T", "value"), ("MemoryOrder", "order"),), "Atomically add and return the previous value"),
+    BuiltinMemberSpec("fetchSub", "T", "method", (("T", "value"), ("MemoryOrder", "order"),), "Atomically subtract and return the previous value"),
+    BuiltinMemberSpec("fetchAnd", "T", "method", (("T", "value"), ("MemoryOrder", "order"),), "Atomically AND and return the previous value"),
+    BuiltinMemberSpec("fetchOr", "T", "method", (("T", "value"), ("MemoryOrder", "order"),), "Atomically OR and return the previous value"),
+    BuiltinMemberSpec("fetchXor", "T", "method", (("T", "value"), ("MemoryOrder", "order"),), "Atomically XOR and return the previous value"),
+    BuiltinMemberSpec("compareExchangeStrong", "bool", "method", (("T*", "expected"), ("T", "desired"), ("MemoryOrder", "successOrder"), ("MemoryOrder", "failureOrder"),), "Strong compare-exchange with exact C11 ordering"),
+)
+
+# Span is a compiler intrinsic (not defined in stdlib source)
+SPAN_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("length", "size_t", "method", (), "Borrowed element count"),
+    BuiltinMemberSpec("isEmpty", "bool", "method", (), "Whether the borrowed extent is empty"),
+    BuiltinMemberSpec("isValid", "bool", "method", (), "Whether pointer and extent form a valid view"),
+    BuiltinMemberSpec("tryGet", "bool", "method", (("size_t", "index"), ("T*", "output"),), "Copy an in-range element without changing output on failure"),
+    BuiltinMemberSpec("trySet", "bool", "method", (("size_t", "index"), ("T", "value"),), "Replace an in-range element"),
+)
+
 # Generated from src/stdlib/array.btrc
 ARRAY_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("len", "int", "field", doc="len"),
@@ -193,6 +216,13 @@ SET_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("iterGet", "T", "method", (("int", "n"),), "iterGet"),
 )
 
+# Generated from src/stdlib/spscqueue.btrc
+SPSCQUEUE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("tryPush", "bool", "method", (("T", "value"),), "tryPush"),
+    BuiltinMemberSpec("tryPop", "bool", "method", (("T*", "output"),), "tryPop"),
+    BuiltinMemberSpec("close", "void", "method", (), "close"),
+)
+
 # Generated from src/stdlib/state.btrc
 STATE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("value", "T", "field", doc="value"),
@@ -256,6 +286,8 @@ VECTOR_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
 
 MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("string", STRING_MEMBERS),
+    ("Atomic", ATOMIC_MEMBERS),
+    ("Span", SPAN_MEMBERS),
     ("Array", ARRAY_MEMBERS),
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
     ("ListNode", LISTNODE_MEMBERS),
@@ -263,6 +295,7 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Map", MAP_MEMBERS),
     ("Result", RESULT_MEMBERS),
     ("Set", SET_MEMBERS),
+    ("SpscQueue", SPSCQUEUE_MEMBERS),
     ("State", STATE_MEMBERS),
     ("Vector", VECTOR_MEMBERS),
 )

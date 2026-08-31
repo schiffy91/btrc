@@ -148,6 +148,96 @@ INTRINSIC_COLLECTION_MEMBERS = MappingProxyType(
 )
 
 
+INTRINSIC_TYPE_MEMBERS = MappingProxyType(
+    {
+        "Atomic": (
+            ("init", "void", "method", (("T", "value"),), "Initialize stable atomic storage"),
+            ("load", "T", "method", (("MemoryOrder", "order"),), "Load with explicit C11 ordering"),
+            (
+                "store",
+                "void",
+                "method",
+                (("T", "value"), ("MemoryOrder", "order")),
+                "Store with explicit C11 ordering",
+            ),
+            (
+                "exchange",
+                "T",
+                "method",
+                (("T", "value"), ("MemoryOrder", "order")),
+                "Exchange with explicit C11 ordering",
+            ),
+            (
+                "fetchAdd",
+                "T",
+                "method",
+                (("T", "value"), ("MemoryOrder", "order")),
+                "Atomically add and return the previous value",
+            ),
+            (
+                "fetchSub",
+                "T",
+                "method",
+                (("T", "value"), ("MemoryOrder", "order")),
+                "Atomically subtract and return the previous value",
+            ),
+            (
+                "fetchAnd",
+                "T",
+                "method",
+                (("T", "value"), ("MemoryOrder", "order")),
+                "Atomically AND and return the previous value",
+            ),
+            (
+                "fetchOr",
+                "T",
+                "method",
+                (("T", "value"), ("MemoryOrder", "order")),
+                "Atomically OR and return the previous value",
+            ),
+            (
+                "fetchXor",
+                "T",
+                "method",
+                (("T", "value"), ("MemoryOrder", "order")),
+                "Atomically XOR and return the previous value",
+            ),
+            (
+                "compareExchangeStrong",
+                "bool",
+                "method",
+                (
+                    ("T*", "expected"),
+                    ("T", "desired"),
+                    ("MemoryOrder", "successOrder"),
+                    ("MemoryOrder", "failureOrder"),
+                ),
+                "Strong compare-exchange with exact C11 ordering",
+            ),
+        ),
+        "Span": (
+            ("length", "size_t", "method", (), "Borrowed element count"),
+            ("isEmpty", "bool", "method", (), "Whether the borrowed extent is empty"),
+            ("isValid", "bool", "method", (), "Whether pointer and extent form a valid view"),
+            (
+                "tryGet",
+                "bool",
+                "method",
+                (("size_t", "index"), ("T*", "output")),
+                "Copy an in-range element without changing output on failure",
+            ),
+            (
+                "trySet",
+                "bool",
+                "method",
+                (("size_t", "index"), ("T", "value")),
+                "Replace an in-range element",
+            ),
+        ),
+    }
+)
+
+
 INTRINSIC_FUNCTIONS = MappingProxyType(
     {
         "println": ("void", (("string", "message"),)),
@@ -346,6 +436,14 @@ class BuiltinCatalogRenderer:
             self._intrinsic_members("STRING_MEMBERS", INTRINSIC_STRING_MEMBERS),
             "",
         ]
+        for type_name, members in INTRINSIC_TYPE_MEMBERS.items():
+            lines.extend(
+                (
+                    f"# {type_name} is a compiler intrinsic (not defined in stdlib source)",
+                    self._intrinsic_members(f"{type_name.upper()}_MEMBERS", members),
+                    "",
+                )
+            )
         for collection in catalog.collections:
             variable_name = f"{collection.name.upper()}_MEMBERS"
             lines.extend(
@@ -365,6 +463,10 @@ class BuiltinCatalogRenderer:
                 "MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (",
                 '    ("string", STRING_MEMBERS),',
             )
+        )
+        lines.extend(
+            f'    ("{type_name}", {type_name.upper()}_MEMBERS),'
+            for type_name in INTRINSIC_TYPE_MEMBERS
         )
         lines.extend(
             f'    ("{collection.name}", {collection.name.upper()}_MEMBERS),' for collection in catalog.collections
