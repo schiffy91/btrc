@@ -1440,10 +1440,11 @@ class OwnershipLowerer:
         *,
         provenance: CallableBodyFacts,
         call_effect: object | None = None,
+        result_type: TypeExpr | None = None,
     ) -> bool:
         """Whether evaluating ``expression`` produces caller-owned +1."""
         if isinstance(expression, NewExpr):
-            return self._values.is_managed(self._session.type_of(expression))
+            return self._values.is_managed(result_type or self._session.type_of(expression))
         if isinstance(expression, (BraceInitializer, ListLiteral, MapLiteral)):
             result_type = self._session.type_of(expression)
             return bool(result_type and result_type.base in self._analyzed.class_table)
@@ -1481,34 +1482,46 @@ class OwnershipLowerer:
             return self._overloaded_result_is_owned(expression, expression.operand, expression.op, unary=True)
         if not isinstance(expression, CallExpr):
             return False
-        return self.source_call_owns_result(expression, provenance, call_effect)
+        return self.source_call_owns_result(
+            expression,
+            provenance,
+            call_effect,
+            result_type=result_type,
+        )
 
     def lowered_result_is_owned(
         self,
         expression,
         *,
         provenance: CallableBodyFacts,
+        result_type: TypeExpr | None = None,
     ) -> bool:
         """Whether ordinary expression lowering returns caller-owned +1 IR."""
         key = id(expression)
         if key in self._session.owning_overrides:
             return self._session.ownership_overrides.get(key, False)
-        result_type = self._session.type_of(expression)
-        if self._values.is_managed(result_type) and isinstance(expression, CallExpr):
+        resolved_result_type = result_type or self._session.type_of(expression)
+        if self._values.is_managed(resolved_result_type) and isinstance(expression, CallExpr):
             return True
-        return self.owns_result(expression, provenance=provenance)
+        return self.owns_result(
+            expression,
+            provenance=provenance,
+            result_type=resolved_result_type,
+        )
 
     def source_call_owns_result(
         self,
         expression: CallExpr,
         provenance: CallableBodyFacts,
         call_effect: object | None = None,
+        *,
+        result_type: TypeExpr | None = None,
     ) -> bool:
         """Whether the callee ABI supplies +1 before call-result normalization."""
-        result_type = self._session.type_of(expression)
-        if not self._values.is_managed(result_type):
+        resolved_result_type = result_type or self._session.type_of(expression)
+        if not self._values.is_managed(resolved_result_type):
             return False
-        if self._values.is_string(result_type):
+        if self._values.is_string(resolved_result_type):
             return self._string_call_owns_result(expression, provenance, call_effect)
         return provenance.call_returns_owned(expression, call_effect)
 

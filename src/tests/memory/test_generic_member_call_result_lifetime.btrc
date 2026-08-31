@@ -1,0 +1,175 @@
+#include <assert.h>
+
+int liveItems = 0;
+
+class Item {
+    public int id;
+
+    public Item(int id) {
+        self.id = id;
+        liveItems++;
+    }
+
+    public void __del__() {
+        liveItems--;
+    }
+}
+
+class Factory {
+    public Item make(int id) {
+        return new Item(id);
+    }
+}
+
+class Box<T> {
+    private T value;
+
+    public Box(T value) {
+        self.value = value;
+    }
+
+    public T get() {
+        return self.value;
+    }
+}
+
+class GenericBoxCalls<T> {
+    private Box<T> box;
+
+    public GenericBoxCalls(Box<T> box) {
+        self.box = box;
+    }
+
+    public T get() {
+        return self.box.get();
+    }
+}
+
+Item identity(Item value) {
+    return value;
+}
+
+void throwWith(Item value) {
+    assert(value.id > 0);
+    throw "expected";
+}
+
+class GenericCalls<T> {
+    private T factory;
+
+    public GenericCalls(T factory) {
+        self.factory = factory;
+    }
+
+    public void initializeLocal() {
+        Item item = self.factory.make(10);
+        assert(item.id == 10);
+        assert(liveItems == 1);
+    }
+
+    public void assignLocal() {
+        Item item = new Item(19);
+        item = self.factory.make(20);
+        assert(item.id == 20);
+        assert(liveItems == 1);
+    }
+
+    public Item returnValue() {
+        return self.factory.make(30);
+    }
+
+    public Item nestedReturnValue() {
+        return identity(self.factory.make(40));
+    }
+
+    public void discardValue() {
+        self.factory.make(50);
+    }
+
+    public void throwAfterInitialization() {
+        try {
+            Item item = self.factory.make(60);
+            assert(item.id == 60);
+            throw "expected";
+        } catch (string error) {
+            assert(error.equals("expected"));
+        }
+    }
+
+    public void throwAcrossNestedCall() {
+        try {
+            throwWith(self.factory.make(70));
+        } catch (string error) {
+            assert(error.equals("expected"));
+        }
+    }
+}
+
+void exerciseGenericDeclaredReturn() {
+    Item original = new Item(80);
+    Box<Item> box = new Box<Item>(original);
+    GenericBoxCalls<Item> calls = new GenericBoxCalls<Item>(box);
+    {
+        Item result = calls.get();
+        assert(result == original);
+        assert(liveItems == 1);
+    }
+}
+
+int main() {
+    Factory factory = new Factory();
+
+    {
+        Item item = factory.make(1);
+        assert(item.id == 1);
+    }
+    assert(liveItems == 0);
+
+    {
+        Item item = new Item(19);
+        item = factory.make(2);
+        assert(item.id == 2);
+    }
+    assert(liveItems == 0);
+
+    try {
+        throwWith(factory.make(3));
+    } catch (string error) {
+        assert(error.equals("expected"));
+    }
+    assert(liveItems == 0);
+
+    GenericCalls<Factory> calls = new GenericCalls<Factory>(factory);
+    calls.initializeLocal();
+    assert(liveItems == 0);
+
+    calls.assignLocal();
+    assert(liveItems == 0);
+
+    {
+        Item item = calls.returnValue();
+        assert(item.id == 30);
+    }
+    assert(liveItems == 0);
+
+    {
+        Item item = calls.nestedReturnValue();
+        assert(item.id == 40);
+    }
+    assert(liveItems == 0);
+
+    calls.discardValue();
+    assert(liveItems == 0);
+
+    calls.throwAfterInitialization();
+    assert(liveItems == 0);
+
+    calls.throwAcrossNestedCall();
+    assert(liveItems == 0);
+
+    exerciseGenericDeclaredReturn();
+    assert(liveItems == 0);
+
+    print("PASS");
+    return 0;
+}

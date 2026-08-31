@@ -950,8 +950,7 @@ class ExpressionLowerer {
             plan.target, call, varTypes, callableFlow);
         IRNode lowered = self.callableLowering.materializeInvocation(
             lambda, arguments, invocation);
-        Node? resultType = self.resolvedExpressionType(
-            call, varTypes);
+        Node? resultType = plan.resultType;
         bool promoteResult = resultType != null
             && self.managedValues.isManaged(
                 self.cTypes.resolveBodyType(
@@ -1024,7 +1023,7 @@ class ExpressionLowerer {
         boundary.resultOwned = convertsHostedResult
             || plan.resultOwned;
         boundary.restore();
-        Node? resultType = self.resolvedExpressionType(call, varTypes);
+        Node? resultType = plan.resultType;
         if (convertsHostedResult) {
             resultType = SemanticTypeSystem.primitive("string");
         }
@@ -1057,11 +1056,11 @@ class ExpressionLowerer {
         IRNode lowered = self.lowerNewCore(expression, varTypes, callableFlow);
         boundary.resultOwned = self.managedValues.isManaged(
             self.cTypes.resolveBodyType(
-                self.resolvedExpressionType(expression, varTypes), self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
+                plan.resultType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));
         boundary.restore();
         return boundary.finish(
             lowered,
-            self.resolvedExpressionType(expression, varTypes), false);
+            plan.resultType, false);
     }
 
     public IRNode lowerOwnedEffectCall(string callee,
@@ -1363,7 +1362,7 @@ class ExpressionLowerer {
             self.appendOwnershipNodes(
                 trueSequence, boundary.handoffs);
         }
-        Node? resultType = self.resolvedExpressionType(call, varTypes);
+        Node? resultType = plan.resultType;
         bool isVoid = resultType != null
             && resultType.base == "void"
             && resultType.pointer_depth == 0;
@@ -1410,8 +1409,7 @@ class ExpressionLowerer {
             && resultType != null
             && self.managedValues.isManaged(
                 self.cTypes.resolveBodyType(resultType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0))
-            && self.ownershipSemantics.expressionOwnsResult(
-                call, environment, callableFlow);
+            && plan.resultOwned;
         if (protectResult) {
             string runtimeType = self.managedValues.runtimeType(
                 self.cTypes.resolveBodyType(resultType, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0));

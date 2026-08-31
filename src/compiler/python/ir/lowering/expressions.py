@@ -874,12 +874,13 @@ class ExpressionLowerer:
                     )
                 )
 
-        result_type = self._call_result_type(plan)
+        result_type = plan.result_type
         result_owned = (
             self._ownership.source_call_owns_result(
                 plan.source,
                 provenance,
                 call_effect,
+                result_type=result_type,
             )
             if isinstance(plan.source, CallExpr)
             else self._ownership.owns_result(plan.source, provenance=provenance)
@@ -1130,21 +1131,6 @@ class ExpressionLowerer:
                 ordered[binding.parameter_index] = value
         return [ordered[index] for index in range(len(plan.parameters)) if index in ordered] + unbound
 
-    def _call_result_type(self, plan) -> TypeExpr | None:
-        source = plan.source
-        type_expr = self._session.type_of(source)
-        if isinstance(source, NewExpr):
-            type_expr = type_expr or source.type
-        if type_expr is None and plan.declaration is not None:
-            type_expr = getattr(plan.declaration, "return_type", None) or TypeExpr(base="void")
-        if type_expr is None and plan.dispatch is CallDispatch.BUILTIN_PRINT:
-            type_expr = TypeExpr(base="void")
-        if type_expr is None and plan.dispatch is CallDispatch.CALLABLE:
-            signature = self._types.function_pointer_signature(self._session.type_of(plan.callee))
-            if signature:
-                type_expr = signature[0]
-        return self._types.resolve_active_type(self._default_arguments.resolve_type(type_expr))
-
     def _lower_immediate_lambda_call(
         self,
         plan,
@@ -1290,12 +1276,13 @@ class ExpressionLowerer:
                 )
             )
         call = IRCall(callee=function.name, args=arguments)
+        result_type = plan.result_type
         result_owned = self._ownership.source_call_owns_result(
             plan.source,
             provenance,
             call_effect,
+            result_type=result_type,
         )
-        result_type = self._call_result_type(plan)
         return self._call_boundary.materialize(
             evaluation,
             call,
@@ -1604,6 +1591,19 @@ class ExpressionLowerer:
             plan,
             lowered,
         )
+
+    def resolved_expression_type(self, node) -> TypeExpr | None:
+        """Return the exact lowering-time type for one expression.
+
+        Call targets own the fallback for generic-body calls whose AST node has
+        no globally memoizable analyzer type.
+        """
+        if isinstance(node, CallExpr):
+            return self._calls.plan(node).result_type
+        type_expr = self._session.type_of(node)
+        if isinstance(node, NewExpr):
+            type_expr = type_expr or node.type
+        return self._types.resolve_active_type(self._default_arguments.resolve_type(type_expr))
 
     def prepare_lowered_value(
         self,

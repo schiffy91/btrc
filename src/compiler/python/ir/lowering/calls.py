@@ -1862,6 +1862,7 @@ class CallPlan:
     parameters: tuple[ResolvedCallParameter, ...]
     bindings: tuple[CallArgumentBinding, ...]
     declaration: FunctionDecl | MethodDecl | RichEnumVariant | None
+    result_type: TypeExpr | None
     variadic: bool = False
     receiver_type: TypeExpr | None = None
     member_name: str = ""
@@ -1936,7 +1937,7 @@ class CallLowerer:
         return declaration
 
     def plan(self, node: CallExpr) -> CallPlan:
-        result_type = self._types.resolve_active_type(self._session.type_of(node))
+        analyzed_result_type = self._types.resolve_active_type(self._session.type_of(node))
         dispatch = CallDispatch.DIRECT
         receiver = None
         receiver_type = None
@@ -1954,12 +1955,12 @@ class CallLowerer:
             class_info = self._analyzed.class_table.get(node.callee.name)
             if class_info is not None:
                 if (
-                    result_type is None
-                    or result_type.base != node.callee.name
-                    or len(result_type.generic_args) != len(class_info.generic_params)
+                    analyzed_result_type is None
+                    or analyzed_result_type.base != node.callee.name
+                    or len(analyzed_result_type.generic_args) != len(class_info.generic_params)
                 ):
                     raise CodegenError(f"generic constructor '{node.callee.name}()' has no concrete analyzed call type")
-                callee = self.constructor_symbol(result_type)
+                callee = self.constructor_symbol(analyzed_result_type)
                 declaration = class_info.constructor
             else:
                 callee = node.callee
@@ -1972,11 +1973,11 @@ class CallLowerer:
                 elif declaration is None and node.callee.name == "Atomic":
                     dispatch = CallDispatch.ATOMIC_CONSTRUCTOR
                     callee = None
-                    receiver_type = result_type
+                    receiver_type = analyzed_result_type
                 elif declaration is None and node.callee.name == "Span":
                     dispatch = CallDispatch.SPAN_CONSTRUCTOR
                     callee = None
-                    receiver_type = result_type
+                    receiver_type = analyzed_result_type
                 elif declaration is None and node.callee.name == "len" and node.args:
                     dispatch = CallDispatch.BUILTIN_LEN
                     callee = None
@@ -2008,6 +2009,13 @@ class CallLowerer:
             callee_name = getattr(callee, "name", None)
             declaration = self._analyzed.function_table.get(callee_name) if callee_name is not None else None
             dispatch = CallDispatch.IMMEDIATE_LAMBDA if isinstance(callee, LambdaExpr) else CallDispatch.CALLABLE
+        result_type = self._resolved_result_type(
+            node,
+            declaration,
+            dispatch,
+            analyzed_result_type,
+            receiver_type,
+        )
         variadic = self._hosted_call_is_variadic(node)
         parameters = self._resolved_parameters(
             node,
@@ -2032,11 +2040,43 @@ class CallLowerer:
             parameters=parameters,
             bindings=bindings,
             declaration=declaration,
+            result_type=result_type,
             variadic=variadic,
             receiver_type=receiver_type,
             member_name=member_name,
             rich_enum_constructor=rich_enum_constructor,
         )
+
+    def _resolved_result_type(
+        self,
+        node: CallExpr,
+        declaration,
+        dispatch: CallDispatch,
+        analyzed_result_type: TypeExpr | None,
+        receiver_type: TypeExpr | None,
+    ) -> TypeExpr | None:
+        """Resolve a call result from the selected target when analysis is contextual.
+
+        Generic bodies can share one source call across specializations, so the
+        analyzer intentionally has no single memoized type for some calls.  The
+        call target and active specialization still provide one exact result
+        type for this lowering invocation.
+        """
+        type_expr = analyzed_result_type
+        if type_expr is None and declaration is not None:
+            declared = getattr(declaration, "return_type", None)
+            if declared is not None:
+                substitutions = self._call_substitutions(node, analyzed_result_type, receiver_type)
+                type_expr = self._types.substitute_concrete_type(declared, substitutions)
+            else:
+                type_expr = TypeExpr(base="void")
+        if type_expr is None and dispatch is CallDispatch.BUILTIN_PRINT:
+            type_expr = TypeExpr(base="void")
+        if type_expr is None and dispatch is CallDispatch.CALLABLE:
+            signature = self._callable_signature(node.callee)
+            if signature:
+                type_expr = signature[0]
+        return self._types.resolve_active_type(self._default_arguments.resolve_type(type_expr))
 
     def reject_owned_rich_enum_arguments(
         self,
@@ -2383,6 +2423,7 @@ class CallLowerer:
                 )
             ),
             declaration=declaration,
+            result_type=instance_type,
         )
 
     def constructor_symbol(self, instance_type: TypeExpr) -> str:
@@ -2948,11 +2989,24 @@ class CallLowerer:
     def plan_value(self, node, target_type, provenance: CallableProvenance) -> ValuePreparationPlan:
         """Resolve target-directed conversion facts without lowering source IR."""
         source_type = self._types.canonical_type(self._session.type_of(node))
+        if isinstance(node, CallExpr):
+            source_type = self._types.canonical_type(self.plan(node).result_type)
         resolved_target = self._types.canonical_type(target_type)
         hosted_mode = self.hosted_string_conversion_mode(node, resolved_target, source_type)
         overridden = id(node) in self._session.owning_overrides
-        source_owned = bool(not overridden and self._ownership.owns_result(node, provenance=provenance))
-        lowered_owned = self._ownership.lowered_result_is_owned(node, provenance=provenance)
+        source_owned = bool(
+            not overridden
+            and self._ownership.owns_result(
+                node,
+                provenance=provenance,
+                result_type=source_type,
+            )
+        )
+        lowered_owned = self._ownership.lowered_result_is_owned(
+            node,
+            provenance=provenance,
+            result_type=source_type,
+        )
         if hosted_mode == REJECT:
             raise CodegenError(
                 "raw char* to managed string conversion reached IR without a proven hosted ownership effect"

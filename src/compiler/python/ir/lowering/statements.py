@@ -397,7 +397,7 @@ class StatementLowerer:
             return self._ownership.materialize_release_target(
                 self._expressions.lower_managed_slot_target(destroy_receiver, provenance)
             )
-        result_type = self._session.type_of(node.expr)
+        result_type = self._expressions.resolved_expression_type(node.expr)
         lowered = self._expressions.lower_expr(
             node.expr,
             provenance,
@@ -423,6 +423,7 @@ class StatementLowerer:
         if self._values.is_managed(result_type) and self._ownership.lowered_result_is_owned(
             node.expr,
             provenance=provenance,
+            result_type=result_type,
         ):
             return self._ownership.materialize_discarded_value(
                 lowered,

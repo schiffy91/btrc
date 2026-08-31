@@ -315,6 +315,7 @@ class OwnershipCallPlan {
     public Vector<Node> parameters;
     public Vector<OwnershipCallOperand> operands;
     public Node? declaration;
+    public Node? resultType;
     public Node? receiver;
     public Node? receiverType;
     public bool receiverOwned;
@@ -328,6 +329,7 @@ class OwnershipCallPlan {
         self.parameters = [];
         self.operands = [];
         self.declaration = null;
+        self.resultType = null;
         self.receiver = null;
         self.receiverType = null;
         self.receiverOwned = false;
@@ -562,8 +564,13 @@ class CallOwnershipLowerer {
         result.target = self.targets.resolve(
             call, environment.variables(),
             self.callableContext(environment, callableFlow));
-        result.resultOwned = self.semantics.expressionOwnsResult(
-            call, environment, callableFlow);
+        result.resultType = result.target.signature.returnType;
+        if (result.resultType == null) {
+            result.resultType = self.semantics.expressionType(
+                call, environment);
+        }
+        result.resultOwned = self.semantics.contextualExpressionOwnsResult(
+            call, result.resultType, environment, callableFlow);
         result.declaration = result.target.declaration;
         result.parameters = result.target.signature.parameters;
         result.operands = self.planOperands(
