@@ -1106,6 +1106,13 @@ class CallAnalyzer:
         for index, (argument, expected_shape) in enumerate(zip(call.args, spec.parameters)):
             expected = expected_shape.as_type_expr()
             self.ownership.validate_opaque_call_argument(None, index, expected, argument, name, bodyless_ffi=True)
+            if self.ownership.validate_callable_value(
+                expected,
+                argument,
+                getattr(argument, "line", call.line),
+                getattr(argument, "col", call.col),
+            ):
+                continue
             self.storage.validate_volatile_reference_conversion(
                 expected,
                 argument,

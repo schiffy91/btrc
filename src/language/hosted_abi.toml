@@ -1,7 +1,7 @@
 # Canonical hosted-C ABI shared by the Python and self-hosted compilers.
 # Generated compiler catalogs are data-only; edit this specification instead.
 
-schema_version = 1
+schema_version = 2
 
 [provenance]
 stdlib_source_marker = "compiler:stdlib"
@@ -12383,6 +12383,28 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "bsearch"
+origin = "stdlib"
+result = { base = "void", pointer_depth = 1, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "void", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [
+      { base = "int", pointer_depth = 0, is_const = false },
+      { base = "void", pointer_depth = 1, is_const = true },
+      { base = "void", pointer_depth = 1, is_const = true },
+    ], effect = "value", callback_lifetime = "during_call" },
+]
+variadic = false
+return_effect = "alias"
+return_alias_parameter = 1
+return_alias_shape = "interior"
+raw_lifetime = false
+
+[[functions]]
 name = "btrc_gpu_acquire_compute"
 origin = "native_gpu"
 result = { base = "void", pointer_depth = 1, is_const = false }
@@ -15630,6 +15652,25 @@ result = { base = "int", pointer_depth = 0, is_const = false }
 parameters_known = true
 parameters = [
   { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "qsort"
+origin = "stdlib"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "size_t", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "CFunction", pointer_depth = 0, is_const = false, generic_args = [
+      { base = "int", pointer_depth = 0, is_const = false },
+      { base = "void", pointer_depth = 1, is_const = true },
+      { base = "void", pointer_depth = 1, is_const = true },
+    ], effect = "value", callback_lifetime = "during_call" },
 ]
 variadic = false
 return_effect = "value"

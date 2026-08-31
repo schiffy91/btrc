@@ -154,7 +154,9 @@ class TypeValidator {
 
     public string formatType(Node? typeExpr) {
         if (typeExpr == null) { return "<unknown>"; }
-        string result = typeExpr.base;
+        string result = typeExpr.is_const ? "const " : "";
+        result = result + (typeExpr.base == "__fn_ptr"
+            ? "CFunction" : typeExpr.base);
         if (typeExpr.generic_args.len > 0) {
             result = result + "<";
             int index = 0;

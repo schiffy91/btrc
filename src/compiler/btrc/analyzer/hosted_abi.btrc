@@ -248,6 +248,37 @@ class HostedAbiRepository {
         return row == null ? "unknown" : row.effect;
     }
 
+    public string parameterCallbackLifetime(string name, int index) {
+        GeneratedHostedParameterRow? row = self.parameter(name, index);
+        return row == null ? "" : row.callback_lifetime;
+    }
+
+    public Node typeFromShape(GeneratedAbiTypeRow shape) {
+        Node result = Node();
+        result.kind = NK_TYPE_EXPR;
+        result.base = shape.base == "CFunction" ? "__fn_ptr" : shape.base;
+        result.pointer_depth = shape.pointer_depth;
+        result.is_const = shape.is_const;
+        int index = 0;
+        while (index < shape.generic_args.len) {
+            result.generic_args.push(self.typeFromShape(
+                shape.generic_args.get(index)));
+            index = index + 1;
+        }
+        return result;
+    }
+
+    public Node parameterType(string name, int index) {
+        GeneratedHostedParameterRow? row = self.parameter(name, index);
+        if (row == null) {
+            Node missing = Node();
+            missing.kind = NK_TYPE_EXPR;
+            missing.base = "void";
+            return missing;
+        }
+        return self.typeFromShape(row.type_shape);
+    }
+
     public bool parameterReadOnlyBorrow(string name, int index) {
         string effect = self.parameterEffect(name, index);
         return effect == "read" || (effect == "value"
@@ -289,14 +320,9 @@ class HostedAbiRepository {
     }
 
     public Node? semanticResultType(string name) {
-        string base = self.semanticResultBase(name);
-        if (base == "") { return null; }
-        Node result = Node();
-        result.kind = NK_TYPE_EXPR;
-        result.base = base;
-        result.pointer_depth = self.semanticResultPointerDepth(name);
-        result.is_const = self.semanticResultConst(name);
-        return result;
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        if (row == null) { return null; }
+        return self.typeFromShape(row.semantic_result);
     }
 
     public string sourceFunctionSymbol(string name) {

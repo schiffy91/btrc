@@ -405,6 +405,12 @@ class Parser:
             base_tok = self._advance()
             base = base_tok.value
 
+        # CFunction is the public, exact C-callback spelling.  The compiler's
+        # established internal representation remains __fn_ptr so all lowering
+        # paths continue to produce a single untagged C function-pointer word.
+        if base == "CFunction":
+            base = "__fn_ptr"
+
         # Generic arguments
         if self._check(TokenKind.LT) and self._is_generic_start():
             self._advance()

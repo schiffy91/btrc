@@ -1829,7 +1829,8 @@ class TypeSystem:
 
     def format_type(self, t) -> str:
         """Format a TypeExpr for error messages."""
-        result = t.base
+        result = "const " if t.is_const else ""
+        result += "CFunction" if t.base == "__fn_ptr" else t.base
         if t.generic_args:
             args = ", ".join(self.format_type(a) for a in t.generic_args)
             result += f"<{args}>"

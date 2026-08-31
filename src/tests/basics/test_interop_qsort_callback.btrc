@@ -13,7 +13,8 @@ int cmp_int(const void* a, const void* b) {
 
 int main() {
     int arr[6] = {5, 3, 1, 4, 2, 0};
-    qsort(arr, 6, sizeof(int), cmp_int);
+    CFunction<int, const void*, const void*> comparator = cmp_int;
+    qsort(arr, 6, sizeof(int), comparator);
 
     for (int i = 0; i < 5; i++) {
         assert(arr[i] <= arr[i + 1]);
@@ -23,7 +24,7 @@ int main() {
 
     // bsearch using the same comparator
     int key = 4;
-    int* found = (int*)bsearch(&key, arr, 6, sizeof(int), cmp_int);
+    int* found = (int*)bsearch(&key, arr, 6, sizeof(int), comparator);
     assert(found != NULL);
     assert(*found == 4);
 

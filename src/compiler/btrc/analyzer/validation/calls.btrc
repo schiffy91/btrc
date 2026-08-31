@@ -462,11 +462,7 @@ class CallValidator {
         int argumentIndex = 0;
         while (argumentIndex < call.args.len
                 && argumentIndex < parameterCount) {
-            Node expected = SemanticTypeSystem.primitive(
-                self.hostedAbi.parameterBase(name, argumentIndex));
-            expected.pointer_depth = self.hostedAbi.parameterPointerDepth(
-                name, argumentIndex);
-            expected.is_const = self.hostedAbi.parameterConst(name, argumentIndex);
+            Node expected = self.hostedAbi.parameterType(name, argumentIndex);
             self.borrows.validateOpaqueCallArgument(
                 null, argumentIndex, expected,
                 call.args.get(argumentIndex), name, true,  vars);
@@ -549,9 +545,7 @@ class CallValidator {
         self.validateDirectHostedOpaqueArguments(name, call,  vars);
         int index = 0;
         while (index < expectedCount) {
-            Node expected = SemanticTypeSystem.primitive(self.hostedAbi.parameterBase(name, index));
-            expected.pointer_depth = self.hostedAbi.parameterPointerDepth(name, index);
-            expected.is_const = self.hostedAbi.parameterConst(name, index);
+            Node expected = self.hostedAbi.parameterType(name, index);
             Node argument = call.args.get(index);
             self.storage.validateVolatileReferenceConversion(
                 expected, argument,
@@ -1161,11 +1155,7 @@ class CallValidator {
             index = index + 1;
         }
         if (occurrenceCount != 1 || safeIndex < 0) { return null; }
-        Node expected = SemanticTypeSystem.primitive(
-            self.hostedAbi.parameterBase(callee, safeIndex));
-        expected.pointer_depth = self.hostedAbi.parameterPointerDepth(
-            callee, safeIndex);
-        expected.is_const = self.hostedAbi.parameterConst(callee, safeIndex);
+        Node expected = self.hostedAbi.parameterType(callee, safeIndex);
         return expected;
     }
 

@@ -54,6 +54,7 @@ class DeclarationValidator {
     }
 
     public string hostedNormalizedBase(string base) {
+        if (base == "__fn_ptr") { return "CFunction"; }
         if (base == "byte") { return "unsigned char"; }
         if (base == "long int") { return "long"; }
         if (base == "long long int") { return "long long"; }
@@ -83,22 +84,34 @@ class DeclarationValidator {
     }
 
     public bool hostedTypeMatchesResult(Node typeNode, string name) {
-        return typeNode.generic_args.len == 0
-            && self.hostedNormalizedBase(typeNode.base)
-                == self.hostedAbi.resultBase(name)
-            && self.hostedPointerDepth(typeNode)
-                == self.hostedAbi.resultPointerDepth(name)
-            && typeNode.is_const == self.hostedAbi.resultConst(name);
+        GeneratedHostedFunctionRow? row = self.hostedAbi.exactSpec(name);
+        return row != null && self.hostedTypeMatchesShape(typeNode, row.result);
     }
 
     public bool hostedTypeMatchesParameter(
             Node typeNode, string name, int index) {
-        return typeNode.generic_args.len == 0
-            && self.hostedNormalizedBase(typeNode.base)
-                == self.hostedAbi.parameterBase(name, index)
-            && self.hostedPointerDepth(typeNode)
-                == self.hostedAbi.parameterPointerDepth(name, index)
-            && typeNode.is_const == self.hostedAbi.parameterConst(name, index);
+        GeneratedHostedParameterRow? row = self.hostedAbi.parameter(name, index);
+        return row != null && self.hostedTypeMatchesShape(typeNode, row.type_shape);
+    }
+
+    public bool hostedTypeMatchesShape(
+            Node typeNode, GeneratedAbiTypeRow shape) {
+        if (self.hostedNormalizedBase(typeNode.base) != shape.base
+                || self.hostedPointerDepth(typeNode) != shape.pointer_depth
+                || typeNode.is_const != shape.is_const
+                || typeNode.generic_args.len != shape.generic_args.len) {
+            return false;
+        }
+        int index = 0;
+        while (index < typeNode.generic_args.len) {
+            if (!self.hostedTypeMatchesShape(
+                    typeNode.generic_args.get(index),
+                    shape.generic_args.get(index))) {
+                return false;
+            }
+            index = index + 1;
+        }
+        return true;
     }
 
     public bool hostedDeclarationModifiersValid(Node declaration) {
@@ -121,27 +134,40 @@ class DeclarationValidator {
     }
 
     public string hostedExpectedSignature(string name) {
-        string result = self.hostedAbi.resultBase(name);
-        int resultDepth = self.hostedAbi.resultPointerDepth(name);
-        while (resultDepth > 0) {
-            result = result + "*";
-            resultDepth = resultDepth - 1;
-        }
+        GeneratedHostedFunctionRow? row = self.hostedAbi.exactSpec(name);
+        if (row == null) { return ""; }
+        string result = self.hostedExpectedType(row.result);
         string parameters = "";
         int index = 0;
-        while (index < self.hostedAbi.parameterCount(name)) {
+        while (index < row.parameters.len) {
             if (index > 0) { parameters = parameters + ", "; }
-            string parameter = self.hostedAbi.parameterBase(name, index);
-            int depth = self.hostedAbi.parameterPointerDepth(name, index);
-            while (depth > 0) {
-                parameter = parameter + "*";
-                depth = depth - 1;
-            }
-            parameters = parameters + parameter;
+            parameters = parameters
+                + self.hostedExpectedType(row.parameters.get(index).type_shape);
             index = index + 1;
         }
         if (parameters == "") { parameters = "void"; }
         return result + " (" + parameters + ")";
+    }
+
+    public string hostedExpectedType(GeneratedAbiTypeRow shape) {
+        string result = shape.base;
+        if (shape.generic_args.len > 0) {
+            result = result + "<";
+            int index = 0;
+            while (index < shape.generic_args.len) {
+                if (index > 0) { result = result + ", "; }
+                result = result + self.hostedExpectedType(
+                    shape.generic_args.get(index));
+                index = index + 1;
+            }
+            result = result + ">";
+        }
+        int resultDepth = shape.pointer_depth;
+        while (resultDepth > 0) {
+            result = result + "*";
+            resultDepth = resultDepth - 1;
+        }
+        return shape.is_const ? "const " + result : result;
     }
 
     public void validateHostedBodylessDeclaration(Node declaration) {

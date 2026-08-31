@@ -25,13 +25,17 @@ class HostedAbiTypeSpec:
     base: str
     pointer_depth: int
     is_const: bool
+    generic_args: tuple[HostedAbiTypeSpec, ...] = ()
 
     def canonical(self) -> dict[str, object]:
-        return {
+        result: dict[str, object] = {
             "base": self.base,
             "pointer_depth": self.pointer_depth,
             "is_const": self.is_const,
         }
+        if self.generic_args:
+            result["generic_args"] = [argument.canonical() for argument in self.generic_args]
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,9 +44,13 @@ class HostedAbiParameterSpec:
 
     type_shape: HostedAbiTypeSpec
     effect: str
+    callback_lifetime: str | None = None
 
     def canonical(self) -> dict[str, object]:
-        return {**self.type_shape.canonical(), "effect": self.effect}
+        result = {**self.type_shape.canonical(), "effect": self.effect}
+        if self.callback_lifetime is not None:
+            result["callback_lifetime"] = self.callback_lifetime
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -198,9 +206,12 @@ class HostedAbiManifest:
             "return_alias_null_deallocator",
         }
     )
-    _TYPE_KEYS = frozenset({"base", "pointer_depth", "is_const"})
-    _PARAMETER_KEYS = frozenset({"base", "pointer_depth", "is_const", "effect"})
+    _TYPE_REQUIRED_KEYS = frozenset({"base", "pointer_depth", "is_const"})
+    _TYPE_KEYS = _TYPE_REQUIRED_KEYS | frozenset({"generic_args"})
+    _PARAMETER_KEYS = _TYPE_KEYS | frozenset({"effect", "callback_lifetime"})
+    _PARAMETER_REQUIRED_KEYS = _TYPE_REQUIRED_KEYS | frozenset({"effect"})
     _EFFECTS = frozenset({"value", "read", "mutate", "consume", "unknown"})
+    _CALLBACK_LIFETIMES = frozenset({"during_call", "stored_until_unregister"})
     _RETURN_EFFECTS = frozenset({"value", "fresh", "alias", "independent", "opaque"})
     _ALIAS_SHAPES = frozenset({"exact", "interior", "dependent"})
     _NULL_ALIAS_EFFECTS = frozenset({"fresh", "independent", "opaque"})
@@ -222,7 +233,7 @@ class HostedAbiManifest:
 
         cls._require_keys(document, cls._ROOT_KEYS, "hosted ABI manifest")
         schema_version = cls._integer(document, "schema_version", "hosted ABI manifest")
-        if schema_version != 1:
+        if schema_version != 2:
             raise HostedAbiManifestError(
                 f"unsupported hosted ABI schema version: {schema_version}"
             )
@@ -344,28 +355,42 @@ class HostedAbiManifest:
         context = f"{function_context}.parameters[{index}]"
         if not isinstance(value, dict):
             raise HostedAbiManifestError(f"{context} must be a table")
-        cls._require_keys(value, cls._PARAMETER_KEYS, context)
+        cls._require_keys(
+            value,
+            cls._PARAMETER_KEYS,
+            context,
+            required=cls._PARAMETER_REQUIRED_KEYS,
+        )
         shape = cls._type_shape(
-            {key: value[key] for key in cls._TYPE_KEYS}, context
+            {key: value[key] for key in cls._TYPE_KEYS if key in value}, context
         )
         return HostedAbiParameterSpec(
             type_shape=shape,
             effect=cls._string(value, "effect", context),
+            callback_lifetime=cls._optional_string(value, "callback_lifetime", context),
         )
 
     @classmethod
     def _type_shape(cls, value: Any, context: str) -> HostedAbiTypeSpec:
         if not isinstance(value, dict):
             raise HostedAbiManifestError(f"{context} must be a table")
-        cls._require_keys(value, cls._TYPE_KEYS, context)
+        cls._require_keys(value, cls._TYPE_KEYS, context, required=cls._TYPE_REQUIRED_KEYS)
         base = cls._string(value, "base", context)
         pointer_depth = cls._integer(value, "pointer_depth", context)
         if pointer_depth < 0:
             raise HostedAbiManifestError(f"{context}.pointer_depth must be non-negative")
+        raw_generic_args = value.get("generic_args", [])
+        if not isinstance(raw_generic_args, list):
+            raise HostedAbiManifestError(f"{context}.generic_args must be an array of tables")
+        generic_args = tuple(
+            cls._type_shape(argument, f"{context}.generic_args[{index}]")
+            for index, argument in enumerate(raw_generic_args)
+        )
         return HostedAbiTypeSpec(
             base=base,
             pointer_depth=pointer_depth,
             is_const=cls._boolean(value, "is_const", context),
+            generic_args=generic_args,
         )
 
     def _validate(self, runtime: RuntimeManifest) -> None:
@@ -465,6 +490,25 @@ class HostedAbiManifest:
                 raise HostedAbiManifestError(f"{context} is variadic without a fixed prefix")
         if any(parameter.effect not in cls._EFFECTS for parameter in function.parameters):
             raise HostedAbiManifestError(f"{context} contains an unknown parameter effect")
+        for parameter in function.parameters:
+            cls._validate_type_shape(parameter.type_shape, context)
+            if (
+                parameter.type_shape.base == "CFunction"
+                and parameter.callback_lifetime is None
+            ):
+                raise HostedAbiManifestError(
+                    f"{context} callback parameter lacks explicit lifetime metadata"
+                )
+            if parameter.callback_lifetime is not None:
+                if parameter.callback_lifetime not in cls._CALLBACK_LIFETIMES:
+                    raise HostedAbiManifestError(f"{context} contains an unknown callback lifetime")
+                if parameter.type_shape.base != "CFunction":
+                    raise HostedAbiManifestError(
+                        f"{context} attaches callback lifetime metadata to a non-callback parameter"
+                    )
+        cls._validate_type_shape(function.result, context)
+        if function.semantic_result is not None:
+            cls._validate_type_shape(function.semantic_result, context)
         if function.return_effect not in cls._RETURN_EFFECTS:
             raise HostedAbiManifestError(f"{context} contains an unknown return effect")
         if function.return_effect != "value" and function.result.pointer_depth == 0:
@@ -506,6 +550,20 @@ class HostedAbiManifest:
                 raise HostedAbiManifestError(f"{context} has an invalid raw-lifetime contract")
         elif function.consume_deallocator is not None:
             raise HostedAbiManifestError(f"{context} has a deallocator without raw-lifetime consumption")
+
+    @classmethod
+    def _validate_type_shape(cls, shape: HostedAbiTypeSpec, context: str) -> None:
+        if shape.generic_args and shape.base != "CFunction":
+            raise HostedAbiManifestError(
+                f"{context} contains generic hosted type {shape.base!r}; only CFunction is supported"
+            )
+        if shape.base == "CFunction":
+            if shape.pointer_depth != 0 or shape.is_const or not shape.generic_args:
+                raise HostedAbiManifestError(
+                    f"{context} contains an invalid CFunction shape"
+                )
+        for argument in shape.generic_args:
+            cls._validate_type_shape(argument, context)
 
     @staticmethod
     def _require_keys(
@@ -615,11 +673,13 @@ class HostedAbiCatalogGenerator:
             "    base: str",
             "    pointer_depth: int",
             "    is_const: bool",
+            "    generic_args: tuple['GeneratedAbiTypeRow', ...]",
             "",
             "",
             "class GeneratedHostedParameterRow(NamedTuple):",
             "    type_shape: GeneratedAbiTypeRow",
             "    effect: str",
+            "    callback_lifetime: str | None",
             "",
             "",
             "class GeneratedHostedFunctionRow(NamedTuple):",
@@ -697,7 +757,8 @@ class HostedAbiCatalogGenerator:
             else:
                 parameter_rows = ", ".join(
                     "GeneratedHostedParameterRow("
-                    f"{self._python_type(parameter.type_shape)}, {parameter.effect!r})"
+                    f"{self._python_type(parameter.type_shape)}, {parameter.effect!r}, "
+                    f"{parameter.callback_lifetime!r})"
                     for parameter in function.parameters
                 )
                 parameters = f"({parameter_rows},)"
@@ -721,9 +782,14 @@ class HostedAbiCatalogGenerator:
             "    ),",
         ]
 
-    @staticmethod
-    def _python_type(shape: HostedAbiTypeSpec) -> str:
-        return f"GeneratedAbiTypeRow({shape.base!r}, {shape.pointer_depth}, {shape.is_const!r})"
+    @classmethod
+    def _python_type(cls, shape: HostedAbiTypeSpec) -> str:
+        arguments = ", ".join(cls._python_type(argument) for argument in shape.generic_args)
+        generic_args = f"({arguments},)" if arguments else "()"
+        return (
+            f"GeneratedAbiTypeRow({shape.base!r}, {shape.pointer_depth}, "
+            f"{shape.is_const!r}, {generic_args})"
+        )
 
     @staticmethod
     def _append_python_tuple(lines: list[str], name: str, values: tuple[str, ...]) -> None:
@@ -741,21 +807,27 @@ class HostedAbiCatalogGenerator:
             "    public string base;",
             "    public int pointer_depth;",
             "    public bool is_const;",
+            "    public Vector<GeneratedAbiTypeRow> generic_args;",
             "",
-            "    public GeneratedAbiTypeRow(string base, int pointer_depth, bool is_const) {",
+            "    public GeneratedAbiTypeRow(string base, int pointer_depth, bool is_const,",
+            "            Vector<GeneratedAbiTypeRow> generic_args) {",
             "        self.base = base;",
             "        self.pointer_depth = pointer_depth;",
             "        self.is_const = is_const;",
+            "        self.generic_args = generic_args;",
             "    }",
             "}",
             "",
             "class GeneratedHostedParameterRow {",
             "    public GeneratedAbiTypeRow type_shape;",
             "    public string effect;",
+            "    public string callback_lifetime;",
             "",
-            "    public GeneratedHostedParameterRow(GeneratedAbiTypeRow type_shape, string effect) {",
+            "    public GeneratedHostedParameterRow(GeneratedAbiTypeRow type_shape, string effect,",
+            "            string callback_lifetime) {",
             "        self.type_shape = type_shape;",
             "        self.effect = effect;",
+            "        self.callback_lifetime = callback_lifetime;",
             "    }",
             "}",
             "",
@@ -827,6 +899,11 @@ class HostedAbiCatalogGenerator:
             "",
             "    private Vector<GeneratedHostedParameterRow> emptyParameters() {",
             "        Vector<GeneratedHostedParameterRow> values = [];",
+            "        return values;",
+            "    }",
+            "",
+            "    private Vector<GeneratedAbiTypeRow> emptyTypes() {",
+            "        Vector<GeneratedAbiTypeRow> values = [];",
             "        return values;",
             "    }",
             "",
@@ -906,7 +983,8 @@ class HostedAbiCatalogGenerator:
             lines.extend(
                 "                GeneratedHostedParameterRow("
                 f"{self._btrc_type(parameter.type_shape)}, "
-                f"{self._btrc_string(parameter.effect)}),"
+                f"{self._btrc_string(parameter.effect)}, "
+                f"{self._btrc_optional(parameter.callback_lifetime)}),"
                 for parameter in function.parameters
             )
             lines.append("            ],")
@@ -948,10 +1026,12 @@ class HostedAbiCatalogGenerator:
         )
 
     def _btrc_type(self, shape: HostedAbiTypeSpec) -> str:
+        arguments = ", ".join(self._btrc_type(argument) for argument in shape.generic_args)
+        generic_args = f"[{arguments}]" if arguments else "self.emptyTypes()"
         return (
             "GeneratedAbiTypeRow("
             f"{self._btrc_string(shape.base)}, {shape.pointer_depth}, "
-            f"{'true' if shape.is_const else 'false'})"
+            f"{'true' if shape.is_const else 'false'}, {generic_args})"
         )
 
     def _btrc_optional(self, value: str | None) -> str:

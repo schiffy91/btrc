@@ -266,12 +266,7 @@ class CallTargetResolver {
         }
         int index = 0;
         while (index < count) {
-            Node typeExpr = SemanticTypeSystem.primitive(
-                self.hostedAbi.parameterBase(name, index));
-            typeExpr.pointer_depth =
-                self.hostedAbi.parameterPointerDepth(name, index);
-            typeExpr.is_const =
-                self.hostedAbi.parameterConst(name, index);
+            Node typeExpr = self.hostedAbi.parameterType(name, index);
             signature.parameters.push(self.syntheticParameter(
                 Strings.fromInt(index), typeExpr));
             index = index + 1;

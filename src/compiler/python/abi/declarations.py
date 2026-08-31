@@ -34,16 +34,26 @@ class AbiType:
     base: str
     pointer_depth: int = 0
     is_const: bool = False
+    generic_args: tuple[AbiType, ...] = ()
 
     @classmethod
     def from_generated(cls, row: GeneratedAbiTypeRow) -> AbiType:
-        return cls(row.base, row.pointer_depth, row.is_const)
+        return cls(
+            row.base,
+            row.pointer_depth,
+            row.is_const,
+            tuple(
+                cls.from_generated(argument)
+                for argument in getattr(row, "generic_args", ())
+            ),
+        )
 
     def as_type_expr(self) -> TypeExpr:
         return TypeExpr(
-            base=self.base,
+            base="__fn_ptr" if self.base == "CFunction" else self.base,
             pointer_depth=self.pointer_depth,
             is_const=self.is_const,
+            generic_args=[argument.as_type_expr() for argument in self.generic_args],
         )
 
 
@@ -54,6 +64,7 @@ class HostedFunction:
     result: AbiType
     parameters: tuple[AbiType, ...] | None
     effects: tuple[str, ...] = ()
+    callback_lifetimes: tuple[str | None, ...] = ()
     variadic: bool = False
     semantic_result: AbiType | None = None
     return_effect: str = RETURN_VALUE
@@ -72,10 +83,17 @@ class HostedFunction:
         if row.parameters is not None:
             parameters = tuple(AbiType.from_generated(parameter.type_shape) for parameter in row.parameters)
             effects = tuple(parameter.effect for parameter in row.parameters)
+            callback_lifetimes = tuple(
+                getattr(parameter, "callback_lifetime", None)
+                for parameter in row.parameters
+            )
+        else:
+            callback_lifetimes = ()
         return cls(
             result=AbiType.from_generated(row.result),
             parameters=parameters,
             effects=effects,
+            callback_lifetimes=callback_lifetimes,
             variadic=row.variadic,
             semantic_result=(AbiType.from_generated(row.semantic_result) if row.semantic_result is not None else None),
             return_effect=row.return_effect,
@@ -96,6 +114,13 @@ class HostedFunction:
                 raise ValueError("variadic hosted ABI requires a fixed parameter prefix")
         elif len(self.effects) != len(self.parameters):
             raise ValueError("hosted ABI effects must match the parameter count")
+        if self.parameters is not None and not self.callback_lifetimes:
+            object.__setattr__(self, "callback_lifetimes", (None,) * len(self.parameters))
+        if self.parameters is None:
+            if self.callback_lifetimes:
+                raise ValueError("opaque hosted ABI cannot declare callback lifetimes")
+        elif len(self.callback_lifetimes) != len(self.parameters):
+            raise ValueError("hosted ABI callback lifetimes must match the parameter count")
         if any(effect not in {VALUE, READ, MUTATE, CONSUME, UNKNOWN} for effect in self.effects):
             raise ValueError("hosted ABI contains an unknown parameter effect")
         if self.return_effect not in {

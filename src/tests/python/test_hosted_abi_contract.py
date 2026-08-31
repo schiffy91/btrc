@@ -102,6 +102,98 @@ def test_exact_posix_effects_and_aliases_are_not_opaque() -> None:
     assert hosted_return_alias_parameter("realpath") == 1
 
 
+def test_qsort_and_bsearch_have_exact_nonescaping_callback_abis() -> None:
+    callback = abi_type(
+        "CFunction",
+        generic_args=(
+            abi_type("int"),
+            abi_type("void", 1, True),
+            abi_type("void", 1, True),
+        ),
+    )
+    qsort = hosted_function("qsort")
+    bsearch = hosted_function("bsearch")
+
+    assert qsort is not None
+    assert qsort.parameters == (VOID_PTR, abi_type("size_t"), abi_type("size_t"), callback)
+    assert qsort.effects == (MUTATE, VALUE, VALUE, VALUE)
+    assert qsort.callback_lifetimes == (None, None, None, "during_call")
+
+    assert bsearch is not None
+    assert bsearch.parameters == (
+        abi_type("void", 1, True),
+        abi_type("void", 1, True),
+        abi_type("size_t"),
+        abi_type("size_t"),
+        callback,
+    )
+    assert bsearch.callback_lifetimes[-1] == "during_call"
+    assert hosted_return_alias_parameter("bsearch") == 1
+
+
+def test_cfunction_is_public_syntax_for_one_word_noncapturing_callback() -> None:
+    source = """
+        int compare(const void* left, const void* right) { return 0; }
+        int main() {
+            CFunction<int, const void*, const void*> callback = compare;
+            return 0;
+        }
+    """
+    program = Parser(Lexer(source, "<cfunction>").tokenize()).parse()
+    callback = program.declarations[1].body.statements[0]
+    assert callback.type.base == "__fn_ptr"
+    assert not _analyze(source).errors
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    (
+        "int compare(const void* value) { return 0; }",
+        "void compare(const void* left, const void* right) {}",
+        "int compare(void* left, void* right) { return 0; }",
+    ),
+)
+def test_qsort_rejects_wrong_callback_arity_result_and_qualifiers(declaration: str) -> None:
+    source = f"""
+        {declaration}
+        int main() {{
+            int values[2] = {{2, 1}};
+            qsort(values, 2, sizeof(int), compare);
+            return 0;
+        }}
+    """
+    errors = _analyze(source).errors
+    assert any(
+        "Argument 4 to hosted function 'qsort()' expects"
+        in error and "CFunction" in error
+        for error in errors
+    )
+
+
+def test_qsort_rejects_capturing_lambda_callback() -> None:
+    errors = _analyze("""
+        int main() {
+            int values[2] = {2, 1};
+            int direction = 1;
+            qsort(values, 2, sizeof(int),
+                (const void* left, const void* right) => direction);
+            return 0;
+        }
+    """).errors
+    assert any("capturing lambda" in error.lower() for error in errors)
+
+
+def test_qsort_exact_bodyless_declaration_uses_cfunction_spelling() -> None:
+    good = """
+        extern void qsort(void* base, size_t count, size_t size,
+            CFunction<int, const void*, const void*> compare);
+        int main() { return 0; }
+    """
+    bad = good.replace("const void*, const void*", "void*, void*")
+    assert not _analyze(good).errors
+    assert any("does not match compiler-owned C ABI" in error for error in _analyze(bad).errors)
+
+
 def test_freopen_models_path_borrows_stream_mutation_and_alias_result() -> None:
     freopen = hosted_function("freopen")
     assert freopen is not None
