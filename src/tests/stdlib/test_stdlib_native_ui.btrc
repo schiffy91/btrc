@@ -1,0 +1,68 @@
+#include <assert.h>
+
+import std.image;
+import std.native_ui;
+
+int main() {
+    Image artwork = Image(2, 2);
+    artwork.setRGBA(0, 0, 10, 20, 30, 255);
+
+    NativeUiElement tree = NativeUiElement
+        .column("library")
+        .className("library-root")
+        .style("padding: 8px; gap: 12px")
+        .child(NativeUiElement.text("status", "Two albums"))
+        .child(NativeUiElement
+            .grid("albums")
+            .child(NativeUiElement
+                .button("album:first", "First")
+                .style("border-radius: 8px")
+                .child(NativeUiElement.image(
+                    "album-art:first", artwork, "First album"))));
+
+    assert(tree.kind() == NATIVE_UI_COLUMN);
+    assert(tree.id() == "library");
+    assert(tree.cssClass() == "library-root");
+    assert(tree.inlineStyle() == "padding: 8px; gap: 12px");
+    assert(tree.styleError().ok());
+    assert(tree.childCount() == 2);
+    assert(tree.childAt(1).kind() == NATIVE_UI_GRID);
+    NativeUiElement button = tree.childAt(1).childAt(0);
+    assert(button.kind() == NATIVE_UI_BUTTON);
+    assert(button.contentText() == "First");
+    assert(button.childAt(0).contentImage() == artwork);
+    assert(button.childAt(0).imageAlt() == "First album");
+
+    NativeUiElement rejected = NativeUiElement
+        .text("unsafe", "No browser CSS")
+        .style("position: fixed");
+    assert(!rejected.styleError().ok());
+    assert(rejected.styleError().code()
+        == NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY);
+    assert(rejected.styleError().property() == "position");
+
+    NativeUiViewportMetrics viewport = NativeUiViewportMetrics(
+        800, 600, 0, 240);
+    NativeUiScrollDelta delta = NativeUiScrollDelta(0, 120);
+    NativeUiEvent scrolled = NativeUiEvent.scrolled(
+        "albums", viewport, delta);
+    assert(scrolled.kind() == NATIVE_UI_SCROLLED);
+    assert(scrolled.elementId() == "albums");
+    assert(scrolled.viewport().width() == 800);
+    assert(scrolled.viewport().height() == 600);
+    assert(scrolled.viewport().scrollY() == 240);
+    assert(scrolled.scroll().x() == 0);
+    assert(scrolled.scroll().y() == 120);
+
+    assert(NativeUiEvent.clicked("album:first").kind()
+        == NATIVE_UI_CLICKED);
+    assert(NativeUiEvent.hoverEntered("album:first").kind()
+        == NATIVE_UI_HOVER_ENTERED);
+    assert(NativeUiEvent.hoverLeft("album:first").kind()
+        == NATIVE_UI_HOVER_LEFT);
+    assert(NativeUiEvent.viewportChanged("albums", viewport).kind()
+        == NATIVE_UI_VIEWPORT_CHANGED);
+
+    print("PASS: native UI value contract");
+    return 0;
+}
