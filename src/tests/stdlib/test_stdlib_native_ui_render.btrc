@@ -61,6 +61,19 @@ int main() {
     assert(rootBox.style.hasBackground);
     assert(rootBox.style.background.red == 17);
 
+    NativeUiRenderer layoutRenderer = NativeUiRenderer.styled(sheet);
+    for (int iteration = 0; iteration < 32; iteration++) {
+        NativeUiFrame layoutOnly = layoutRenderer.layout(
+            deepVirtualGrid(), 320, 120);
+        assert(layoutOnly.ok());
+        assert(layoutOnly.image.isEmpty());
+        assert(layoutOnly.boxCount() == 19);
+    }
+    NativeUiEventBatch layoutScroll = layoutRenderer.scrollBy(0, 400);
+    assert(layoutScroll.frame.ok());
+    assert(layoutScroll.frame.image.isEmpty());
+    assert(layoutScroll.frame.boxCount() == 19);
+
     NativeUiEventBatch deepScroll = renderer.scrollBy(0, 1000000000);
     assert(deepScroll.frame.ok());
     assert(deepScroll.frame.boxCount() == 19);
@@ -100,9 +113,34 @@ int main() {
     NativeUiEventBatch resized = renderer.viewportChanged(320, 160);
     assert(resized.eventCount() >= 1);
     assert(resized.eventAt(0).kind() == NATIVE_UI_VIEWPORT_CHANGED);
+    assert(resized.eventAt(0).elementId() == "albums");
     assert(resized.frame.viewport.width() == 320);
     assert(resized.frame.viewport.height() == 160);
-    assert(resized.frame.viewport.scrollY() >= 0);
+    assert(resized.frame.viewport.scrollY() == 21884);
+    NativeUiVirtualGridViewport resizedGeometry =
+        resized.eventAt(0).virtualGridViewport();
+    assert(resizedGeometry.gridId() == "albums");
+    assert(resizedGeometry.contentLocalScrollY() == 21846);
+    assert(resizedGeometry.firstVisibleDataIndex() == 1984);
+    assert(resizedGeometry.visibleDataCount() == 16);
+
+    NativeUiElement firstGrid = NativeUiElement
+        .virtualGrid("first-grid", NativeUiVirtualGrid(1, 1, 40, 0))
+        .child(NativeUiElement.text("first-item", "first"));
+    NativeUiElement secondGrid = NativeUiElement
+        .virtualGrid("second-grid", NativeUiVirtualGrid(1, 1, 40, 0))
+        .child(NativeUiElement.text("second-item", "second"));
+    NativeUiFrame multiple = NativeUiRenderer().render(
+        NativeUiElement.column("multiple")
+            .child(firstGrid)
+            .child(secondGrid),
+        160,
+        180
+    );
+    assert(multiple.ok());
+    assert(multiple.virtualGridCount() == 2);
+    assert(multiple.scrollOwnerId(-1, -1) == "first-grid");
+    assert(multiple.scrollOwnerId(20, 100) == "second-grid");
 
     NativeUiElement duplicate = NativeUiElement.column("root")
         .child(NativeUiElement.text("same", "one"))

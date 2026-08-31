@@ -476,14 +476,15 @@ class NativeUiEvent {
 
     class NativeUiEvent viewportChanged(
         string elementId,
-        NativeUiViewportMetrics metrics
+        NativeUiViewportMetrics metrics,
+        NativeUiVirtualGridViewport? virtualGridViewport = null
     ) {
         return NativeUiEvent(
             NATIVE_UI_VIEWPORT_CHANGED,
             elementId,
             metrics,
             NativeUiScrollDelta(0, 0),
-            null
+            virtualGridViewport
         );
     }
 
