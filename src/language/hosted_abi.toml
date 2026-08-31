@@ -167,6 +167,7 @@ functions = [
   "btrc_gui_window_poll",
   "btrc_gui_window_present",
   "btrc_gui_window_should_close",
+  "btrc_tray_add_check_item",
   "btrc_tray_add_item",
   "btrc_tray_add_separator",
   "btrc_tray_create",
@@ -174,6 +175,7 @@ functions = [
   "btrc_tray_request_quit",
   "btrc_tray_run_iteration",
   "btrc_tray_set_icon",
+  "btrc_tray_set_item_checked",
   "btrc_tray_set_menu",
   "btrc_tray_set_tooltip",
   "btrc_tray_should_quit",
@@ -6837,6 +6839,7 @@ owned = [
   "btrc_gui_window_poll",
   "btrc_gui_window_present",
   "btrc_gui_window_should_close",
+  "btrc_tray_add_check_item",
   "btrc_tray_add_item",
   "btrc_tray_add_separator",
   "btrc_tray_create",
@@ -6844,6 +6847,7 @@ owned = [
   "btrc_tray_request_quit",
   "btrc_tray_run_iteration",
   "btrc_tray_set_icon",
+  "btrc_tray_set_item_checked",
   "btrc_tray_set_menu",
   "btrc_tray_set_tooltip",
   "btrc_tray_should_quit",
@@ -8255,6 +8259,7 @@ native = [
   "btrc_gui_window_poll",
   "btrc_gui_window_present",
   "btrc_gui_window_should_close",
+  "btrc_tray_add_check_item",
   "btrc_tray_add_item",
   "btrc_tray_add_separator",
   "btrc_tray_create",
@@ -8262,6 +8267,7 @@ native = [
   "btrc_tray_request_quit",
   "btrc_tray_run_iteration",
   "btrc_tray_set_icon",
+  "btrc_tray_set_item_checked",
   "btrc_tray_set_menu",
   "btrc_tray_set_tooltip",
   "btrc_tray_should_quit",
@@ -8392,6 +8398,7 @@ functions = [
   "btrc_gui_window_poll",
   "btrc_gui_window_present",
   "btrc_gui_window_should_close",
+  "btrc_tray_add_check_item",
   "btrc_tray_add_item",
   "btrc_tray_add_separator",
   "btrc_tray_create",
@@ -8399,6 +8406,7 @@ functions = [
   "btrc_tray_request_quit",
   "btrc_tray_run_iteration",
   "btrc_tray_set_icon",
+  "btrc_tray_set_item_checked",
   "btrc_tray_set_menu",
   "btrc_tray_set_tooltip",
   "btrc_tray_should_quit",
@@ -13188,6 +13196,22 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "btrc_tray_add_check_item"
+origin = "native_tray"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+  { base = "bool", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "bool", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
 name = "btrc_tray_add_item"
 origin = "native_tray"
 result = { base = "int", pointer_depth = 0, is_const = false }
@@ -13273,6 +13297,20 @@ parameters_known = true
 parameters = [
   { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
   { base = "char", pointer_depth = 1, is_const = false, effect = "read" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "btrc_tray_set_item_checked"
+origin = "native_tray"
+result = { base = "void", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "void", pointer_depth = 1, is_const = false, effect = "mutate" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "bool", pointer_depth = 0, is_const = false, effect = "value" },
 ]
 variadic = false
 return_effect = "value"

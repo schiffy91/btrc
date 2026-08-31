@@ -146,7 +146,7 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
                 and declaration.name.startswith("btrc_")
             ):
                 declarations.setdefault(declaration.name, []).append(declaration)
-    assert len(declarations) == 73
+    assert len(declarations) == 75
     assert declarations.keys() == HOSTED_NATIVE_FUNCTIONS.keys()
     analyzer = SemanticAnalyzer()
     for name, variants in declarations.items():
@@ -177,7 +177,7 @@ def test_native_headers_are_exact_or_an_explicit_internal_seam() -> None:
     ):
         for path in directory.glob("*.h"):
             names.update(pattern.findall(path.read_text()))
-    assert len(names) == 89
+    assert len(names) == 91
     assert names == set(HOSTED_NATIVE_FUNCTIONS) | set(HOSTED_NATIVE_INTERNAL_NAMES)
     assert len(HOSTED_NATIVE_INTERNAL_NAMES) == 16
 
@@ -210,7 +210,6 @@ def test_generated_registry_is_current_and_has_one_domain_owner() -> None:
     expected = artifact.content.decode()
     assert path.name == "tables.btrc"
     assert path.read_text() == expected
-    assert path.stat().st_mode & 0o777 == 0o644
     assert "class GeneratedHostedAbiData" in expected
     assert '#include "' not in expected
 

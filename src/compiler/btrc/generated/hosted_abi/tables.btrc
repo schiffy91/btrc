@@ -179,7 +179,7 @@ class GeneratedHostedAbiData {
         self.push_platform_typedef_names0();
         self.stdlib_source_marker = "compiler:stdlib";
         self.user_source_marker = "compiler:user";
-        self.fingerprint = "a54581709368def5f3f6fe6aac7a3880b504dc04b72bf9063d081ca959c9f54d";
+        self.fingerprint = "992ef042b4c09df17b420b0fabc70a9e789eaac0369fd6076eaa77c51fdec7f0";
     }
 
     private void pushFunctions0() {
@@ -2526,6 +2526,32 @@ class GeneratedHostedAbiData {
             "",
             ""));
         self.functions.push(GeneratedHostedFunctionRow(
+            "btrc_tray_add_check_item",
+            "native_tray",
+            GeneratedAbiTypeRow("int", 0, false),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false), "mutate"),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false), "read"),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false), "read"),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("bool", 0, false), "value"),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("bool", 0, false), "value"),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            ""));
+    }
+
+    private void pushFunctions3() {
+        self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_add_item",
             "native_tray",
             GeneratedAbiTypeRow("int", 0, false),
@@ -2547,9 +2573,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-    }
-
-    private void pushFunctions3() {
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_add_separator",
             "native_tray",
@@ -2654,6 +2677,27 @@ class GeneratedHostedAbiData {
             [
                 GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false), "mutate"),
                 GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false), "read"),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("void", 0, false),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            ""));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "btrc_tray_set_item_checked",
+            "native_tray",
+            GeneratedAbiTypeRow("void", 0, false),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false), "mutate"),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false), "value"),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("bool", 0, false), "value"),
             ],
             false,
             false,
@@ -3280,6 +3324,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions4() {
         self.functions.push(GeneratedHostedFunctionRow(
             "erfcf",
             "math",
@@ -3318,9 +3365,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-    }
-
-    private void pushFunctions4() {
         self.functions.push(GeneratedHostedFunctionRow(
             "erff",
             "math",
@@ -4060,6 +4104,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions5() {
         self.functions.push(GeneratedHostedFunctionRow(
             "fmaxl",
             "math",
@@ -4100,9 +4147,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-    }
-
-    private void pushFunctions5() {
         self.functions.push(GeneratedHostedFunctionRow(
             "fminf",
             "math",
@@ -4855,6 +4899,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions6() {
         self.functions.push(GeneratedHostedFunctionRow(
             "iscntrl",
             "ctype",
@@ -4893,9 +4940,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-    }
-
-    private void pushFunctions6() {
         self.functions.push(GeneratedHostedFunctionRow(
             "isgraph",
             "ctype",
@@ -5633,6 +5677,9 @@ class GeneratedHostedAbiData {
             "exact",
             "",
             ""));
+    }
+
+    private void pushFunctions7() {
         self.functions.push(GeneratedHostedFunctionRow(
             "memset",
             "string",
@@ -5674,9 +5721,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-    }
-
-    private void pushFunctions7() {
         self.functions.push(GeneratedHostedFunctionRow(
             "mkdtemp",
             "stdlib",
@@ -6424,6 +6468,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions8() {
         self.functions.push(GeneratedHostedFunctionRow(
             "regcomp",
             "posix",
@@ -6468,9 +6515,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-    }
-
-    private void pushFunctions8() {
         self.functions.push(GeneratedHostedFunctionRow(
             "regfree",
             "posix",
@@ -7220,6 +7264,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions9() {
         self.functions.push(GeneratedHostedFunctionRow(
             "srand",
             "stdlib",
@@ -7259,9 +7306,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-    }
-
-    private void pushFunctions9() {
         self.functions.push(GeneratedHostedFunctionRow(
             "strcat",
             "string",
@@ -8019,6 +8063,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
+    }
+
+    private void pushFunctions10() {
         self.functions.push(GeneratedHostedFunctionRow(
             "tgammaf",
             "math",
@@ -8057,9 +8104,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             ""));
-    }
-
-    private void pushFunctions10() {
         self.functions.push(GeneratedHostedFunctionRow(
             "time",
             "posix_process",
@@ -8473,6 +8517,7 @@ class GeneratedHostedAbiData {
         self.function_names.push("btrc_gui_window_poll");
         self.function_names.push("btrc_gui_window_present");
         self.function_names.push("btrc_gui_window_should_close");
+        self.function_names.push("btrc_tray_add_check_item");
         self.function_names.push("btrc_tray_add_item");
         self.function_names.push("btrc_tray_add_separator");
         self.function_names.push("btrc_tray_create");
@@ -8480,6 +8525,7 @@ class GeneratedHostedAbiData {
         self.function_names.push("btrc_tray_request_quit");
         self.function_names.push("btrc_tray_run_iteration");
         self.function_names.push("btrc_tray_set_icon");
+        self.function_names.push("btrc_tray_set_item_checked");
         self.function_names.push("btrc_tray_set_menu");
         self.function_names.push("btrc_tray_set_tooltip");
         self.function_names.push("btrc_tray_should_quit");
@@ -8563,11 +8609,11 @@ class GeneratedHostedAbiData {
         self.function_names.push("encrypt");
         self.function_names.push("endpwent");
         self.function_names.push("endusershell");
-        self.function_names.push("erand48");
-        self.function_names.push("erand48_r");
     }
 
     private void push_function_names1() {
+        self.function_names.push("erand48");
+        self.function_names.push("erand48_r");
         self.function_names.push("erf");
         self.function_names.push("erfc");
         self.function_names.push("erfcf");
@@ -8816,11 +8862,11 @@ class GeneratedHostedAbiData {
         self.function_names.push("initstate_r");
         self.function_names.push("iruserok");
         self.function_names.push("iruserok_sa");
-        self.function_names.push("isalnum");
-        self.function_names.push("isalpha");
     }
 
     private void push_function_names2() {
+        self.function_names.push("isalnum");
+        self.function_names.push("isalpha");
         self.function_names.push("isatty");
         self.function_names.push("isblank");
         self.function_names.push("iscntrl");
@@ -9069,11 +9115,11 @@ class GeneratedHostedAbiData {
         self.function_names.push("pthread_getugid_np");
         self.function_names.push("pthread_join");
         self.function_names.push("pthread_key_create");
-        self.function_names.push("pthread_key_delete");
-        self.function_names.push("pthread_kill");
     }
 
     private void push_function_names3() {
+        self.function_names.push("pthread_key_delete");
+        self.function_names.push("pthread_kill");
         self.function_names.push("pthread_mutex_consistent");
         self.function_names.push("pthread_mutex_destroy");
         self.function_names.push("pthread_mutex_getprioceiling");
@@ -9322,11 +9368,11 @@ class GeneratedHostedAbiData {
         self.function_names.push("strcat");
         self.function_names.push("strchr");
         self.function_names.push("strchrnul");
-        self.function_names.push("strcmp");
-        self.function_names.push("strcoll");
     }
 
     private void push_function_names4() {
+        self.function_names.push("strcmp");
+        self.function_names.push("strcoll");
         self.function_names.push("strcoll_l");
         self.function_names.push("strcpy");
         self.function_names.push("strcspn");
@@ -15223,6 +15269,7 @@ class GeneratedHostedAbiData {
         self.owned_names.push("btrc_gui_window_poll");
         self.owned_names.push("btrc_gui_window_present");
         self.owned_names.push("btrc_gui_window_should_close");
+        self.owned_names.push("btrc_tray_add_check_item");
         self.owned_names.push("btrc_tray_add_item");
         self.owned_names.push("btrc_tray_add_separator");
         self.owned_names.push("btrc_tray_create");
@@ -15230,6 +15277,7 @@ class GeneratedHostedAbiData {
         self.owned_names.push("btrc_tray_request_quit");
         self.owned_names.push("btrc_tray_run_iteration");
         self.owned_names.push("btrc_tray_set_icon");
+        self.owned_names.push("btrc_tray_set_item_checked");
         self.owned_names.push("btrc_tray_set_menu");
         self.owned_names.push("btrc_tray_set_tooltip");
         self.owned_names.push("btrc_tray_should_quit");
@@ -15362,11 +15410,11 @@ class GeneratedHostedAbiData {
         self.owned_names.push("expm1l");
         self.owned_names.push("fabs");
         self.owned_names.push("fabsf");
-        self.owned_names.push("fabsl");
-        self.owned_names.push("faccessat");
     }
 
     private void push_owned_names11() {
+        self.owned_names.push("fabsl");
+        self.owned_names.push("faccessat");
         self.owned_names.push("false");
         self.owned_names.push("fattributiontag");
         self.owned_names.push("fattributiontag_t");
@@ -15615,11 +15663,11 @@ class GeneratedHostedAbiData {
         self.owned_names.push("inet6_opt_set_val");
         self.owned_names.push("inet6_option_alloc");
         self.owned_names.push("inet6_option_append");
-        self.owned_names.push("inet6_option_find");
-        self.owned_names.push("inet6_option_init");
     }
 
     private void push_owned_names12() {
+        self.owned_names.push("inet6_option_find");
+        self.owned_names.push("inet6_option_init");
         self.owned_names.push("inet6_option_next");
         self.owned_names.push("inet6_option_space");
         self.owned_names.push("inet6_rth_add");
@@ -15868,11 +15916,11 @@ class GeneratedHostedAbiData {
         self.owned_names.push("msghdr");
         self.owned_names.push("nan");
         self.owned_names.push("nanf");
-        self.owned_names.push("nanl");
-        self.owned_names.push("nanosleep");
     }
 
     private void push_owned_names13() {
+        self.owned_names.push("nanl");
+        self.owned_names.push("nanosleep");
         self.owned_names.push("nearbyint");
         self.owned_names.push("nearbyintf");
         self.owned_names.push("nearbyintl");
@@ -16121,11 +16169,11 @@ class GeneratedHostedAbiData {
         self.owned_names.push("regnexec");
         self.owned_names.push("regoff_t");
         self.owned_names.push("regwcomp");
-        self.owned_names.push("regwexec");
-        self.owned_names.push("regwncomp");
     }
 
     private void push_owned_names14() {
+        self.owned_names.push("regwexec");
+        self.owned_names.push("regwncomp");
         self.owned_names.push("regwnexec");
         self.owned_names.push("remainder");
         self.owned_names.push("remainderf");
@@ -16374,11 +16422,11 @@ class GeneratedHostedAbiData {
         self.owned_names.push("strdup");
         self.owned_names.push("strerror");
         self.owned_names.push("strerror_l");
-        self.owned_names.push("strerror_r");
-        self.owned_names.push("strftime");
     }
 
     private void push_owned_names15() {
+        self.owned_names.push("strerror_r");
+        self.owned_names.push("strftime");
         self.owned_names.push("strftime_l");
         self.owned_names.push("strlcat");
         self.owned_names.push("strlcpy");
@@ -16657,6 +16705,7 @@ class GeneratedHostedAbiData {
         self.native_names.push("btrc_gui_window_poll");
         self.native_names.push("btrc_gui_window_present");
         self.native_names.push("btrc_gui_window_should_close");
+        self.native_names.push("btrc_tray_add_check_item");
         self.native_names.push("btrc_tray_add_item");
         self.native_names.push("btrc_tray_add_separator");
         self.native_names.push("btrc_tray_create");
@@ -16664,6 +16713,7 @@ class GeneratedHostedAbiData {
         self.native_names.push("btrc_tray_request_quit");
         self.native_names.push("btrc_tray_run_iteration");
         self.native_names.push("btrc_tray_set_icon");
+        self.native_names.push("btrc_tray_set_item_checked");
         self.native_names.push("btrc_tray_set_menu");
         self.native_names.push("btrc_tray_set_tooltip");
         self.native_names.push("btrc_tray_should_quit");
@@ -16795,6 +16845,7 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("btrc_gui_window_poll");
         self.platform_function_names.push("btrc_gui_window_present");
         self.platform_function_names.push("btrc_gui_window_should_close");
+        self.platform_function_names.push("btrc_tray_add_check_item");
         self.platform_function_names.push("btrc_tray_add_item");
         self.platform_function_names.push("btrc_tray_add_separator");
         self.platform_function_names.push("btrc_tray_create");
@@ -16802,6 +16853,7 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("btrc_tray_request_quit");
         self.platform_function_names.push("btrc_tray_run_iteration");
         self.platform_function_names.push("btrc_tray_set_icon");
+        self.platform_function_names.push("btrc_tray_set_item_checked");
         self.platform_function_names.push("btrc_tray_set_menu");
         self.platform_function_names.push("btrc_tray_set_tooltip");
         self.platform_function_names.push("btrc_tray_should_quit");
@@ -16944,11 +16996,11 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("getdirentries");
         self.platform_function_names.push("getdirentriesattr");
         self.platform_function_names.push("getdomainname");
-        self.platform_function_names.push("getdtablesize");
-        self.platform_function_names.push("getegid");
     }
 
     private void push_platform_function_names1() {
+        self.platform_function_names.push("getdtablesize");
+        self.platform_function_names.push("getegid");
         self.platform_function_names.push("getentropy");
         self.platform_function_names.push("geteuid");
         self.platform_function_names.push("getgid");
@@ -17197,11 +17249,11 @@ class GeneratedHostedAbiData {
         self.platform_function_names.push("regcomp");
         self.platform_function_names.push("regerror");
         self.platform_function_names.push("regexec");
-        self.platform_function_names.push("regfree");
-        self.platform_function_names.push("regncomp");
     }
 
     private void push_platform_function_names2() {
+        self.platform_function_names.push("regfree");
+        self.platform_function_names.push("regncomp");
         self.platform_function_names.push("regnexec");
         self.platform_function_names.push("regwcomp");
         self.platform_function_names.push("regwexec");
