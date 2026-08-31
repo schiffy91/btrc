@@ -75,6 +75,49 @@
     "runtime_roots": {
       "$set": []
     },
+    "realtime_safe_externals": {
+      "$set": []
+    },
+    "realtime_intrinsic_targets": {
+      "$map": [
+        [
+          "atomic_compare_exchange_strong_explicit",
+          "Atomic.compareExchangeStrong"
+        ],
+        [
+          "atomic_exchange_explicit",
+          "Atomic.exchange"
+        ],
+        [
+          "atomic_fetch_add_explicit",
+          "Atomic.fetchAdd"
+        ],
+        [
+          "atomic_fetch_and_explicit",
+          "Atomic.fetchAnd"
+        ],
+        [
+          "atomic_fetch_or_explicit",
+          "Atomic.fetchOr"
+        ],
+        [
+          "atomic_fetch_sub_explicit",
+          "Atomic.fetchSub"
+        ],
+        [
+          "atomic_fetch_xor_explicit",
+          "Atomic.fetchXor"
+        ],
+        [
+          "atomic_load_explicit",
+          "Atomic.load"
+        ],
+        [
+          "atomic_store_explicit",
+          "Atomic.store"
+        ]
+      ]
+    },
     "needs_runtime": false,
     "debug": false,
     "debug_cfile": "",
@@ -327,6 +370,7 @@
                   }
                 ],
                 "helper_ref": "__btrc_string_retain",
+                "realtime_provenance": "",
                 "cleanup_slot": null,
                 "never_returns": false
               }
@@ -429,11 +473,13 @@
                               }
                             ],
                             "helper_ref": "__btrc_substring",
+                            "realtime_provenance": "",
                             "cleanup_slot": null,
                             "never_returns": false
                           }
                         ],
                         "helper_ref": "__btrc_str_track",
+                        "realtime_provenance": "",
                         "cleanup_slot": null,
                         "never_returns": false
                       }
@@ -463,11 +509,13 @@
                               }
                             ],
                             "helper_ref": "__btrc_toUpper",
+                            "realtime_provenance": "",
                             "cleanup_slot": null,
                             "never_returns": false
                           }
                         ],
                         "helper_ref": "__btrc_str_track",
+                        "realtime_provenance": "",
                         "cleanup_slot": null,
                         "never_returns": false
                       }
@@ -514,6 +562,7 @@
                         }
                       ],
                       "helper_ref": "__btrc_string_release",
+                      "realtime_provenance": "",
                       "cleanup_slot": null,
                       "never_returns": false
                     },
@@ -560,6 +609,7 @@
                     }
                   ],
                   "helper_ref": "",
+                  "realtime_provenance": "",
                   "cleanup_slot": null,
                   "never_returns": false
                 },
@@ -608,6 +658,7 @@
                   }
                 ],
                 "helper_ref": "",
+                "realtime_provenance": "",
                 "cleanup_slot": null,
                 "never_returns": false
               }
@@ -632,11 +683,13 @@
                       }
                     ],
                     "helper_ref": "__btrc_string_or_empty",
+                    "realtime_provenance": "",
                     "cleanup_slot": null,
                     "never_returns": false
                   }
                 ],
                 "helper_ref": "",
+                "realtime_provenance": "",
                 "cleanup_slot": null,
                 "never_returns": false
               }
@@ -710,6 +763,7 @@
                   }
                 ],
                 "helper_ref": "__btrc_string_release",
+                "realtime_provenance": "",
                 "cleanup_slot": null,
                 "never_returns": false
               }
@@ -763,6 +817,7 @@
                   }
                 ],
                 "helper_ref": "__btrc_string_release",
+                "realtime_provenance": "",
                 "cleanup_slot": null,
                 "never_returns": false
               }
@@ -779,7 +834,8 @@
           ]
         },
         "is_static": false,
-        "archive_export": false
+        "archive_export": false,
+        "is_realtime": false
       }
     ],
     "gpu_kernels": [],

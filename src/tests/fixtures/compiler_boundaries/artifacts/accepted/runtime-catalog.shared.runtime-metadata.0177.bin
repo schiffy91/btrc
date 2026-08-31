@@ -1,0 +1,1 @@
+{"asset":"core.c","btrc_order":0,"category":"alloc","dependencies":[],"headers":[],"name":"__btrc_strdup","provided_objects":[],"provided_types":[],"python_order":0,"realtime_effect":"allocation","source_sha256":"a8a4bbff61858bfea5c7ce0fe885524b3dff6167c06a26f4ba66586a06774d0c","source_size":377,"source_visible":true}

@@ -1332,12 +1332,12 @@ class _BoundaryCaptureSession:
         rows: dict[str, dict[str, object]] = {}
         ordered: dict[str, list[tuple[int, str]]] = {"python": [], "btrc": []}
         base_keys = {"name", "category", "asset", "dependencies", "headers", "source_visible", "order"}
-        provider_keys = {"provided_types", "provided_objects"}
+        optional_keys = {"provided_types", "provided_objects", "realtime_effect"}
         for index, helper in enumerate(helper_tables):
             if not isinstance(helper, dict):
                 raise CompilerVerificationError(f"runtime boundary helper {index} must be a table")
             required = base_keys
-            allowed = base_keys | provider_keys
+            allowed = base_keys | optional_keys
             if not required <= set(helper) or not set(helper) <= allowed:
                 raise CompilerVerificationError(f"runtime boundary helper {index} has an unsupported shape")
             name = helper["name"]
@@ -1352,7 +1352,7 @@ class _BoundaryCaptureSession:
                     raise CompilerVerificationError(f"runtime boundary helper {name} has invalid {compiler} order")
                 ordered[compiler].append((position, name))
             source = source_by_name[name].encode("utf-8")
-            rows[name] = {
+            row = {
                 "asset": asset,
                 "btrc_order": order.get("btrc"),
                 "category": helper["category"],
@@ -1366,6 +1366,9 @@ class _BoundaryCaptureSession:
                 "source_size": len(source),
                 "source_visible": helper["source_visible"],
             }
+            if "realtime_effect" in helper:
+                row["realtime_effect"] = helper["realtime_effect"]
+            rows[name] = row
         if set(rows) != set(source_by_name):
             raise CompilerVerificationError("runtime boundary helper rows and source markers differ")
         orders = {}

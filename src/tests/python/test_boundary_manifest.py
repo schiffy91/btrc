@@ -572,6 +572,7 @@ asset = "core.c"
 dependencies = []
 headers = []
 source_visible = false
+realtime_effect = "safe"
 order = { python = 0, btrc = 0 }
 """,
         encoding="utf-8",
@@ -581,6 +582,7 @@ order = { python = 0, btrc = 0 }
     assert metadata["schema_version"] == 1
     assert rows["__btrc_test"]["provided_types"] == []
     assert rows["__btrc_test"]["provided_objects"] == []
+    assert rows["__btrc_test"]["realtime_effect"] == "safe"
     assert rows["__btrc_test"]["source_size"] > 0
     assert orders == {"python": ("__btrc_test",), "btrc": ("__btrc_test",)}
 

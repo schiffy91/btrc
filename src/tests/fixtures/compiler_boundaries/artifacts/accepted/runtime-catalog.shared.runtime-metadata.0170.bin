@@ -1,0 +1,1 @@
+{"asset":"core.c","btrc_order":1,"category":"alloc","dependencies":[],"headers":[],"name":"__btrc_safe_realloc","provided_objects":[],"provided_types":[],"python_order":1,"realtime_effect":"allocation","source_sha256":"2a7b60898180ae7798b50c17c2f04ca861cb229ef4418a99a185da16c30de08d","source_size":270,"source_visible":true}
