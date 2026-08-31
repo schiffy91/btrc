@@ -7,10 +7,12 @@ import ../model.btrc;
 class RealtimeIRVerifier {
     private Map<string, IRFunction> functions;
     private Map<string, bool> safeExternals;
+    private Map<string, string> intrinsicTargets;
 
     public RealtimeIRVerifier(IRModule module) {
         self.functions = {};
         self.safeExternals = module.realtime_safe_externals;
+        self.intrinsicTargets = module.realtime_intrinsic_targets;
     }
 
     public void validate(IRModule module) {
@@ -81,8 +83,17 @@ class RealtimeIRVerifier {
             if (node.callee == "") {
                 self.fail("indirect call", path);
             }
+            if (node.realtime_provenance != ""
+                    && (!self.intrinsicTargets.has(node.callee)
+                        || self.intrinsicTargets.get(node.callee)
+                            != node.realtime_provenance)) {
+                self.fail("invalid intrinsic provenance '"
+                    + node.realtime_provenance + "' for '"
+                    + node.callee + "'", path);
+            }
             if (!self.functions.has(node.callee)) {
-                if (!self.safeExternals.has(node.callee)) {
+                if (!self.safeExternals.has(node.callee)
+                        && node.realtime_provenance == "") {
                     self.fail("external/runtime call '" + node.callee + "'", path);
                 }
             } else {

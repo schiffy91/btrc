@@ -10,6 +10,7 @@ import ../../analyzer/types.btrc;
 import ../../generated/ast/node.btrc;
 import ../../syntax/types.btrc;
 import ../model.btrc;
+import ../runtime/catalog.btrc;
 import ./context.btrc;
 import ./ownership/lifetime.btrc;
 import ./types.btrc;
@@ -26,17 +27,20 @@ class ConcurrencyLowerer {
     private LoweringContext context;
     private ManagedLifetimeLowerer managedLifetime;
     private CTypeLowerer cTypes;
+    private RuntimeHelperCatalog runtimeHelpers;
 
     public ConcurrencyLowerer(Analyzed analyzed,
             HostedAbiRepository hostedAbi, OperatorSemantics operators,
             ExpressionTypeResolver expressionTypes, ManagedValueSemantics managedValues,
             CleanupSlotRegistry cleanupSlots, ManagedLifetimeLowerer managedLifetime,
-            LoweringContext context, CTypeLowerer cTypes) {
+            LoweringContext context, CTypeLowerer cTypes,
+            RuntimeHelperCatalog runtimeHelpers) {
         self.analyzed = analyzed; self.operators = operators;
         self.hostedAbi = hostedAbi;
         self.expressionTypes = expressionTypes; self.managedValues = managedValues;
         self.cleanupSlots = cleanupSlots; self.managedLifetime = managedLifetime;
         self.context = context; self.cTypes = cTypes;
+        self.runtimeHelpers = runtimeHelpers;
     }
 
     private Node? resolvedExpressionType(
@@ -422,28 +426,21 @@ class ConcurrencyLowerer {
             callArgs.push(args.get(index));
             index = index + 1;
         }
-        string callee = "";
-        if (method == "init") { callee = "atomic_init"; }
-        else if (method == "load") {
-            callee = "atomic_load_explicit";
-        } else if (method == "store") {
-            callee = "atomic_store_explicit";
-        } else if (method == "exchange") {
-            callee = "atomic_exchange_explicit";
-        } else if (method == "fetchAdd") {
-            callee = "atomic_fetch_add_explicit";
-        } else if (method == "fetchSub") {
-            callee = "atomic_fetch_sub_explicit";
-        } else if (method == "fetchAnd") {
-            callee = "atomic_fetch_and_explicit";
-        } else if (method == "fetchOr") {
-            callee = "atomic_fetch_or_explicit";
-        } else if (method == "fetchXor") {
-            callee = "atomic_fetch_xor_explicit";
-        } else if (method == "compareExchangeStrong") {
-            callee = "atomic_compare_exchange_strong_explicit";
+        string callee = self.runtimeHelpers.intrinsicCallee(
+            "Atomic", method);
+        if (callee == "") {
+            fprintf(stderr,
+                "internal compiler error: unsupported Atomic method '%s'\n",
+                method);
+            exit(1);
         }
-        return IRNode.call(callee, callArgs);
+        IRNode call = IRNode.call(callee, callArgs);
+        if (self.runtimeHelpers.intrinsicRealtimeEffect(
+                "Atomic", method) == "safe") {
+            call.realtime_provenance =
+                self.runtimeHelpers.intrinsicProvenance("Atomic", method);
+        }
+        return call;
     }
 
     /* Lower a Mutex<T> method call: .get() unboxes the stored void*; .set(v) boxes

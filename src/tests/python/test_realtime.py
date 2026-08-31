@@ -326,6 +326,31 @@ def test_ir_backstop_accepts_internal_closure_and_rejects_external_calls() -> No
         IRVerifier(IRModule(function_defs=[root, helper], realtime_safe_externals={"abs"})).validate_schema()
 
 
+def test_ir_backstop_requires_exact_typed_intrinsic_provenance() -> None:
+    call = IRCall(
+        callee="atomic_load_explicit",
+        args=[],
+        realtime_provenance="Atomic.load",
+    )
+    root = IRFunctionDef(
+        name="audio",
+        return_type=CType("void"),
+        body=IRBlock(stmts=[IRExprStmt(expr=call)]),
+        is_realtime=True,
+    )
+    targets = {"atomic_load_explicit": "Atomic.load"}
+
+    IRVerifier(IRModule(function_defs=[root], realtime_intrinsic_targets=targets)).validate_schema()
+
+    call.realtime_provenance = ""
+    with pytest.raises(ValueError, match=r"external/runtime call 'atomic_load_explicit'.*audio"):
+        IRVerifier(IRModule(function_defs=[root], realtime_intrinsic_targets=targets)).validate_schema()
+
+    call.realtime_provenance = "Atomic.store"
+    with pytest.raises(ValueError, match=r"invalid intrinsic provenance 'Atomic.store'.*audio"):
+        IRVerifier(IRModule(function_defs=[root], realtime_intrinsic_targets=targets)).validate_schema()
+
+
 def test_ir_backstop_rejects_recursion_and_uncertified_loops() -> None:
     recursive = IRFunctionDef(
         name="recursive",

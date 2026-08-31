@@ -1,0 +1,91 @@
+schema_version = 1
+
+[[methods]]
+receiver = "Atomic"
+method = "compareExchangeStrong"
+realtime_effect = "safe"
+c_callee = "atomic_compare_exchange_strong_explicit"
+
+[[methods]]
+receiver = "Atomic"
+method = "exchange"
+realtime_effect = "safe"
+c_callee = "atomic_exchange_explicit"
+
+[[methods]]
+receiver = "Atomic"
+method = "fetchAdd"
+realtime_effect = "safe"
+c_callee = "atomic_fetch_add_explicit"
+
+[[methods]]
+receiver = "Atomic"
+method = "fetchAnd"
+realtime_effect = "safe"
+c_callee = "atomic_fetch_and_explicit"
+
+[[methods]]
+receiver = "Atomic"
+method = "fetchOr"
+realtime_effect = "safe"
+c_callee = "atomic_fetch_or_explicit"
+
+[[methods]]
+receiver = "Atomic"
+method = "fetchSub"
+realtime_effect = "safe"
+c_callee = "atomic_fetch_sub_explicit"
+
+[[methods]]
+receiver = "Atomic"
+method = "fetchXor"
+realtime_effect = "safe"
+c_callee = "atomic_fetch_xor_explicit"
+
+[[methods]]
+receiver = "Atomic"
+method = "init"
+realtime_effect = "unknown"
+c_callee = "atomic_init"
+
+[[methods]]
+receiver = "Atomic"
+method = "load"
+realtime_effect = "safe"
+c_callee = "atomic_load_explicit"
+
+[[methods]]
+receiver = "Atomic"
+method = "store"
+realtime_effect = "safe"
+c_callee = "atomic_store_explicit"
+
+[[methods]]
+receiver = "Span"
+method = "constructor"
+realtime_effect = "safe"
+
+[[methods]]
+receiver = "Span"
+method = "isEmpty"
+realtime_effect = "safe"
+
+[[methods]]
+receiver = "Span"
+method = "isValid"
+realtime_effect = "safe"
+
+[[methods]]
+receiver = "Span"
+method = "length"
+realtime_effect = "safe"
+
+[[methods]]
+receiver = "Span"
+method = "tryGet"
+realtime_effect = "safe"
+
+[[methods]]
+receiver = "Span"
+method = "trySet"
+realtime_effect = "safe"

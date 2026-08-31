@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import ClassVar
 
 from src.compiler.python.abi.hosted import HOSTED_ABI
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
@@ -65,22 +64,6 @@ class RealtimeAnalyzer:
     """Prove every ``@realtime`` root's complete reachable source call graph."""
 
     _COLLECTION_TYPES = frozenset({"Array", "List", "Map", "Set", "Vector"})
-    _REALTIME_INTRINSIC_METHODS: ClassVar[dict[str, frozenset[str]]] = {
-        "Atomic": frozenset(
-            {
-                "load",
-                "store",
-                "exchange",
-                "fetchAdd",
-                "fetchSub",
-                "fetchAnd",
-                "fetchOr",
-                "fetchXor",
-                "compareExchangeStrong",
-            }
-        ),
-        "Span": frozenset({"length", "isEmpty", "isValid", "tryGet", "trySet"}),
-    }
     _ALLOCATION_CALLS = frozenset({"malloc", "calloc", "realloc", "aligned_alloc", "free", "strdup", "strndup"})
     _LOCK_CALLS = frozenset(
         {
@@ -452,6 +435,8 @@ class RealtimeAnalyzer:
             if declaration is not None and id(call) not in self.session.hosted_call_ids:
                 self._source_call(callable_, declaration, call)
                 return
+            if self.runtime.intrinsic_realtime_effect(name, "constructor") == "safe":
+                return
             if name in self.index.class_table:
                 self._effect(callable_, "allocation", f"constructor call '{name}'", call)
                 return
@@ -459,7 +444,7 @@ class RealtimeAnalyzer:
             return
         if isinstance(callee, ast.FieldAccessExpr):
             receiver = self.session.node_types.get(id(callee.obj))
-            if receiver is not None and callee.field in self._REALTIME_INTRINSIC_METHODS.get(receiver.base, ()):
+            if receiver is not None and self.runtime.intrinsic_realtime_effect(receiver.base, callee.field) == "safe":
                 return
             if receiver is not None and receiver.base in self._COLLECTION_TYPES:
                 self._effect(callable_, "collections", f"{receiver.base}.{callee.field}()", call)

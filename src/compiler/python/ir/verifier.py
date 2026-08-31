@@ -74,6 +74,11 @@ class IRVerifier:
             not isinstance(name, str) or not name for name in self.module.realtime_safe_externals
         ):
             raise TypeError("IRModule.realtime_safe_externals requires a set of non-empty strings")
+        if not isinstance(self.module.realtime_intrinsic_targets, dict) or any(
+            not isinstance(callee, str) or not callee or not isinstance(provenance, str) or not provenance
+            for callee, provenance in self.module.realtime_intrinsic_targets.items()
+        ):
+            raise TypeError("IRModule.realtime_intrinsic_targets requires non-empty string mappings")
 
         declaration_fields = (
             ("struct_forwards", IRStructForward),
@@ -178,11 +183,22 @@ class IRVerifier:
                 raise ValueError(f"IR realtime backstop rejected function value {node.name!r} via {' -> '.join(path)}")
             if not isinstance(node, IRCall):
                 continue
+            if not isinstance(node.realtime_provenance, str):
+                raise TypeError("IRCall.realtime_provenance requires str")
             if not isinstance(node.callee, str) or not node.callee:
                 raise ValueError(f"IR realtime backstop rejected indirect call via {' -> '.join(path)}")
+            if node.realtime_provenance:
+                expected = self.module.realtime_intrinsic_targets.get(node.callee)
+                if expected != node.realtime_provenance:
+                    raise ValueError(
+                        "IR realtime backstop rejected invalid intrinsic provenance "
+                        f"{node.realtime_provenance!r} for {node.callee!r} via {' -> '.join(path)}"
+                    )
             target = self._functions.get(node.callee)
             if target is None:
                 if node.callee in self.module.realtime_safe_externals:
+                    continue
+                if node.realtime_provenance:
                     continue
                 raise ValueError(
                     f"IR realtime backstop rejected external/runtime call {node.callee!r} via {' -> '.join(path)}"

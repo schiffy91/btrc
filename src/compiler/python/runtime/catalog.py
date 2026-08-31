@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Set
 
-from .generated import RUNTIME_HELPER_ROWS, GeneratedRuntimeHelperRow
+from .generated import (
+    INTRINSIC_EFFECT_ROWS,
+    RUNTIME_HELPER_ROWS,
+    GeneratedIntrinsicEffectRow,
+    GeneratedRuntimeHelperRow,
+)
 
 
 class RuntimeHelperCatalog:
@@ -13,6 +18,7 @@ class RuntimeHelperCatalog:
     def __init__(
         self,
         rows: tuple[GeneratedRuntimeHelperRow, ...] = RUNTIME_HELPER_ROWS,
+        intrinsic_effects: tuple[GeneratedIntrinsicEffectRow, ...] = INTRINSIC_EFFECT_ROWS,
     ) -> None:
         self._rows = rows
         self._index: dict[str, GeneratedRuntimeHelperRow] = {}
@@ -45,6 +51,23 @@ class RuntimeHelperCatalog:
         self._object_providers = object_providers
         self._categories = {name: tuple(definitions) for name, definitions in categories.items()}
         self._source_visible_names = frozenset(definition.name for definition in rows if definition.source_visible)
+        self._intrinsic_effects = intrinsic_effects
+        self._intrinsic_index: dict[tuple[str, str], GeneratedIntrinsicEffectRow] = {}
+        self._realtime_intrinsic_targets: dict[str, str] = {}
+        for definition in intrinsic_effects:
+            key = (definition.receiver, definition.method)
+            if key in self._intrinsic_index:
+                raise ValueError(f"duplicate compiler intrinsic registration: {definition.provenance}")
+            self._intrinsic_index[key] = definition
+            if definition.realtime_effect != "safe" or definition.c_callee is None:
+                continue
+            previous = self._realtime_intrinsic_targets.get(definition.c_callee)
+            if previous is not None:
+                raise ValueError(
+                    f"compiler intrinsic C callee {definition.c_callee} is owned by both "
+                    f"{previous} and {definition.provenance}"
+                )
+            self._realtime_intrinsic_targets[definition.c_callee] = definition.provenance
 
     @property
     def definitions(self) -> tuple[GeneratedRuntimeHelperRow, ...]:
@@ -63,6 +86,29 @@ class RuntimeHelperCatalog:
         """External helper symbols explicitly safe on realtime paths."""
 
         return frozenset(definition.name for definition in self._rows if definition.realtime_effect == "safe")
+
+    @property
+    def intrinsic_effects(self) -> tuple[GeneratedIntrinsicEffectRow, ...]:
+        """Typed compiler intrinsics in canonical generated order."""
+
+        return self._intrinsic_effects
+
+    @property
+    def realtime_intrinsic_targets(self) -> dict[str, str]:
+        """Exact C target-to-provenance certificates for safe typed intrinsics."""
+
+        return dict(self._realtime_intrinsic_targets)
+
+    def intrinsic_definition(self, receiver: str, method: str) -> GeneratedIntrinsicEffectRow | None:
+        """Return the exact typed intrinsic definition, if one exists."""
+
+        return self._intrinsic_index.get((receiver, method))
+
+    def intrinsic_realtime_effect(self, receiver: str, method: str) -> str:
+        """Return one typed method's realtime effect, failing closed."""
+
+        definition = self.intrinsic_definition(receiver, method)
+        return definition.realtime_effect if definition is not None else "unknown"
 
     def contains(self, name: str) -> bool:
         """Whether ``name`` is a generated runtime helper."""

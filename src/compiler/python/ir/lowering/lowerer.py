@@ -63,6 +63,7 @@ class IRLowerer:
             freestanding=freestanding,
             debug=debug,
             realtime_safe_externals=set(realtime_safe_externals),
+            realtime_intrinsic_targets=catalog.realtime_intrinsic_targets,
         )
         session = LoweringSession(
             module=module,
@@ -155,6 +156,7 @@ class IRLowerer:
             lifetime,
             cleanup_slots,
             storage,
+            catalog,
         )
         calls = CallLowerer(
             session,

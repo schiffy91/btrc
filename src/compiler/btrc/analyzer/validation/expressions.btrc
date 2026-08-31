@@ -1190,6 +1190,10 @@ class ExpressionValidator {
         }
         self.calls.validateSignature(className, constructor.params, expression,
             substitutions, false,  vars);
+        if (className == "CallbackRegistration") {
+            self.calls.validateCallbackRegistrationInvoke(
+                constructor, expression, vars);
+        }
     }
 
     public void validateMapEntries(Vector<Node> entries,

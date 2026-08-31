@@ -36,20 +36,6 @@ from .results import (
     FrontendResult,
 )
 
-_REALTIME_ATOMIC_INTRINSICS = frozenset(
-    {
-        "atomic_load_explicit",
-        "atomic_store_explicit",
-        "atomic_exchange_explicit",
-        "atomic_fetch_add_explicit",
-        "atomic_fetch_sub_explicit",
-        "atomic_fetch_and_explicit",
-        "atomic_fetch_or_explicit",
-        "atomic_fetch_xor_explicit",
-        "atomic_compare_exchange_strong_explicit",
-    }
-)
-
 
 class StdlibArchivePort(Protocol):
     """Persistence boundary required by the application archive workflow."""
@@ -622,7 +608,7 @@ class CompilationPipeline:
             type_identity=self.type_identity,
             runtime_catalog=self.runtime_catalog,
             realtime_safe_externals=(
-                HOSTED_ABI.realtime_safe_names | self.runtime_catalog.realtime_safe_names | _REALTIME_ATOMIC_INTRINSICS
+                HOSTED_ABI.realtime_safe_names | self.runtime_catalog.realtime_safe_names
                 if analyzed.realtime_safe_callables
                 else frozenset()
             ),

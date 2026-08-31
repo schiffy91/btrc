@@ -7,15 +7,22 @@ import ../model.btrc;
 
 class RuntimeHelperCatalog {
     private Vector<GeneratedRuntimeHelperRow> rows;
+    private Vector<GeneratedIntrinsicEffectRow> intrinsicEffects;
     private Map<string, int> indices;
+    private Map<string, int> intrinsicIndices;
+    private Map<string, string> realtimeIntrinsicTargets;
     private Map<string, string> typeProviders;
     private Map<string, string> objectProviders;
     private Map<string, string> materializedSources;
 
     public RuntimeHelperCatalog(
-            Vector<GeneratedRuntimeHelperRow> rows) {
+            Vector<GeneratedRuntimeHelperRow> rows,
+            Vector<GeneratedIntrinsicEffectRow> intrinsicEffects = []) {
         self.rows = rows;
+        self.intrinsicEffects = intrinsicEffects;
         self.indices = {};
+        self.intrinsicIndices = {};
+        self.realtimeIntrinsicTargets = {};
         self.typeProviders = {};
         self.objectProviders = {};
         self.materializedSources = {};
@@ -61,6 +68,33 @@ class RuntimeHelperCatalog {
             }
             index = index + 1;
         }
+
+        index = 0;
+        while (index < self.intrinsicEffects.len) {
+            GeneratedIntrinsicEffectRow effect =
+                self.intrinsicEffects.get(index);
+            if (self.intrinsicIndices.has(effect.provenance)) {
+                fprintf(stderr,
+                    "internal compiler error: duplicate compiler intrinsic '%s'\n",
+                    effect.provenance);
+                exit(1);
+            }
+            self.intrinsicIndices.put(effect.provenance, index);
+            if (effect.realtime_effect == "safe"
+                    && effect.c_callee != "") {
+                if (self.realtimeIntrinsicTargets.has(effect.c_callee)) {
+                    fprintf(stderr,
+                        "internal compiler error: compiler intrinsic C callee '%s' is owned by both '%s' and '%s'\n",
+                        effect.c_callee,
+                        self.realtimeIntrinsicTargets.get(effect.c_callee),
+                        effect.provenance);
+                    exit(1);
+                }
+                self.realtimeIntrinsicTargets.put(
+                    effect.c_callee, effect.provenance);
+            }
+            index = index + 1;
+        }
     }
 
     public bool has(string name) {
@@ -83,6 +117,38 @@ class RuntimeHelperCatalog {
             index = index + 1;
         }
         return safe;
+    }
+
+    public string intrinsicRealtimeEffect(
+            string receiver, string method) {
+        string provenance = receiver + "." + method;
+        if (!self.intrinsicIndices.has(provenance)) { return "unknown"; }
+        return self.intrinsicEffects.get(
+            self.intrinsicIndices.get(provenance)).realtime_effect;
+    }
+
+    public string intrinsicCallee(string receiver, string method) {
+        string provenance = receiver + "." + method;
+        if (!self.intrinsicIndices.has(provenance)) { return ""; }
+        return self.intrinsicEffects.get(
+            self.intrinsicIndices.get(provenance)).c_callee;
+    }
+
+    public string intrinsicProvenance(string receiver, string method) {
+        string provenance = receiver + "." + method;
+        return self.intrinsicIndices.has(provenance) ? provenance : "";
+    }
+
+    public Map<string, string> realtimeIntrinsicTargetProvenance() {
+        Map<string, string> targets = {};
+        Vector<string> names = self.realtimeIntrinsicTargets.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            targets.put(name, self.realtimeIntrinsicTargets.get(name));
+            index = index + 1;
+        }
+        return targets;
     }
 
     public string helperProvidingType(string typeName) {

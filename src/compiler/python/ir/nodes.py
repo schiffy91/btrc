@@ -186,6 +186,7 @@ class IRCall(IRExpr):
     callee: str | IRExpr = ""
     args: list[IRExpr] = field(default_factory=list)
     helper_ref: str = ""
+    realtime_provenance: str = ""
     cleanup_slot: IRCleanupSlot | None = None
     never_returns: bool = False
 
@@ -805,6 +806,7 @@ class IRModule(IRNode):
     freestanding: bool = False
     runtime_roots: set[str] = field(default_factory=set)
     realtime_safe_externals: set[str] = field(default_factory=set)
+    realtime_intrinsic_targets: dict[str, str] = field(default_factory=dict)
     needs_runtime: bool = False
     debug: bool = False
     debug_cfile: str = ""

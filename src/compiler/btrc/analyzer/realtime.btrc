@@ -669,6 +669,10 @@ class RealtimeAnalyzer {
                     self.analyzed.funcTable.get(name), call, callable);
                 return;
             }
+            if (self.runtimeSymbols.intrinsicRealtimeEffect(
+                    name, "constructor") == "safe") {
+                return;
+            }
             if (self.analyzed.isClass(name)
                     || self.analyzed.isGenericClass(name)) {
                 self.effect(callable, "allocation",
@@ -682,22 +686,8 @@ class RealtimeAnalyzer {
             Node? receiver = self.expressionTypes.infer(
                 callee.obj, callable.variables);
             if (receiver != null
-                    && ((receiver.base == "Atomic"
-                            && (callee.field == "load"
-                                || callee.field == "store"
-                                || callee.field == "exchange"
-                                || callee.field == "fetchAdd"
-                                || callee.field == "fetchSub"
-                                || callee.field == "fetchAnd"
-                                || callee.field == "fetchOr"
-                                || callee.field == "fetchXor"
-                                || callee.field == "compareExchangeStrong"))
-                        || (receiver.base == "Span"
-                            && (callee.field == "length"
-                                || callee.field == "isEmpty"
-                                || callee.field == "isValid"
-                                || callee.field == "tryGet"
-                                || callee.field == "trySet")))) {
+                    && self.runtimeSymbols.intrinsicRealtimeEffect(
+                        receiver.base, callee.field) == "safe") {
                 return;
             }
             if (receiver != null && self.collectionType(receiver.base)) {

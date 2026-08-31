@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from . import GeneratedArtifact
+from .intrinsic_effects import IntrinsicEffectManifest
 
 
 class RuntimeManifestError(ValueError):
@@ -558,8 +559,13 @@ class RuntimeCatalogGenerator:
     _PYTHON_STRING_CHUNK = 72
     _BTRC_STRING_CHUNK_BYTES = 1024
 
-    def __init__(self, manifest: RuntimeManifest):
+    def __init__(
+        self,
+        manifest: RuntimeManifest,
+        intrinsic_effects: IntrinsicEffectManifest,
+    ):
         self._manifest = manifest
+        self._intrinsic_effects = intrinsic_effects
 
     def artifacts(self) -> tuple[GeneratedArtifact, ...]:
         return (
@@ -586,6 +592,14 @@ class RuntimeCatalogGenerator:
             "    realtime_effect: str",
             "",
             "",
+            "class GeneratedIntrinsicEffectRow(NamedTuple):",
+            "    receiver: str",
+            "    method: str",
+            "    realtime_effect: str",
+            "    c_callee: str | None",
+            "    provenance: str",
+            "",
+            "",
             "RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (",
         ]
         for helper in self._manifest.helpers_for("python"):
@@ -609,6 +623,14 @@ class RuntimeCatalogGenerator:
                     f"        realtime_effect={helper.realtime_effect!r},",
                     "    ),",
                 ]
+            )
+        lines.extend([")", ""])
+        lines.append("INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (")
+        for method in self._intrinsic_effects.methods:
+            lines.append(
+                "    GeneratedIntrinsicEffectRow("
+                f"{method.receiver!r}, {method.method!r}, {method.realtime_effect!r}, "
+                f"{method.c_callee!r}, {method.provenance!r}),"
             )
         lines.extend([")", ""])
         self._append_python_tuple(lines, "C_RUNTIME_CALLS", self._manifest.freestanding.calls)
@@ -674,8 +696,27 @@ class RuntimeCatalogGenerator:
             "    }",
             "}",
             "",
+            "class GeneratedIntrinsicEffectRow {",
+            "    public string receiver;",
+            "    public string method;",
+            "    public string realtime_effect;",
+            "    public string c_callee;",
+            "    public string provenance;",
+            "",
+            "    public GeneratedIntrinsicEffectRow(",
+            "            string receiver, string method, string realtime_effect,",
+            "            string c_callee, string provenance) {",
+            "        self.receiver = receiver;",
+            "        self.method = method;",
+            "        self.realtime_effect = realtime_effect;",
+            "        self.c_callee = c_callee;",
+            "        self.provenance = provenance;",
+            "    }",
+            "}",
+            "",
             "class GeneratedRuntimeCatalogData {",
             "    public Vector<GeneratedRuntimeHelperRow> rows;",
+            "    public Vector<GeneratedIntrinsicEffectRow> intrinsic_effects;",
             "",
             "    private Vector<string> emptyStrings() {",
             "        Vector<string> values = [];",
@@ -719,6 +760,15 @@ class RuntimeCatalogGenerator:
             for block in blocks[start : start + self.BTRC_ROWS_PER_METHOD]:
                 methods.extend(block)
             methods.extend(["    }", ""])
+        lines.append("        self.intrinsic_effects = [];")
+        for method in self._intrinsic_effects.methods:
+            lines.append(
+                "        self.intrinsic_effects.push(GeneratedIntrinsicEffectRow("
+                f"{self._btrc_string(method.receiver)}, {self._btrc_string(method.method)}, "
+                f"{self._btrc_string(method.realtime_effect)}, "
+                f"{self._btrc_string(method.c_callee or '')}, "
+                f"{self._btrc_string(method.provenance)}));"
+            )
         lines.extend(["    }", ""])
         lines.extend(methods)
         lines.extend(["}", ""])

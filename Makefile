@@ -69,7 +69,7 @@ BTRCC_GENERATED_AST := $(PYTHON_AST) $(BTRC_AST)
 BTRCC_BOOTSTRAP_SOURCES := $(filter-out src/compiler/python/syntax/ast/generated.py,$(shell find src/compiler/python -type f -name '*.py' ! -path '*/tests/*' -print | LC_ALL=C sort))
 BTRCC_SELFHOST_SOURCES := $(filter-out src/compiler/btrc/generated/ast/node.btrc,$(shell find src/compiler/btrc -type f -name '*.btrc' -print | LC_ALL=C sort))
 BTRCC_STDLIB_SOURCES := $(shell find src/stdlib -type f -name '*.btrc' -print | LC_ALL=C sort)
-BTRCC_LANGUAGE_SPECS := $(shell find src/language -type f \( -name '*.ebnf' -o -name '*.asdl' \) -print | LC_ALL=C sort)
+BTRCC_LANGUAGE_SPECS := $(shell find src/language -type f \( -name '*.ebnf' -o -name '*.asdl' -o -name '*.toml' \) -print | LC_ALL=C sort)
 BTRCC_RUNTIME_SPECS := $(shell find src/runtime/c -type f \( -name '*.c' -o -name '*.h' -o -name '*.toml' \) -print | LC_ALL=C sort)
 BTRCC_CODEGEN_SOURCES := $(shell find tools/compiler_codegen -type f -name '*.py' -print | LC_ALL=C sort)
 BTRCC_INPUTS := $(BTRCC_BOOTSTRAP_SOURCES) $(BTRCC_SELFHOST_SOURCES) \

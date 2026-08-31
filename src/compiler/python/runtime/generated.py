@@ -15,6 +15,14 @@ class GeneratedRuntimeHelperRow(NamedTuple):
     realtime_effect: str
 
 
+class GeneratedIntrinsicEffectRow(NamedTuple):
+    receiver: str
+    method: str
+    realtime_effect: str
+    c_callee: str | None
+    provenance: str
+
+
 RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
     GeneratedRuntimeHelperRow(
         category='alloc',
@@ -4994,6 +5002,25 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         source_visible=True,
         realtime_effect='unknown',
     ),
+)
+
+INTRINSIC_EFFECT_ROWS: tuple[GeneratedIntrinsicEffectRow, ...] = (
+    GeneratedIntrinsicEffectRow('Atomic', 'compareExchangeStrong', 'safe', 'atomic_compare_exchange_strong_explicit', 'Atomic.compareExchangeStrong'),
+    GeneratedIntrinsicEffectRow('Atomic', 'exchange', 'safe', 'atomic_exchange_explicit', 'Atomic.exchange'),
+    GeneratedIntrinsicEffectRow('Atomic', 'fetchAdd', 'safe', 'atomic_fetch_add_explicit', 'Atomic.fetchAdd'),
+    GeneratedIntrinsicEffectRow('Atomic', 'fetchAnd', 'safe', 'atomic_fetch_and_explicit', 'Atomic.fetchAnd'),
+    GeneratedIntrinsicEffectRow('Atomic', 'fetchOr', 'safe', 'atomic_fetch_or_explicit', 'Atomic.fetchOr'),
+    GeneratedIntrinsicEffectRow('Atomic', 'fetchSub', 'safe', 'atomic_fetch_sub_explicit', 'Atomic.fetchSub'),
+    GeneratedIntrinsicEffectRow('Atomic', 'fetchXor', 'safe', 'atomic_fetch_xor_explicit', 'Atomic.fetchXor'),
+    GeneratedIntrinsicEffectRow('Atomic', 'init', 'unknown', 'atomic_init', 'Atomic.init'),
+    GeneratedIntrinsicEffectRow('Atomic', 'load', 'safe', 'atomic_load_explicit', 'Atomic.load'),
+    GeneratedIntrinsicEffectRow('Atomic', 'store', 'safe', 'atomic_store_explicit', 'Atomic.store'),
+    GeneratedIntrinsicEffectRow('Span', 'constructor', 'safe', None, 'Span.constructor'),
+    GeneratedIntrinsicEffectRow('Span', 'isEmpty', 'safe', None, 'Span.isEmpty'),
+    GeneratedIntrinsicEffectRow('Span', 'isValid', 'safe', None, 'Span.isValid'),
+    GeneratedIntrinsicEffectRow('Span', 'length', 'safe', None, 'Span.length'),
+    GeneratedIntrinsicEffectRow('Span', 'tryGet', 'safe', None, 'Span.tryGet'),
+    GeneratedIntrinsicEffectRow('Span', 'trySet', 'safe', None, 'Span.trySet'),
 )
 
 C_RUNTIME_CALLS: tuple[str, ...] = (

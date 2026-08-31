@@ -96,6 +96,14 @@ def _compile_pair(
             "Span(pointer) requires an explicit element count",
         ),
         (
+            "int main() { Span<int> view = Span(1, 1); return 0; }",
+            "Span() backing must be a fixed array or raw pointer",
+        ),
+        (
+            'int main() { int values[1] = {1}; Span<int> view = Span(values, "one"); return 0; }',
+            "Span() element count must be integral",
+        ),
+        (
             "int main() { int count = 4; int values[count]; Span<int> view = Span(values); return 0; }",
             "Span(array) requires a fixed constant extent",
         ),
@@ -121,6 +129,8 @@ def _compile_pair(
         "load-order",
         "cas-order",
         "span-count",
+        "span-invalid-backing",
+        "span-invalid-extent",
         "span-vla",
         "atomic-copy",
         "generic-span-escape",

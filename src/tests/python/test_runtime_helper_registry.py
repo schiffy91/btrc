@@ -3,13 +3,17 @@
 import ast
 from pathlib import Path
 
+import pytest
+
 from src.compiler.python.runtime.catalog import RuntimeHelperCatalog, RuntimeHelperSelection
-from src.compiler.python.runtime.generated import RUNTIME_HELPER_ROWS
+from src.compiler.python.runtime.generated import INTRINSIC_EFFECT_ROWS, RUNTIME_HELPER_ROWS
+from tools.compiler_codegen.intrinsic_effects import IntrinsicEffectManifest, IntrinsicEffectManifestError
 from tools.compiler_codegen.runtime import RuntimeCatalogGenerator, RuntimeManifest
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 RUNTIME_ROOT = REPOSITORY_ROOT / "src/runtime/c"
 MANIFEST_PATH = RUNTIME_ROOT / "manifest.toml"
+INTRINSIC_EFFECTS_PATH = REPOSITORY_ROOT / "src/language/intrinsic_effects.toml"
 GENERATED_PYTHON = REPOSITORY_ROOT / "src/compiler/python/runtime/generated.py"
 GENERATED_BTRC = REPOSITORY_ROOT / "src/compiler/btrc/generated/runtime/catalog.btrc"
 BTRC_CATALOG = REPOSITORY_ROOT / "src/compiler/btrc/ir/runtime/catalog.btrc"
@@ -34,7 +38,8 @@ def test_generated_python_catalog_exactly_matches_the_shared_manifest() -> None:
 
 def test_generated_catalog_artifacts_are_fresh() -> None:
     manifest = RuntimeManifest.load(MANIFEST_PATH)
-    artifacts = RuntimeCatalogGenerator(manifest).artifacts()
+    intrinsic_effects = IntrinsicEffectManifest.load(INTRINSIC_EFFECTS_PATH)
+    artifacts = RuntimeCatalogGenerator(manifest, intrinsic_effects).artifacts()
 
     assert {artifact.path.as_posix() for artifact in artifacts} == {
         "src/compiler/python/runtime/generated.py",
@@ -42,6 +47,72 @@ def test_generated_catalog_artifacts_are_fresh() -> None:
     }
     for artifact in artifacts:
         assert REPOSITORY_ROOT.joinpath(*artifact.path.parts).read_bytes() == artifact.content
+
+
+def test_generated_intrinsic_effects_exactly_match_the_canonical_specification() -> None:
+    manifest = IntrinsicEffectManifest.load(INTRINSIC_EFFECTS_PATH)
+
+    assert len(INTRINSIC_EFFECT_ROWS) == len(manifest.methods)
+    for row, method in zip(INTRINSIC_EFFECT_ROWS, manifest.methods, strict=True):
+        assert row.receiver == method.receiver
+        assert row.method == method.method
+        assert row.realtime_effect == method.realtime_effect
+        assert row.c_callee == method.c_callee
+        assert row.provenance == method.provenance
+
+    catalog = RuntimeHelperCatalog()
+    assert catalog.intrinsic_realtime_effect("Atomic", "load") == "safe"
+    assert catalog.intrinsic_realtime_effect("Atomic", "init") == "unknown"
+    assert catalog.intrinsic_realtime_effect("Atomic", "invented") == "unknown"
+    assert catalog.realtime_intrinsic_targets["atomic_load_explicit"] == "Atomic.load"
+
+
+@pytest.mark.parametrize(
+    ("document", "diagnostic"),
+    (
+        (
+            'schema_version = 2\n[[methods]]\nreceiver = "Atomic"\nmethod = "load"\nrealtime_effect = "safe"\n',
+            "unsupported intrinsic effect schema version",
+        ),
+        (
+            'schema_version = 1\nunexpected = true\n[[methods]]\nreceiver = "Atomic"\n'
+            'method = "load"\nrealtime_effect = "safe"\n',
+            "unknown intrinsic effect manifest keys",
+        ),
+        (
+            'schema_version = 1\n[[methods]]\nreceiver = "Span"\nmethod = "length"\n'
+            'realtime_effect = "safe"\n[[methods]]\nreceiver = "Atomic"\nmethod = "load"\n'
+            'realtime_effect = "safe"\n',
+            "methods must be sorted by receiver and method",
+        ),
+        (
+            'schema_version = 1\n[[methods]]\nreceiver = "Atomic"\nmethod = "load"\n'
+            'realtime_effect = "safe"\n[[methods]]\nreceiver = "Atomic"\nmethod = "load"\n'
+            'realtime_effect = "safe"\n',
+            "methods must not contain duplicate receiver/method pairs",
+        ),
+        (
+            'schema_version = 1\n[[methods]]\nreceiver = "Atomic"\nmethod = "load"\nrealtime_effect = "sometimes"\n',
+            "realtime_effect is invalid",
+        ),
+        (
+            'schema_version = 1\n[[methods]]\nreceiver = "Atomic"\nmethod = "load"\n'
+            'realtime_effect = "safe"\nc_callee = "not-a-c-name"\n',
+            "c_callee must be a C identifier",
+        ),
+    ),
+    ids=("schema", "unknown-key", "order", "duplicate", "effect", "c-callee"),
+)
+def test_intrinsic_effect_manifest_rejects_malformed_input(
+    tmp_path: Path,
+    document: str,
+    diagnostic: str,
+) -> None:
+    manifest = tmp_path / "intrinsic-effects.toml"
+    manifest.write_text(document)
+
+    with pytest.raises(IntrinsicEffectManifestError, match=diagnostic):
+        IntrinsicEffectManifest.load(manifest)
 
 
 def test_runtime_assets_are_cohesive_domains_with_no_behavior_outside_markers() -> None:

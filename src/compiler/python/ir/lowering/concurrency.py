@@ -40,6 +40,7 @@ from src.compiler.python.ir.nodes import (
     IRVarDecl,
     IRWhile,
 )
+from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 from src.compiler.python.syntax.ast.generated import (
     Block,
     Capture,
@@ -106,6 +107,7 @@ class ConcurrencyLowerer:
         lifetime: ManagedLifetimeLowerer,
         cleanup_slots: CleanupSlotRegistry,
         storage: StorageLowerer,
+        runtime_catalog: RuntimeHelperCatalog,
     ) -> None:
         self._session = session
         self._analyzed = analyzed
@@ -116,6 +118,7 @@ class ConcurrencyLowerer:
         self._lifetime = lifetime
         self._cleanup_slots = cleanup_slots
         self._storage = storage
+        self._runtime_catalog = runtime_catalog
 
     def create_mutex_value(self, value, value_type: TypeExpr):
         """Create a mutex that owns an exact copy of ``value``."""
@@ -307,22 +310,15 @@ class ConcurrencyLowerer:
         """Lower one validated typed operation directly to its explicit C11 form."""
         self._session.require_runtime_header("stdatomic.h")
         address = atomic if receiver_type.pointer_depth > 0 else IRUnaryOp(op="&", operand=atomic)
-        functions = {
-            "init": "atomic_init",
-            "load": "atomic_load_explicit",
-            "store": "atomic_store_explicit",
-            "exchange": "atomic_exchange_explicit",
-            "fetchAdd": "atomic_fetch_add_explicit",
-            "fetchSub": "atomic_fetch_sub_explicit",
-            "fetchAnd": "atomic_fetch_and_explicit",
-            "fetchOr": "atomic_fetch_or_explicit",
-            "fetchXor": "atomic_fetch_xor_explicit",
-            "compareExchangeStrong": "atomic_compare_exchange_strong_explicit",
-        }
-        function = functions.get(method_name)
-        if function is None:
+        definition = self._runtime_catalog.intrinsic_definition("Atomic", method_name)
+        if definition is None or definition.c_callee is None:
             raise CodegenError(f"unsupported Atomic<T> method '{method_name}'")
-        return IRCall(callee=function, args=[address, *args])
+        provenance = definition.provenance if definition.realtime_effect == "safe" else ""
+        return IRCall(
+            callee=definition.c_callee,
+            args=[address, *args],
+            realtime_provenance=provenance,
+        )
 
     def managed_capture_type(self, capture):
         """Return a direct managed capture type, excluding arrays/raw pointers."""

@@ -117,7 +117,13 @@ OWNEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
     BuiltinMemberSpec("context", "void*", "method", (), "context"),
     BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
-    BuiltinMemberSpec("close", "void", "method", (), "close"),
+    BuiltinMemberSpec("close", "bool", "method", (), "close"),
+)
+
+# Generated from src/stdlib/callbackregistration.btrc
+CALLBACKREGISTRATION_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
+    BuiltinMemberSpec("close", "bool", "method", (), "close"),
 )
 
 # Generated from src/stdlib/callbackregistration.btrc

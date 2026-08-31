@@ -50,6 +50,7 @@ class IRLowerer {
     private FunctionLowerer functions;
     private DeclarationLowerer declarations;
     private GpuPipeline gpuPipeline;
+    private RuntimeHelperCatalog runtimeHelpers;
 
     public IRLowerer(
             Analyzed analyzed, HostedAbiRepository hostedAbi,
@@ -63,6 +64,7 @@ class IRLowerer {
             string sourceFile, int stdlibLineCount,
             Vector<FeLine> userLines) {
         self.expressionTypes = expressionTypes;
+        self.runtimeHelpers = runtimeHelpers;
         self.context = LoweringContext();
         self.context.configureSource(
             sourceFile, stdlibLineCount, userLines);
@@ -134,7 +136,7 @@ class IRLowerer {
             analyzed, hostedAbi,
             operators, expressionTypes, managedValues,
             self.cleanupSlots, managedLifetime,
-            self.context, self.cTypes);
+            self.context, self.cTypes, runtimeHelpers);
         CallableValueLowerer callableLowering = CallableValueLowerer(
             analyzed, hostedAbi, callableValues, callableBoundaries,
             self.context, self.cTypes, managedValues,
@@ -179,6 +181,8 @@ class IRLowerer {
         self.expressionTypes.disableMemo();
         self.cleanupSlots.reset();
         IRModule module = IRModule();
+        module.realtime_intrinsic_targets =
+            self.runtimeHelpers.realtimeIntrinsicTargetProvenance();
         self.context.bindModule(module);
         self.context.packAlignments =
             self.declarations.packAlignments(program);

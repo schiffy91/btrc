@@ -1816,6 +1816,8 @@ class ExpressionAnalyzer:
                     self.session.error(f"Cannot instantiate abstract class '{cls.name}'", expr.line, expr.col)
                 substitutions = dict(zip(cls.generic_params, expr.type.generic_args))
                 self.calls.validate_constructor_args(cls, expr.args, expr.arg_names, expr.line, expr.col, substitutions)
+                if cls.name == "CallbackRegistration":
+                    self.calls.validate_callback_registration_invoke(cls, expr)
         elif isinstance(expr, SpawnExpr):
             if self._inside_generic_declaration() and (not isinstance(expr.fn, LambdaExpr)):
                 self.session.error(

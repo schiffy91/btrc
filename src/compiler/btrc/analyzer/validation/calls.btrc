@@ -375,6 +375,10 @@ class CallValidator {
                         noSubstitutions, false,  vars);
                     self.ownership.validateTransferredArguments(
                         constructor, call,  vars);
+                    if (name == "CallbackRegistration") {
+                        self.validateCallbackRegistrationInvoke(
+                            constructor, call, vars);
+                    }
                 }
                 return;
             }
@@ -412,6 +416,10 @@ class CallValidator {
                     substitutions, false,  vars);
                 self.ownership.validateTransferredArguments(
                     constructor, call,  vars);
+                if (name == "CallbackRegistration") {
+                    self.validateCallbackRegistrationInvoke(
+                        constructor, call, vars);
+                }
                 return;
             }
             self.rejectConstructorDefaultInstanceMember(
@@ -578,6 +586,40 @@ class CallValidator {
             concreteMethod.params, call, substitutions, false,  vars);
         self.ownership.validateTransferredArguments(
             concreteMethod, call,  vars);
+    }
+
+    public void validateCallbackRegistrationInvoke(
+            Node constructor, Node call, Map<string, Node> vars) {
+        int invokeParameter = -1;
+        int parameterIndex = 0;
+        while (parameterIndex < constructor.params.len) {
+            if (constructor.params.get(parameterIndex).name == "invoke") {
+                invokeParameter = parameterIndex;
+            }
+            parameterIndex = parameterIndex + 1;
+        }
+        Node? invoke = null;
+        int positional = 0;
+        int argumentIndex = 0;
+        while (argumentIndex < call.args.len) {
+            string argumentName = argumentIndex < call.arg_names.len
+                ? call.arg_names.get(argumentIndex) : "";
+            if (argumentName == "invoke"
+                    || (argumentName == "" && positional == invokeParameter)) {
+                invoke = call.args.get(argumentIndex);
+            }
+            if (argumentName == "") { positional = positional + 1; }
+            argumentIndex = argumentIndex + 1;
+        }
+        if (invoke == null || invoke.kind != NK_IDENTIFIER
+                || vars.has(invoke.name)
+                || !self.state.analyzed.funcTable.has(invoke.name)
+                || !self.state.analyzed.funcTable.get(invoke.name).is_realtime) {
+            TypeValidator.fail(
+                "CallbackRegistration invoke must be a direct named "
+                    + "@realtime function",
+                invoke == null ? call : invoke);
+        }
     }
 
     public bool validateCallableValueCall(Node call, string name,

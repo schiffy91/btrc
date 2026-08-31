@@ -12,10 +12,14 @@ import ../generated/runtime/catalog.btrc;
 class SourceRuntimeSymbols {
     private Map<string, bool> helpers;
     private Map<string, string> realtimeEffects;
+    private Map<string, string> intrinsicRealtimeEffects;
 
-    public SourceRuntimeSymbols(Vector<GeneratedRuntimeHelperRow> runtimeRows) {
+    public SourceRuntimeSymbols(
+            Vector<GeneratedRuntimeHelperRow> runtimeRows,
+            Vector<GeneratedIntrinsicEffectRow> intrinsicEffects = []) {
         self.helpers = {};
         self.realtimeEffects = {};
+        self.intrinsicRealtimeEffects = {};
         int index = 0;
         while (index < runtimeRows.len) {
             GeneratedRuntimeHelperRow row = runtimeRows.get(index);
@@ -23,6 +27,13 @@ class SourceRuntimeSymbols {
                 self.helpers.put(row.name, true);
                 self.realtimeEffects.put(row.name, row.realtime_effect);
             }
+            index = index + 1;
+        }
+        index = 0;
+        while (index < intrinsicEffects.len) {
+            GeneratedIntrinsicEffectRow effect = intrinsicEffects.get(index);
+            self.intrinsicRealtimeEffects.put(
+                effect.provenance, effect.realtime_effect);
             index = index + 1;
         }
     }
@@ -34,6 +45,13 @@ class SourceRuntimeSymbols {
     public string realtimeEffect(string name) {
         return self.realtimeEffects.has(name)
             ? self.realtimeEffects.get(name) : "unknown";
+    }
+
+    public string intrinsicRealtimeEffect(
+            string receiver, string method) {
+        string provenance = receiver + "." + method;
+        return self.intrinsicRealtimeEffects.has(provenance)
+            ? self.intrinsicRealtimeEffects.get(provenance) : "unknown";
     }
 
     public bool intrinsic(string name) {

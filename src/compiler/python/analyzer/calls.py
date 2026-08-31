@@ -953,7 +953,31 @@ class CallAnalyzer:
             if len(inferred.generic_args) == len(cls.generic_params):
                 substitutions = dict(zip(cls.generic_params, inferred.generic_args))
             self.validate_constructor_args(cls, expr.args, expr.arg_names, expr.line, expr.col, substitutions)
+            if cls.name == "CallbackRegistration":
+                self.validate_callback_registration_invoke(cls, expr)
             return
+
+    def validate_callback_registration_invoke(self, cls, expression) -> None:
+        """Require the stored callback path to start at a proven realtime root."""
+
+        constructor = cls.constructor
+        if constructor is None:
+            return
+        names = self._arg_names(expression.args, expression.arg_names)
+        invoke = None
+        for parameter_index, argument_index in self._bound_arguments(constructor.params, names):
+            if constructor.params[parameter_index].name == "invoke" and argument_index < len(expression.args):
+                invoke = expression.args[argument_index]
+                break
+        declaration = self.index.function_table.get(invoke.name) if isinstance(invoke, Identifier) else None
+        symbol = self.session.scope.lookup(invoke.name) if isinstance(invoke, Identifier) else None
+        if declaration is None or (symbol is not None and symbol.kind != "function") or not declaration.is_realtime:
+            site = invoke or expression
+            self.session.error(
+                "CallbackRegistration invoke must be a direct named @realtime function",
+                site.line,
+                site.col,
+            )
 
     def _validate_realtime_constructor(self, expression, name: str) -> None:
         if any(expression.arg_names or []):

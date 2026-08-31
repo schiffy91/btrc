@@ -10,6 +10,7 @@ from . import GeneratedSourceError
 from .ast import AstCatalogGenerator
 from .builtins import BuiltinCatalogGenerator
 from .hosted_abi import HostedAbiCatalogGenerator, HostedAbiManifest
+from .intrinsic_effects import IntrinsicEffectManifest
 from .runtime import RuntimeCatalogGenerator, RuntimeManifest
 from .verification import (
     CompilerBoundaryVerifier,
@@ -102,6 +103,7 @@ class CompilerCodegenCommand:
 
     def _sources(self) -> GeneratedSourceSet:
         runtime = RuntimeManifest.load(self._repository_root / "src/runtime/c/manifest.toml")
+        intrinsic_effects = IntrinsicEffectManifest.load(self._repository_root / "src/language/intrinsic_effects.toml")
         hosted_abi = HostedAbiManifest.load(
             self._repository_root / "src/language/hosted_abi.toml",
             runtime,
@@ -109,7 +111,7 @@ class CompilerCodegenCommand:
         return GeneratedSourceSet(
             (
                 *AstCatalogGenerator(self._repository_root).artifacts(),
-                *RuntimeCatalogGenerator(runtime).artifacts(),
+                *RuntimeCatalogGenerator(runtime, intrinsic_effects).artifacts(),
                 *HostedAbiCatalogGenerator(hosted_abi).artifacts(),
                 *BuiltinCatalogGenerator(self._repository_root).artifacts(),
             )
