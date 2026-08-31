@@ -4,7 +4,7 @@ Status: **active architecture contract**.
 
 This document records the ownership-driven destination shared by the Python
 reference compiler, the self-hosted compiler, and developer tooling. The
-normative inventory is exactly 81 production Python compiler files and 88
+normative inventory is exactly 82 production Python compiler files and 90
 self-hosted `.btrc` files. File size is a review signal, not a boundary:
 independent state, invariants, and change reasons justify a separate owner.
 
@@ -94,7 +94,7 @@ namespaces.
 
 ## Exact Python destination
 
-The Python compiler contains exactly 81 production `.py` files:
+The Python compiler contains exactly 82 production `.py` files:
 
 ```text
 src/compiler/python/
@@ -153,6 +153,7 @@ src/compiler/python/
     gpu.py                       # GpuAnalyzer
     macros.py                    # SourceMacroAnalyzer/Namespace
     generated_symbols.py         # GeneratedSymbolRegistry
+    realtime.py                  # RealtimeAnalyzer/fixed-point effect proof
 
   abi/
     __init__.py
@@ -210,7 +211,7 @@ src/compiler/python/
 
 ## Exact self-hosted destination
 
-The self-hosted compiler contains exactly 88 `.btrc` files: 82
+The self-hosted compiler contains exactly 90 `.btrc` files: 84
 compiler/generated files and six explicit developer-tool files. Only the
 public compiler application object and thin process entry point remain at the
 package root:
@@ -274,6 +275,7 @@ src/compiler/btrc/
     hosted_abi.btrc               # HostedAbiRepository/provenance
     source_macros.btrc            # SourceMacroNamespace
     gpu.btrc                      # GPU semantic owners
+    realtime.btrc                 # transitive realtime-effect proof
 
     ownership/
       values.btrc                 # ManagedValueSemantics
@@ -334,6 +336,7 @@ src/compiler/btrc/
     optimization/
       optimizer.btrc               # IROptimizer and reachability
       cleanup.btrc                 # CleanupSlotValidator
+      realtime.btrc                # structured-IR realtime backstop
       setjmp/
         analysis.btrc              # SetjmpEffectAnalysis
         safety.btrc                # SetjmpSafetyPlanner
@@ -396,13 +399,13 @@ tools/compiler_codegen/
 ```
 
 `src/runtime/c/manifest.toml` owns helper names, dependencies, headers,
-feature flags, source markers, and deterministic catalog order. Its nine
+realtime-effect summaries, feature flags, source markers, and deterministic catalog order. Its nine
 cohesive pre-authored C assets are `core.c`, `collections.c`, `cycles.c`,
 `mutex.c`, `process.c`, `strings.c`, `threads.c`, `trycatch.c`, and `gpu.c`,
 with the shared `btrc_rt.h` header. Compilers select and materialize these
 assets; lowerers and emitters never assemble helper source.
 
-`src/language/hosted_abi.toml` owns hosted signatures, effects, names,
+`src/language/hosted_abi.toml` owns hosted signatures, lifetime and realtime effects, names,
 platform subsets, runtime-adopting metadata, and provenance markers. Generated
 Python rows use immutable value types. Generated btrc rows expose public fields
 required by the language and consumers treat them as read-only by convention.

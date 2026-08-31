@@ -630,6 +630,7 @@ class FunctionLowerer {
         self.gpuPipeline.resetHostCapacities();
         IRFunction fn = IRFunction();
         fn.name = self.declarations.sourceFunctionSymbol(d.name);
+        fn.is_realtime = d.is_realtime;
         string ret = self.cTypes.lower(d.return_type);
         /* main() with void return -> int (matches functions.py). */
         if (d.name == "main" && ret == "void") { ret = "int"; }

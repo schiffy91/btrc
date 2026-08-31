@@ -517,6 +517,7 @@ class IRFunctionDef(IRNode):
     body: IRBlock = None
     is_static: bool = False
     archive_export: bool = False
+    is_realtime: bool = False
 
 
 @dataclass
@@ -802,6 +803,7 @@ class IRModule(IRNode):
     preprocessor_decls: list[IRInclude | IRMacroDef] = field(default_factory=list)
     freestanding: bool = False
     runtime_roots: set[str] = field(default_factory=set)
+    realtime_safe_externals: set[str] = field(default_factory=set)
     needs_runtime: bool = False
     debug: bool = False
     debug_cfile: str = ""

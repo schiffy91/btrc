@@ -122,10 +122,10 @@ def test_enum_value_irvar_roots_only_surviving_object_provider(
             Vector<string> deadObjects = ["dead_runtime_object"];
             rows.push(GeneratedRuntimeHelperRow(
                 "test", "live_provider", empty, empty, empty,
-                empty, liveObjects, false));
+                empty, liveObjects, false, "unknown"));
             rows.push(GeneratedRuntimeHelperRow(
                 "test", "dead_provider", empty, empty, empty,
-                empty, deadObjects, false));
+                empty, deadObjects, false, "unknown"));
 
             IRModule module = IRModule();
             IREnumDef live = IREnumDef("Live");

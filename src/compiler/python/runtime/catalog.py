@@ -58,6 +58,12 @@ class RuntimeHelperCatalog:
 
         return self._source_visible_names
 
+    @property
+    def realtime_safe_names(self) -> frozenset[str]:
+        """External helper symbols explicitly safe on realtime paths."""
+
+        return frozenset(definition.name for definition in self._rows if definition.realtime_effect == "safe")
+
     def contains(self, name: str) -> bool:
         """Whether ``name`` is a generated runtime helper."""
 

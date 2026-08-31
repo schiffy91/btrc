@@ -27,6 +27,7 @@ OWNER_MODULES = {
     "macros.py": "SourceMacroAnalyzer",
     "ownership.py": "OwnershipAnalyzer",
     "program.py": "AnalysisSession",
+    "realtime.py": "RealtimeAnalyzer",
     "statements.py": "StatementAnalyzer",
     "storage.py": "StorageModel",
     "types.py": "TypeSystem",

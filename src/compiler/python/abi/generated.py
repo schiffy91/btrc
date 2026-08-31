@@ -31,6 +31,7 @@ class GeneratedHostedFunctionRow(NamedTuple):
     return_alias_shape: str | None
     consume_deallocator: str | None
     return_alias_null_deallocator: str | None
+    realtime_effect: str
 
 
 HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
@@ -49,6 +50,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_close_descriptors_except',
@@ -65,6 +67,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_close_descriptors_except_many',
@@ -81,6 +84,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_close_descriptors_from',
@@ -97,6 +101,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_controlling_terminal_descriptor',
@@ -113,6 +118,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_descriptor_close_bound',
@@ -129,6 +135,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_enter_working_directory_descriptor',
@@ -145,6 +152,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_exec_executable_descriptor',
@@ -161,6 +169,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_exec_signal_guard_begin',
@@ -177,6 +186,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_exec_signal_guard_child_end',
@@ -193,6 +203,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_exec_signal_guard_parent_end',
@@ -209,6 +220,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_move_descriptor_outside_stdio',
@@ -225,6 +237,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_posix_spawn_cloexec',
@@ -241,6 +254,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_process_descriptors_supported',
@@ -257,6 +271,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_safe_calloc',
@@ -273,6 +288,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_safe_realloc',
@@ -289,6 +305,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='free',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_str_track',
@@ -305,6 +322,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_strdup',
@@ -321,6 +339,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_string_adopt',
@@ -337,6 +356,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_string_alloc',
@@ -353,6 +373,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_string_length',
@@ -369,6 +390,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_string_live_count',
@@ -385,6 +407,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_string_or_empty',
@@ -401,6 +424,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_terminal_adopt_foreground',
@@ -417,6 +441,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_terminal_foreground_group',
@@ -433,6 +458,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_validate_executable_descriptor',
@@ -449,6 +475,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='__btrc_validate_working_directory_descriptor',
@@ -465,6 +492,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='abort',
@@ -481,6 +509,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='abs',
@@ -497,6 +526,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='safe',
     ),
     GeneratedHostedFunctionRow(
         name='accept',
@@ -513,6 +543,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='access',
@@ -529,6 +560,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='acos',
@@ -545,6 +577,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='acosf',
@@ -561,6 +594,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='acosh',
@@ -577,6 +611,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='acoshf',
@@ -593,6 +628,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='acoshl',
@@ -609,6 +645,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='acosl',
@@ -625,6 +662,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='aligned_alloc',
@@ -641,6 +679,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='asin',
@@ -657,6 +696,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='asinf',
@@ -673,6 +713,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='asinh',
@@ -689,6 +730,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='asinhf',
@@ -705,6 +747,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='asinhl',
@@ -721,6 +764,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='asinl',
@@ -737,6 +781,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atan',
@@ -753,6 +798,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atan2',
@@ -769,6 +815,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atan2f',
@@ -785,6 +832,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atan2l',
@@ -801,6 +849,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atanf',
@@ -817,6 +866,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atanh',
@@ -833,6 +883,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atanhf',
@@ -849,6 +900,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atanhl',
@@ -865,6 +917,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atanl',
@@ -881,6 +934,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atof',
@@ -897,6 +951,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atoi',
@@ -913,6 +968,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atol',
@@ -929,6 +985,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='atoll',
@@ -945,6 +1002,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='bind',
@@ -961,6 +1019,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='bsearch',
@@ -977,6 +1036,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='interior',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_acquire_compute',
@@ -993,6 +1053,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_available',
@@ -1009,6 +1070,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_begin_frame',
@@ -1025,6 +1087,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_bind_group_destroy',
@@ -1041,6 +1104,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gpu_bind_group_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_buffer_destroy',
@@ -1057,6 +1121,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gpu_buffer_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_compute_pipeline_destroy',
@@ -1073,6 +1138,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gpu_compute_pipeline_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_create_bind_group',
@@ -1089,6 +1155,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_create_buffer',
@@ -1105,6 +1172,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_create_compute_pipeline',
@@ -1121,6 +1189,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_create_render_pipeline',
@@ -1137,6 +1206,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_create_shader',
@@ -1153,6 +1223,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_create_uniform',
@@ -1169,6 +1240,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_destroy',
@@ -1185,6 +1257,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gpu_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_dispatch',
@@ -1201,6 +1274,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_draw',
@@ -1217,6 +1291,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_draw_uniform',
@@ -1233,6 +1308,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_end_frame',
@@ -1249,6 +1325,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_get_time',
@@ -1265,6 +1342,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_init',
@@ -1281,6 +1359,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_init_compute',
@@ -1297,6 +1376,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_pipeline_destroy',
@@ -1313,6 +1393,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gpu_pipeline_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_read_buffer',
@@ -1329,6 +1410,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_read_buffer_checked',
@@ -1345,6 +1427,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_set_uniform',
@@ -1361,6 +1444,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_shader_destroy',
@@ -1377,6 +1461,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gpu_shader_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_uniform_destroy',
@@ -1393,6 +1478,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gpu_uniform_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_upload_uniform',
@@ -1409,6 +1495,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_window_create',
@@ -1425,6 +1512,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_window_destroy',
@@ -1441,6 +1529,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gpu_window_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_window_height',
@@ -1457,6 +1546,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_window_is_open',
@@ -1473,6 +1563,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_window_key_pressed',
@@ -1489,6 +1580,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_window_poll',
@@ -1505,6 +1597,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_window_width',
@@ -1521,6 +1614,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gpu_write_buffer',
@@ -1537,6 +1631,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_blend_rect',
@@ -1553,6 +1648,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_clear',
@@ -1569,6 +1665,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_draw_text',
@@ -1585,6 +1682,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_fill_rect',
@@ -1601,6 +1699,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_font_destroy',
@@ -1617,6 +1716,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gui_font_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_font_load',
@@ -1633,6 +1733,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_get_pixel',
@@ -1649,6 +1750,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_save_ppm',
@@ -1665,6 +1767,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_set_font',
@@ -1681,6 +1784,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_surface_create',
@@ -1697,6 +1801,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_surface_destroy',
@@ -1713,6 +1818,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gui_surface_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_surface_height',
@@ -1729,6 +1835,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_surface_resize',
@@ -1745,6 +1852,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_surface_width',
@@ -1761,6 +1869,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_text_height',
@@ -1777,6 +1886,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_text_width',
@@ -1793,6 +1903,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_close',
@@ -1809,6 +1920,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_gui_window_close',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_fb_height',
@@ -1825,6 +1937,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_fb_width',
@@ -1841,6 +1954,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_mouse_down',
@@ -1857,6 +1971,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_mouse_x',
@@ -1873,6 +1988,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_mouse_y',
@@ -1889,6 +2005,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_open',
@@ -1905,6 +2022,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_poll',
@@ -1921,6 +2039,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_present',
@@ -1937,6 +2056,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_gui_window_should_close',
@@ -1953,6 +2073,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_add_check_item',
@@ -1969,6 +2090,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_add_item',
@@ -1985,6 +2107,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_add_separator',
@@ -2001,6 +2124,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_create',
@@ -2017,6 +2141,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_destroy',
@@ -2033,6 +2158,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='btrc_tray_destroy',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_request_quit',
@@ -2049,6 +2175,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_run_iteration',
@@ -2065,6 +2192,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_set_icon',
@@ -2081,6 +2209,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_set_item_checked',
@@ -2097,6 +2226,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_set_menu',
@@ -2113,6 +2243,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_set_tooltip',
@@ -2129,6 +2260,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_should_quit',
@@ -2145,6 +2277,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_show',
@@ -2161,6 +2294,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='btrc_tray_take_command',
@@ -2177,6 +2311,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='dependent',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='calloc',
@@ -2193,6 +2328,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='cbrt',
@@ -2209,6 +2345,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='cbrtf',
@@ -2225,6 +2362,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='cbrtl',
@@ -2241,6 +2379,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='ceil',
@@ -2257,6 +2396,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='ceilf',
@@ -2273,6 +2413,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='ceill',
@@ -2289,6 +2430,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='chdir',
@@ -2305,6 +2447,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='chmod',
@@ -2321,6 +2464,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='clearerr',
@@ -2337,6 +2481,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='clock',
@@ -2353,6 +2498,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='clock_gettime',
@@ -2369,6 +2515,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='close',
@@ -2385,6 +2532,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='closedir',
@@ -2401,6 +2549,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='closedir',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='copysign',
@@ -2417,6 +2566,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='copysignf',
@@ -2433,6 +2583,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='copysignl',
@@ -2449,6 +2600,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='cos',
@@ -2465,6 +2617,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='cosf',
@@ -2481,6 +2634,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='cosh',
@@ -2497,6 +2651,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='coshf',
@@ -2513,6 +2668,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='coshl',
@@ -2529,6 +2685,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='cosl',
@@ -2545,6 +2702,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='dirfd',
@@ -2561,6 +2719,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='dup2',
@@ -2577,6 +2736,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='erf',
@@ -2593,6 +2753,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='erfc',
@@ -2609,6 +2770,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='erfcf',
@@ -2625,6 +2787,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='erfcl',
@@ -2641,6 +2804,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='erff',
@@ -2657,6 +2821,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='erfl',
@@ -2673,6 +2838,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='execve',
@@ -2689,6 +2855,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='exit',
@@ -2705,6 +2872,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='exp',
@@ -2721,6 +2889,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='exp2',
@@ -2737,6 +2906,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='exp2f',
@@ -2753,6 +2923,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='exp2l',
@@ -2769,6 +2940,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='expf',
@@ -2785,6 +2957,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='expl',
@@ -2801,6 +2974,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='expm1',
@@ -2817,6 +2991,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='expm1f',
@@ -2833,6 +3008,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='expm1l',
@@ -2849,6 +3025,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fabs',
@@ -2865,6 +3042,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fabsf',
@@ -2881,6 +3059,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fabsl',
@@ -2897,6 +3076,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fchmod',
@@ -2913,6 +3093,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fclose',
@@ -2929,6 +3110,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='fclose',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fcntl',
@@ -2945,6 +3127,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fdim',
@@ -2961,6 +3144,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fdimf',
@@ -2977,6 +3161,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fdiml',
@@ -2993,6 +3178,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fdopendir',
@@ -3009,6 +3195,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='feof',
@@ -3025,6 +3212,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='ferror',
@@ -3041,6 +3229,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fflush',
@@ -3057,6 +3246,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fgetc',
@@ -3073,6 +3263,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fgets',
@@ -3089,6 +3280,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fileno',
@@ -3105,6 +3297,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='flockfile',
@@ -3121,6 +3314,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='floor',
@@ -3137,6 +3331,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='floorf',
@@ -3153,6 +3348,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='floorl',
@@ -3169,6 +3365,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fma',
@@ -3185,6 +3382,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmaf',
@@ -3201,6 +3399,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmal',
@@ -3217,6 +3416,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmax',
@@ -3233,6 +3433,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmaxf',
@@ -3249,6 +3450,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmaxl',
@@ -3265,6 +3467,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmin',
@@ -3281,6 +3484,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fminf',
@@ -3297,6 +3501,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fminl',
@@ -3313,6 +3518,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmod',
@@ -3329,6 +3535,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmodf',
@@ -3345,6 +3552,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fmodl',
@@ -3361,6 +3569,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fnmatch',
@@ -3377,6 +3586,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fopen',
@@ -3393,6 +3603,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fork',
@@ -3409,6 +3620,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='forkpty',
@@ -3425,6 +3637,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fprintf',
@@ -3441,6 +3654,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fputc',
@@ -3457,6 +3671,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fputs',
@@ -3473,6 +3688,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fread',
@@ -3489,6 +3705,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='free',
@@ -3505,6 +3722,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='free',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='freopen',
@@ -3521,6 +3739,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fseek',
@@ -3537,6 +3756,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fstat',
@@ -3553,6 +3773,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fstatat',
@@ -3569,6 +3790,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fsync',
@@ -3585,6 +3807,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='ftell',
@@ -3601,6 +3824,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='funlockfile',
@@ -3617,6 +3841,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='fwrite',
@@ -3633,6 +3858,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='getc',
@@ -3649,6 +3875,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='getchar',
@@ -3665,6 +3892,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='getcwd',
@@ -3681,6 +3909,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator='free',
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='getenv',
@@ -3697,6 +3926,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='geteuid',
@@ -3713,6 +3943,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='getpid',
@@ -3729,6 +3960,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='getpwnam_r',
@@ -3745,6 +3977,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='getrlimit',
@@ -3761,6 +3994,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='hypot',
@@ -3777,6 +4011,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='hypotf',
@@ -3793,6 +4028,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='hypotl',
@@ -3809,6 +4045,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='initgroups',
@@ -3825,6 +4062,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isalnum',
@@ -3841,6 +4079,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isalpha',
@@ -3857,6 +4096,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isatty',
@@ -3873,6 +4113,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isblank',
@@ -3889,6 +4130,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='iscntrl',
@@ -3905,6 +4147,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isdigit',
@@ -3921,6 +4164,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isgraph',
@@ -3937,6 +4181,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='islower',
@@ -3953,6 +4198,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isprint',
@@ -3969,6 +4215,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='ispunct',
@@ -3985,6 +4232,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isspace',
@@ -4001,6 +4249,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isupper',
@@ -4017,6 +4266,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='isxdigit',
@@ -4033,6 +4283,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='kill',
@@ -4049,6 +4300,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='labs',
@@ -4065,6 +4317,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='lgamma',
@@ -4081,6 +4334,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='lgammaf',
@@ -4097,6 +4351,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='lgammal',
@@ -4113,6 +4368,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='listen',
@@ -4129,6 +4385,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='llabs',
@@ -4145,6 +4402,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='localtime_r',
@@ -4161,6 +4419,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log',
@@ -4177,6 +4436,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log10',
@@ -4193,6 +4453,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log10f',
@@ -4209,6 +4470,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log10l',
@@ -4225,6 +4487,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log1p',
@@ -4241,6 +4504,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log1pf',
@@ -4257,6 +4521,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log1pl',
@@ -4273,6 +4538,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log2',
@@ -4289,6 +4555,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log2f',
@@ -4305,6 +4572,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='log2l',
@@ -4321,6 +4589,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='logb',
@@ -4337,6 +4606,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='logbf',
@@ -4353,6 +4623,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='logbl',
@@ -4369,6 +4640,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='logf',
@@ -4385,6 +4657,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='logl',
@@ -4401,6 +4674,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='lseek',
@@ -4417,6 +4691,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='lstat',
@@ -4433,6 +4708,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='malloc',
@@ -4449,6 +4725,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='mblen',
@@ -4465,6 +4742,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='memchr',
@@ -4481,6 +4759,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='interior',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='memcmp',
@@ -4497,6 +4776,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='memcpy',
@@ -4513,6 +4793,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='memmove',
@@ -4529,6 +4810,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='memset',
@@ -4545,6 +4827,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='mkdir',
@@ -4561,6 +4844,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='mkdtemp',
@@ -4577,6 +4861,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='nanosleep',
@@ -4593,6 +4878,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='nearbyint',
@@ -4609,6 +4895,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='nearbyintf',
@@ -4625,6 +4912,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='nearbyintl',
@@ -4641,6 +4929,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='nextafter',
@@ -4657,6 +4946,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='nextafterf',
@@ -4673,6 +4963,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='nextafterl',
@@ -4689,6 +4980,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='open',
@@ -4705,6 +4997,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='openat',
@@ -4721,6 +5014,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='opendir',
@@ -4737,6 +5031,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='pclose',
@@ -4753,6 +5048,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='pclose',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='perror',
@@ -4769,6 +5065,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='pipe',
@@ -4785,6 +5082,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='poll',
@@ -4801,6 +5099,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='popen',
@@ -4817,6 +5116,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='pow',
@@ -4833,6 +5133,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='powf',
@@ -4849,6 +5150,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='powl',
@@ -4865,6 +5167,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='printf',
@@ -4881,6 +5184,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='pthread_join',
@@ -4897,6 +5201,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='pthread_mutex_destroy',
@@ -4913,6 +5218,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='pthread_mutex_init',
@@ -4929,6 +5235,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='pthread_mutex_lock',
@@ -4945,6 +5252,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='pthread_mutex_unlock',
@@ -4961,6 +5269,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='putc',
@@ -4977,6 +5286,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='putchar',
@@ -4993,6 +5303,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='puts',
@@ -5009,6 +5320,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='qsort',
@@ -5025,6 +5337,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='quick_exit',
@@ -5041,6 +5354,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='raise',
@@ -5057,6 +5371,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='rand',
@@ -5073,6 +5388,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='read',
@@ -5089,6 +5405,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='readdir',
@@ -5105,6 +5422,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='dependent',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='readlink',
@@ -5121,6 +5439,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='realloc',
@@ -5137,6 +5456,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='free',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='reallocarray',
@@ -5153,6 +5473,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator='free',
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='realpath',
@@ -5169,6 +5490,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator='free',
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='recv',
@@ -5185,6 +5507,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='regcomp',
@@ -5201,6 +5524,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='regexec',
@@ -5217,6 +5541,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='regfree',
@@ -5233,6 +5558,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='remainder',
@@ -5249,6 +5575,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='remainderf',
@@ -5265,6 +5592,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='remainderl',
@@ -5281,6 +5609,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='remove',
@@ -5297,6 +5626,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='rename',
@@ -5313,6 +5643,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='rewind',
@@ -5329,6 +5660,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='rint',
@@ -5345,6 +5677,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='rintf',
@@ -5361,6 +5694,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='rintl',
@@ -5377,6 +5711,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='rmdir',
@@ -5393,6 +5728,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='round',
@@ -5409,6 +5745,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='roundf',
@@ -5425,6 +5762,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='roundl',
@@ -5441,6 +5779,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='send',
@@ -5457,6 +5796,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='setenv',
@@ -5473,6 +5813,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='setgid',
@@ -5489,6 +5830,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='setpgid',
@@ -5505,6 +5847,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='setrlimit',
@@ -5521,6 +5864,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='setsockopt',
@@ -5537,6 +5881,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='setuid',
@@ -5553,6 +5898,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='shutdown',
@@ -5569,6 +5915,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sigaction',
@@ -5585,6 +5932,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sigaddset',
@@ -5601,6 +5949,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sigemptyset',
@@ -5617,6 +5966,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sin',
@@ -5633,6 +5983,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sinf',
@@ -5649,6 +6000,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sinh',
@@ -5665,6 +6017,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sinhf',
@@ -5681,6 +6034,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sinhl',
@@ -5697,6 +6051,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sinl',
@@ -5713,6 +6068,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='snprintf',
@@ -5729,6 +6085,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='socket',
@@ -5745,6 +6102,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='socketpair',
@@ -5761,6 +6119,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sprintf',
@@ -5777,6 +6136,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sqrt',
@@ -5793,6 +6153,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sqrtf',
@@ -5809,6 +6170,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sqrtl',
@@ -5825,6 +6187,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='srand',
@@ -5841,6 +6204,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='stat',
@@ -5857,6 +6221,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strcat',
@@ -5873,6 +6238,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strchr',
@@ -5889,6 +6255,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='interior',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strcmp',
@@ -5905,6 +6272,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strcoll',
@@ -5921,6 +6289,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strcpy',
@@ -5937,6 +6306,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strcspn',
@@ -5953,6 +6323,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strdup',
@@ -5969,6 +6340,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strerror',
@@ -5985,6 +6357,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strlen',
@@ -6001,6 +6374,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strncat',
@@ -6017,6 +6391,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strncmp',
@@ -6033,6 +6408,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strncpy',
@@ -6049,6 +6425,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='exact',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strnlen',
@@ -6065,6 +6442,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strpbrk',
@@ -6081,6 +6459,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='interior',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strrchr',
@@ -6097,6 +6476,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='interior',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strspn',
@@ -6113,6 +6493,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strstr',
@@ -6129,6 +6510,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape='interior',
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strtod',
@@ -6145,6 +6527,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strtof',
@@ -6161,6 +6544,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strtok',
@@ -6177,6 +6561,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strtol',
@@ -6193,6 +6578,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strtold',
@@ -6209,6 +6595,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strtoll',
@@ -6225,6 +6612,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strtoul',
@@ -6241,6 +6629,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strtoull',
@@ -6257,6 +6646,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='strxfrm',
@@ -6273,6 +6663,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='symlink',
@@ -6289,6 +6680,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='sysconf',
@@ -6305,6 +6697,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='system',
@@ -6321,6 +6714,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tan',
@@ -6337,6 +6731,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tanf',
@@ -6353,6 +6748,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tanh',
@@ -6369,6 +6765,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tanhf',
@@ -6385,6 +6782,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tanhl',
@@ -6401,6 +6799,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tanl',
@@ -6417,6 +6816,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tcgetattr',
@@ -6433,6 +6833,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tcsetattr',
@@ -6449,6 +6850,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tgamma',
@@ -6465,6 +6867,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tgammaf',
@@ -6481,6 +6884,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tgammal',
@@ -6497,6 +6901,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='time',
@@ -6513,6 +6918,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tmpfile',
@@ -6529,6 +6935,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='tolower',
@@ -6545,6 +6952,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='toupper',
@@ -6561,6 +6969,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='trunc',
@@ -6577,6 +6986,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='truncf',
@@ -6593,6 +7003,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='truncl',
@@ -6609,6 +7020,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='ungetc',
@@ -6625,6 +7037,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='unlink',
@@ -6641,6 +7054,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='unlinkat',
@@ -6657,6 +7071,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='unsetenv',
@@ -6673,6 +7088,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='waitpid',
@@ -6689,6 +7105,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
     GeneratedHostedFunctionRow(
         name='write',
@@ -6705,6 +7122,7 @@ HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (
         return_alias_shape=None,
         consume_deallocator=None,
         return_alias_null_deallocator=None,
+        realtime_effect='unknown',
     ),
 )
 
@@ -18371,4 +18789,4 @@ HOSTED_PLATFORM_TYPEDEF_NAMES: tuple[str, ...] = (
 
 HOSTED_STDLIB_SOURCE_MARKER = 'compiler:stdlib'
 HOSTED_USER_SOURCE_MARKER = 'compiler:user'
-HOSTED_ABI_FINGERPRINT = '61a4f81fa38349bf234d6cb5b582927e69dd7b97e32f27f14a2356a4da648f2e'
+HOSTED_ABI_FINGERPRINT = 'c5447e3aa9a54993c5fc080d1092b370d2d741b04122b4c209bdb22bd3c571d9'

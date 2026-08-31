@@ -12,6 +12,7 @@ from src.compiler.python.ir.lowering.lowerer import IRLowerer
 from src.compiler.python.ir.lowering.types import CodegenError
 
 from ..abi.freestanding import FreestandingRuntime
+from ..abi.hosted import HOSTED_ABI
 from ..analyzer.analyzer import SemanticAnalyzer
 from ..backend.c_emitter import CEmitter
 from ..frontend.imports import FrontendVisibilityError
@@ -605,6 +606,11 @@ class CompilationPipeline:
             source_map=source_map,
             type_identity=self.type_identity,
             runtime_catalog=self.runtime_catalog,
+            realtime_safe_externals=(
+                HOSTED_ABI.realtime_safe_names | self.runtime_catalog.realtime_safe_names
+                if analyzed.realtime_safe_callables
+                else frozenset()
+            ),
         ).lower()
         self._timed(profile, "ir_gen", start)
         return module

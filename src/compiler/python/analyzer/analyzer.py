@@ -16,6 +16,7 @@ from .gpu import GpuAnalyzer
 from .macros import SourceMacroAnalyzer
 from .ownership import CallableValueSemantics, OwnershipAnalyzer
 from .program import AnalysisSession, AnalyzedProgram, DeclarationIndex
+from .realtime import RealtimeAnalyzer
 from .statements import StatementAnalyzer
 from .storage import StorageModel
 from .types import NumericLiteralSemantics, TypeIdentity, TypeSystem
@@ -64,6 +65,7 @@ class SemanticAnalyzer:
         )
         flow = ControlFlowAnalyzer(session, types)
         generated_symbols = GeneratedSymbolRegistry(session, index, types, storage, macros, runtime_helpers)
+        realtime = RealtimeAnalyzer(session, index, runtime_helpers)
         statements = StatementAnalyzer(
             session,
             declarations,
@@ -114,6 +116,7 @@ class SemanticAnalyzer:
         self.gpu = gpu
         self.macros = macros
         self.generated_symbols = generated_symbols
+        self.realtime = realtime
         self.signature_types = signature_types
         self.hierarchy = hierarchy
 
@@ -135,6 +138,7 @@ class SemanticAnalyzer:
         for declaration in state.declarations(program):
             self.statements.analyze_declaration(declaration)
         self.generics.close_generic_instance_graph()
+        realtime_safe_callables = self.realtime.analyze(program)
         self.ownership.validate_generic_type_facts()
         self.generated_symbols.validate_program_symbols(program)
         return AnalyzedProgram(
@@ -155,6 +159,7 @@ class SemanticAnalyzer:
             },
             defined_global_names=frozenset(self.index.global_definitions),
             hosted_call_ids=set(state.hosted_call_ids),
+            realtime_safe_callables=realtime_safe_callables,
             typedef_table=self.index.typedef_table,
             struct_table=self.index.struct_table,
             node_types=state.node_types,

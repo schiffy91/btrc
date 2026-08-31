@@ -1237,6 +1237,7 @@ class DeclarationLowerer {
         bool isStatic = method.access == "class";
         IRFunction fn = IRFunction();
         fn.name = name + "_" + method.name;
+        fn.is_realtime = method.is_realtime;
         string ret = self.cTypes.lower(method.return_type);
         fn.return_type = ret;
         Map<string, Node> vt = self.functions.seededVarTypes();

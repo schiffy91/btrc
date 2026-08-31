@@ -10,6 +10,7 @@ import ./models.btrc;
 import ./operators.btrc;
 import ./ownership/cycles.btrc;
 import ./ownership/values.btrc;
+import ./realtime.btrc;
 import ./types.btrc;
 import ./validation/validator.btrc;
 
@@ -56,6 +57,10 @@ class SemanticAnalyzer {
             self.expressions);
         validator.validate();
         self.generics.closeExpressionGraph(program);
+        RealtimeAnalyzer realtime = RealtimeAnalyzer(
+            program, self.analysis, hostedAbi, self.sourceRuntimeSymbols,
+            self.expressions);
+        realtime.validate();
         validator.validateCompletedGeneratedSymbols();
         return self.analysis;
     }

@@ -292,6 +292,7 @@ class AnalyzedProgram:
     global_var_types: dict[str, TypeExpr] = field(default_factory=dict)
     defined_global_names: frozenset[str] = frozenset()
     hosted_call_ids: set[int] = field(default_factory=set)
+    realtime_safe_callables: frozenset[str] = frozenset()
     typedef_table: dict[str, TypeExpr] = field(default_factory=dict)
     struct_table: dict[str, StructDecl] = field(default_factory=dict)
     node_types: dict[int, TypeExpr] = field(default_factory=dict)

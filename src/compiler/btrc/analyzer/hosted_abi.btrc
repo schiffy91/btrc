@@ -11,19 +11,29 @@ import ../generated/runtime/catalog.btrc;
 
 class SourceRuntimeSymbols {
     private Map<string, bool> helpers;
+    private Map<string, string> realtimeEffects;
 
     public SourceRuntimeSymbols(Vector<GeneratedRuntimeHelperRow> runtimeRows) {
         self.helpers = {};
+        self.realtimeEffects = {};
         int index = 0;
         while (index < runtimeRows.len) {
             GeneratedRuntimeHelperRow row = runtimeRows.get(index);
-            if (row.source_visible) { self.helpers.put(row.name, true); }
+            if (row.source_visible) {
+                self.helpers.put(row.name, true);
+                self.realtimeEffects.put(row.name, row.realtime_effect);
+            }
             index = index + 1;
         }
     }
 
     public bool helper(string name) {
         return self.helpers.has(name);
+    }
+
+    public string realtimeEffect(string name) {
+        return self.realtimeEffects.has(name)
+            ? self.realtimeEffects.get(name) : "unknown";
     }
 
     public bool intrinsic(string name) {
@@ -158,6 +168,25 @@ class HostedAbiRepository {
     public string returnEffect(string name) {
         GeneratedHostedFunctionRow? row = self.exactSpec(name);
         return row == null ? "unknown" : row.return_effect;
+    }
+
+    public string realtimeEffect(string name) {
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        return row == null ? "unknown" : row.realtime_effect;
+    }
+
+    public Map<string, bool> realtimeSafeFunctions() {
+        Map<string, bool> safe = {};
+        Vector<string> names = self.functions.keys();
+        int index = 0;
+        while (index < names.len) {
+            string name = names.get(index);
+            if (self.functions.get(name).realtime_effect == "safe") {
+                safe.put(name, true);
+            }
+            index = index + 1;
+        }
+        return safe;
     }
 
     public int returnAliasParameter(string name) {

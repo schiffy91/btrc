@@ -123,6 +123,7 @@ asset = "core.c"
 dependencies = []
 headers = []
 source_visible = true
+realtime_effect = "allocation"
 order = { python = 0, btrc = 0 }
 
 [[helpers]]
@@ -132,6 +133,7 @@ asset = "core.c"
 dependencies = []
 headers = []
 source_visible = true
+realtime_effect = "allocation"
 order = { python = 1, btrc = 1 }
 
 [[helpers]]
@@ -141,6 +143,7 @@ asset = "core.c"
 dependencies = []
 headers = []
 source_visible = true
+realtime_effect = "allocation"
 order = { python = 2, btrc = 2 }
 
 [[helpers]]

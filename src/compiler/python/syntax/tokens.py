@@ -91,6 +91,7 @@ class TokenKind(Enum):
 
     # Annotations (validated against grammar @annotations section)
     AT_GPU = auto()
+    AT_REALTIME = auto()
 
     # Operators
     PLUS = auto()  # +

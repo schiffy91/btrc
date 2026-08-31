@@ -1,5 +1,6 @@
 /* Complete typed IR model for lowering, optimization, and emission. */
 
+import std.map;
 import std.strings;
 import std.vector;
 import ../generated/ast/node.btrc;
@@ -605,6 +606,7 @@ class IRFunction {
     public IRNode body;      /* IRBlock, or null for a forward-only decl */
     public bool is_static;
     public bool archive_export;
+    public bool is_realtime;
 
     public IRFunction() {
         self.name = "";
@@ -613,6 +615,7 @@ class IRFunction {
         self.body = null;
         self.is_static = false;
         self.archive_export = false;
+        self.is_realtime = false;
     }
 }
 
@@ -791,6 +794,7 @@ class IRModule {
     public Vector<IRGlobalDecl> global_decls;
     public Vector<IRFunction> functions;
     public Vector<IRGpuKernel> gpu_kernels;
+    public Map<string, bool> realtime_safe_externals;
     public IRTemporaryNames temporary_names;
     /* Runtime helper bodies remain registry-owned C source at the deliberate
      * runtime seam. They are never parsed to recover declaration structure. */
@@ -808,6 +812,7 @@ class IRModule {
         self.global_decls = [];
         self.functions = [];
         self.gpu_kernels = [];
+        self.realtime_safe_externals = {};
         self.temporary_names = IRTemporaryNames();
         self.helpers = [];
     }

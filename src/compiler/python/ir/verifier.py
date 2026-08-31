@@ -18,6 +18,7 @@ from .nodes import (
     IRGpuKernel,
     IRHelperDecl,
     IRInclude,
+    IRLiteral,
     IRMacroDef,
     IRModule,
     IRNode,
@@ -58,10 +59,18 @@ class IRVerifier:
             if not isinstance(getattr(self.module, field_name), bool):
                 raise TypeError(f"IRModule.{field_name} requires bool")
 
+        for function in self.module.function_defs:
+            if not isinstance(function.is_realtime, bool):
+                raise TypeError("IRFunctionDef.is_realtime requires bool")
+
         if not isinstance(self.module.runtime_roots, set) or any(
             not isinstance(root, str) or not root for root in self.module.runtime_roots
         ):
             raise TypeError("IRModule.runtime_roots requires a set of non-empty strings")
+        if not isinstance(self.module.realtime_safe_externals, set) or any(
+            not isinstance(name, str) or not name for name in self.module.realtime_safe_externals
+        ):
+            raise TypeError("IRModule.realtime_safe_externals requires a set of non-empty strings")
 
         declaration_fields = (
             ("struct_forwards", IRStructForward),
@@ -85,6 +94,10 @@ class IRVerifier:
                     raise TypeError(
                         f"IRModule.{field_name} requires {expected_type.__name__}, got {type(declaration).__name__}"
                     )
+
+        if any(function.is_realtime for function in self.module.function_defs):
+            self._functions = {function.name: function for function in self.module.function_defs}
+            self._validate_realtime_functions()
 
         if not isinstance(self.module.preprocessor_decls, list):
             raise TypeError("IRModule.preprocessor_decls requires a list")
@@ -134,6 +147,36 @@ class IRVerifier:
                 declarations,
                 registrations,
             )
+
+    def _validate_realtime_functions(self) -> None:
+        """Backstop semantic realtime proofs against compiler-introduced IR."""
+
+        for function in self.module.function_defs:
+            if function.is_realtime:
+                self._validate_realtime_function(function, (), frozenset())
+
+    def _validate_realtime_function(self, function, path, visiting) -> None:
+        if function.name in visiting:
+            return
+        visiting = visiting | {function.name}
+        path = (*path, function.name)
+        for node in IRNode.walk_value(function.body):
+            if isinstance(node, IRLiteral) and node.text.startswith(('"', 'L"', 'u"', 'U"', 'u8"')):
+                raise ValueError(f"IR realtime backstop rejected string literal via {' -> '.join(path)}")
+            if isinstance(node, IRFunctionRef):
+                raise ValueError(f"IR realtime backstop rejected function value {node.name!r} via {' -> '.join(path)}")
+            if not isinstance(node, IRCall):
+                continue
+            if not isinstance(node.callee, str) or not node.callee:
+                raise ValueError(f"IR realtime backstop rejected indirect call via {' -> '.join(path)}")
+            target = self._functions.get(node.callee)
+            if target is None:
+                if node.callee in self.module.realtime_safe_externals:
+                    continue
+                raise ValueError(
+                    f"IR realtime backstop rejected external/runtime call {node.callee!r} via {' -> '.join(path)}"
+                )
+            self._validate_realtime_function(target, path, visiting)
 
     @staticmethod
     def _validate_cleanup_declaration(

@@ -943,6 +943,7 @@ class DeclarationRegistry:
             self._function_linkage(left) != self._function_linkage(right)
             or self._function_type_key(left.return_type) != self._function_type_key(right.return_type)
             or left.is_gpu != right.is_gpu
+            or left.is_realtime != right.is_realtime
             or (left.keep_return != right.keep_return)
             or (len(left.params) != len(right.params))
         ):

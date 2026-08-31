@@ -25,6 +25,7 @@ EXPECTED_BTRC_FILES = frozenset(
     analyzer/hosted_abi.btrc
     analyzer/models.btrc
     analyzer/operators.btrc
+    analyzer/realtime.btrc
     analyzer/ownership/cycles.btrc
     analyzer/ownership/values.btrc
     analyzer/source_macros.btrc
@@ -81,6 +82,7 @@ EXPECTED_BTRC_FILES = frozenset(
     ir/model.btrc
     ir/optimization/cleanup.btrc
     ir/optimization/optimizer.btrc
+    ir/optimization/realtime.btrc
     ir/optimization/setjmp/analysis.btrc
     ir/optimization/setjmp/safety.btrc
     ir/runtime/catalog.btrc
@@ -158,6 +160,7 @@ REQUIRED_OWNER_BY_PATH = {
     "analyzer/expressions.btrc": "ExpressionTypeResolver",
     "analyzer/generics.btrc": "GenericSpecializer",
     "analyzer/operators.btrc": "OperatorSemantics",
+    "analyzer/realtime.btrc": "RealtimeAnalyzer",
     "analyzer/hosted_abi.btrc": "HostedAbiRepository",
     "analyzer/source_macros.btrc": "SourceMacroNamespace",
     "analyzer/gpu.btrc": "GpuSemantics",
@@ -201,6 +204,7 @@ REQUIRED_OWNER_BY_PATH = {
     "ir/gpu/wgsl.btrc": "GpuWgslEmitter",
     "ir/gpu/pipeline.btrc": "GpuPipeline",
     "ir/optimization/optimizer.btrc": "IROptimizer",
+    "ir/optimization/realtime.btrc": "RealtimeIRVerifier",
     "ir/optimization/cleanup.btrc": "CleanupSlotValidator",
     "ir/optimization/setjmp/analysis.btrc": "SetjmpEffectAnalysis",
     "ir/optimization/setjmp/safety.btrc": "SetjmpSafetyPlanner",
@@ -414,7 +418,7 @@ def test_selfhost_tree_is_the_exact_ownership_namespace() -> None:
     actual = {path.relative_to(SELFHOST).as_posix() for path in SELFHOST.rglob("*.btrc")}
 
     assert actual == EXPECTED_BTRC_FILES
-    assert len(actual) == 88
+    assert len(actual) == 90
     assert {path.name for path in SELFHOST.glob("*.btrc")} == {"btrcc_main.btrc", "compiler.btrc"}
 
 
@@ -875,6 +879,7 @@ def test_hosted_abi_is_pipeline_owned_and_injected_only_into_query_owners() -> N
         "analyzer/declarations.btrc",
         "analyzer/expressions.btrc",
         "analyzer/gpu.btrc",
+        "analyzer/realtime.btrc",
         "analyzer/validation/borrows.btrc",
         "analyzer/validation/calls.btrc",
         "analyzer/validation/declarations.btrc",

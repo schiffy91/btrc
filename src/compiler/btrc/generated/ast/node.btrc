@@ -115,6 +115,7 @@ class Node {
     public Vector<Node> params;
     public Node body_node;
     public bool is_gpu;
+    public bool is_realtime;
     public bool keep_return;
     public Vector<Node> fields;
     public bool is_forward;
@@ -218,6 +219,7 @@ class Node {
         self.params = [];
         self.body_node = null;
         self.is_gpu = false;
+        self.is_realtime = false;
         self.keep_return = false;
         self.fields = [];
         self.is_forward = false;

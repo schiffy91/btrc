@@ -560,22 +560,29 @@ class Parser:
             return self._parse_import_decl()
 
         is_gpu = False
+        is_realtime = False
         keep_return = False
         if tok.type == TokenKind.AT_GPU:
             is_gpu = True
             self._advance()
             tok = self._peek()
+        if tok.type == TokenKind.AT_REALTIME:
+            is_realtime = True
+            self._advance()
+            tok = self._peek()
+        if is_gpu and is_realtime:
+            raise self._error("@gpu and @realtime cannot be combined")
         if tok.type == TokenKind.KEEP:
             keep_return = True
             self._advance()
             tok = self._peek()
 
-        if tok.type == TokenKind.INTERFACE and not is_gpu and not keep_return:
+        if tok.type == TokenKind.INTERFACE and not is_gpu and not is_realtime and not keep_return:
             return self._parse_interface_decl()
-        if tok.type == TokenKind.ABSTRACT and not is_gpu and not keep_return:
+        if tok.type == TokenKind.ABSTRACT and not is_gpu and not is_realtime and not keep_return:
             if self._peek(1).type == TokenKind.CLASS:
                 return self._parse_class_decl(is_abstract=True)
-        if tok.type == TokenKind.CLASS and not is_gpu and not keep_return:
+        if tok.type == TokenKind.CLASS and not is_gpu and not is_realtime and not keep_return:
             if self._peek(1).type == TokenKind.IDENT:
                 after = self._peek(2)
                 if after.type in (
@@ -585,21 +592,21 @@ class Parser:
                     TokenKind.IMPLEMENTS,
                 ):
                     return self._parse_class_decl()
-        if tok.type == TokenKind.STRUCT and not is_gpu and not keep_return:
+        if tok.type == TokenKind.STRUCT and not is_gpu and not is_realtime and not keep_return:
             next_tok = self._peek(1)
             if next_tok.type == TokenKind.IDENT:
                 if self._peek(2).type in (TokenKind.LBRACE, TokenKind.SEMICOLON):
                     return self._parse_struct_decl()
             elif next_tok.type == TokenKind.LBRACE:
                 return self._parse_struct_decl()
-        if tok.type == TokenKind.ENUM and not is_gpu and not keep_return:
+        if tok.type == TokenKind.ENUM and not is_gpu and not is_realtime and not keep_return:
             if self._peek(1).type == TokenKind.CLASS:
                 return self._parse_rich_enum_decl()
             return self._parse_enum_decl()
-        if tok.type == TokenKind.TYPEDEF and not is_gpu and not keep_return:
+        if tok.type == TokenKind.TYPEDEF and not is_gpu and not is_realtime and not keep_return:
             return self._parse_typedef_decl()
         if self._is_type_start(tok):
-            return self._parse_function_or_var_decl(is_gpu, keep_return=keep_return)
+            return self._parse_function_or_var_decl(is_gpu, is_realtime=is_realtime, keep_return=keep_return)
         raise self._error(f"Unexpected token '{tok.value}' at top level")
 
     def _parse_preprocessor(self) -> PreprocessorDirective:
@@ -817,6 +824,9 @@ class Parser:
             self._advance()
 
         is_gpu = bool(self._match(TokenKind.AT_GPU))
+        is_realtime = bool(self._match(TokenKind.AT_REALTIME))
+        if is_gpu and is_realtime:
+            raise self._error("@gpu and @realtime cannot be combined")
         keep_return = bool(self._match(TokenKind.KEEP))
         type_expr = self._parse_type_expr()
 
@@ -826,6 +836,7 @@ class Parser:
                 type_expr,
                 type_expr.base,
                 is_gpu,
+                is_realtime,
                 tok.line,
                 tok.col,
                 type_expr.line,
@@ -843,6 +854,7 @@ class Parser:
                 type_expr,
                 name,
                 is_gpu,
+                is_realtime,
                 tok.line,
                 tok.col,
                 name_tok.line,
@@ -850,6 +862,8 @@ class Parser:
                 is_abstract=is_abstract_method,
                 keep_return=keep_return,
             )
+        if is_realtime:
+            raise self._error("@realtime cannot be applied to fields or properties")
         self._parse_declarator_array_suffix(type_expr)
         if self._check(TokenKind.LBRACE) and self._is_property_start():
             return self._parse_property(
@@ -881,6 +895,7 @@ class Parser:
         return_type,
         name,
         is_gpu,
+        is_realtime,
         line,
         col,
         name_line,
@@ -912,6 +927,7 @@ class Parser:
             params=params,
             body=body,
             is_gpu=is_gpu,
+            is_realtime=is_realtime,
             is_abstract=is_abstract,
             keep_return=keep_return,
             line=line,
@@ -1044,13 +1060,16 @@ class Parser:
 
     # ---- Function or variable declaration ----
 
-    def _parse_function_or_var_decl(self, is_gpu: bool = False, *, keep_return: bool = False):
+    def _parse_function_or_var_decl(
+        self, is_gpu: bool = False, *, is_realtime: bool = False, keep_return: bool = False
+    ):
         """Disambiguate function vs variable at top level."""
         start = self._peek()
 
         if self._check(TokenKind.VAR):
-            if is_gpu:
-                raise self._error("@gpu cannot be applied to variables")
+            if is_gpu or is_realtime:
+                annotation = "@gpu" if is_gpu else "@realtime"
+                raise self._error(f"{annotation} cannot be applied to variables")
             self._advance()
             name_tok = self._expect(TokenKind.IDENT, "variable name")
             name = name_tok.value
@@ -1083,6 +1102,7 @@ class Parser:
                     params=params,
                     body=None,
                     is_gpu=is_gpu,
+                    is_realtime=is_realtime,
                     keep_return=keep_return,
                     line=start.line,
                     col=start.col,
@@ -1096,6 +1116,7 @@ class Parser:
                 params=params,
                 body=body,
                 is_gpu=is_gpu,
+                is_realtime=is_realtime,
                 keep_return=keep_return,
                 line=start.line,
                 col=start.col,
@@ -1103,8 +1124,9 @@ class Parser:
                 name_col=name_tok.col,
             )
         else:
-            if is_gpu:
-                raise self._error("@gpu cannot be applied to variables")
+            if is_gpu or is_realtime:
+                annotation = "@gpu" if is_gpu else "@realtime"
+                raise self._error(f"{annotation} cannot be applied to variables")
             init = None
             if self._match(TokenKind.EQ):
                 init = self._parse_expr()

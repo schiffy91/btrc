@@ -17,6 +17,7 @@ import ../generated/hosted_abi/tables.btrc;
 import ./hosted_abi.btrc;
 import ./gpu.btrc;
 import ./source_macros.btrc;
+import ./realtime.btrc;
 import ./validation/types.btrc;
 import ./validation/constants.btrc;
 import ./validation/storage.btrc;

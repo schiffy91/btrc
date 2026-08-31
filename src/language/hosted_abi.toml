@@ -12023,6 +12023,7 @@ parameters = [
 variadic = false
 return_effect = "value"
 raw_lifetime = false
+realtime_effect = "safe"
 
 [[functions]]
 name = "accept"

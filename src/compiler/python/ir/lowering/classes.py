@@ -541,6 +541,7 @@ class ClassLowerer:
             params=params,
             body=body,
             is_static=self._specialized_linkage(),
+            is_realtime=method.is_realtime,
         )
         if collection_type is not None:
             self._collections.protect_topology_mutation(function, collection_type)

@@ -36,6 +36,7 @@ module Btrc {
                          int name_line, int name_col)
          | FunctionDecl(type_expr return_type, identifier name,
                         param* params, block? body, bool is_gpu,
+                        bool is_realtime,
                         bool keep_return, int name_line, int name_col)
          | StructDecl(identifier name, field_def* fields, bool is_forward,
                       int name_line, int name_col)
@@ -87,7 +88,8 @@ module Btrc {
                               identifier name, bool is_constructor,
                               identifier* generic_params,
                               param* params,
-                              block? body, bool is_gpu, bool is_abstract,
+                              block? body, bool is_gpu, bool is_realtime,
+                              bool is_abstract,
                               bool keep_return, int name_line, int name_col)
                  | PropertyDecl(string access, type_expr type,
                                 identifier name, bool has_getter,

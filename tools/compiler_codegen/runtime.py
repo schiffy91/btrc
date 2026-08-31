@@ -123,6 +123,7 @@ class RuntimeHelperSpec:
     source_visible: bool
     python_order: int | None
     btrc_order: int | None
+    realtime_effect: str
 
     def order_for(self, catalog: str) -> int | None:
         if catalog == "python":
@@ -165,10 +166,27 @@ class RuntimeManifest:
             "provided_types",
             "provided_objects",
             "source_visible",
+            "realtime_effect",
             "order",
         }
     )
-    _OPTIONAL_HELPER_KEYS = frozenset({"provided_types", "provided_objects"})
+    _OPTIONAL_HELPER_KEYS = frozenset({"provided_types", "provided_objects", "realtime_effect"})
+    _REALTIME_EFFECTS = frozenset(
+        {
+            "safe",
+            "allocation",
+            "arc",
+            "exceptions",
+            "strings",
+            "collections",
+            "locks",
+            "logging",
+            "blocking",
+            "io",
+            "runtime",
+            "unknown",
+        }
+    )
     _CATALOGS = ("python", "btrc")
     _ASSETS = (
         "core.c",
@@ -285,6 +303,9 @@ class RuntimeManifest:
             source_visible = raw_helper.get("source_visible")
             if type(source_visible) is not bool:
                 raise RuntimeManifestError(f"{context}.source_visible must be a boolean")
+            realtime_effect = raw_helper.get("realtime_effect", "unknown")
+            if not isinstance(realtime_effect, str) or realtime_effect not in cls._REALTIME_EFFECTS:
+                raise RuntimeManifestError(f"{context}.realtime_effect is invalid")
             dependencies = cls._string_tuple(raw_helper, "dependencies", context)
             headers = cls._string_tuple(raw_helper, "headers", context)
             provided_types = cls._provided_identifiers(
@@ -312,6 +333,7 @@ class RuntimeManifest:
                     source_visible=source_visible,
                     python_order=python_order,
                     btrc_order=btrc_order,
+                    realtime_effect=realtime_effect,
                 )
             )
             expected_asset_order[asset].append(name)
@@ -561,6 +583,7 @@ class RuntimeCatalogGenerator:
             "    provided_types: tuple[str, ...]",
             "    provided_objects: tuple[str, ...]",
             "    source_visible: bool",
+            "    realtime_effect: str",
             "",
             "",
             "RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (",
@@ -583,6 +606,7 @@ class RuntimeCatalogGenerator:
                     f"        provided_types={helper.provided_types!r},",
                     f"        provided_objects={helper.provided_objects!r},",
                     f"        source_visible={helper.source_visible!r},",
+                    f"        realtime_effect={helper.realtime_effect!r},",
                     "    ),",
                 ]
             )
@@ -626,6 +650,7 @@ class RuntimeCatalogGenerator:
             "    public Vector<string> provided_types;",
             "    public Vector<string> provided_objects;",
             "    public bool source_visible;",
+            "    public string realtime_effect;",
             "",
             "    public GeneratedRuntimeHelperRow(",
             "            string category,",
@@ -635,7 +660,8 @@ class RuntimeCatalogGenerator:
             "            Vector<string> headers,",
             "            Vector<string> provided_types,",
             "            Vector<string> provided_objects,",
-            "            bool source_visible) {",
+            "            bool source_visible,",
+            "            string realtime_effect) {",
             "        self.category = category;",
             "        self.name = name;",
             "        self.source_chunks = source_chunks;",
@@ -644,6 +670,7 @@ class RuntimeCatalogGenerator:
             "        self.provided_types = provided_types;",
             "        self.provided_objects = provided_objects;",
             "        self.source_visible = source_visible;",
+            "        self.realtime_effect = realtime_effect;",
             "    }",
             "}",
             "",
@@ -679,7 +706,8 @@ class RuntimeCatalogGenerator:
                     f"            {self._btrc_vector(helper.headers)},",
                     f"            {self._btrc_vector(helper.provided_types)},",
                     f"            {self._btrc_vector(helper.provided_objects)},",
-                    f"            {'true' if helper.source_visible else 'false'}));",
+                    f"            {'true' if helper.source_visible else 'false'},",
+                    f"            {self._btrc_string(helper.realtime_effect)}));",
                 ]
             )
             blocks.append(block)

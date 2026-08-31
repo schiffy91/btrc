@@ -12,6 +12,7 @@ class GeneratedRuntimeHelperRow(NamedTuple):
     provided_types: tuple[str, ...]
     provided_objects: tuple[str, ...]
     source_visible: bool
+    realtime_effect: str
 
 
 RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
@@ -31,6 +32,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='allocation',
     ),
     GeneratedRuntimeHelperRow(
         category='alloc',
@@ -46,6 +48,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='allocation',
     ),
     GeneratedRuntimeHelperRow(
         category='alloc',
@@ -63,6 +66,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='allocation',
     ),
     GeneratedRuntimeHelperRow(
         category='divmod',
@@ -104,6 +108,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='divmod',
@@ -145,6 +150,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='divmod',
@@ -160,6 +166,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='divmod',
@@ -174,6 +181,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='divmod',
@@ -188,6 +196,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='gpu',
@@ -202,6 +211,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -218,6 +228,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -230,6 +241,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -248,6 +260,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -263,6 +276,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -279,6 +293,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -291,6 +306,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -316,6 +332,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -342,6 +359,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -361,6 +379,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -387,6 +406,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -400,6 +420,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_ownership',
@@ -414,6 +435,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_pool',
@@ -427,6 +449,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string_pool',
@@ -440,6 +463,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -453,6 +477,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -468,6 +493,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -484,6 +510,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -498,6 +525,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -512,6 +540,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -526,6 +555,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -543,6 +573,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -561,6 +592,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -576,6 +608,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -591,6 +624,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -618,6 +652,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -648,6 +683,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -667,6 +703,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -682,6 +719,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -701,6 +739,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -720,6 +759,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -736,6 +776,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -754,6 +795,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -772,6 +814,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -789,6 +832,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -806,6 +850,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -825,6 +870,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -842,6 +888,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -858,6 +905,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -877,6 +925,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -897,6 +946,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -924,6 +974,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -940,6 +991,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -955,6 +1007,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -971,6 +1024,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -984,6 +1038,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -999,6 +1054,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1015,6 +1071,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1029,6 +1086,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1046,6 +1104,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1063,6 +1122,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1077,6 +1137,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1092,6 +1153,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1106,6 +1168,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1121,6 +1184,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1136,6 +1200,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1152,6 +1217,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1182,6 +1248,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1195,6 +1262,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1218,6 +1286,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1232,6 +1301,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1245,6 +1315,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1258,6 +1329,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1271,6 +1343,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1285,6 +1358,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1299,6 +1373,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1313,6 +1388,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1327,6 +1403,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1341,6 +1418,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1354,6 +1432,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1368,6 +1447,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1381,6 +1461,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1394,6 +1475,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='string',
@@ -1407,6 +1489,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='math',
@@ -1423,6 +1506,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='math',
@@ -1439,6 +1523,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='math',
@@ -1455,6 +1540,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='math',
@@ -1470,6 +1556,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='math',
@@ -1485,6 +1572,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='math',
@@ -1502,6 +1590,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='math',
@@ -1517,6 +1606,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1529,6 +1619,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1543,6 +1634,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1560,6 +1652,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1572,6 +1665,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1584,6 +1678,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1605,6 +1700,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1636,6 +1732,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1654,6 +1751,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1666,6 +1764,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1722,6 +1821,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1736,6 +1836,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1750,6 +1851,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1771,6 +1873,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1792,6 +1895,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1806,6 +1910,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1821,6 +1926,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1857,6 +1963,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1871,6 +1978,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1884,6 +1992,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1899,6 +2008,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1917,6 +2027,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='trycatch',
@@ -1935,6 +2046,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='hash',
@@ -1955,6 +2067,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='hash',
@@ -1969,6 +2082,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -1983,6 +2097,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -1999,6 +2114,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2014,6 +2130,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2029,6 +2146,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2044,6 +2162,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2059,6 +2178,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2074,6 +2194,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2089,6 +2210,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2103,6 +2225,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2118,6 +2241,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2134,6 +2258,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2149,6 +2274,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2164,6 +2290,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='collections',
@@ -2179,6 +2306,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2210,6 +2338,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=('__btrc_arc_count', '__btrc_arc_type', '__btrc_arc_incoming', '__btrc_arc_state', '__btrc_arc_header', '__btrc_destroy_fn', '__btrc_arc_slot_access_fn', '__btrc_field_visit_fn', '__btrc_visit_fn', '__btrc_hook_fn', '__btrc_hook_guard_fn', '__btrc_raise_fn'),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2223,6 +2352,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2238,6 +2368,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2264,6 +2395,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2278,6 +2410,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2305,6 +2438,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2321,6 +2455,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2333,6 +2468,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2362,6 +2498,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2378,6 +2515,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2390,6 +2528,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2404,6 +2543,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2466,6 +2606,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2481,6 +2622,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2498,6 +2640,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2510,6 +2653,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2522,6 +2666,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2534,6 +2679,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2546,6 +2692,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2566,6 +2713,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2579,6 +2727,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2592,6 +2741,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2624,6 +2774,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2647,6 +2798,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2662,6 +2814,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2679,6 +2832,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2705,6 +2859,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2718,6 +2873,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2758,6 +2914,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2774,6 +2931,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2793,6 +2951,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2817,6 +2976,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2835,6 +2995,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2903,6 +3064,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2924,6 +3086,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2950,6 +3113,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -2976,6 +3140,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3002,6 +3167,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3030,6 +3196,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3062,6 +3229,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3114,6 +3282,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3129,6 +3298,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3145,6 +3315,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3170,6 +3341,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3184,6 +3356,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3214,6 +3387,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3248,6 +3422,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3274,6 +3449,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3408,6 +3584,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3526,6 +3703,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3539,6 +3717,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3553,6 +3732,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3567,6 +3747,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3612,6 +3793,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3742,6 +3924,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3802,6 +3985,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3815,6 +3999,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3830,6 +4015,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3843,6 +4029,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3868,6 +4055,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='cycles',
@@ -3911,6 +4099,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -3934,6 +4123,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -3963,6 +4153,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -3979,6 +4170,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4003,6 +4195,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4029,6 +4222,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4088,6 +4282,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4101,6 +4296,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4118,6 +4314,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4135,6 +4332,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4149,6 +4347,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4165,6 +4364,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4180,6 +4380,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4203,6 +4404,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4218,6 +4420,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4236,6 +4439,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=('__btrc_thread_result_dispose', '__btrc_thread_arg_dispose', '__btrc_thread_t'),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4285,6 +4489,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4299,6 +4504,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4312,6 +4518,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4325,6 +4532,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4339,6 +4547,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4353,6 +4562,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4374,6 +4584,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4397,6 +4608,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4420,6 +4632,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4440,6 +4653,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=('__btrc_mutex_value_access', '__btrc_mutex_value_callback', '__btrc_mutex_finalize_callback', '__btrc_mutex_val_t'),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4463,6 +4677,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4483,6 +4698,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4524,6 +4740,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4540,6 +4757,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4558,6 +4776,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4571,6 +4790,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4586,6 +4806,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4601,6 +4822,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4637,6 +4859,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=('__btrc_mutex_arc_descriptor',),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4675,6 +4898,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='threads',
@@ -4711,6 +4935,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=False,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4728,6 +4953,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4742,6 +4968,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
     GeneratedRuntimeHelperRow(
         category='process',
@@ -4765,6 +4992,7 @@ RUNTIME_HELPER_ROWS: tuple[GeneratedRuntimeHelperRow, ...] = (
         provided_types=(),
         provided_objects=(),
         source_visible=True,
+        realtime_effect='unknown',
     ),
 )
 

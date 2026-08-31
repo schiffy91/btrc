@@ -8,6 +8,7 @@ import ../model.btrc;
 import ../runtime/catalog.btrc;
 import ../runtime/references.btrc;
 import ./cleanup.btrc;
+import ./realtime.btrc;
 import ./setjmp/safety.btrc;
 
 class IROptimizer {
@@ -24,6 +25,7 @@ class IROptimizer {
     /* Complete stage-five cascade.  Every operation consumes and mutates only
      * structured IR plus immutable repositories supplied by the pipeline. */
     public void optimize(IRModule module, bool eliminateDeadCode) {
+        RealtimeIRVerifier(module).validate(module);
         self.setjmpSafety.apply(module);
         CleanupSlotValidator(module).validate();
         if (eliminateDeadCode) {

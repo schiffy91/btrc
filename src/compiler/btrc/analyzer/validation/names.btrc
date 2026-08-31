@@ -526,7 +526,8 @@ class NameValidator {
                     left.return_type, right.return_type)
                 || left.params.len != right.params.len
                 || left.keep_return != right.keep_return
-                || left.is_gpu != right.is_gpu) {
+                || left.is_gpu != right.is_gpu
+                || left.is_realtime != right.is_realtime) {
             return false;
         }
         int index = 0;

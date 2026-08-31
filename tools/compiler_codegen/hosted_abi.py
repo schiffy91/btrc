@@ -72,6 +72,7 @@ class HostedAbiFunctionSpec:
     return_alias_shape: str | None
     consume_deallocator: str | None
     return_alias_null_deallocator: str | None
+    realtime_effect: str
 
     def canonical(self) -> dict[str, object]:
         return {
@@ -81,9 +82,7 @@ class HostedAbiFunctionSpec:
             "parameters_known": self.parameters_known,
             "parameters": [parameter.canonical() for parameter in self.parameters],
             "variadic": self.variadic,
-            "semantic_result": (
-                self.semantic_result.canonical() if self.semantic_result is not None else None
-            ),
+            "semantic_result": (self.semantic_result.canonical() if self.semantic_result is not None else None),
             "return_effect": self.return_effect,
             "return_alias_parameter": self.return_alias_parameter,
             "return_alias_null_effect": self.return_alias_null_effect,
@@ -92,6 +91,7 @@ class HostedAbiFunctionSpec:
             "return_alias_shape": self.return_alias_shape,
             "consume_deallocator": self.consume_deallocator,
             "return_alias_null_deallocator": self.return_alias_null_deallocator,
+            "realtime_effect": self.realtime_effect,
         }
 
 
@@ -204,6 +204,7 @@ class HostedAbiManifest:
             "return_alias_shape",
             "consume_deallocator",
             "return_alias_null_deallocator",
+            "realtime_effect",
         }
     )
     _TYPE_REQUIRED_KEYS = frozenset({"base", "pointer_depth", "is_const"})
@@ -215,6 +216,22 @@ class HostedAbiManifest:
     _RETURN_EFFECTS = frozenset({"value", "fresh", "alias", "independent", "opaque"})
     _ALIAS_SHAPES = frozenset({"exact", "interior", "dependent"})
     _NULL_ALIAS_EFFECTS = frozenset({"fresh", "independent", "opaque"})
+    _REALTIME_EFFECTS = frozenset(
+        {
+            "safe",
+            "allocation",
+            "arc",
+            "exceptions",
+            "strings",
+            "collections",
+            "locks",
+            "logging",
+            "blocking",
+            "io",
+            "runtime",
+            "unknown",
+        }
+    )
     _IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 
     @classmethod
@@ -227,9 +244,7 @@ class HostedAbiManifest:
                 )
             document = tomllib.loads(raw.decode("utf-8"))
         except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
-            raise HostedAbiManifestError(
-                f"cannot read hosted ABI manifest {manifest_path}: {error}"
-            ) from error
+            raise HostedAbiManifestError(f"cannot read hosted ABI manifest {manifest_path}: {error}") from error
 
         cls._require_keys(document, cls._ROOT_KEYS, "hosted ABI manifest")
         schema_version = cls._integer(document, "schema_version", "hosted ABI manifest")
@@ -241,12 +256,8 @@ class HostedAbiManifest:
         provenance_table = cls._table(document, "provenance", "hosted ABI manifest")
         cls._require_keys(provenance_table, cls._PROVENANCE_KEYS, "provenance")
         provenance = HostedAbiProvenanceSpec(
-            stdlib_source_marker=cls._string(
-                provenance_table, "stdlib_source_marker", "provenance"
-            ),
-            user_source_marker=cls._string(
-                provenance_table, "user_source_marker", "provenance"
-            ),
+            stdlib_source_marker=cls._string(provenance_table, "stdlib_source_marker", "provenance"),
+            user_source_marker=cls._string(provenance_table, "user_source_marker", "provenance"),
         )
 
         names_table = cls._table(document, "names", "hosted ABI manifest")
@@ -260,9 +271,7 @@ class HostedAbiManifest:
             owned=cls._name_tuple(names_table, "owned", "names"),
             native=cls._name_tuple(names_table, "native", "names"),
             native_internal=cls._name_tuple(names_table, "native_internal", "names"),
-            runtime_adopting_helpers=cls._name_tuple(
-                names_table, "runtime_adopting_helpers", "names"
-            ),
+            runtime_adopting_helpers=cls._name_tuple(names_table, "runtime_adopting_helpers", "names"),
         )
 
         platform_table = cls._table(document, "platform", "hosted ABI manifest")
@@ -278,10 +287,7 @@ class HostedAbiManifest:
         raw_functions = document.get("functions")
         if not isinstance(raw_functions, list) or not raw_functions:
             raise HostedAbiManifestError("functions must be a non-empty array of tables")
-        functions = tuple(
-            cls._function(raw_function, index)
-            for index, raw_function in enumerate(raw_functions)
-        )
+        functions = tuple(cls._function(raw_function, index) for index, raw_function in enumerate(raw_functions))
         manifest = cls(
             schema_version=schema_version,
             provenance=provenance,
@@ -336,22 +342,17 @@ class HostedAbiManifest:
             ),
             return_effect=cls._string(value, "return_effect", context),
             return_alias_parameter=cls._optional_integer(value, "return_alias_parameter", context),
-            return_alias_null_effect=cls._optional_string(
-                value, "return_alias_null_effect", context
-            ),
+            return_alias_null_effect=cls._optional_string(value, "return_alias_null_effect", context),
             raw_lifetime=cls._boolean(value, "raw_lifetime", context),
             return_deallocator=cls._optional_string(value, "return_deallocator", context),
             return_alias_shape=cls._optional_string(value, "return_alias_shape", context),
             consume_deallocator=cls._optional_string(value, "consume_deallocator", context),
-            return_alias_null_deallocator=cls._optional_string(
-                value, "return_alias_null_deallocator", context
-            ),
+            return_alias_null_deallocator=cls._optional_string(value, "return_alias_null_deallocator", context),
+            realtime_effect=(cls._optional_string(value, "realtime_effect", context) or "unknown"),
         )
 
     @classmethod
-    def _parameter(
-        cls, value: Any, index: int, function_context: str
-    ) -> HostedAbiParameterSpec:
+    def _parameter(cls, value: Any, index: int, function_context: str) -> HostedAbiParameterSpec:
         context = f"{function_context}.parameters[{index}]"
         if not isinstance(value, dict):
             raise HostedAbiManifestError(f"{context} must be a table")
@@ -401,9 +402,7 @@ class HostedAbiManifest:
             self.provenance.user_source_marker,
         ):
             if not marker.startswith("compiler:"):
-                raise HostedAbiManifestError(
-                    f"hosted ABI provenance marker is not compiler-authenticated: {marker!r}"
-                )
+                raise HostedAbiManifestError(f"hosted ABI provenance marker is not compiler-authenticated: {marker!r}")
 
         function_names = tuple(function.name for function in self.functions)
         if function_names != tuple(sorted(function_names)):
@@ -413,15 +412,8 @@ class HostedAbiManifest:
         declared_functions = set(self.names.functions)
         if not exact <= declared_functions:
             missing = sorted(exact - declared_functions)
-            raise HostedAbiManifestError(
-                f"exact hosted functions missing from owned function names: {missing!r}"
-            )
-        expected_owned = (
-            declared_functions
-            | set(self.names.macros)
-            | set(self.names.objects)
-            | set(self.names.types)
-        )
+            raise HostedAbiManifestError(f"exact hosted functions missing from owned function names: {missing!r}")
+        expected_owned = declared_functions | set(self.names.macros) | set(self.names.objects) | set(self.names.types)
         if set(self.names.owned) != expected_owned:
             raise HostedAbiManifestError("names.owned differs from the hosted namespace union")
         if not set(self.names.typedefs) <= set(self.names.types):
@@ -439,20 +431,14 @@ class HostedAbiManifest:
         for field in final_sets:
             platform_values = set(getattr(self.platform, field))
             if not platform_values <= final_sets[field]:
-                raise HostedAbiManifestError(
-                    f"platform.{field} contains names outside names.{field}"
-                )
+                raise HostedAbiManifestError(f"platform.{field} contains names outside names.{field}")
 
         index = {function.name: function for function in self.functions}
         for function in self.functions:
             self._validate_function(function)
 
-        source_visible = {
-            helper.name for helper in runtime.helpers if helper.source_visible
-        }
-        runtime_specs = {
-            function.name for function in self.functions if function.origin == "runtime"
-        }
+        source_visible = {helper.name for helper in runtime.helpers if helper.source_visible}
+        runtime_specs = {function.name for function in self.functions if function.origin == "runtime"}
         if runtime_specs != source_visible:
             missing = sorted(source_visible - runtime_specs)
             extra = sorted(runtime_specs - source_visible)
@@ -462,9 +448,7 @@ class HostedAbiManifest:
             )
         adopting = set(self.names.runtime_adopting_helpers)
         if not adopting <= source_visible:
-            raise HostedAbiManifestError(
-                "runtime-adopting helpers must be source-visible runtime helpers"
-            )
+            raise HostedAbiManifestError("runtime-adopting helpers must be source-visible runtime helpers")
         for name in adopting:
             function = index[name]
             semantic = function.semantic_result or function.result
@@ -511,6 +495,8 @@ class HostedAbiManifest:
             cls._validate_type_shape(function.semantic_result, context)
         if function.return_effect not in cls._RETURN_EFFECTS:
             raise HostedAbiManifestError(f"{context} contains an unknown return effect")
+        if function.realtime_effect not in cls._REALTIME_EFFECTS:
+            raise HostedAbiManifestError(f"{context} contains an unknown realtime effect")
         if function.return_effect != "value" and function.result.pointer_depth == 0:
             raise HostedAbiManifestError(f"{context} has a pointer-lifetime scalar result")
         aliasing = function.return_effect == "alias"
@@ -536,9 +522,7 @@ class HostedAbiManifest:
         if function.return_deallocator is not None:
             if function.result.pointer_depth == 0 or aliasing:
                 raise HostedAbiManifestError(f"{context} has an invalid return deallocator")
-        consumed = [
-            parameter for parameter in function.parameters if parameter.effect == "consume"
-        ]
+        consumed = [parameter for parameter in function.parameters if parameter.effect == "consume"]
         if function.raw_lifetime:
             if (
                 not function.parameters
@@ -610,9 +594,7 @@ class HostedAbiManifest:
         return value
 
     @classmethod
-    def _optional_integer(
-        cls, table: dict[str, Any], key: str, context: str
-    ) -> int | None:
+    def _optional_integer(cls, table: dict[str, Any], key: str, context: str) -> int | None:
         return cls._integer(table, key, context) if key in table else None
 
     @staticmethod
@@ -623,9 +605,7 @@ class HostedAbiManifest:
         return value
 
     @classmethod
-    def _optional_string(
-        cls, table: dict[str, Any], key: str, context: str
-    ) -> str | None:
+    def _optional_string(cls, table: dict[str, Any], key: str, context: str) -> str | None:
         return cls._string(table, key, context) if key in table else None
 
     @classmethod
@@ -697,6 +677,7 @@ class HostedAbiCatalogGenerator:
             "    return_alias_shape: str | None",
             "    consume_deallocator: str | None",
             "    return_alias_null_deallocator: str | None",
+            "    realtime_effect: str",
             "",
             "",
             "HOSTED_FUNCTION_ROWS: tuple[GeneratedHostedFunctionRow, ...] = (",
@@ -711,29 +692,17 @@ class HostedAbiCatalogGenerator:
         self._append_python_tuple(lines, "HOSTED_TYPEDEF_NAMES", self._manifest.names.typedefs)
         self._append_python_tuple(lines, "HOSTED_OWNED_NAMES", self._manifest.names.owned)
         self._append_python_tuple(lines, "HOSTED_NATIVE_NAMES", self._manifest.names.native)
-        self._append_python_tuple(
-            lines, "HOSTED_NATIVE_INTERNAL_NAMES", self._manifest.names.native_internal
-        )
+        self._append_python_tuple(lines, "HOSTED_NATIVE_INTERNAL_NAMES", self._manifest.names.native_internal)
         self._append_python_tuple(
             lines,
             "HOSTED_RUNTIME_ADOPTING_HELPERS",
             self._manifest.names.runtime_adopting_helpers,
         )
-        self._append_python_tuple(
-            lines, "HOSTED_PLATFORM_FUNCTION_NAMES", self._manifest.platform.functions
-        )
-        self._append_python_tuple(
-            lines, "HOSTED_PLATFORM_MACRO_NAMES", self._manifest.platform.macros
-        )
-        self._append_python_tuple(
-            lines, "HOSTED_PLATFORM_OBJECT_NAMES", self._manifest.platform.objects
-        )
-        self._append_python_tuple(
-            lines, "HOSTED_PLATFORM_TYPE_NAMES", self._manifest.platform.types
-        )
-        self._append_python_tuple(
-            lines, "HOSTED_PLATFORM_TYPEDEF_NAMES", self._manifest.platform.typedefs
-        )
+        self._append_python_tuple(lines, "HOSTED_PLATFORM_FUNCTION_NAMES", self._manifest.platform.functions)
+        self._append_python_tuple(lines, "HOSTED_PLATFORM_MACRO_NAMES", self._manifest.platform.macros)
+        self._append_python_tuple(lines, "HOSTED_PLATFORM_OBJECT_NAMES", self._manifest.platform.objects)
+        self._append_python_tuple(lines, "HOSTED_PLATFORM_TYPE_NAMES", self._manifest.platform.types)
+        self._append_python_tuple(lines, "HOSTED_PLATFORM_TYPEDEF_NAMES", self._manifest.platform.typedefs)
         lines.extend(
             [
                 f"HOSTED_STDLIB_SOURCE_MARKER = {self._manifest.provenance.stdlib_source_marker!r}",
@@ -745,11 +714,7 @@ class HostedAbiCatalogGenerator:
         return "\n".join(lines)
 
     def _python_function(self, function: HostedAbiFunctionSpec) -> list[str]:
-        semantic = (
-            self._python_type(function.semantic_result)
-            if function.semantic_result is not None
-            else "None"
-        )
+        semantic = self._python_type(function.semantic_result) if function.semantic_result is not None else "None"
         parameters = "None"
         if function.parameters_known:
             if not function.parameters:
@@ -777,8 +742,8 @@ class HostedAbiCatalogGenerator:
             f"        return_deallocator={function.return_deallocator!r},",
             f"        return_alias_shape={function.return_alias_shape!r},",
             f"        consume_deallocator={function.consume_deallocator!r},",
-            "        return_alias_null_deallocator="
-            f"{function.return_alias_null_deallocator!r},",
+            f"        return_alias_null_deallocator={function.return_alias_null_deallocator!r},",
+            f"        realtime_effect={function.realtime_effect!r},",
             "    ),",
         ]
 
@@ -848,6 +813,7 @@ class HostedAbiCatalogGenerator:
             "    public string return_alias_shape;",
             "    public string consume_deallocator;",
             "    public string return_alias_null_deallocator;",
+            "    public string realtime_effect;",
             "",
             "    public GeneratedHostedFunctionRow(",
             "            string name, string origin, GeneratedAbiTypeRow result,",
@@ -857,7 +823,8 @@ class HostedAbiCatalogGenerator:
             "            int return_alias_parameter, string return_alias_null_effect,",
             "            bool raw_lifetime, string return_deallocator,",
             "            string return_alias_shape, string consume_deallocator,",
-            "            string return_alias_null_deallocator) {",
+            "            string return_alias_null_deallocator,",
+            "            string realtime_effect) {",
             "        self.name = name;",
             "        self.origin = origin;",
             "        self.result = result;",
@@ -874,6 +841,7 @@ class HostedAbiCatalogGenerator:
             "        self.return_alias_shape = return_alias_shape;",
             "        self.consume_deallocator = consume_deallocator;",
             "        self.return_alias_null_deallocator = return_alias_null_deallocator;",
+            "        self.realtime_effect = realtime_effect;",
             "    }",
             "}",
             "",
@@ -937,8 +905,7 @@ class HostedAbiCatalogGenerator:
             [
                 "        self.stdlib_source_marker = "
                 f"{self._btrc_string(self._manifest.provenance.stdlib_source_marker)};",
-                "        self.user_source_marker = "
-                f"{self._btrc_string(self._manifest.provenance.user_source_marker)};",
+                f"        self.user_source_marker = {self._btrc_string(self._manifest.provenance.user_source_marker)};",
                 f"        self.fingerprint = {self._btrc_string(self._manifest.fingerprint)};",
             ]
         )
@@ -1002,7 +969,8 @@ class HostedAbiCatalogGenerator:
                 f"            {self._btrc_optional(function.return_deallocator)},",
                 f"            {self._btrc_optional(function.return_alias_shape)},",
                 f"            {self._btrc_optional(function.consume_deallocator)},",
-                f"            {self._btrc_optional(function.return_alias_null_deallocator)}));",
+                f"            {self._btrc_optional(function.return_alias_null_deallocator)},",
+                f"            {self._btrc_string(function.realtime_effect)}));",
             ]
         )
         return lines

@@ -72,6 +72,19 @@ class RuntimeHelperCatalog {
         return self.rows.get(self.indices.get(name)).source_visible;
     }
 
+    public Map<string, bool> realtimeSafeFunctions() {
+        Map<string, bool> safe = {};
+        int index = 0;
+        while (index < self.rows.len) {
+            GeneratedRuntimeHelperRow row = self.rows.get(index);
+            if (row.realtime_effect == "safe") {
+                safe.put(row.name, true);
+            }
+            index = index + 1;
+        }
+        return safe;
+    }
+
     public string helperProvidingType(string typeName) {
         if (!self.typeProviders.has(typeName)) { return ""; }
         return self.typeProviders.get(typeName);

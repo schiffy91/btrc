@@ -311,7 +311,14 @@ class FunctionLowerer:
             self._session.current_return_c_type = previous_return_c_type
             self._session.current_return_owned = previous_return_owned
         self._session.module.function_defs.append(
-            IRFunctionDef(name=c_name, return_type=CType(text=ret_type), params=params, body=body, is_static=is_static)
+            IRFunctionDef(
+                name=c_name,
+                return_type=CType(text=ret_type),
+                params=params,
+                body=body,
+                is_static=is_static,
+                is_realtime=decl.is_realtime,
+            )
         )
 
     @contextmanager

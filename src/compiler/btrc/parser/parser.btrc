@@ -161,11 +161,20 @@ class Parser {
         }
 
         bool is_gpu = false;
+        bool is_realtime = false;
         bool keep_return = false;
         if (tok.type == "AT_GPU") {
             is_gpu = true;
             self.advance();
             tok = self.peek();
+        }
+        if (tok.type == "AT_REALTIME") {
+            is_realtime = true;
+            self.advance();
+            tok = self.peek();
+        }
+        if (is_gpu && is_realtime) {
+            self.failAt("@gpu and @realtime cannot be combined", tok);
         }
         if (tok.type == "KEEP") {
             keep_return = true;
@@ -173,17 +182,17 @@ class Parser {
             tok = self.peek();
         }
 
-        if (tok.type == "INTERFACE" && !is_gpu && !keep_return) {
+        if (tok.type == "INTERFACE" && !is_gpu && !is_realtime && !keep_return) {
             return self.parseInterfaceDecl();
         }
 
-        if (tok.type == "ABSTRACT" && !is_gpu && !keep_return) {
+        if (tok.type == "ABSTRACT" && !is_gpu && !is_realtime && !keep_return) {
             if (self.peekAt(1).type == "CLASS") {
                 return self.parseClassDecl(true);
             }
         }
 
-        if (tok.type == "CLASS" && !is_gpu && !keep_return) {
+        if (tok.type == "CLASS" && !is_gpu && !is_realtime && !keep_return) {
             if (self.peekAt(1).type == "IDENT") {
                 string after = self.peekAt(2).type;
                 if (after == "LBRACE" || after == "LT" || after == "EXTENDS" || after == "IMPLEMENTS") {
@@ -192,7 +201,7 @@ class Parser {
             }
         }
 
-        if (tok.type == "STRUCT" && !is_gpu && !keep_return) {
+        if (tok.type == "STRUCT" && !is_gpu && !is_realtime && !keep_return) {
             string nt = self.peekAt(1).type;
             if (nt == "IDENT") {
                 string after2 = self.peekAt(2).type;
@@ -204,23 +213,23 @@ class Parser {
             }
         }
 
-        if (tok.type == "ENUM" && !is_gpu && !keep_return) {
+        if (tok.type == "ENUM" && !is_gpu && !is_realtime && !keep_return) {
             if (self.peekAt(1).type == "CLASS") {
                 return self.parseRichEnumDecl();
             }
             return self.parseEnumDecl();
         }
 
-        if (tok.type == "TYPEDEF" && !is_gpu && !keep_return) {
+        if (tok.type == "TYPEDEF" && !is_gpu && !is_realtime && !keep_return) {
             return self.parseTypedefDecl();
         }
 
         if (self.isTypeStartTok(tok)) {
-            return self.parseFunctionOrVarDecl(is_gpu, keep_return);
+            return self.parseFunctionOrVarDecl(is_gpu, is_realtime, keep_return);
         }
 
         // Fallback: treat as function/var.
-        return self.parseFunctionOrVarDecl(is_gpu, keep_return);
+        return self.parseFunctionOrVarDecl(is_gpu, is_realtime, keep_return);
     }
 
     /* ---- Import declaration ---- */
@@ -369,6 +378,15 @@ class Parser {
             self.advance();
         }
 
+        bool is_realtime = false;
+        if (self.check("AT_REALTIME")) {
+            is_realtime = true;
+            self.advance();
+        }
+        if (is_gpu && is_realtime) {
+            self.failAt("@gpu and @realtime cannot be combined", self.peek());
+        }
+
         bool keep_return = false;
         if (self.check("KEEP")) {
             keep_return = true;
@@ -380,7 +398,7 @@ class Parser {
         // Constructor: next is '(' -> the "type" is the name.
         if (self.check("LPAREN")) {
             Node constructor = self.parseMethodRest(
-                access, type_expr, type_expr.base, is_gpu,
+                access, type_expr, type_expr.base, is_gpu, is_realtime,
                 tok.line, tok.col, type_expr.line, type_expr.col,
                 is_abstract_method, keep_return);
             constructor.is_constructor = true;
@@ -391,10 +409,14 @@ class Parser {
         string name = nameTok.value;
 
         if (self.check("LT") || self.check("LPAREN")) {
-            return self.parseMethodRest(access, type_expr, name, is_gpu,
+            return self.parseMethodRest(access, type_expr, name, is_gpu, is_realtime,
                                         tok.line, tok.col,
                                         nameTok.line, nameTok.col,
                                         is_abstract_method, keep_return);
+        }
+        if (is_realtime) {
+            self.failAt("@realtime cannot be applied to fields or properties",
+                nameTok);
         }
         self.parseDeclaratorArraySuffix(type_expr);
         if (self.check("LBRACE") && self.isPropertyStart()) {
@@ -420,7 +442,7 @@ class Parser {
     }
 
     public Node parseMethodRest(string access, Node return_type, string name,
-                                bool is_gpu, int line, int col,
+                                bool is_gpu, bool is_realtime, int line, int col,
                                 int name_line, int name_col,
                                 bool is_abstract, bool keep_return) {
         Node n = Node();
@@ -429,6 +451,7 @@ class Parser {
         n.return_type = return_type;
         n.name = name;
         n.is_gpu = is_gpu;
+        n.is_realtime = is_realtime;
         n.is_abstract = is_abstract;
         n.keep_return = keep_return;
         n.line = line;
@@ -726,10 +749,15 @@ class Parser {
         return n;
     }
 
-    public Node parseFunctionOrVarDecl(bool is_gpu, bool keep_return) {
+    public Node parseFunctionOrVarDecl(bool is_gpu, bool is_realtime,
+                                        bool keep_return) {
         Token start = self.peek();
 
         if (self.check("VAR")) {
+            if (is_gpu || is_realtime) {
+                self.failAt((is_gpu ? "@gpu" : "@realtime")
+                    + " cannot be applied to variables", start);
+            }
             self.advance();
             Token nameTok = self.expect("IDENT");
             self.expect("EQ");
@@ -762,6 +790,7 @@ class Parser {
             fn.name = name;
             fn.params = params;
             fn.is_gpu = is_gpu;
+            fn.is_realtime = is_realtime;
             fn.keep_return = keep_return;
             fn.line = start.line;
             fn.col = start.col;
@@ -775,6 +804,10 @@ class Parser {
             fn.body_node = body;
             return fn;
         } else {
+            if (is_gpu || is_realtime) {
+                self.failAt((is_gpu ? "@gpu" : "@realtime")
+                    + " cannot be applied to variables", start);
+            }
             Node vd = Node();
             vd.kind = NK_VAR_DECL_STMT;
             vd.type = type_expr;

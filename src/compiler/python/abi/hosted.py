@@ -133,6 +133,14 @@ class HostedAbiRepository:
     def function(self, name: str) -> HostedFunction | None:
         return self._functions.get(name)
 
+    def realtime_effect(self, name: str) -> str:
+        spec = self.function(name)
+        return spec.realtime_effect if spec is not None else "unknown"
+
+    @property
+    def realtime_safe_names(self) -> frozenset[str]:
+        return frozenset(name for name, spec in self._functions.items() if spec.realtime_effect == "safe")
+
     def owned_name(self, name: str) -> bool:
         return name in self._owned
 

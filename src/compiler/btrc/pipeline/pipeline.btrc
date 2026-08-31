@@ -1,5 +1,6 @@
 /* Instance-owned orchestration for the self-hosted compiler pipeline. */
 
+import std.map;
 import std.strings;
 import std.vector;
 import ../ir/stage.btrc;
@@ -93,6 +94,27 @@ class CompilerPipeline {
             runtimeHelpers,
             sourcePath, resolved.stdlibLineCount, resolved.userLines);
         IRModule module = lowerer.lower(program);
+        bool hasRealtimeRoot = false;
+        int realtimeIndex = 0;
+        while (realtimeIndex < module.functions.len) {
+            if (module.functions.get(realtimeIndex).is_realtime) {
+                hasRealtimeRoot = true;
+            }
+            realtimeIndex = realtimeIndex + 1;
+        }
+        if (hasRealtimeRoot) {
+            module.realtime_safe_externals =
+                self.hostedAbi.realtimeSafeFunctions();
+            Map<string, bool> runtimeRealtimeSafe =
+                runtimeHelpers.realtimeSafeFunctions();
+            Vector<string> runtimeSafeNames = runtimeRealtimeSafe.keys();
+            int runtimeSafeIndex = 0;
+            while (runtimeSafeIndex < runtimeSafeNames.len) {
+                module.realtime_safe_externals.put(
+                    runtimeSafeNames.get(runtimeSafeIndex), true);
+                runtimeSafeIndex = runtimeSafeIndex + 1;
+            }
+        }
         SetjmpEffectAnalysis setjmpEffects =
             SetjmpEffectAnalysis(self.hostedAbi);
         SetjmpSafetyPlanner setjmpSafety =

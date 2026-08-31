@@ -112,7 +112,8 @@
   -- AT_<NAME> token. Only annotations listed here are recognized.
 
   @annotations {
-    gpu    -- marks a function as a GPU compute kernel
+    gpu       -- marks a function as a GPU compute kernel
+    realtime  -- requires a transitively realtime-safe function body
   }
 }
 

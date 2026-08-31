@@ -72,6 +72,7 @@ class HostedFunction:
     return_alias_shape: str | None = None
     consume_deallocator: str | None = None
     return_alias_null_deallocator: str | None = None
+    realtime_effect: str = "unknown"
 
     @classmethod
     def from_generated(cls, row: GeneratedHostedFunctionRow) -> HostedFunction:
@@ -98,6 +99,7 @@ class HostedFunction:
             return_alias_shape=row.return_alias_shape,
             consume_deallocator=row.consume_deallocator,
             return_alias_null_deallocator=row.return_alias_null_deallocator,
+            realtime_effect=getattr(row, "realtime_effect", "unknown"),
         )
 
     def __post_init__(self) -> None:
@@ -125,6 +127,21 @@ class HostedFunction:
             RETURN_OPAQUE,
         }:
             raise ValueError("hosted ABI contains an unknown return effect")
+        if self.realtime_effect not in {
+            "safe",
+            "allocation",
+            "arc",
+            "exceptions",
+            "strings",
+            "collections",
+            "locks",
+            "logging",
+            "blocking",
+            "io",
+            "runtime",
+            "unknown",
+        }:
+            raise ValueError("hosted ABI contains an unknown realtime effect")
         if self.return_effect != RETURN_VALUE and self.result.pointer_depth == 0:
             raise ValueError("hosted ABI pointer-lifetime return effect requires a pointer result")
         aliasing = self.return_effect == RETURN_ALIAS

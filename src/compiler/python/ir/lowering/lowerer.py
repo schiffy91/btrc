@@ -55,10 +55,15 @@ class IRLowerer:
         source_map: SourceMap | None = None,
         type_identity: TypeIdentity | None = None,
         runtime_catalog: RuntimeHelperCatalog | None = None,
+        realtime_safe_externals: frozenset[str] = frozenset(),
     ) -> None:
         identity = type_identity or TypeIdentity()
         catalog = runtime_catalog or RuntimeHelperCatalog()
-        module = IRModule(freestanding=freestanding, debug=debug)
+        module = IRModule(
+            freestanding=freestanding,
+            debug=debug,
+            realtime_safe_externals=set(realtime_safe_externals),
+        )
         session = LoweringSession(
             module=module,
             node_types=analyzed.node_types,

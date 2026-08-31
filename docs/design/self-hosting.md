@@ -9,7 +9,7 @@ Both consume `src/language/grammar.ebnf` and `src/language/ast.asdl`, then run
 lexer, parser, analyzer, IR generation, optimization, and C emission. Language
 tests share the same source fixtures and golden runtime output.
 
-The self-hosted destination is an exact 88-file `.btrc` inventory: 82
+The self-hosted destination is an exact 90-file `.btrc` inventory: 84
 compiler/generated files and six explicit developer-tool files. At the package
 root, `compiler.btrc` is the public application object and `btrcc_main.btrc` is
 the only production process entry point. The file-by-file inventory is recorded

@@ -256,7 +256,7 @@ prove the strict-import path.
 
 ### File Structure
 
-The destination contains exactly 81 production Python files:
+The destination contains exactly 82 production Python files:
 
 ```text
 src/compiler/python/
@@ -315,6 +315,7 @@ src/compiler/python/
     gpu.py                        GpuAnalyzer
     macros.py                     SourceMacroAnalyzer/Namespace
     generated_symbols.py          GeneratedSymbolRegistry
+    realtime.py                   RealtimeAnalyzer/fixed-point effect proof
 
   abi/
     __init__.py
@@ -379,7 +380,7 @@ and their golden output live alongside the topic-organized corpus in
 ## btrc Compiler (src/compiler/btrc/)
 
 The self-hosted compiler implements the same six-stage pipeline with fat tagged
-AST and IR nodes. Its destination contains exactly 88 `.btrc` files: 82
+AST and IR nodes. Its destination contains exactly 90 `.btrc` files: 84
 compiler/generated files and six explicit developer-tool files. Only
 `compiler.btrc` and the thin `btrcc_main.btrc` process entry point remain at the
 package root. The owned packages are:
@@ -402,7 +403,7 @@ ir/runtime/                       runtime catalog and reference collector
 ir/lowering/                      context, composition, and domain lowerers
 ir/lowering/ownership/            six ownership lowerers
 ir/gpu/                           WGSL emitter and GPU pipeline
-ir/optimization/                  optimizer and cleanup validation
+ir/optimization/                  optimizer, cleanup, and realtime validation
 ir/optimization/setjmp/           effect analysis and safety planning
 tools/                            five entry points plus the ASDL schema owner
 ```
@@ -417,7 +418,7 @@ and the parse inspection tool calls that owner; generated `Node` data owns no
 formatting behavior. The unified generator check structurally verifies that
 the handwritten renderer covers every ASDL constructor and field.
 
-The exact 88-file inventory is normative in
+The exact 90-file inventory is normative in
 `docs/design/compiler-structure.md`. Stage manifests contain imports only;
 implementation behavior belongs to the concrete owner. The unified language
 runner executes the corpus through both compilers, and the bootstrap suite

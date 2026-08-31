@@ -67,6 +67,7 @@ class FunctionDecl:
     params: list[Param] = _dc_field(default_factory=list)
     body: Optional[Block] = None
     is_gpu: bool = False
+    is_realtime: bool = False
     keep_return: bool = False
     name_line: int = _dc_field(default=0, compare=False)
     name_col: int = _dc_field(default=0, compare=False)
@@ -196,6 +197,7 @@ class MethodDecl:
     params: list[Param] = _dc_field(default_factory=list)
     body: Optional[Block] = None
     is_gpu: bool = False
+    is_realtime: bool = False
     is_abstract: bool = False
     keep_return: bool = False
     name_line: int = _dc_field(default=0, compare=False)

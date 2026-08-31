@@ -75,6 +75,7 @@ class AstCanonicalRenderer {
             out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.is_gpu);
+            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.is_realtime);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keep_return);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "name_col=" + self.canonInt(node.name_col);
@@ -191,6 +192,7 @@ class AstCanonicalRenderer {
             out = out + "\n" + self.spaces(2 * (d + 1)) + "params=" + self.canonNodeList(node.params, d + 1);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "body=" + self.canonNode(node.body_node, d + 1);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "is_gpu=" + self.canonBool(node.is_gpu);
+            out = out + "\n" + self.spaces(2 * (d + 1)) + "is_realtime=" + self.canonBool(node.is_realtime);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "is_abstract=" + self.canonBool(node.is_abstract);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "keep_return=" + self.canonBool(node.keep_return);
             out = out + "\n" + self.spaces(2 * (d + 1)) + "name_line=" + self.canonInt(node.name_line);

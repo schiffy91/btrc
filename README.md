@@ -124,6 +124,7 @@ archive layout and cross-translation-unit ownership contract. Run
 | No string methods | `.len()`, `.contains()`, `.split()`, `.trim()`, `.toUpper()`, and many more |
 | No threads | `spawn` + `Thread<T>` + `Mutex<T>` |
 | No GPU compute | `@gpu` functions transpile to WGSL shaders with auto-generated WebGPU boilerplate |
+| Unbounded callback work | `@realtime` proves the complete reachable call graph is realtime-safe |
 | Null pointer chaos | Nullable types (`T?`), optional chaining `?.`, null coalescing `??` |
 | Manual memory only | Automatic reference counting with `keep`/`release` + cycle detection |
 
@@ -851,6 +852,27 @@ float[] sgdUpdate(float[] weights, float[] gradients, float lr) {
 
 For a full example that combines `@gpu` kernels with btrc classes, see [`examples/sgd/sgd.btrc`](examples/sgd/sgd.btrc) -- GPU-accelerated stochastic gradient descent that learns `y = 2x + 3` from training data.
 
+### Realtime Functions
+
+`@realtime` is a compile-time contract for code that may run on an audio or
+other hard-realtime thread. Both compilers follow every statically resolved
+BTRC call and reject the root if any reachable path allocates, performs ARC,
+throws, uses strings or collections, locks, logs, blocks, does I/O, or reaches
+an unknown external/indirect call. Diagnostics name the exact operation and
+full call path. Hosted and runtime calls are safe only when their generated
+manifest row explicitly says so; an absent summary is unsafe.
+
+```
+@realtime void applyGain(float* samples, int count, float gain) {
+    for (int index = 0; index < count; index++) {
+        samples[index] = samples[index] * gain;
+    }
+}
+```
+
+See [`examples/realtime_gain.btrc`](examples/realtime_gain.btrc) for a complete
+strict-C11 standalone program.
+
 ### 3D Game Engine
 
 btrc includes a Unity-inspired 3D game engine built on WebGPU rendering. A ball on a ground plane with WASD movement, space to jump, real-time shadows, and SDF raymarching -- all in ~570 lines of btrc across 11 engine modules.
@@ -1248,6 +1270,7 @@ src/
     vscode/                    # Extension source, config, assets, packaging owners
 
 examples/
+  realtime_gain.btrc             # standalone @realtime raw-buffer kernel
   game/                        # 3D game engine -- Unity-inspired, WGSL raymarching
     engine/                    # Engine modules: Camera, Light, Material, Ground, Sky, Scene, Input, Time, GameObject, Renderer
     game.btrc                  # The ball game (WASD + space to jump)

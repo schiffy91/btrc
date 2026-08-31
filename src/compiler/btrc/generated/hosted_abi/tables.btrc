@@ -47,6 +47,7 @@ class GeneratedHostedFunctionRow {
     public string return_alias_shape;
     public string consume_deallocator;
     public string return_alias_null_deallocator;
+    public string realtime_effect;
 
     public GeneratedHostedFunctionRow(
             string name, string origin, GeneratedAbiTypeRow result,
@@ -56,7 +57,8 @@ class GeneratedHostedFunctionRow {
             int return_alias_parameter, string return_alias_null_effect,
             bool raw_lifetime, string return_deallocator,
             string return_alias_shape, string consume_deallocator,
-            string return_alias_null_deallocator) {
+            string return_alias_null_deallocator,
+            string realtime_effect) {
         self.name = name;
         self.origin = origin;
         self.result = result;
@@ -73,6 +75,7 @@ class GeneratedHostedFunctionRow {
         self.return_alias_shape = return_alias_shape;
         self.consume_deallocator = consume_deallocator;
         self.return_alias_null_deallocator = return_alias_null_deallocator;
+        self.realtime_effect = realtime_effect;
     }
 }
 
@@ -190,7 +193,7 @@ class GeneratedHostedAbiData {
         self.push_platform_typedef_names0();
         self.stdlib_source_marker = "compiler:stdlib";
         self.user_source_marker = "compiler:user";
-        self.fingerprint = "61a4f81fa38349bf234d6cb5b582927e69dd7b97e32f27f14a2356a4da648f2e";
+        self.fingerprint = "c5447e3aa9a54993c5fc080d1092b370d2d741b04122b4c209bdb22bd3c571d9";
     }
 
     private void pushFunctions0() {
@@ -212,7 +215,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_close_descriptors_except",
             "runtime",
@@ -232,7 +236,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_close_descriptors_except_many",
             "runtime",
@@ -253,7 +258,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_close_descriptors_from",
             "runtime",
@@ -272,7 +278,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_controlling_terminal_descriptor",
             "runtime",
@@ -289,7 +296,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_descriptor_close_bound",
             "runtime",
@@ -306,7 +314,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_enter_working_directory_descriptor",
             "runtime",
@@ -325,7 +334,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_exec_executable_descriptor",
             "runtime",
@@ -346,7 +356,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_exec_signal_guard_begin",
             "runtime",
@@ -365,7 +376,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_exec_signal_guard_child_end",
             "runtime",
@@ -384,7 +396,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_exec_signal_guard_parent_end",
             "runtime",
@@ -403,7 +416,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_move_descriptor_outside_stdio",
             "runtime",
@@ -422,7 +436,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_posix_spawn_cloexec",
             "runtime",
@@ -451,7 +466,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_process_descriptors_supported",
             "runtime",
@@ -468,7 +484,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_safe_calloc",
             "runtime",
@@ -488,7 +505,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_safe_realloc",
             "runtime",
@@ -508,7 +526,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "free",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_str_track",
             "runtime",
@@ -527,7 +546,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_strdup",
             "runtime",
@@ -546,7 +566,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_string_adopt",
             "runtime",
@@ -565,7 +586,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_string_alloc",
             "runtime",
@@ -584,7 +606,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_string_length",
             "runtime",
@@ -603,7 +626,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_string_live_count",
             "runtime",
@@ -620,7 +644,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_string_or_empty",
             "runtime",
@@ -639,7 +664,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_terminal_adopt_foreground",
             "runtime",
@@ -659,7 +685,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_terminal_foreground_group",
             "runtime",
@@ -678,7 +705,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_validate_executable_descriptor",
             "runtime",
@@ -697,7 +725,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "__btrc_validate_working_directory_descriptor",
             "runtime",
@@ -716,7 +745,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "abort",
             "stdlib",
@@ -733,7 +763,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "abs",
             "stdlib",
@@ -752,7 +783,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "safe"));
         self.functions.push(GeneratedHostedFunctionRow(
             "accept",
             "posix",
@@ -773,7 +805,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "access",
             "posix",
@@ -793,7 +826,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "acos",
             "math",
@@ -812,7 +846,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "acosf",
             "math",
@@ -831,7 +866,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "acosh",
             "math",
@@ -850,7 +886,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "acoshf",
             "math",
@@ -869,7 +906,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "acoshl",
             "math",
@@ -888,7 +926,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "acosl",
             "math",
@@ -907,7 +946,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "aligned_alloc",
             "stdlib",
@@ -927,7 +967,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "asin",
             "math",
@@ -946,7 +987,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "asinf",
             "math",
@@ -965,7 +1007,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions1() {
@@ -987,7 +1030,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "asinhf",
             "math",
@@ -1006,7 +1050,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "asinhl",
             "math",
@@ -1025,7 +1070,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "asinl",
             "math",
@@ -1044,7 +1090,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atan",
             "math",
@@ -1063,7 +1110,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atan2",
             "math",
@@ -1083,7 +1131,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atan2f",
             "math",
@@ -1103,7 +1152,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atan2l",
             "math",
@@ -1123,7 +1173,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atanf",
             "math",
@@ -1142,7 +1193,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atanh",
             "math",
@@ -1161,7 +1213,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atanhf",
             "math",
@@ -1180,7 +1233,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atanhl",
             "math",
@@ -1199,7 +1253,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atanl",
             "math",
@@ -1218,7 +1273,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atof",
             "stdlib",
@@ -1237,7 +1293,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atoi",
             "stdlib",
@@ -1256,7 +1313,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atol",
             "stdlib",
@@ -1275,7 +1333,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "atoll",
             "stdlib",
@@ -1294,7 +1353,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "bind",
             "posix",
@@ -1315,7 +1375,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "bsearch",
             "stdlib",
@@ -1338,7 +1399,8 @@ class GeneratedHostedAbiData {
             "",
             "interior",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_acquire_compute",
             "native_gpu",
@@ -1355,7 +1417,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_available",
             "native_gpu",
@@ -1372,7 +1435,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_begin_frame",
             "native_gpu",
@@ -1395,7 +1459,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_bind_group_destroy",
             "native_gpu",
@@ -1414,7 +1479,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gpu_bind_group_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_buffer_destroy",
             "native_gpu",
@@ -1433,7 +1499,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gpu_buffer_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_compute_pipeline_destroy",
             "native_gpu",
@@ -1452,7 +1519,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gpu_compute_pipeline_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_create_bind_group",
             "native_gpu",
@@ -1474,7 +1542,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_bind_group_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_create_buffer",
             "native_gpu",
@@ -1495,7 +1564,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_buffer_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_create_compute_pipeline",
             "native_gpu",
@@ -1516,7 +1586,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_compute_pipeline_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_create_render_pipeline",
             "native_gpu",
@@ -1538,7 +1609,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_pipeline_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_create_shader",
             "native_gpu",
@@ -1558,7 +1630,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_shader_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_create_uniform",
             "native_gpu",
@@ -1578,7 +1651,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_uniform_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_destroy",
             "native_gpu",
@@ -1597,7 +1671,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gpu_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_dispatch",
             "native_gpu",
@@ -1619,7 +1694,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_draw",
             "native_gpu",
@@ -1640,7 +1716,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_draw_uniform",
             "native_gpu",
@@ -1662,7 +1739,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_end_frame",
             "native_gpu",
@@ -1681,7 +1759,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_get_time",
             "native_gpu",
@@ -1698,7 +1777,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_init",
             "native_gpu",
@@ -1717,7 +1797,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_init_compute",
             "native_gpu",
@@ -1734,7 +1815,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_pipeline_destroy",
             "native_gpu",
@@ -1753,7 +1835,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gpu_pipeline_destroy",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions2() {
@@ -1778,7 +1861,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_read_buffer_checked",
             "native_gpu",
@@ -1800,7 +1884,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_set_uniform",
             "native_gpu",
@@ -1821,7 +1906,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_shader_destroy",
             "native_gpu",
@@ -1840,7 +1926,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gpu_shader_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_uniform_destroy",
             "native_gpu",
@@ -1859,7 +1946,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gpu_uniform_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_upload_uniform",
             "native_gpu",
@@ -1879,7 +1967,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_window_create",
             "native_gpu",
@@ -1900,7 +1989,8 @@ class GeneratedHostedAbiData {
             "btrc_gpu_window_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_window_destroy",
             "native_gpu",
@@ -1919,7 +2009,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gpu_window_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_window_height",
             "native_gpu",
@@ -1938,7 +2029,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_window_is_open",
             "native_gpu",
@@ -1957,7 +2049,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_window_key_pressed",
             "native_gpu",
@@ -1977,7 +2070,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_window_poll",
             "native_gpu",
@@ -1996,7 +2090,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_window_width",
             "native_gpu",
@@ -2015,7 +2110,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gpu_write_buffer",
             "native_gpu",
@@ -2037,7 +2133,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_blend_rect",
             "native_gui",
@@ -2061,7 +2158,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_clear",
             "native_gui",
@@ -2081,7 +2179,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_draw_text",
             "native_gui",
@@ -2105,7 +2204,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_fill_rect",
             "native_gui",
@@ -2129,7 +2229,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_font_destroy",
             "native_gui",
@@ -2148,7 +2249,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gui_font_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_font_load",
             "native_gui",
@@ -2168,7 +2270,8 @@ class GeneratedHostedAbiData {
             "btrc_gui_font_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_get_pixel",
             "native_gui",
@@ -2189,7 +2292,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_save_ppm",
             "native_gui",
@@ -2209,7 +2313,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_set_font",
             "native_gui",
@@ -2228,7 +2333,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_surface_create",
             "native_gui",
@@ -2248,7 +2354,8 @@ class GeneratedHostedAbiData {
             "btrc_gui_surface_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_surface_destroy",
             "native_gui",
@@ -2267,7 +2374,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gui_surface_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_surface_height",
             "native_gui",
@@ -2286,7 +2394,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_surface_resize",
             "native_gui",
@@ -2307,7 +2416,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_surface_width",
             "native_gui",
@@ -2326,7 +2436,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_text_height",
             "native_gui",
@@ -2345,7 +2456,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_text_width",
             "native_gui",
@@ -2365,7 +2477,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_close",
             "native_gui",
@@ -2384,7 +2497,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_gui_window_close",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_fb_height",
             "native_gui",
@@ -2403,7 +2517,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_fb_width",
             "native_gui",
@@ -2422,7 +2537,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_mouse_down",
             "native_gui",
@@ -2441,7 +2557,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_mouse_x",
             "native_gui",
@@ -2460,7 +2577,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_mouse_y",
             "native_gui",
@@ -2479,7 +2597,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_open",
             "native_gui",
@@ -2500,7 +2619,8 @@ class GeneratedHostedAbiData {
             "btrc_gui_window_close",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_poll",
             "native_gui",
@@ -2519,7 +2639,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_present",
             "native_gui",
@@ -2539,7 +2660,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_gui_window_should_close",
             "native_gui",
@@ -2558,7 +2680,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions3() {
@@ -2584,7 +2707,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_add_item",
             "native_tray",
@@ -2606,7 +2730,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_add_separator",
             "native_tray",
@@ -2625,7 +2750,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_create",
             "native_tray",
@@ -2644,7 +2770,8 @@ class GeneratedHostedAbiData {
             "btrc_tray_destroy",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_destroy",
             "native_tray",
@@ -2663,7 +2790,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "btrc_tray_destroy",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_request_quit",
             "native_tray",
@@ -2682,7 +2810,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_run_iteration",
             "native_tray",
@@ -2702,7 +2831,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_set_icon",
             "native_tray",
@@ -2722,7 +2852,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_set_item_checked",
             "native_tray",
@@ -2743,7 +2874,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_set_menu",
             "native_tray",
@@ -2762,7 +2894,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_set_tooltip",
             "native_tray",
@@ -2782,7 +2915,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_should_quit",
             "native_tray",
@@ -2801,7 +2935,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_show",
             "native_tray",
@@ -2820,7 +2955,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "btrc_tray_take_command",
             "native_tray",
@@ -2839,7 +2975,8 @@ class GeneratedHostedAbiData {
             "",
             "dependent",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "calloc",
             "stdlib",
@@ -2859,7 +2996,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "cbrt",
             "math",
@@ -2878,7 +3016,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "cbrtf",
             "math",
@@ -2897,7 +3036,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "cbrtl",
             "math",
@@ -2916,7 +3056,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "ceil",
             "math",
@@ -2935,7 +3076,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "ceilf",
             "math",
@@ -2954,7 +3096,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "ceill",
             "math",
@@ -2973,7 +3116,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "chdir",
             "posix",
@@ -2992,7 +3136,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "chmod",
             "posix",
@@ -3012,7 +3157,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "clearerr",
             "stdio",
@@ -3031,7 +3177,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "clock",
             "posix_process",
@@ -3048,7 +3195,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "clock_gettime",
             "posix_process",
@@ -3068,7 +3216,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "close",
             "posix",
@@ -3087,7 +3236,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "closedir",
             "posix",
@@ -3106,7 +3256,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "closedir",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "copysign",
             "math",
@@ -3126,7 +3277,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "copysignf",
             "math",
@@ -3146,7 +3298,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "copysignl",
             "math",
@@ -3166,7 +3319,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "cos",
             "math",
@@ -3185,7 +3339,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "cosf",
             "math",
@@ -3204,7 +3359,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "cosh",
             "math",
@@ -3223,7 +3379,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "coshf",
             "math",
@@ -3242,7 +3399,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "coshl",
             "math",
@@ -3261,7 +3419,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "cosl",
             "math",
@@ -3280,7 +3439,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "dirfd",
             "posix",
@@ -3299,7 +3459,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "dup2",
             "posix",
@@ -3319,7 +3480,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "erf",
             "math",
@@ -3338,7 +3500,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions4() {
@@ -3360,7 +3523,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "erfcf",
             "math",
@@ -3379,7 +3543,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "erfcl",
             "math",
@@ -3398,7 +3563,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "erff",
             "math",
@@ -3417,7 +3583,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "erfl",
             "math",
@@ -3436,7 +3603,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "execve",
             "posix_process",
@@ -3457,7 +3625,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "exit",
             "stdlib",
@@ -3476,7 +3645,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "exp",
             "math",
@@ -3495,7 +3665,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "exp2",
             "math",
@@ -3514,7 +3685,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "exp2f",
             "math",
@@ -3533,7 +3705,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "exp2l",
             "math",
@@ -3552,7 +3725,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "expf",
             "math",
@@ -3571,7 +3745,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "expl",
             "math",
@@ -3590,7 +3765,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "expm1",
             "math",
@@ -3609,7 +3785,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "expm1f",
             "math",
@@ -3628,7 +3805,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "expm1l",
             "math",
@@ -3647,7 +3825,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fabs",
             "math",
@@ -3666,7 +3845,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fabsf",
             "math",
@@ -3685,7 +3865,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fabsl",
             "math",
@@ -3704,7 +3885,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fchmod",
             "posix",
@@ -3724,7 +3906,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fclose",
             "stdio",
@@ -3743,7 +3926,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "fclose",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fcntl",
             "posix",
@@ -3763,7 +3947,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fdim",
             "math",
@@ -3783,7 +3968,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fdimf",
             "math",
@@ -3803,7 +3989,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fdiml",
             "math",
@@ -3823,7 +4010,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fdopendir",
             "posix",
@@ -3842,7 +4030,8 @@ class GeneratedHostedAbiData {
             "closedir",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "feof",
             "stdio",
@@ -3861,7 +4050,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "ferror",
             "stdio",
@@ -3880,7 +4070,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fflush",
             "stdio",
@@ -3899,7 +4090,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fgetc",
             "stdio",
@@ -3918,7 +4110,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fgets",
             "stdio",
@@ -3939,7 +4132,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fileno",
             "stdio",
@@ -3958,7 +4152,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "flockfile",
             "stdio",
@@ -3977,7 +4172,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "floor",
             "math",
@@ -3996,7 +4192,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "floorf",
             "math",
@@ -4015,7 +4212,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "floorl",
             "math",
@@ -4034,7 +4232,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fma",
             "math",
@@ -4055,7 +4254,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fmaf",
             "math",
@@ -4076,7 +4276,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fmal",
             "math",
@@ -4097,7 +4298,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fmax",
             "math",
@@ -4117,7 +4319,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions5() {
@@ -4140,7 +4343,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fmaxl",
             "math",
@@ -4160,7 +4364,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fmin",
             "math",
@@ -4180,7 +4385,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fminf",
             "math",
@@ -4200,7 +4406,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fminl",
             "math",
@@ -4220,7 +4427,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fmod",
             "math",
@@ -4240,7 +4448,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fmodf",
             "math",
@@ -4260,7 +4469,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fmodl",
             "math",
@@ -4280,7 +4490,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fnmatch",
             "posix",
@@ -4301,7 +4512,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fopen",
             "stdio",
@@ -4321,7 +4533,8 @@ class GeneratedHostedAbiData {
             "fclose",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fork",
             "posix_process",
@@ -4338,7 +4551,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "forkpty",
             "posix_process",
@@ -4360,7 +4574,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fprintf",
             "stdio",
@@ -4380,7 +4595,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fputc",
             "stdio",
@@ -4400,7 +4616,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fputs",
             "stdio",
@@ -4420,7 +4637,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fread",
             "stdio",
@@ -4442,7 +4660,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "free",
             "stdlib",
@@ -4461,7 +4680,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "free",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "freopen",
             "stdio",
@@ -4482,7 +4702,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fseek",
             "stdio",
@@ -4503,7 +4724,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fstat",
             "posix",
@@ -4523,7 +4745,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fstatat",
             "posix",
@@ -4545,7 +4768,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fsync",
             "posix",
@@ -4564,7 +4788,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "ftell",
             "stdio",
@@ -4583,7 +4808,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "funlockfile",
             "stdio",
@@ -4602,7 +4828,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "fwrite",
             "stdio",
@@ -4624,7 +4851,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "getc",
             "stdio",
@@ -4643,7 +4871,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "getchar",
             "stdio",
@@ -4660,7 +4889,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "getcwd",
             "posix",
@@ -4680,7 +4910,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            "free"));
+            "free",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "getenv",
             "stdlib",
@@ -4699,7 +4930,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "geteuid",
             "posix_process",
@@ -4716,7 +4948,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "getpid",
             "posix_process",
@@ -4733,7 +4966,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "getpwnam_r",
             "posix_process",
@@ -4756,7 +4990,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "getrlimit",
             "posix_process",
@@ -4776,7 +5011,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "hypot",
             "math",
@@ -4796,7 +5032,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "hypotf",
             "math",
@@ -4816,7 +5053,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "hypotl",
             "math",
@@ -4836,7 +5074,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "initgroups",
             "posix_process",
@@ -4856,7 +5095,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isalnum",
             "ctype",
@@ -4875,7 +5115,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isalpha",
             "ctype",
@@ -4894,7 +5135,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isatty",
             "posix_process",
@@ -4913,7 +5155,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions6() {
@@ -4935,7 +5178,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "iscntrl",
             "ctype",
@@ -4954,7 +5198,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isdigit",
             "ctype",
@@ -4973,7 +5218,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isgraph",
             "ctype",
@@ -4992,7 +5238,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "islower",
             "ctype",
@@ -5011,7 +5258,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isprint",
             "ctype",
@@ -5030,7 +5278,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "ispunct",
             "ctype",
@@ -5049,7 +5298,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isspace",
             "ctype",
@@ -5068,7 +5318,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isupper",
             "ctype",
@@ -5087,7 +5338,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "isxdigit",
             "ctype",
@@ -5106,7 +5358,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "kill",
             "posix_process",
@@ -5126,7 +5379,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "labs",
             "stdlib",
@@ -5145,7 +5399,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "lgamma",
             "math",
@@ -5164,7 +5419,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "lgammaf",
             "math",
@@ -5183,7 +5439,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "lgammal",
             "math",
@@ -5202,7 +5459,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "listen",
             "posix",
@@ -5222,7 +5480,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "llabs",
             "stdlib",
@@ -5241,7 +5500,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "localtime_r",
             "posix",
@@ -5261,7 +5521,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log",
             "math",
@@ -5280,7 +5541,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log10",
             "math",
@@ -5299,7 +5561,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log10f",
             "math",
@@ -5318,7 +5581,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log10l",
             "math",
@@ -5337,7 +5601,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log1p",
             "math",
@@ -5356,7 +5621,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log1pf",
             "math",
@@ -5375,7 +5641,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log1pl",
             "math",
@@ -5394,7 +5661,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log2",
             "math",
@@ -5413,7 +5681,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log2f",
             "math",
@@ -5432,7 +5701,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "log2l",
             "math",
@@ -5451,7 +5721,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "logb",
             "math",
@@ -5470,7 +5741,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "logbf",
             "math",
@@ -5489,7 +5761,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "logbl",
             "math",
@@ -5508,7 +5781,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "logf",
             "math",
@@ -5527,7 +5801,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "logl",
             "math",
@@ -5546,7 +5821,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "lseek",
             "posix",
@@ -5567,7 +5843,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "lstat",
             "posix",
@@ -5587,7 +5864,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "malloc",
             "stdlib",
@@ -5606,7 +5884,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "mblen",
             "stdlib",
@@ -5626,7 +5905,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "memchr",
             "string",
@@ -5647,7 +5927,8 @@ class GeneratedHostedAbiData {
             "",
             "interior",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "memcmp",
             "string",
@@ -5668,7 +5949,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "memcpy",
             "string",
@@ -5689,7 +5971,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions7() {
@@ -5713,7 +5996,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "memset",
             "string",
@@ -5734,7 +6018,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "mkdir",
             "posix",
@@ -5754,7 +6039,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "mkdtemp",
             "stdlib",
@@ -5773,7 +6059,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "nanosleep",
             "posix_process",
@@ -5793,7 +6080,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "nearbyint",
             "math",
@@ -5812,7 +6100,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "nearbyintf",
             "math",
@@ -5831,7 +6120,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "nearbyintl",
             "math",
@@ -5850,7 +6140,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "nextafter",
             "math",
@@ -5870,7 +6161,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "nextafterf",
             "math",
@@ -5890,7 +6182,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "nextafterl",
             "math",
@@ -5910,7 +6203,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "open",
             "posix",
@@ -5930,7 +6224,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "openat",
             "posix",
@@ -5951,7 +6246,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "opendir",
             "posix",
@@ -5970,7 +6266,8 @@ class GeneratedHostedAbiData {
             "closedir",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "pclose",
             "stdio",
@@ -5989,7 +6286,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "pclose",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "perror",
             "stdio",
@@ -6008,7 +6306,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "pipe",
             "posix_process",
@@ -6027,7 +6326,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "poll",
             "posix_process",
@@ -6048,7 +6348,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "popen",
             "stdio",
@@ -6068,7 +6369,8 @@ class GeneratedHostedAbiData {
             "pclose",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "pow",
             "math",
@@ -6088,7 +6390,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "powf",
             "math",
@@ -6108,7 +6411,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "powl",
             "math",
@@ -6128,7 +6432,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "printf",
             "stdio",
@@ -6147,7 +6452,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "pthread_join",
             "concurrency",
@@ -6167,7 +6473,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "pthread_mutex_destroy",
             "concurrency",
@@ -6186,7 +6493,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "pthread_mutex_init",
             "concurrency",
@@ -6206,7 +6514,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "pthread_mutex_lock",
             "concurrency",
@@ -6225,7 +6534,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "pthread_mutex_unlock",
             "concurrency",
@@ -6244,7 +6554,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "putc",
             "stdio",
@@ -6264,7 +6575,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "putchar",
             "stdio",
@@ -6283,7 +6595,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "puts",
             "stdio",
@@ -6302,7 +6615,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "qsort",
             "stdlib",
@@ -6324,7 +6638,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "quick_exit",
             "stdlib",
@@ -6343,7 +6658,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "raise",
             "posix_process",
@@ -6362,7 +6678,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "rand",
             "stdlib",
@@ -6379,7 +6696,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "read",
             "posix",
@@ -6400,7 +6718,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "readdir",
             "posix",
@@ -6419,7 +6738,8 @@ class GeneratedHostedAbiData {
             "",
             "dependent",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "readlink",
             "posix",
@@ -6440,7 +6760,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "realloc",
             "stdlib",
@@ -6460,7 +6781,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "free",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "reallocarray",
             "stdlib",
@@ -6481,7 +6803,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "free",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions8() {
@@ -6504,7 +6827,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            "free"));
+            "free",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "recv",
             "posix",
@@ -6526,7 +6850,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "regcomp",
             "posix",
@@ -6547,7 +6872,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "regexec",
             "posix",
@@ -6570,7 +6896,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "regfree",
             "posix",
@@ -6589,7 +6916,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "remainder",
             "math",
@@ -6609,7 +6937,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "remainderf",
             "math",
@@ -6629,7 +6958,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "remainderl",
             "math",
@@ -6649,7 +6979,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "remove",
             "stdio",
@@ -6668,7 +6999,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "rename",
             "stdio",
@@ -6688,7 +7020,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "rewind",
             "stdio",
@@ -6707,7 +7040,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "rint",
             "math",
@@ -6726,7 +7060,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "rintf",
             "math",
@@ -6745,7 +7080,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "rintl",
             "math",
@@ -6764,7 +7100,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "rmdir",
             "posix",
@@ -6783,7 +7120,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "round",
             "math",
@@ -6802,7 +7140,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "roundf",
             "math",
@@ -6821,7 +7160,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "roundl",
             "math",
@@ -6840,7 +7180,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "send",
             "posix",
@@ -6862,7 +7203,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "setenv",
             "posix_process",
@@ -6883,7 +7225,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "setgid",
             "posix_process",
@@ -6902,7 +7245,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "setpgid",
             "posix_process",
@@ -6922,7 +7266,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "setrlimit",
             "posix_process",
@@ -6942,7 +7287,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "setsockopt",
             "posix",
@@ -6965,7 +7311,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "setuid",
             "posix_process",
@@ -6984,7 +7331,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "shutdown",
             "posix",
@@ -7004,7 +7352,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sigaction",
             "posix_process",
@@ -7025,7 +7374,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sigaddset",
             "posix_process",
@@ -7045,7 +7395,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sigemptyset",
             "posix_process",
@@ -7064,7 +7415,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sin",
             "math",
@@ -7083,7 +7435,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sinf",
             "math",
@@ -7102,7 +7455,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sinh",
             "math",
@@ -7121,7 +7475,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sinhf",
             "math",
@@ -7140,7 +7495,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sinhl",
             "math",
@@ -7159,7 +7515,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sinl",
             "math",
@@ -7178,7 +7535,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "snprintf",
             "stdio",
@@ -7199,7 +7557,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "socket",
             "posix",
@@ -7220,7 +7579,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "socketpair",
             "posix",
@@ -7242,7 +7602,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sprintf",
             "stdio",
@@ -7262,7 +7623,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sqrt",
             "math",
@@ -7281,7 +7643,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions9() {
@@ -7303,7 +7666,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sqrtl",
             "math",
@@ -7322,7 +7686,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "srand",
             "stdlib",
@@ -7341,7 +7706,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "stat",
             "posix",
@@ -7361,7 +7727,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strcat",
             "string",
@@ -7381,7 +7748,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strchr",
             "string",
@@ -7401,7 +7769,8 @@ class GeneratedHostedAbiData {
             "",
             "interior",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strcmp",
             "string",
@@ -7421,7 +7790,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strcoll",
             "string",
@@ -7441,7 +7811,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strcpy",
             "string",
@@ -7461,7 +7832,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strcspn",
             "string",
@@ -7481,7 +7853,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strdup",
             "string",
@@ -7500,7 +7873,8 @@ class GeneratedHostedAbiData {
             "free",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strerror",
             "string",
@@ -7519,7 +7893,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strlen",
             "string",
@@ -7538,7 +7913,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strncat",
             "string",
@@ -7559,7 +7935,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strncmp",
             "string",
@@ -7580,7 +7957,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strncpy",
             "string",
@@ -7601,7 +7979,8 @@ class GeneratedHostedAbiData {
             "",
             "exact",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strnlen",
             "string",
@@ -7621,7 +8000,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strpbrk",
             "string",
@@ -7641,7 +8021,8 @@ class GeneratedHostedAbiData {
             "",
             "interior",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strrchr",
             "string",
@@ -7661,7 +8042,8 @@ class GeneratedHostedAbiData {
             "",
             "interior",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strspn",
             "string",
@@ -7681,7 +8063,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strstr",
             "string",
@@ -7701,7 +8084,8 @@ class GeneratedHostedAbiData {
             "",
             "interior",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strtod",
             "stdlib",
@@ -7721,7 +8105,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strtof",
             "stdlib",
@@ -7741,7 +8126,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strtok",
             "string",
@@ -7761,7 +8147,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strtol",
             "stdlib",
@@ -7782,7 +8169,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strtold",
             "stdlib",
@@ -7802,7 +8190,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strtoll",
             "stdlib",
@@ -7823,7 +8212,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strtoul",
             "stdlib",
@@ -7844,7 +8234,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strtoull",
             "stdlib",
@@ -7865,7 +8256,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "strxfrm",
             "string",
@@ -7886,7 +8278,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "symlink",
             "posix",
@@ -7906,7 +8299,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "sysconf",
             "posix_process",
@@ -7925,7 +8319,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "system",
             "stdlib",
@@ -7944,7 +8339,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tan",
             "math",
@@ -7963,7 +8359,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tanf",
             "math",
@@ -7982,7 +8379,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tanh",
             "math",
@@ -8001,7 +8399,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tanhf",
             "math",
@@ -8020,7 +8419,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tanhl",
             "math",
@@ -8039,7 +8439,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tanl",
             "math",
@@ -8058,7 +8459,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tcgetattr",
             "posix_process",
@@ -8078,7 +8480,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void pushFunctions10() {
@@ -8102,7 +8505,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tgamma",
             "math",
@@ -8121,7 +8525,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tgammaf",
             "math",
@@ -8140,7 +8545,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tgammal",
             "math",
@@ -8159,7 +8565,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "time",
             "posix_process",
@@ -8178,7 +8585,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tmpfile",
             "stdio",
@@ -8195,7 +8603,8 @@ class GeneratedHostedAbiData {
             "fclose",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "tolower",
             "ctype",
@@ -8214,7 +8623,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "toupper",
             "ctype",
@@ -8233,7 +8643,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "trunc",
             "math",
@@ -8252,7 +8663,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "truncf",
             "math",
@@ -8271,7 +8683,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "truncl",
             "math",
@@ -8290,7 +8703,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "ungetc",
             "stdio",
@@ -8310,7 +8724,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "unlink",
             "posix",
@@ -8329,7 +8744,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "unlinkat",
             "posix",
@@ -8350,7 +8766,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "unsetenv",
             "posix_process",
@@ -8369,7 +8786,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "waitpid",
             "posix_process",
@@ -8390,7 +8808,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
             "write",
             "posix",
@@ -8411,7 +8830,8 @@ class GeneratedHostedAbiData {
             "",
             "",
             "",
-            ""));
+            "",
+            "unknown"));
     }
 
     private void push_function_names0() {
