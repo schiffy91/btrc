@@ -120,6 +120,15 @@ OWNEDCLOSURE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("close", "void", "method", (), "close"),
 )
 
+# Generated from src/stdlib/callbackregistration.btrc
+CALLBACKREGISTRATION_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("invokePointer", "Invoke", "method", (), "invokePointer"),
+    BuiltinMemberSpec("callbackContext", "void*", "method", (), "callbackContext"),
+    BuiltinMemberSpec("gateState", "Atomic<uint>*", "method", (), "gateState"),
+    BuiltinMemberSpec("isOpen", "bool", "method", (), "isOpen"),
+    BuiltinMemberSpec("close", "void", "method", (), "close"),
+)
+
 # Generated from src/stdlib/listnode.btrc
 LISTNODE_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("value", "T", "field", doc="value"),
@@ -290,6 +299,7 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("Span", SPAN_MEMBERS),
     ("Array", ARRAY_MEMBERS),
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
+    ("CallbackRegistration", CALLBACKREGISTRATION_MEMBERS),
     ("ListNode", LISTNODE_MEMBERS),
     ("List", LIST_MEMBERS),
     ("Map", MAP_MEMBERS),
