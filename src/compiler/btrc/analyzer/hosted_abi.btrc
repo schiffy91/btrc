@@ -130,36 +130,6 @@ class HostedAbiRepository {
         return result;
     }
 
-    public string resultBase(string name) {
-        GeneratedHostedFunctionRow? row = self.exactSpec(name);
-        return row == null ? "" : row.result.base;
-    }
-
-    public int resultPointerDepth(string name) {
-        GeneratedHostedFunctionRow? row = self.exactSpec(name);
-        return row == null ? 0 : row.result.pointer_depth;
-    }
-
-    public bool resultConst(string name) {
-        GeneratedHostedFunctionRow? row = self.exactSpec(name);
-        return row != null && row.result.is_const;
-    }
-
-    public string semanticResultBase(string name) {
-        GeneratedHostedFunctionRow? row = self.exactSpec(name);
-        return row == null ? "" : row.semantic_result.base;
-    }
-
-    public int semanticResultPointerDepth(string name) {
-        GeneratedHostedFunctionRow? row = self.exactSpec(name);
-        return row == null ? 0 : row.semantic_result.pointer_depth;
-    }
-
-    public bool semanticResultConst(string name) {
-        GeneratedHostedFunctionRow? row = self.exactSpec(name);
-        return row != null && row.semantic_result.is_const;
-    }
-
     public bool variadic(string name) {
         GeneratedHostedFunctionRow? row = self.exactSpec(name);
         return row != null && row.variadic;
@@ -257,29 +227,14 @@ class HostedAbiRepository {
         return row.parameters.get(index);
     }
 
-    public string parameterBase(string name, int index) {
-        GeneratedHostedParameterRow? row = self.parameter(name, index);
-        return row == null ? "" : row.type_shape.base;
-    }
-
     public int parameterPointerDepth(string name, int index) {
         GeneratedHostedParameterRow? row = self.parameter(name, index);
         return row == null ? 0 : row.type_shape.pointer_depth;
     }
 
-    public bool parameterConst(string name, int index) {
-        GeneratedHostedParameterRow? row = self.parameter(name, index);
-        return row != null && row.type_shape.is_const;
-    }
-
     public string parameterEffect(string name, int index) {
         GeneratedHostedParameterRow? row = self.parameter(name, index);
         return row == null ? "unknown" : row.effect;
-    }
-
-    public string parameterCallbackLifetime(string name, int index) {
-        GeneratedHostedParameterRow? row = self.parameter(name, index);
-        return row == null ? "" : row.callback_lifetime;
     }
 
     public Node typeFromShape(GeneratedAbiTypeRow shape) {
@@ -322,7 +277,8 @@ class HostedAbiRepository {
     public bool macroReferenceRequiresSemanticCall(string name) {
         if (!self.functionOwnedName(name)) { return false; }
         if (!self.exactFunction(name) || self.variadic(name)) { return true; }
-        if (self.semanticResultPointerDepth(name) > 0) { return true; }
+        GeneratedHostedFunctionRow? row = self.exactSpec(name);
+        if (row != null && row.semantic_result.pointer_depth > 0) { return true; }
         int count = self.parameterCount(name);
         int index = 0;
         while (index < count) {
