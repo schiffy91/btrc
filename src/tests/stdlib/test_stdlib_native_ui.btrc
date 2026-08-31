@@ -41,6 +41,43 @@ int main() {
         == NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY);
     assert(rejected.styleError().property() == "position");
 
+    NativeUiStyleSheet sheet = NativeUiStyleSheet()
+        .rule("library-root", "background-color: #f6f6f8; padding: 8px")
+        .rule("album-card", "border-radius: 8px; color: #202024");
+    assert(sheet.ok());
+    assert(sheet.ruleCount() == 2);
+    assert(sheet.classNameAt(1) == "album-card");
+    assert(sheet.cssFor("album-card")
+        == "border-radius: 8px; color: #202024");
+    assert(sheet.cssFor("missing").isEmpty());
+    NativeUiStyleSheet duplicateSheet = NativeUiStyleSheet()
+        .rule("album-card", "padding: 4px")
+        .rule("album-card", "padding: 8px");
+    assert(!duplicateSheet.ok());
+    assert(duplicateSheet.issue().code() == NATIVE_UI_STYLE_DUPLICATE_RULE);
+    NativeUiStyleSheet invalidSheet = NativeUiStyleSheet()
+        .rule("browser descendant", "padding: 8px");
+    assert(!invalidSheet.ok());
+    assert(invalidSheet.issue().code() == NATIVE_UI_STYLE_INVALID_SELECTOR);
+
+    NativeUiVirtualGrid virtualLayout = NativeUiVirtualGrid(
+        2000, 4, 180, 1984);
+    NativeUiElement virtualGrid = NativeUiElement
+        .virtualGrid("virtual-albums", virtualLayout)
+        .child(NativeUiElement.button("album:1984", "Album 1984"))
+        .child(NativeUiElement.button("album:1985", "Album 1985"));
+    assert(virtualGrid.kind() == NATIVE_UI_VIRTUAL_GRID);
+    assert(virtualGrid.virtualGridDescriptor() != null);
+    NativeUiVirtualGrid resolvedLayout = virtualGrid.virtualGridDescriptor();
+    assert(resolvedLayout.ok());
+    assert(resolvedLayout.totalCount() == 2000);
+    assert(resolvedLayout.columns() == 4);
+    assert(resolvedLayout.rowHeight() == 180);
+    assert(resolvedLayout.firstDataIndex() == 1984);
+    assert(!NativeUiVirtualGrid(4, 0, 180, 0).ok());
+    assert(NativeUiVirtualGrid(4, 0, 180, 0).issue().code()
+        == NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS);
+
     NativeUiViewportMetrics viewport = NativeUiViewportMetrics(
         800, 600, 0, 240);
     NativeUiScrollDelta delta = NativeUiScrollDelta(0, 120);

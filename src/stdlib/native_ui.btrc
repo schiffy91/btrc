@@ -3,7 +3,9 @@
  * This is the portable tree and event boundary for the renderer owned by
  * std.app.  It deliberately contains no HTML, browser, GPU, or platform
  * handles.  Element identities are supplied by the application and remain
- * unchanged for the lifetime of the value tree.
+ * unchanged for the lifetime of the value tree.  A className is selector
+ * metadata: it affects rendering only through an explicit NativeUiStyleSheet;
+ * there is no ambient browser-style cascade.
  */
 
 import std.image;
@@ -15,7 +17,8 @@ enum NativeUiElementKind {
     NATIVE_UI_GRID = 1,
     NATIVE_UI_TEXT = 2,
     NATIVE_UI_IMAGE = 3,
-    NATIVE_UI_BUTTON = 4
+    NATIVE_UI_BUTTON = 4,
+    NATIVE_UI_VIRTUAL_GRID = 5
 };
 
 enum NativeUiEventKind {
@@ -30,7 +33,18 @@ enum NativeUiStyleErrorCode {
     NATIVE_UI_STYLE_VALID = 0,
     NATIVE_UI_STYLE_INVALID_DECLARATION = 1,
     NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY = 2,
-    NATIVE_UI_STYLE_INVALID_VALUE = 3
+    NATIVE_UI_STYLE_INVALID_VALUE = 3,
+    NATIVE_UI_STYLE_INVALID_SELECTOR = 4,
+    NATIVE_UI_STYLE_DUPLICATE_RULE = 5,
+    NATIVE_UI_STYLE_LIMIT_EXCEEDED = 6
+};
+
+enum NativeUiVirtualGridErrorCode {
+    NATIVE_UI_VIRTUAL_GRID_VALID = 0,
+    NATIVE_UI_VIRTUAL_GRID_INVALID_TOTAL_COUNT = 1,
+    NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS = 2,
+    NATIVE_UI_VIRTUAL_GRID_INVALID_ROW_HEIGHT = 3,
+    NATIVE_UI_VIRTUAL_GRID_INVALID_FIRST_INDEX = 4
 };
 
 class NativeUiStyleError {
@@ -152,6 +166,166 @@ class NativeUiStyle {
         }
         return NativeUiStyleError.valid();
     }
+
+    class NativeUiStyleError validateClassName(string value) {
+        if (value == null || value.isEmpty() || value.len() > 128) {
+            return NativeUiStyleError(
+                NATIVE_UI_STYLE_INVALID_SELECTOR,
+                "className",
+                "native UI class names must contain 1..128 bytes"
+            );
+        }
+        for (int index = 0; index < value.len(); index++) {
+            char character = value[index];
+            bool valid = (character >= 'a' && character <= 'z')
+                || (character >= 'A' && character <= 'Z')
+                || (character >= '0' && character <= '9')
+                || character == '-' || character == '_';
+            if (!valid) {
+                return NativeUiStyleError(
+                    NATIVE_UI_STYLE_INVALID_SELECTOR,
+                    "className",
+                    "native UI class names use letters, digits, '-' and '_'"
+                );
+            }
+        }
+        return NativeUiStyleError.valid();
+    }
+}
+
+class NativeUiStyleSheet {
+    private Vector<string> selectors;
+    private Vector<string> rules;
+    private NativeUiStyleError issueValue;
+    private int ruleBytes;
+
+    public NativeUiStyleSheet() {
+        self.selectors = [];
+        self.rules = [];
+        self.issueValue = NativeUiStyleError.valid();
+        self.ruleBytes = 0;
+    }
+
+    public NativeUiStyleSheet rule(string className, string css) {
+        if (!self.issueValue.ok()) { return self; }
+        NativeUiStyleError selectorIssue =
+            NativeUiStyle.validateClassName(className);
+        if (!selectorIssue.ok()) {
+            self.issueValue = selectorIssue;
+            return self;
+        }
+        NativeUiStyleError ruleIssue = NativeUiStyle.validate(css);
+        if (!ruleIssue.ok()) {
+            self.issueValue = ruleIssue;
+            return self;
+        }
+        if (self.selectors.len >= 256
+                || (long long)self.ruleBytes + (long long)className.len()
+                    + (long long)css.len() > 65536LL) {
+            self.issueValue = NativeUiStyleError(
+                NATIVE_UI_STYLE_LIMIT_EXCEEDED,
+                "styleSheet",
+                "native UI style sheets allow 256 rules and 64 KiB"
+            );
+            return self;
+        }
+        for selector in self.selectors {
+            if (selector.equals(className)) {
+                self.issueValue = NativeUiStyleError(
+                    NATIVE_UI_STYLE_DUPLICATE_RULE,
+                    className,
+                    f"duplicate native UI class rule: {className}"
+                );
+                return self;
+            }
+        }
+        self.selectors.push(className);
+        self.rules.push(css);
+        self.ruleBytes += className.len() + css.len();
+        return self;
+    }
+
+    public bool ok() { return self.issueValue.ok(); }
+    public NativeUiStyleError issue() { return self.issueValue; }
+    public int ruleCount() { return self.selectors.len; }
+    public string classNameAt(int index) { return self.selectors.get(index); }
+    public string cssAt(int index) { return self.rules.get(index); }
+
+    public string cssFor(string className) {
+        for (int index = 0; index < self.selectors.len; index++) {
+            if (self.selectors.get(index).equals(className)) {
+                return self.rules.get(index);
+            }
+        }
+        return "";
+    }
+}
+
+class NativeUiVirtualGridError {
+    private NativeUiVirtualGridErrorCode errorCode;
+    private string errorMessage;
+
+    public NativeUiVirtualGridError(
+        NativeUiVirtualGridErrorCode code,
+        string message
+    ) {
+        self.errorCode = code;
+        self.errorMessage = message;
+    }
+
+    public NativeUiVirtualGridErrorCode code() { return self.errorCode; }
+    public string message() { return self.errorMessage; }
+    public bool ok() { return self.errorCode == NATIVE_UI_VIRTUAL_GRID_VALID; }
+}
+
+class NativeUiVirtualGrid {
+    private int totalCountValue;
+    private int columnsValue;
+    private int rowHeightValue;
+    private int firstIndexValue;
+    private NativeUiVirtualGridError issueValue;
+
+    public NativeUiVirtualGrid(
+        int totalCount,
+        int columns,
+        int rowHeight,
+        int firstDataIndex
+    ) {
+        self.totalCountValue = totalCount;
+        self.columnsValue = columns;
+        self.rowHeightValue = rowHeight;
+        self.firstIndexValue = firstDataIndex;
+        self.issueValue = NativeUiVirtualGridError(
+            NATIVE_UI_VIRTUAL_GRID_VALID, "");
+        if (totalCount < 0) {
+            self.issueValue = NativeUiVirtualGridError(
+                NATIVE_UI_VIRTUAL_GRID_INVALID_TOTAL_COUNT,
+                "virtual grid totalCount must be non-negative"
+            );
+        } else if (columns <= 0) {
+            self.issueValue = NativeUiVirtualGridError(
+                NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS,
+                "virtual grid columns must be positive"
+            );
+        } else if (rowHeight <= 0) {
+            self.issueValue = NativeUiVirtualGridError(
+                NATIVE_UI_VIRTUAL_GRID_INVALID_ROW_HEIGHT,
+                "virtual grid rowHeight must be positive"
+            );
+        } else if (firstDataIndex < 0 || firstDataIndex > totalCount) {
+            self.issueValue = NativeUiVirtualGridError(
+                NATIVE_UI_VIRTUAL_GRID_INVALID_FIRST_INDEX,
+                "virtual grid firstDataIndex must be within totalCount"
+            );
+        }
+    }
+
+    public int totalCount() { return self.totalCountValue; }
+    public int columns() { return self.columnsValue; }
+    public int rowHeight() { return self.rowHeightValue; }
+    public int firstDataIndex() { return self.firstIndexValue; }
+    public NativeUiVirtualGridError issue() { return self.issueValue; }
+    public bool ok() { return self.issueValue.ok(); }
 }
 
 class NativeUiViewportMetrics {
@@ -273,6 +447,7 @@ class NativeUiElement {
     private string altValue;
     private Vector<NativeUiElement> childValues;
     private NativeUiStyleError styleErrorValue;
+    private NativeUiVirtualGrid? virtualGridValue;
 
     private NativeUiElement(
         NativeUiElementKind kind,
@@ -290,6 +465,7 @@ class NativeUiElement {
         self.altValue = alt;
         self.childValues = [];
         self.styleErrorValue = NativeUiStyleError.valid();
+        self.virtualGridValue = null;
     }
 
     class NativeUiElement column(string id) {
@@ -298,6 +474,16 @@ class NativeUiElement {
 
     class NativeUiElement grid(string id) {
         return NativeUiElement(NATIVE_UI_GRID, id, "", null, "");
+    }
+
+    class NativeUiElement virtualGrid(
+        string id,
+        NativeUiVirtualGrid descriptor
+    ) {
+        NativeUiElement element = NativeUiElement(
+            NATIVE_UI_VIRTUAL_GRID, id, "", null, "");
+        element.virtualGridValue = descriptor;
+        return element;
     }
 
     class NativeUiElement text(string id, string text) {
@@ -336,6 +522,9 @@ class NativeUiElement {
     public Image? contentImage() { return self.imageValue; }
     public string imageAlt() { return self.altValue; }
     public NativeUiStyleError styleError() { return self.styleErrorValue; }
+    public NativeUiVirtualGrid? virtualGridDescriptor() {
+        return self.virtualGridValue;
+    }
     public int childCount() { return self.childValues.len; }
     public NativeUiElement childAt(int index) {
         return self.childValues.get(index);
