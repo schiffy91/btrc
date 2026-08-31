@@ -126,6 +126,23 @@ def test_platform_predicates_cover_objc_objcxx_frameworks_and_pkg_config() -> No
     assert windows["pkg-config"] == [{"name": "native-package-proof", "package": "middle"}]
 
 
+def test_same_native_name_with_disjoint_platform_predicates_is_not_duplicate(
+    tmp_path: Path,
+) -> None:
+    native = (
+        '\n[[native.pkg-config]]\nname = "platform-native"\nos = ["macos"]\n'
+        '\n[[native.pkg-config]]\nname = "platform-native"\nos = ["linux"]\n'
+    )
+    _manifest(tmp_path, "app", native=native)
+
+    darwin = PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="macos-arm64").native_plan.as_dict()
+    linux = PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="linux-x64").native_plan.as_dict()
+
+    expected = [{"name": "platform-native", "package": "app"}]
+    assert darwin["pkg-config"] == expected
+    assert linux["pkg-config"] == expected
+
+
 def test_reference_compiler_result_plan_compiles_links_and_runs(tmp_path: Path) -> None:
     source = EXAMPLE / "src" / "main.btrc"
     result = Compiler().compile(

@@ -147,6 +147,63 @@ def test_platform_native_plans_are_reference_exact(
     assert [entry["name"] for entry in payload["pkg-config"]] == pkg_config
 
 
+def test_disjoint_native_predicates_with_same_name_are_reference_exact(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src/main.btrc"
+    source.parent.mkdir()
+    source.write_text("int main() { return 0; }\n")
+    (tmp_path / "btrc.toml").write_text(
+        'manifest-version = 1\n\n[package]\nname = "app"\n'
+        '\n[[native.pkg-config]]\nname = "platform-native"\nos = ["macos"]\n'
+        '\n[[native.pkg-config]]\nname = "platform-native"\nos = ["linux"]\n'
+    )
+    reference_plan = tmp_path / "reference.json"
+    selfhost_plan = tmp_path / "selfhost.json"
+
+    reference = _reference(
+        source,
+        tmp_path / "reference.c",
+        reference_plan,
+        target="macos-arm64",
+    )
+    selfhost = _selfhost(
+        semantic_btrcc,
+        source,
+        selfhost_plan,
+        target="macos-arm64",
+    )
+
+    assert reference.returncode == 0, reference.stderr
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert selfhost_plan.read_bytes() == reference_plan.read_bytes()
+    assert json.loads(selfhost_plan.read_text())["pkg-config"] == [{"name": "platform-native", "package": "app"}]
+
+
+def test_exact_duplicate_native_declarations_still_fail_closed(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src/main.btrc"
+    source.parent.mkdir()
+    source.write_text("int main() { return 0; }\n")
+    declaration = '\n[[native.pkg-config]]\nname = "platform-native"\nos = ["macos"]\n'
+    (tmp_path / "btrc.toml").write_text('manifest-version = 1\n\n[package]\nname = "app"\n' + declaration + declaration)
+
+    reference = _reference(source, tmp_path / "reference.c", target="macos-arm64")
+    selfhost = _selfhost(
+        semantic_btrcc,
+        source,
+        target="macos-arm64",
+    )
+
+    assert reference.returncode != 0
+    assert selfhost.returncode != 0
+    assert "duplicates an earlier native declaration" in reference.stderr
+    assert "duplicates a native declaration" in selfhost.stderr
+
+
 def test_dependency_local_aliases_resolve_a_diamond_once(
     semantic_btrcc: Path,
     tmp_path: Path,

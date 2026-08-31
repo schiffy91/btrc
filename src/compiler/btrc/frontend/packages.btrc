@@ -237,6 +237,28 @@ class FeNativeDeclaration {
                 || self.contains(self.architectures, target.architecture));
     }
 
+    private bool sameValues(Vector<string> left, Vector<string> right) {
+        if (left.len != right.len) { return false; }
+        int index = 0;
+        while (index < left.len) {
+            if (!left.get(index).equals(right.get(index))) { return false; }
+            index++;
+        }
+        return true;
+    }
+
+    public bool sameIdentity(FeNativeDeclaration other) {
+        return self.kind.equals(other.kind)
+            && self.packageName.equals(other.packageName)
+            && self.value.equals(other.value)
+            && self.detail.equals(other.detail)
+            && self.language.equals(other.language)
+            && self.standard.equals(other.standard)
+            && self.sameValues(
+                self.operatingSystems, other.operatingSystems)
+            && self.sameValues(self.architectures, other.architectures);
+    }
+
     public string sortKey() {
         return self.packageName + "\x1f" + self.kind + "\x1f" + self.value
             + "\x1f" + self.detail + "\x1f" + self.language;
@@ -756,8 +778,7 @@ class FePackageManifestParser {
                 self.root, packageName);
             int prior = 0;
             while (prior < nativeDeclarations.len) {
-                if (nativeDeclarations.get(prior).sortKey().equals(
-                        declaration.sortKey())) {
+                if (nativeDeclarations.get(prior).sameIdentity(declaration)) {
                     FePackageFailure.fail(
                         f"package manifest '{self.manifestPath}' duplicates "
                         + "a native declaration");
