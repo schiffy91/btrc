@@ -29,8 +29,19 @@ CODEGEN_IMPORT_GRAPH = {
     "ast": frozenset({"__init__", "asdl"}),
     "builtins": frozenset({"__init__"}),
     "hosted_abi": frozenset({"__init__", "runtime"}),
-    "main": frozenset({"__init__", "ast", "builtins", "hosted_abi", "runtime", "verification"}),
-    "runtime": frozenset({"__init__"}),
+    "intrinsic_effects": frozenset(),
+    "main": frozenset(
+        {
+            "__init__",
+            "ast",
+            "builtins",
+            "hosted_abi",
+            "intrinsic_effects",
+            "runtime",
+            "verification",
+        }
+    ),
+    "runtime": frozenset({"__init__", "intrinsic_effects"}),
     "verification": frozenset({"__init__", "runtime"}),
 }
 

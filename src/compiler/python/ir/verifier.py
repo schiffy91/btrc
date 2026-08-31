@@ -62,10 +62,6 @@ class IRVerifier:
             if not isinstance(getattr(self.module, field_name), bool):
                 raise TypeError(f"IRModule.{field_name} requires bool")
 
-        for function in self.module.function_defs:
-            if not isinstance(function.is_realtime, bool):
-                raise TypeError("IRFunctionDef.is_realtime requires bool")
-
         if not isinstance(self.module.runtime_roots, set) or any(
             not isinstance(root, str) or not root for root in self.module.runtime_roots
         ):
@@ -102,6 +98,10 @@ class IRVerifier:
                     raise TypeError(
                         f"IRModule.{field_name} requires {expected_type.__name__}, got {type(declaration).__name__}"
                     )
+
+        for function in self.module.function_defs:
+            if not isinstance(function.is_realtime, bool):
+                raise TypeError("IRFunctionDef.is_realtime requires bool")
 
         if any(function.is_realtime for function in self.module.function_defs):
             self._functions = {function.name: function for function in self.module.function_defs}
