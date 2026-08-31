@@ -972,18 +972,31 @@ class TypeValidator {
             || self.explicitCTag(base);
     }
 
+    private int declaredGenericArity(string base) {
+        if (self.state.analyzed.genericClassTable.has(base)) {
+            return self.state.analyzed.genericClassTable.get(
+                base).generic_params.len;
+        }
+        if (self.state.analyzed.classTable.has(base)) {
+            return self.state.analyzed.classTable.get(base).generic_params.len;
+        }
+        if (self.state.analyzed.interfaceTable.has(base)) {
+            return self.state.analyzed.interfaceTable.get(
+                base).generic_params.len;
+        }
+        if (base == "Array" || base == "Atomic" || base == "List"
+                || base == "Mutex" || base == "Set" || base == "Span"
+                || base == "Thread" || base == "Vector") {
+            return 1;
+        }
+        if (base == "Map") { return 2; }
+        return -1;
+    }
+
     public void validateDeclaredType(Node? typeExpr, string subject,
             string role, Node site) {
         if (typeExpr == null) { return; }
-        int expectedArguments = -1;
-        if (typeExpr.base == "Array" || typeExpr.base == "Atomic"
-                || typeExpr.base == "List" || typeExpr.base == "Mutex"
-                || typeExpr.base == "Set" || typeExpr.base == "Span"
-                || typeExpr.base == "Thread" || typeExpr.base == "Vector") {
-            expectedArguments = 1;
-        } else if (typeExpr.base == "Map") {
-            expectedArguments = 2;
-        }
+        int expectedArguments = self.declaredGenericArity(typeExpr.base);
         if (expectedArguments >= 0
                 && !self.state.typeParams.has(typeExpr.base)
                 && typeExpr.generic_args.len != expectedArguments) {

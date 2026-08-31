@@ -1161,16 +1161,14 @@ class StatementAnalyzer:
                 self._validate_property_storage(declaration, member)
             elif isinstance(member, MethodDecl):
                 active = class_parameters | set(member.generic_params)
-                return_active = active
-                if member.is_constructor and (not member.return_type.generic_args):
-                    return_active = active | {declaration.name}
+                declared_return_type = self._declared_callable_return_type(declaration, member)
                 self.types.validate_declared_type(
-                    member.return_type,
+                    declared_return_type,
                     f"Return type of method '{declaration.name}.{member.name}'",
                     member.line,
                     member.col,
                     role="return",
-                    active_type_params=return_active,
+                    active_type_params=active,
                 )
                 for parameter in member.params:
                     self.types.validate_declared_type(
@@ -1186,6 +1184,13 @@ class StatementAnalyzer:
                 )
                 self._validate_parameter_bounds(member.params, f"{declaration.name}.{member.name}")
                 self.declarations.validate_class_shape(declaration, member)
+
+    @staticmethod
+    def _declared_callable_return_type(declaration: ClassDecl, member: MethodDecl) -> TypeExpr:
+        if not member.is_constructor or member.return_type.generic_args or not declaration.generic_params:
+            return member.return_type
+        owner_arguments = [TypeExpr(base=name) for name in declaration.generic_params]
+        return dataclasses.replace(member.return_type, generic_args=owner_arguments)
 
     def _validate_interface_declaration_types(self, declaration) -> None:
         active = set(declaration.generic_params)

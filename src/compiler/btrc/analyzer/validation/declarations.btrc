@@ -886,6 +886,24 @@ class DeclarationValidator {
         return selfType;
     }
 
+    private Node declaredCallableReturnType(
+            Node? classDeclaration, Node callable) {
+        if (classDeclaration == null || !callable.is_constructor
+                || callable.return_type.generic_args.len > 0
+                || classDeclaration.generic_params.len == 0) {
+            return callable.return_type;
+        }
+        Vector<Node> ownerArguments = [];
+        int index = 0;
+        while (index < classDeclaration.generic_params.len) {
+            ownerArguments.push(SemanticTypeSystem.primitive(
+                classDeclaration.generic_params.get(index)));
+            index = index + 1;
+        }
+        return TypeShape.copyWithArguments(
+            callable.return_type, ownerArguments);
+    }
+
     public void validateCallableBody(Node callable, Node? classDeclaration) {
         if (classDeclaration == null) {
             self.validateHostedBodylessDeclaration(callable);
@@ -903,14 +921,16 @@ class DeclarationValidator {
         }
         self.state.typeParams = self.types.combinedTypeParams(
             signatureClassParams, callable.generic_params);
+        Node declaredReturnType = self.declaredCallableReturnType(
+            classDeclaration, callable);
         string returnSubject = classDeclaration == null
             ? "Return type of function '" + callable.name + "'"
             : "Return type of method '" + classDeclaration.name + "."
                 + callable.name + "'";
-        self.types.validateDeclaredType(callable.return_type,
+        self.types.validateDeclaredType(declaredReturnType,
             returnSubject, "return", callable);
         self.types.rejectRuntimeInterfaceType(
-            callable.return_type, callable);
+            declaredReturnType, callable);
         int typeIndex = 0;
         while (typeIndex < callable.params.len) {
             Node parameter = callable.params.get(typeIndex);
