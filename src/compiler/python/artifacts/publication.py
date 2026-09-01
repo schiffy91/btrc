@@ -29,6 +29,20 @@ class ReparsePointError(ValueError):
 class ArtifactStorage:
     """Own stable, no-follow access to artifact files and directories."""
 
+    def normalize_timestamp(self, path: Path, epoch: int) -> None:
+        """Set one artifact timestamp without following a final reparse point."""
+
+        expected = path.lstat()
+        if self.metadata_is_reparse_point(expected) or not (
+            stat.S_ISREG(expected.st_mode) or stat.S_ISDIR(expected.st_mode)
+        ):
+            raise ValueError(f"artifact timestamp target must be a real file or directory: {path}")
+        if os.name == "nt":
+            self._set_windows_timestamp(path, epoch, expected)
+        else:
+            os.utime(path, (epoch, epoch), follow_symlinks=False)
+        self._validate_timestamp_identity(path, expected)
+
     def metadata_is_reparse_point(self, metadata: os.stat_result) -> bool:
         """Recognize POSIX symlinks and Windows directory/file reparse points."""
 
@@ -212,6 +226,76 @@ class ArtifactStorage:
         current = self.require_real_directory(path, "filesystem tree directory")
         if self._identity(current) != self._identity(expected):
             raise ValueError(f"filesystem tree directory changed while being traversed: {path}")
+
+    def _set_windows_timestamp(self, path: Path, epoch: int, expected: os.stat_result) -> None:
+        """Set access and write times through a no-follow Win32 handle."""
+
+        import ctypes
+        from ctypes import wintypes
+
+        file_write_attributes = 0x0100
+        file_share_read_write = 0x00000003
+        open_existing = 3
+        file_flag_open_reparse_point = 0x00200000
+        file_flag_backup_semantics = 0x02000000
+        epoch_delta_seconds = 11_644_473_600
+        ticks_per_second = 10_000_000
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        create_file = kernel32.CreateFileW
+        create_file.argtypes = [
+            wintypes.LPCWSTR,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.LPVOID,
+            wintypes.DWORD,
+            wintypes.DWORD,
+            wintypes.HANDLE,
+        ]
+        create_file.restype = wintypes.HANDLE
+        set_file_time = kernel32.SetFileTime
+        set_file_time.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME),
+        ]
+        set_file_time.restype = wintypes.BOOL
+        close_handle = kernel32.CloseHandle
+        close_handle.argtypes = [wintypes.HANDLE]
+        close_handle.restype = wintypes.BOOL
+
+        flags = file_flag_open_reparse_point | file_flag_backup_semantics
+        handle = create_file(
+            str(path),
+            file_write_attributes,
+            file_share_read_write,
+            None,
+            open_existing,
+            flags,
+            None,
+        )
+        if handle == wintypes.HANDLE(-1).value:
+            error = ctypes.WinError(ctypes.get_last_error())
+            error.filename = str(path)
+            raise error
+        ticks = (epoch + epoch_delta_seconds) * ticks_per_second
+        timestamp = wintypes.FILETIME(ticks & 0xFFFFFFFF, ticks >> 32)
+        try:
+            # Denying delete sharing keeps this final name bound to the open
+            # handle between the identity check and the timestamp mutation.
+            self._validate_timestamp_identity(path, expected)
+            if not set_file_time(handle, None, ctypes.byref(timestamp), ctypes.byref(timestamp)):
+                error = ctypes.WinError(ctypes.get_last_error())
+                error.filename = str(path)
+                raise error
+        finally:
+            close_handle(handle)
+
+    def _validate_timestamp_identity(self, path: Path, expected: os.stat_result) -> None:
+        current = path.lstat()
+        if self.metadata_is_reparse_point(current) or self._identity(current) != self._identity(expected):
+            raise ValueError(f"artifact timestamp target changed identity: {path}")
 
     def _identity(self, metadata: os.stat_result) -> tuple[int, int, int]:
         return metadata.st_dev, metadata.st_ino, stat.S_IFMT(metadata.st_mode)

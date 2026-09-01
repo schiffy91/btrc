@@ -70,7 +70,7 @@ class SelfhostBundleCopier:
             if before != copied or copied != after or after != destination_hash:
                 raise ValueError(f"bundle source changed while being copied: {source}")
             destination.chmod(mode)
-            os.utime(destination, (epoch, epoch), follow_symlinks=False)
+            self._storage.normalize_timestamp(destination, epoch)
         except BaseException:
             if created:
                 destination.unlink(missing_ok=True)
@@ -766,7 +766,7 @@ class SelfhostBundleBuilder:
             newline="\n",
         )
         destination.chmod(0o644)
-        os.utime(destination, (epoch, epoch), follow_symlinks=False)
+        self._storage.normalize_timestamp(destination, epoch)
 
     def _write_readme(
         self,
@@ -803,7 +803,7 @@ SHA-256 digest of every bundled payload file.
         destination = bundle / "README.md"
         destination.write_text(text, encoding="utf-8", newline="\n")
         destination.chmod(0o644)
-        os.utime(destination, (epoch, epoch), follow_symlinks=False)
+        self._storage.normalize_timestamp(destination, epoch)
 
     def _normalize_tree(self, bundle: Path, epoch: int) -> None:
         for directory in sorted(
@@ -816,6 +816,6 @@ SHA-256 digest of every bundled payload file.
             reverse=True,
         ):
             directory.chmod(0o755)
-            os.utime(directory, (epoch, epoch), follow_symlinks=False)
+            self._storage.normalize_timestamp(directory, epoch)
         bundle.chmod(0o755)
-        os.utime(bundle, (epoch, epoch), follow_symlinks=False)
+        self._storage.normalize_timestamp(bundle, epoch)

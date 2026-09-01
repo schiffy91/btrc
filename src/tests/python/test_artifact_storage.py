@@ -78,6 +78,92 @@ def test_fsync_directory_does_not_swallow_windows_identity_failure(
         ArtifactStorage().fsync_directory(directory)
 
 
+def test_normalize_timestamp_uses_no_follow_posix_utime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.write_bytes(b"payload")
+    calls: list[tuple[Path, tuple[int, int], bool]] = []
+    utime = os.utime
+
+    def observed(path: Path, times: tuple[int, int], *, follow_symlinks: bool) -> None:
+        calls.append((path, times, follow_symlinks))
+        utime(path, times, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(storage_module.os, "utime", observed)
+    ArtifactStorage().normalize_timestamp(artifact, 1_700_000_000)
+
+    assert calls == [(artifact, (1_700_000_000, 1_700_000_000), False)]
+
+
+def test_normalize_timestamp_routes_windows_through_handle_api(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.write_bytes(b"payload")
+    calls: list[tuple[Path, int]] = []
+    utime = os.utime
+
+    def observed(self: ArtifactStorage, path: Path, epoch: int, expected: os.stat_result) -> None:
+        calls.append((path, epoch))
+        utime(path, (epoch, epoch))
+
+    monkeypatch.setattr(storage_module.os, "name", "nt")
+    monkeypatch.setattr(ArtifactStorage, "_set_windows_timestamp", observed)
+    ArtifactStorage().normalize_timestamp(artifact, 1_700_000_000)
+
+    assert calls == [(artifact, 1_700_000_000)]
+
+
+def test_normalize_timestamp_rejects_windows_path_replacement(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.write_bytes(b"payload")
+    replacement = tmp_path / "replacement"
+    replacement.write_bytes(b"replacement")
+
+    def replace(self: ArtifactStorage, path: Path, epoch: int, expected: os.stat_result) -> None:
+        os.replace(replacement, path)
+
+    monkeypatch.setattr(storage_module.os, "name", "nt")
+    monkeypatch.setattr(ArtifactStorage, "_set_windows_timestamp", replace)
+    with pytest.raises(ValueError, match="artifact timestamp target changed identity"):
+        ArtifactStorage().normalize_timestamp(artifact, 1_700_000_000)
+
+
+def test_normalize_timestamp_rejects_symlink(tmp_path: Path) -> None:
+    target = tmp_path / "target"
+    target.write_bytes(b"payload")
+    artifact = tmp_path / "artifact"
+    try:
+        artifact.symlink_to(target)
+    except OSError as error:
+        pytest.skip(f"symlinks are unavailable: {error}")
+
+    with pytest.raises(ValueError, match="artifact timestamp target must be a real file or directory"):
+        ArtifactStorage().normalize_timestamp(artifact, 1_700_000_000)
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires the native Windows handle API")
+def test_normalize_timestamp_sets_windows_file_and_directory_times(tmp_path: Path) -> None:
+    artifact = tmp_path / "artifact"
+    artifact.write_bytes(b"payload")
+    directory = tmp_path / "directory"
+    directory.mkdir()
+    epoch = 1_700_000_000
+
+    storage = ArtifactStorage()
+    storage.normalize_timestamp(artifact, epoch)
+    storage.normalize_timestamp(directory, epoch)
+
+    assert artifact.lstat().st_mtime_ns == epoch * 1_000_000_000
+    assert directory.lstat().st_mtime_ns == epoch * 1_000_000_000
+
+
 def test_destination_exists_accepts_a_stable_regular_file(tmp_path: Path) -> None:
     destination = tmp_path / "artifact"
     destination.write_bytes(b"payload")
