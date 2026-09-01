@@ -17,6 +17,7 @@
 #include <sys/stat.h>
 #include <stdint.h>
 #include <stdarg.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
@@ -24,6 +25,27 @@
 #include <direct.h>  /* _mkdir   */
 
 #include "btrc_win_errors.h"
+
+/* MinGW exposes popen/pclose as object-like macros naming imported UCRT
+   symbols. A later portable `extern popen(...)` declaration then loses the
+   dllimport attribute under macro expansion and fails strict Clang builds.
+   Route both operations through internal wrappers before generated extern
+   declarations are parsed; a following extern declaration inherits the
+   wrappers' already-established internal linkage. */
+static inline FILE* btrc_win_popen(const char* command, const char* mode) {
+    return _popen(command, mode);
+}
+static inline int btrc_win_pclose(FILE* stream) {
+    return _pclose(stream);
+}
+#ifdef popen
+#undef popen
+#endif
+#define popen btrc_win_popen
+#ifdef pclose
+#undef pclose
+#endif
+#define pclose btrc_win_pclose
 
 /* Keep the forced-include boundary narrow: importing windows.h here would
    inject thousands of unrelated typedefs and macros into every generated

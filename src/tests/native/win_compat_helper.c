@@ -2,6 +2,8 @@
 #include <string.h>
 
 extern char* mkdtemp(char* template_path);
+extern FILE* popen(const char* command, const char* mode);
+extern int pclose(FILE* stream);
 
 int btrc_win_compat_helper(void) {
     errno = 0;
