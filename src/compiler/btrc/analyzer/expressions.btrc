@@ -683,6 +683,17 @@ class ExpressionTypeResolver {
                     spanType.generic_args.push(elementType);
                     return spanType;
                 }
+                if (a.typedefTable.has(callee.name)) {
+                    Node? aliasConstructor =
+                        SemanticTypeSystem.resolveTypedefType(
+                            SemanticTypeSystem.primitive(callee.name),
+                            a.typedefTable);
+                    if (aliasConstructor != null
+                            && (a.isClass(aliasConstructor.base)
+                                || a.isGenericClass(aliasConstructor.base))) {
+                        return aliasConstructor;
+                    }
+                }
                 if (a.isGenericClass(callee.name)) {
                     return self.inferGenericConstructorCall(
                         node, callee.name, varTypes);

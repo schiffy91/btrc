@@ -157,6 +157,26 @@ class CallAnalyzer:
         """Read a type fact produced by ExpressionAnalyzer."""
         return self.session.node_types.get(id(expression))
 
+    def _constructor_target(self, expression):
+        """Resolve a direct or typedef-spelled class constructor call."""
+        if not (isinstance(expression, CallExpr) and isinstance(expression.callee, Identifier)):
+            return None
+        name = expression.callee.name
+        cls = self.index.class_table.get(name)
+        if cls is not None:
+            return cls, self._infer_constructor_call_type(expression, cls)
+        if name not in self.index.typedef_table:
+            return None
+        instance = self.types.canonical_type(
+            TypeExpr(base=name, line=expression.callee.line, col=expression.callee.col)
+        )
+        if instance is None or instance.is_array:
+            return None
+        cls = self.index.class_table.get(instance.base)
+        if cls is None or len(instance.generic_args) != len(cls.generic_params):
+            return None
+        return cls, instance
+
     def _validate_source_macro_call(self, call) -> bool:
         plan = self.macros.plan_call(call)
         if plan is None:
@@ -724,8 +744,9 @@ class CallAnalyzer:
                 else:
                     element = TypeExpr(base="int")
                 return TypeExpr(base="Span", generic_args=[element])
-            if name in self.index.class_table:
-                return self._infer_constructor_call_type(expr, self.index.class_table[name])
+            constructor = self._constructor_target(expr)
+            if constructor is not None:
+                return constructor[1]
             if name == "len":
                 return TypeExpr(base="int")
             if name == "print":
@@ -942,11 +963,11 @@ class CallAnalyzer:
         if name in GENERIC_INTRINSICS:
             self._validate_generic_intrinsic_call(expr)
             return
-        if name in self.index.class_table:
-            cls = self.index.class_table[name]
+        constructor = self._constructor_target(expr)
+        if constructor is not None:
+            cls, inferred = constructor
             if cls.is_abstract:
                 self.session.error(f"Cannot instantiate abstract class '{cls.name}'", expr.line, expr.col)
-            inferred = self._infer_constructor_call_type(expr, cls)
             if len(inferred.generic_args) == len(cls.generic_params):
                 self.generics.collect_type_instances(inferred)
             substitutions = None
@@ -1162,18 +1183,26 @@ class CallAnalyzer:
         if expression.callee.name in {"Atomic", "Span"} and expected.base == expression.callee.name:
             self.session.record_node_type(expression, expected)
             return True
-        cls = self.index.class_table.get(expression.callee.name)
+        constructor = self._constructor_target(expression)
+        if constructor is None:
+            return False
+        cls, instance = constructor
+        canonical_expected = self.types.canonical_type(expected)
+        alias_constructor = expression.callee.name not in self.index.class_table
         if not (
-            cls
-            and cls.generic_params
-            and (expected.base == cls.name)
-            and (len(expected.generic_args) == len(cls.generic_params))
+            cls.generic_params
+            and canonical_expected is not None
+            and canonical_expected.base == cls.name
+            and len(canonical_expected.generic_args) == len(cls.generic_params)
+            and (not alias_constructor or self.types.types_equal(canonical_expected, instance))
         ):
             return False
-        self.session.record_node_type(expression, expected)
-        self.generics.collect_type_instances(expected)
+        if not alias_constructor:
+            instance = canonical_expected
+        self.session.record_node_type(expression, instance)
+        self.generics.collect_type_instances(instance)
         if cls.constructor:
-            substitutions = dict(zip(cls.generic_params, expected.generic_args))
+            substitutions = dict(zip(cls.generic_params, instance.generic_args))
             names = self._arg_names(expression.args, expression.arg_names)
             for param_index, arg_index in self._bound_arguments(cls.constructor.params, names):
                 if arg_index >= len(expression.args):

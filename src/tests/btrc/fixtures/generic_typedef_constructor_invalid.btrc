@@ -1,0 +1,10 @@
+class Box<T> {
+	public Box(T value) {}
+}
+
+typedef Box<int> IntBox;
+
+int main() {
+	IntBox box = IntBox("not an int");
+	return 0;
+}

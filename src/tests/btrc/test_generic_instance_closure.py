@@ -89,6 +89,10 @@ def _compile_reference(tmp_path: Path, fixture: Path) -> tuple[subprocess.Comple
             "generic_chained_method_result_runtime.btrc",
             ("btrc_Controller_Transport_p1",),
         ),
+        (
+            "generic_typedef_constructor_runtime.btrc",
+            ("btrc_Box_int",),
+        ),
     ],
 )
 def test_transitive_generic_instances_match_and_run_strictly(
@@ -124,8 +128,28 @@ def test_transitive_generic_instances_match_and_run_strictly(
             assert ".succeeded()" not in emitted
             assert "__btrc_arc_release" in emitted
 
+    if fixture_name == "generic_typedef_constructor_runtime.btrc":
+        for emitted in (selfhost_source.read_text(), reference_source.read_text()):
+            constructor_line = next(line for line in emitted.splitlines() if "BoxAlias box =" in line)
+            assert "btrc_Box_int_new(" in constructor_line
+            assert "BoxAlias(" not in constructor_line
+
     _strict_build_and_run(selfhost_source, tmp_path / f"selfhost-{fixture.stem}")
     _strict_build_and_run(reference_source, tmp_path / f"python-{fixture.stem}")
+
+
+def test_typedef_constructor_validates_the_specialized_signature(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    fixture = FIXTURES / "generic_typedef_constructor_invalid.btrc"
+    selfhost, _selfhost_source = _compile_source(semantic_btrcc, tmp_path, fixture.read_text())
+    reference, _reference_source = _compile_reference(tmp_path, fixture)
+
+    assert selfhost.returncode != 0
+    assert reference.returncode != 0
+    for diagnostic in (selfhost.stderr, reference.stderr):
+        assert "expects 'int' but got 'string'" in diagnostic
 
 
 @pytest.mark.parametrize(

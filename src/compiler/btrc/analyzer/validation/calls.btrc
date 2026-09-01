@@ -365,71 +365,95 @@ class CallValidator {
                 }
                 return;
             }
-            if (self.state.analyzed.isClass(name)) {
-                Node classDeclaration = self.state.analyzed.classTable.get(name);
+            string constructorName = name;
+            Node? aliasConstructorType = null;
+            if (self.state.analyzed.typedefTable.has(name)) {
+                Node? resolvedAlias = self.types.resolveAliases(
+                    SemanticTypeSystem.primitive(name));
+                if (resolvedAlias != null
+                        && (self.state.analyzed.isClass(resolvedAlias.base)
+                            || self.state.analyzed.isGenericClass(
+                                resolvedAlias.base))) {
+                    constructorName = resolvedAlias.base;
+                    aliasConstructorType = resolvedAlias;
+                }
+            }
+            if (self.state.analyzed.isClass(constructorName)) {
+                Node classDeclaration =
+                    self.state.analyzed.classTable.get(constructorName);
                 if (classDeclaration.is_abstract) {
                     TypeValidator.fail(
-                        "Cannot instantiate abstract class '" + name + "'", call);
+                        "Cannot instantiate abstract class '"
+                            + constructorName + "'", call);
                 }
-                Node? constructor = self.state.analyzed.classConstructor(name);
+                Node? constructor =
+                    self.state.analyzed.classConstructor(constructorName);
                 if (constructor == null) {
                     if (call.args.len > 0) {
-                        TypeValidator.fail("Class '" + name
+                        TypeValidator.fail("Class '" + constructorName
                             + "' has no constructor but was called with "
                             + Strings.fromInt(call.args.len) + " argument(s)", call);
                     }
                 } else {
-                    self.validateConstructorAccess(name, constructor, call);
+                    self.validateConstructorAccess(
+                        constructorName, constructor, call);
                     self.borrows.validateOpaqueCallArguments(
-                        constructor, constructor.params, call, name,
+                        constructor, constructor.params, call, constructorName,
                         noSubstitutions, false,  vars);
-                    self.validateSignature(name, constructor.params, call,
-                        noSubstitutions, false,  vars);
+                    self.validateSignature(
+                        constructorName, constructor.params, call,
+                        noSubstitutions, false, vars);
                     self.ownership.validateTransferredArguments(
                         constructor, call,  vars);
-                    if (name == "CallbackRegistration") {
+                    if (constructorName == "CallbackRegistration") {
                         self.validateCallbackRegistrationInvoke(
                             constructor, call, vars);
                     }
                 }
                 return;
             }
-            if (self.state.analyzed.isGenericClass(name)) {
-                Node declaration = self.state.analyzed.genericClassTable.get(name);
+            if (self.state.analyzed.isGenericClass(constructorName)) {
+                Node declaration = self.state.analyzed.genericClassTable.get(
+                    constructorName);
                 if (declaration.is_abstract) {
                     TypeValidator.fail(
-                        "Cannot instantiate abstract class '" + name + "'", call);
+                        "Cannot instantiate abstract class '"
+                            + constructorName + "'", call);
                 }
-                Node? instance = self.types.inferType(call,  vars);
+                Node? instance = aliasConstructorType != null
+                    ? aliasConstructorType
+                    : self.types.inferType(call, vars);
                 if (instance == null
-                        || instance.base != name
+                        || instance.base != constructorName
                         || instance.generic_args.len
                             != declaration.generic_params.len) {
                     TypeValidator.fail(
                         "Cannot infer generic arguments for constructor '"
-                            + name + "()'", call);
+                            + constructorName + "()'", call);
                 }
                 Node concreteInstance = instance;
-                Node? constructor = self.state.analyzed.genericClassConstructor(name);
+                Node? constructor =
+                    self.state.analyzed.genericClassConstructor(constructorName);
                 if (constructor == null) {
                     if (call.args.len > 0) {
-                        TypeValidator.fail("Class '" + name
+                        TypeValidator.fail("Class '" + constructorName
                             + "' has no constructor but was called with "
                             + Strings.fromInt(call.args.len) + " argument(s)", call);
                     }
                     return;
                 }
-                self.validateConstructorAccess(name, constructor, call);
+                self.validateConstructorAccess(
+                    constructorName, constructor, call);
                 Map<string, Node> substitutions = SemanticTypeSystem.genericTypeMap(
                     self.state.analyzed, concreteInstance);
                 self.borrows.validateOpaqueCallArguments(
-                    constructor, constructor.params, call, name,
+                    constructor, constructor.params, call, constructorName,
                     substitutions, false,  vars);
-                self.validateSignature(name, constructor.params, call,
+                self.validateSignature(constructorName, constructor.params, call,
                     substitutions, false,  vars);
                 self.ownership.validateTransferredArguments(
                     constructor, call,  vars);
-                if (name == "CallbackRegistration") {
+                if (constructorName == "CallbackRegistration") {
                     self.validateCallbackRegistrationInvoke(
                         constructor, call, vars);
                 }

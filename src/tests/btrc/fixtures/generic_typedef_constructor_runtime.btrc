@@ -1,0 +1,18 @@
+#include <assert.h>
+
+class Box<T> {
+	private T _value;
+
+	public Box(T value) { self._value = value; }
+
+	public T value() { return self._value; }
+}
+
+typedef Box<int> IntBox;
+typedef IntBox BoxAlias;
+
+int main() {
+	BoxAlias box = BoxAlias(42);
+	assert(box.value() == 42);
+	return 0;
+}

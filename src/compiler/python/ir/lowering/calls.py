@@ -1958,14 +1958,22 @@ class CallLowerer:
             )
         elif isinstance(node.callee, Identifier) and not self._session.local_is_declared(node.callee.name):
             class_info = self._analyzed.class_table.get(node.callee.name)
+            constructor_instance = self._types.canonical_type(analyzed_result_type)
+            if (
+                class_info is None
+                and node.callee.name in self._analyzed.typedef_table
+                and constructor_instance is not None
+            ):
+                class_info = self._analyzed.class_table.get(constructor_instance.base)
             if class_info is not None:
                 if (
-                    analyzed_result_type is None
-                    or analyzed_result_type.base != node.callee.name
-                    or len(analyzed_result_type.generic_args) != len(class_info.generic_params)
+                    constructor_instance is None
+                    or constructor_instance.base != class_info.name
+                    or len(constructor_instance.generic_args) != len(class_info.generic_params)
                 ):
                     raise CodegenError(f"generic constructor '{node.callee.name}()' has no concrete analyzed call type")
-                callee = self.constructor_symbol(analyzed_result_type)
+                analyzed_result_type = constructor_instance
+                callee = self.constructor_symbol(constructor_instance)
                 declaration = class_info.constructor
             else:
                 callee = node.callee

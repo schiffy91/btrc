@@ -629,6 +629,15 @@ class CallTargetResolver {
                     call, callee, callableType, variableTypes, boundary);
             }
         }
+        if (self.analyzed.typedefTable.has(name)) {
+            Node? instance = self.expressionType(call, variableTypes);
+            if (instance != null
+                    && (self.analyzed.isClass(instance.base)
+                        || self.analyzed.isGenericClass(instance.base))) {
+                return self.constructorTarget(
+                    call, instance, variableTypes);
+            }
+        }
         if (self.analyzed.isClass(name)) {
             Node instance = SemanticTypeSystem.namedClass(name);
             return self.constructorTarget(call, instance, variableTypes);

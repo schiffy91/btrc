@@ -1550,6 +1550,22 @@ class ExpressionValidator {
             if (self.state.analyzed.funcTable.has(callee.name)
                     && !self.state.analyzed.hostedCallKeys.has(AstIdentity.key(call))) {
                 declaration = self.state.analyzed.funcTable.get(callee.name);
+            } else if (self.state.analyzed.typedefTable.has(callee.name)) {
+                Node? instance = self.types.resolveAliases(
+                    SemanticTypeSystem.primitive(callee.name));
+                if (instance != null
+                        && self.state.analyzed.isClass(instance.base)) {
+                    declaration = self.state.analyzed.classConstructor(
+                        instance.base);
+                } else if (instance != null
+                        && self.state.analyzed.isGenericClass(instance.base)) {
+                    self.state.analyzed.genericConstructorTypes.put(
+                        AstIdentity.key(call), instance);
+                    substitutions = SemanticTypeSystem.genericTypeMap(
+                        self.state.analyzed, instance);
+                    declaration = self.state.analyzed.genericClassConstructor(
+                        instance.base);
+                }
             } else if (self.state.analyzed.isClass(callee.name)) {
                 declaration = self.state.analyzed.classConstructor(callee.name);
             } else if (self.state.analyzed.isGenericClass(callee.name)) {
