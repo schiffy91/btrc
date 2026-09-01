@@ -62,10 +62,11 @@ class CTypeLowerer {
         if (!self.functionPointerTypes.has(mangled)) {
             int component = 0;
             while (component < typeExpr.generic_args.len) {
-                Node? canonical = SemanticTypeSystem.resolveTypedefType(
-                    typeExpr.generic_args.get(component),
-                    self.analyzed.typedefTable);
-                if (canonical != null) { self.lower(canonical); }
+                /* Discover directly nested callbacks without flattening a
+                 * named typedef boundary.  A typedef is both the source C
+                 * spelling and the only representation of qualifiers applied
+                 * to an intermediate pointer layer. */
+                self.lower(typeExpr.generic_args.get(component));
                 component = component + 1;
             }
             self.functionPointerTypes.put(mangled, typeExpr);

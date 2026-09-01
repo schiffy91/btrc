@@ -1,3 +1,4 @@
+import std.map;
 import std.strings;
 import std.vector;
 import ./model.btrc;
@@ -62,19 +63,7 @@ class CEmitter {
         }
         if (m.struct_forwards.len > 0) { self.line(""); }
 
-        i = 0;
-        while (i < m.function_pointer_typedefs.len) {
-            self.emitFunctionPointerTypedef(
-                m.function_pointer_typedefs.get(i));
-            i = i + 1;
-        }
-        if (m.function_pointer_typedefs.len > 0) { self.line(""); }
-
-        i = 0;
-        while (i < m.typedef_defs.len) {
-            self.emitTypedef(m.typedef_defs.get(i));
-            i = i + 1;
-        }
+        self.emitOrderedAliases(m);
         i = 0;
         while (i < m.tagged_union_defs.len) {
             self.emitTaggedUnion(m.tagged_union_defs.get(i));
@@ -225,6 +214,120 @@ class CEmitter {
     private void emitStructForward(IRStructForward declaration) {
         self.line("typedef struct " + declaration.name
             + " " + declaration.name + ";");
+    }
+
+    private bool aliasIdentifierChar(char value) {
+        return (value >= 'a' && value <= 'z')
+            || (value >= 'A' && value <= 'Z')
+            || (value >= '0' && value <= '9')
+            || value == '_';
+    }
+
+    private bool aliasDependenciesReady(
+            string typeText, string ownName,
+            Map<string, bool> providers,
+            Map<string, bool> emitted) {
+        int length = typeText.length();
+        int index = 0;
+        while (index < length) {
+            while (index < length
+                    && !self.aliasIdentifierChar(typeText[index])) {
+                index = index + 1;
+            }
+            int start = index;
+            while (index < length
+                    && self.aliasIdentifierChar(typeText[index])) {
+                index = index + 1;
+            }
+            if (start < index) {
+                string name = typeText.substring(start, index - start);
+                if (name != ownName && providers.has(name)
+                        && !emitted.has(name)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private bool functionPointerDependenciesReady(
+            IRFunctionPointerTypedef declaration,
+            Map<string, bool> providers,
+            Map<string, bool> emitted) {
+        if (!self.aliasDependenciesReady(
+                declaration.return_type, declaration.name,
+                providers, emitted)) {
+            return false;
+        }
+        int index = 0;
+        while (index < declaration.param_types.len) {
+            if (!self.aliasDependenciesReady(
+                    declaration.param_types.get(index), declaration.name,
+                    providers, emitted)) {
+                return false;
+            }
+            index = index + 1;
+        }
+        return true;
+    }
+
+    /* Function-pointer and ordinary typedef declarations form one dependency
+     * graph.  Preserve the reference frontend's stable group order whenever
+     * possible, while moving named aliases ahead of callbacks that use them. */
+    private void emitOrderedAliases(IRModule module) {
+        Map<string, bool> providers = {};
+        int index = 0;
+        while (index < module.function_pointer_typedefs.len) {
+            providers.put(
+                module.function_pointer_typedefs.get(index).name, true);
+            index = index + 1;
+        }
+        index = 0;
+        while (index < module.typedef_defs.len) {
+            providers.put(module.typedef_defs.get(index).name, true);
+            index = index + 1;
+        }
+
+        Map<string, bool> emitted = {};
+        int remaining = module.function_pointer_typedefs.len
+            + module.typedef_defs.len;
+        while (remaining > 0) {
+            bool progressed = false;
+            index = 0;
+            while (index < module.function_pointer_typedefs.len) {
+                IRFunctionPointerTypedef declaration =
+                    module.function_pointer_typedefs.get(index);
+                if (!emitted.has(declaration.name)
+                        && self.functionPointerDependenciesReady(
+                            declaration, providers, emitted)) {
+                    self.emitFunctionPointerTypedef(declaration);
+                    self.line("");
+                    emitted.put(declaration.name, true);
+                    remaining = remaining - 1;
+                    progressed = true;
+                }
+                index = index + 1;
+            }
+            index = 0;
+            while (index < module.typedef_defs.len) {
+                IRTypedefDef declaration = module.typedef_defs.get(index);
+                if (!emitted.has(declaration.name)
+                        && self.aliasDependenciesReady(
+                            declaration.target_type, declaration.name,
+                            providers, emitted)) {
+                    self.emitTypedef(declaration);
+                    emitted.put(declaration.name, true);
+                    remaining = remaining - 1;
+                    progressed = true;
+                }
+                index = index + 1;
+            }
+            if (!progressed) {
+                fprintf(stderr,
+                    "error: cyclic typed C alias dependency\n");
+                exit(1);
+            }
+        }
     }
 
     private void emitFunctionPointerTypedef(

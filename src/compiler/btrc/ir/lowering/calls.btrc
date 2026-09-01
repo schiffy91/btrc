@@ -621,7 +621,8 @@ class CallTargetResolver {
         string name = callee.name;
         if (variableTypes.has(name)
                 || boundary.hasEnvironment(name)) {
-            Node? callableType = SemanticTypeSystem.directFunctionPointer(
+            Node? callableType =
+                SemanticTypeSystem.directFunctionPointerSpecialization(
                 self.expressionType(callee, variableTypes), self.analyzed);
             if (callableType != null) {
                 return self.callableTarget(
@@ -674,7 +675,8 @@ class CallTargetResolver {
     private CallTarget resolveField(Node call, Node callee,
             Map<string, Node> variableTypes,
             CallableBoundaryContext boundary) {
-        Node? callableType = SemanticTypeSystem.directFunctionPointer(
+        Node? callableType =
+            SemanticTypeSystem.directFunctionPointerSpecialization(
             self.expressionType(callee, variableTypes), self.analyzed);
         if (callableType != null) {
             return self.callableTarget(
@@ -755,7 +757,8 @@ class CallTargetResolver {
             return self.resolveField(
                 call, callee, variableTypes, boundary);
         }
-        Node? callableType = SemanticTypeSystem.directFunctionPointer(
+        Node? callableType =
+            SemanticTypeSystem.directFunctionPointerSpecialization(
             self.expressionType(callee, variableTypes), self.analyzed);
         if (callableType != null) {
             return self.callableTarget(

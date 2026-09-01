@@ -203,7 +203,7 @@ class StringLowerer {
     public Node? preparedCanonicalType(Node? typeExpr) {
         if (typeExpr == null) { return null; }
         Node concrete = self.cTypes.resolveBodyType(typeExpr, self.context.activeTypeMap, self.context.genericBody || self.context.callDefaultTypeDepth > 0);
-        Node? resolved = SemanticTypeSystem.resolveTypedefType(
+        Node? resolved = SemanticTypeSystem.resolveOuterTypedefType(
             concrete, self.analyzed.typedefTable);
         if (resolved != null) { return resolved; }
         return concrete;

@@ -1,0 +1,52 @@
+#include <assert.h>
+
+typedef const float* InputChannel;
+typedef const InputChannel* InputChannels;
+typedef float* OutputChannel;
+typedef const OutputChannel* OutputChannels;
+
+typedef CFunction<
+    void,
+    InputChannels,
+    int,
+    OutputChannels,
+    int
+> Process;
+
+class ProcessHolder {
+    private Process _process;
+
+    public ProcessHolder(Process process) {
+        if (process == null) { throw "process callback is required"; }
+        self._process = process;
+    }
+
+    public Process value() { return self._process; }
+}
+
+void process(
+        InputChannels inputs, int inputCount,
+        OutputChannels outputs, int outputCount) {
+    (void)inputs;
+    (void)inputCount;
+    (void)outputs;
+    (void)outputCount;
+}
+
+int marker() { return 1; }
+
+void requireCallback(int value, Process callback) {
+    assert(value == 1);
+    assert(callback != null);
+}
+
+int main() {
+    Process callback = process;
+    ProcessHolder holder = ProcessHolder(callback);
+    callback = holder.value();
+    assert(callback != null);
+    requireCallback(marker(), callback);
+    callback(null, 0, null, 0);
+    print("PASS: test_cfunction_recursive_const_alias");
+    return 0;
+}
