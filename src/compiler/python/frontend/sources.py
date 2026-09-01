@@ -680,7 +680,7 @@ _PRIORITY_FILES = (
     "strings.btrc",
     "platform.btrc",
     "process.btrc",
-    "fs.btrc",
+    "FileSystem.btrc",
     "daemon.btrc",
     "ui.btrc",
 )

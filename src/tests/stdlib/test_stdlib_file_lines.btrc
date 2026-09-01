@@ -2,7 +2,7 @@
  * strips the trailing newline, readLines returns a Vector<string>, eof() flips
  * after the last read, and flush() reports success on a writable handle.
  * Hermetic: a single temp file under a fresh temp dir, removed at the end. */
-import std.fs;
+import std.FileSystem;
 import std.io;
 import std.strings;
 import std.vector;

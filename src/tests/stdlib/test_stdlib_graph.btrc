@@ -1,6 +1,6 @@
 /* std.graph: graph JSON parsing, CLI args, and dependency traversal. */
 import std.cli;
-import std.fs;
+import std.FileSystem;
 import std.graph;
 import std.io;
 import std.map;

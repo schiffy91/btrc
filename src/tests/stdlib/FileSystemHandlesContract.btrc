@@ -1,0 +1,79 @@
+/* Typed exact-handle values never require dummy success or error payloads. */
+import std.FileSystem;
+
+#include <assert.h>
+
+int main() {
+    FileSystemError denied = FileSystemError(
+        FS_ACCESS_DENIED,
+        "open file",
+        "/denied",
+        13,
+        "permission denied"
+    );
+    assert(denied.kind() == FS_ACCESS_DENIED);
+    assert(denied.operation().equals("open file"));
+    assert(denied.path().equals("/denied"));
+    assert(denied.nativeCode() == 13);
+    assert(denied.message().equals("permission denied"));
+
+    FileSnapshot first = FileSnapshot(
+        FILE_REGULAR, 12LL, 1ULL, 2ULL, 33188ULL,
+        3ULL, 4ULL, 5ULL, 6ULL);
+    FileSnapshot same = FileSnapshot(
+        FILE_REGULAR, 12LL, 1ULL, 2ULL, 33188ULL,
+        3ULL, 4ULL, 5ULL, 6ULL);
+    FileSnapshot changed = FileSnapshot(
+        FILE_REGULAR, 12LL, 1ULL, 2ULL, 33188ULL,
+        3ULL, 4ULL, 7ULL, 8ULL);
+    FileSnapshot replacement = FileSnapshot(
+        FILE_REGULAR, 12LL, 1ULL, 9ULL, 33188ULL,
+        3ULL, 4ULL, 5ULL, 6ULL);
+    assert(first.sameObject(same));
+    assert(first.sameVersion(same));
+    assert(first.sameObject(changed));
+    assert(!first.sameVersion(changed));
+    assert(!first.sameObject(replacement));
+    assert(first.cacheToken().equals(same.cacheToken()));
+    assert(!first.cacheToken().equals(changed.cacheToken()));
+
+    FileOpenOutcome fileFailure = FileOpenOutcome.failed(denied);
+    assert(!fileFailure.ok());
+    assert(fileFailure.error() == denied);
+    DirectoryOpenOutcome directoryFailure = DirectoryOpenOutcome.failed(
+        denied);
+    assert(!directoryFailure.ok());
+    assert(directoryFailure.error() == denied);
+    FileSnapshotOutcome snapshotFailure = FileSnapshotOutcome.failed(denied);
+    assert(!snapshotFailure.ok());
+    assert(snapshotFailure.error() == denied);
+
+    DirectoryStepOutcome end = DirectoryStepOutcome.end();
+    assert(end.ok());
+    assert(end.kind() == DIRECTORY_STEP_END);
+    DirectoryStepOutcome failed = DirectoryStepOutcome.failed(denied);
+    assert(!failed.ok());
+    assert(failed.kind() == DIRECTORY_STEP_FAILED);
+    assert(failed.error() == denied);
+
+    FileReadOutcome eof = FileReadOutcome.end();
+    assert(eof.ok());
+    assert(eof.kind() == FILE_READ_END);
+    FileReadOutcome readFailure = FileReadOutcome.failed(denied);
+    assert(!readFailure.ok());
+    assert(readFailure.error() == denied);
+
+    assert(!FileSystem.openFileExact("").ok());
+    assert(FileSystem.openFileExact("").error().kind()
+        == FS_INVALID_ARGUMENT);
+    assert(!FileSystem.openDirectoryExact("").ok());
+    assert(!FileSystem.inspectExact("").ok());
+    assert(!FileSystem.createTemporaryDirectory("../escape").ok());
+
+    assert(FileSystemCloseOutcome.closed().ok());
+    assert(FileSystemCloseOutcome.alreadyClosed().ok());
+    assert(!FileSystemCloseOutcome.failed(denied).ok());
+
+    print("PASS: typed filesystem handle contract");
+    return 0;
+}

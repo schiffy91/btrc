@@ -3,7 +3,7 @@
  * writeBytes / readBytes, exercising the multi-chunk fread loop and the Bytes
  * realloc growth path. Hermetic: one temp file, removed at the end. */
 import std.bytes;
-import std.fs;
+import std.FileSystem;
 import std.io;
 
 #include <assert.h>

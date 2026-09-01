@@ -1,6 +1,6 @@
 /* Directive scanning, import resolution, and frontend composition. */
 
-import std.fs;
+import std.FileSystem;
 import std.map;
 import std.strings;
 import std.vector;

@@ -3,7 +3,7 @@
  * not exit(1)), and Strings.repeat is safe for non-positive counts.
  *
  * Hermetic: uses a fresh temp dir; deterministic; no network/sleep. */
-import std.fs;
+import std.FileSystem;
 import std.graph;
 import std.io;
 import std.strings;

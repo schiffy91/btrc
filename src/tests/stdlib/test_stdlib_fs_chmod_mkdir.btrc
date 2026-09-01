@@ -1,7 +1,7 @@
 /* FileSystem.mkdir (single, non-recursive), FileSystem.chmod, Directory.entries
  * over a populated dir (excluding '.'/'..'), and UnixFileSystem.realPath of a
  * created file. Hermetic: everything under a fresh temp dir, removed at the end. */
-import std.fs;
+import std.FileSystem;
 import std.vector;
 
 #include <assert.h>

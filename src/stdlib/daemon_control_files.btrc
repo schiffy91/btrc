@@ -1,7 +1,7 @@
 /* Owner-only filesystem boundary for daemon control capabilities. */
 
 import std.daemon_control;
-import std.fs;
+import std.FileSystem;
 import std.platform;
 import std.strings;
 

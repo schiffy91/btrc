@@ -1,6 +1,6 @@
 /* A directory lease retains an open inode reference and rejects a name that
  * was substituted before removal. Callers serialize concurrent renames. */
-import std.fs;
+import std.FileSystem;
 
 #include <assert.h>
 #include <unistd.h>

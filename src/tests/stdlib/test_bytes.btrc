@@ -6,7 +6,7 @@
  * Deterministic and hermetic: the only side effect is a temp file under a
  * fresh temp dir, removed at the end. */
 import std.bytes;
-import std.fs;
+import std.FileSystem;
 import std.io;
 
 #include <assert.h>

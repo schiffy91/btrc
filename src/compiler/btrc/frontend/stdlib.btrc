@@ -1,6 +1,6 @@
 /* Standard-library snapshots, lookup, and symbol-index owners. */
 
-import std.fs;
+import std.FileSystem;
 import std.map;
 import std.strings;
 import std.vector;
@@ -85,7 +85,7 @@ class FeStdlibRepository {
             "strings.btrc",
             "platform.btrc",
             "process.btrc",
-            "fs.btrc",
+            "FileSystem.btrc",
             "daemon.btrc",
             "ui.btrc",
         ];

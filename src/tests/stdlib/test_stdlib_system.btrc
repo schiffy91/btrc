@@ -1,6 +1,6 @@
 import std.cli;
 import std.daemon;
-import std.fs;
+import std.FileSystem;
 import std.json;
 import std.pattern;
 import std.platform;

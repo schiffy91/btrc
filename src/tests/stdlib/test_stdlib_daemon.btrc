@@ -4,7 +4,7 @@ import std.daemon;
 import std.daemon_control;
 import std.daemon_control_protocol;
 import std.datetime;
-import std.fs;
+import std.FileSystem;
 import std.io;
 import std.platform;
 import std.process;

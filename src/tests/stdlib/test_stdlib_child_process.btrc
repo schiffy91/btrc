@@ -2,7 +2,7 @@
  * applied without a shell, stdout/stderr and status are captured separately,
  * and a timeout kills the whole process group. */
 import std.datetime;
-import std.fs;
+import std.FileSystem;
 import std.platform;
 import std.process;
 import std.strings;

@@ -12,7 +12,7 @@
  * source of executable or language data.
  */
 
-import std.fs;
+import std.FileSystem;
 import std.platform;
 import std.strings;
 import std.vector;

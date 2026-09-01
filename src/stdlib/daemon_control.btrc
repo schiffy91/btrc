@@ -4,7 +4,7 @@
  * informational only: controller code never signals it.
  */
 
-import std.fs;
+import std.FileSystem;
 import std.platform;
 import std.strings;
 import std.vector;

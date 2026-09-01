@@ -7,7 +7,7 @@ from src.compiler.python.runtime.catalog import RuntimeHelperCatalog
 ROOT = Path(__file__).resolve().parents[3]
 PROCESS = ROOT / "src" / "stdlib" / "process.btrc"
 HTTP_CLIENT = ROOT / "src" / "stdlib" / "http_client.btrc"
-FILESYSTEM = ROOT / "src" / "stdlib" / "fs.btrc"
+FILESYSTEM = ROOT / "src" / "stdlib" / "FileSystem.btrc"
 PASSWORD_EXCHANGE = ROOT / "src" / "stdlib" / "terminal_password_exchange.btrc"
 TERMINAL = ROOT / "src" / "stdlib" / "terminal.btrc"
 PROCESS_HELPERS = {helper.name: helper for helper in RuntimeHelperCatalog().definitions_in_category("process")}

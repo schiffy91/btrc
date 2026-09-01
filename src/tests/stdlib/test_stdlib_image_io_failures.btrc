@@ -2,7 +2,7 @@
 import std.bytes;
 import std.io;
 import std.image;
-import std.fs;
+import std.FileSystem;
 
 #include <assert.h>
 

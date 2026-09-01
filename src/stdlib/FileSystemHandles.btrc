@@ -1,0 +1,644 @@
+/* Owned, exact filesystem handles.
+ *
+ * Operations expose copied BTRC values and typed outcomes. Native descriptors
+ * remain private, each read or directory advance performs bounded work, and
+ * callers retain ownership of traversal, byte, and cancellation budgets.
+ */
+
+import std.bytes;
+
+enum FileKind {
+    FILE_REGULAR = 0,
+    FILE_DIRECTORY = 1,
+    FILE_SYMLINK = 2,
+    FILE_OTHER = 3
+};
+
+enum FileSystemErrorKind {
+    FS_INVALID_ARGUMENT = 0,
+    FS_NOT_FOUND = 1,
+    FS_ACCESS_DENIED = 2,
+    FS_SYMLINK = 3,
+    FS_WRONG_TYPE = 4,
+    FS_CHANGED = 5,
+    FS_RESOURCE_EXHAUSTED = 6,
+    FS_IO = 7,
+    FS_CLOSED = 8,
+    FS_UNSUPPORTED = 9
+};
+
+enum FileSystemOutcomeKind {
+    FS_VALUE = 0,
+    FS_ERROR = 1
+};
+
+enum FileReadKind {
+    FILE_READ_DATA = 0,
+    FILE_READ_END = 1,
+    FILE_READ_FAILED = 2
+};
+
+enum DirectoryStepKind {
+    DIRECTORY_STEP_ENTRY = 0,
+    DIRECTORY_STEP_END = 1,
+    DIRECTORY_STEP_FAILED = 2
+};
+
+enum FileSystemCloseKind {
+    FS_CLOSED_NOW = 0,
+    FS_ALREADY_CLOSED = 1,
+    FS_CLOSE_FAILED = 2
+};
+
+class FileSystemError {
+    private FileSystemErrorKind _kind;
+    private string _operation;
+    private string _path;
+    private int _nativeCode;
+    private string _message;
+
+    public FileSystemError(
+        FileSystemErrorKind kind,
+        string operation,
+        string path,
+        int nativeCode,
+        string message
+    ) {
+        self._kind = kind;
+        self._operation = operation == null ? "" : operation;
+        self._path = path == null ? "" : path;
+        self._nativeCode = nativeCode;
+        self._message = message == null ? "" : message;
+    }
+
+    class FileSystemError invalid(string operation, string path) {
+        return FileSystemError(
+            FS_INVALID_ARGUMENT, operation, path, 0,
+            "filesystem argument is invalid");
+    }
+
+    class FileSystemError closed(string operation, string path) {
+        return FileSystemError(
+            FS_CLOSED, operation, path, 0,
+            "filesystem handle is closed");
+    }
+
+    class FileSystemError unsupported(string operation, string path) {
+        return FileSystemError(
+            FS_UNSUPPORTED, operation, path, 0,
+            "exact filesystem handles are unsupported");
+    }
+
+    public FileSystemErrorKind kind() { return self._kind; }
+    public string operation() { return self._operation; }
+    public string path() { return self._path; }
+    public int nativeCode() { return self._nativeCode; }
+    public string message() { return self._message; }
+}
+
+class FileSnapshot {
+    private FileKind _kind;
+    private long long _size;
+    private unsigned long long _device;
+    private unsigned long long _inode;
+    private unsigned long long _mode;
+    private unsigned long long _modifiedSeconds;
+    private unsigned long long _modifiedNanoseconds;
+    private unsigned long long _changedSeconds;
+    private unsigned long long _changedNanoseconds;
+
+    public FileSnapshot(
+        FileKind kind,
+        long long size,
+        unsigned long long device,
+        unsigned long long inode,
+        unsigned long long mode,
+        unsigned long long modifiedSeconds,
+        unsigned long long modifiedNanoseconds,
+        unsigned long long changedSeconds,
+        unsigned long long changedNanoseconds
+    ) {
+        self._kind = kind;
+        self._size = size;
+        self._device = device;
+        self._inode = inode;
+        self._mode = mode;
+        self._modifiedSeconds = modifiedSeconds;
+        self._modifiedNanoseconds = modifiedNanoseconds;
+        self._changedSeconds = changedSeconds;
+        self._changedNanoseconds = changedNanoseconds;
+    }
+
+    public FileKind kind() { return self._kind; }
+    public long long size() { return self._size; }
+
+    public bool sameObject(FileSnapshot other) {
+        return other != null
+            && self._device == other._device
+            && self._inode == other._inode;
+    }
+
+    public bool sameVersion(FileSnapshot other) {
+        return self.sameObject(other)
+            && self._kind == other._kind
+            && self._size == other._size
+            && self._mode == other._mode
+            && self._modifiedSeconds == other._modifiedSeconds
+            && self._modifiedNanoseconds == other._modifiedNanoseconds
+            && self._changedSeconds == other._changedSeconds
+            && self._changedNanoseconds == other._changedNanoseconds;
+    }
+
+    private void appendU64(Bytes bytes, unsigned long long value) {
+        for (int shift = 0; shift < 64; shift = shift + 8) {
+            bytes.append((int)((value >> shift) & 255ULL));
+        }
+    }
+
+    /* Opaque, versioned metadata bytes for deterministic cache revisions.
+     * Equality here is not an authorization or stale-publication check;
+     * sameVersion() compares the complete captured snapshot. */
+    public Bytes cacheToken() {
+        Bytes token = Bytes();
+        token.append(1);
+        self.appendU64(token, (unsigned long long)self._kind);
+        self.appendU64(token, (unsigned long long)self._size);
+        self.appendU64(token, self._device);
+        self.appendU64(token, self._inode);
+        self.appendU64(token, self._mode);
+        self.appendU64(token, self._modifiedSeconds);
+        self.appendU64(token, self._modifiedNanoseconds);
+        self.appendU64(token, self._changedSeconds);
+        self.appendU64(token, self._changedNanoseconds);
+        return token;
+    }
+}
+
+class FileSnapshotOutcome {
+    private FileSystemOutcomeKind _kind;
+    private FileSnapshot? _snapshot;
+    private FileSystemError? _error;
+
+    private FileSnapshotOutcome(
+        FileSystemOutcomeKind kind,
+        FileSnapshot? snapshot,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._snapshot = snapshot;
+        self._error = error;
+    }
+
+    class FileSnapshotOutcome available(FileSnapshot snapshot) {
+        if (snapshot == null) { throw "filesystem snapshot is null"; }
+        return FileSnapshotOutcome(FS_VALUE, snapshot, null);
+    }
+
+    class FileSnapshotOutcome failed(FileSystemError error) {
+        if (error == null) { throw "filesystem snapshot error is null"; }
+        return FileSnapshotOutcome(FS_ERROR, null, error);
+    }
+
+    public bool ok() { return self._kind == FS_VALUE; }
+    public FileSnapshot snapshot() {
+        if (self._snapshot == null) { throw "filesystem snapshot unavailable"; }
+        return self._snapshot;
+    }
+    public FileSystemError error() {
+        if (self._error == null) { throw "filesystem snapshot has no error"; }
+        return self._error;
+    }
+}
+
+class FileOpenOutcome {
+    private FileSystemOutcomeKind _kind;
+    private FileHandle? _file;
+    private FileSystemError? _error;
+
+    private FileOpenOutcome(
+        FileSystemOutcomeKind kind,
+        FileHandle? file,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._file = file;
+        self._error = error;
+    }
+
+    class FileOpenOutcome opened(FileHandle file) {
+        if (file == null) { throw "opened file handle is null"; }
+        return FileOpenOutcome(FS_VALUE, file, null);
+    }
+
+    class FileOpenOutcome failed(FileSystemError error) {
+        if (error == null) { throw "file open error is null"; }
+        return FileOpenOutcome(FS_ERROR, null, error);
+    }
+
+    public bool ok() { return self._kind == FS_VALUE; }
+    public FileHandle file() {
+        if (self._file == null) { throw "file handle unavailable"; }
+        return self._file;
+    }
+    public FileSystemError error() {
+        if (self._error == null) { throw "file open has no error"; }
+        return self._error;
+    }
+}
+
+class DirectoryOpenOutcome {
+    private FileSystemOutcomeKind _kind;
+    private DirectoryHandle? _directory;
+    private FileSystemError? _error;
+
+    private DirectoryOpenOutcome(
+        FileSystemOutcomeKind kind,
+        DirectoryHandle? directory,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._directory = directory;
+        self._error = error;
+    }
+
+    class DirectoryOpenOutcome opened(DirectoryHandle directory) {
+        if (directory == null) { throw "opened directory handle is null"; }
+        return DirectoryOpenOutcome(FS_VALUE, directory, null);
+    }
+
+    class DirectoryOpenOutcome failed(FileSystemError error) {
+        if (error == null) { throw "directory open error is null"; }
+        return DirectoryOpenOutcome(FS_ERROR, null, error);
+    }
+
+    public bool ok() { return self._kind == FS_VALUE; }
+    public DirectoryHandle directory() {
+        if (self._directory == null) { throw "directory handle unavailable"; }
+        return self._directory;
+    }
+    public FileSystemError error() {
+        if (self._error == null) { throw "directory open has no error"; }
+        return self._error;
+    }
+}
+
+class FileReadOutcome {
+    private FileReadKind _kind;
+    private Bytes? _bytes;
+    private FileSystemError? _error;
+
+    private FileReadOutcome(
+        FileReadKind kind,
+        Bytes? bytes,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._bytes = bytes;
+        self._error = error;
+    }
+
+    class FileReadOutcome data(Bytes bytes) {
+        if (bytes == null || bytes.isEmpty()) {
+            throw "filesystem data read must contain bytes";
+        }
+        return FileReadOutcome(FILE_READ_DATA, bytes, null);
+    }
+
+    class FileReadOutcome end() {
+        return FileReadOutcome(FILE_READ_END, null, null);
+    }
+
+    class FileReadOutcome failed(FileSystemError error) {
+        if (error == null) { throw "file read error is null"; }
+        return FileReadOutcome(FILE_READ_FAILED, null, error);
+    }
+
+    public FileReadKind kind() { return self._kind; }
+    public bool ok() { return self._kind != FILE_READ_FAILED; }
+    public Bytes bytes() {
+        if (self._bytes == null) { throw "file read has no data"; }
+        return self._bytes;
+    }
+    public FileSystemError error() {
+        if (self._error == null) { throw "file read has no error"; }
+        return self._error;
+    }
+}
+
+class DirectoryEntry {
+    private DirectoryHandle _owner;
+    private string _name;
+    private string _path;
+    private FileSnapshot _snapshot;
+
+    public DirectoryEntry(
+        DirectoryHandle owner,
+        string name,
+        string path,
+        FileSnapshot snapshot
+    ) {
+        if (owner == null || name == null || name.isEmpty()
+                || path == null || path.isEmpty() || snapshot == null) {
+            throw "invalid directory entry";
+        }
+        self._owner = owner;
+        self._name = name;
+        self._path = path;
+        self._snapshot = snapshot;
+    }
+
+    public string name() { return self._name; }
+    public string path() { return self._path; }
+    public FileSnapshot snapshot() { return self._snapshot; }
+    public bool belongsTo(DirectoryHandle directory) {
+        return directory != null && self._owner == directory;
+    }
+}
+
+class DirectoryStepOutcome {
+    private DirectoryStepKind _kind;
+    private DirectoryEntry? _entry;
+    private FileSystemError? _error;
+
+    private DirectoryStepOutcome(
+        DirectoryStepKind kind,
+        DirectoryEntry? entry,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._entry = entry;
+        self._error = error;
+    }
+
+    class DirectoryStepOutcome withEntry(DirectoryEntry entry) {
+        if (entry == null) { throw "directory step entry is null"; }
+        return DirectoryStepOutcome(DIRECTORY_STEP_ENTRY, entry, null);
+    }
+
+    class DirectoryStepOutcome end() {
+        return DirectoryStepOutcome(DIRECTORY_STEP_END, null, null);
+    }
+
+    class DirectoryStepOutcome failed(FileSystemError error) {
+        if (error == null) { throw "directory step error is null"; }
+        return DirectoryStepOutcome(DIRECTORY_STEP_FAILED, null, error);
+    }
+
+    public DirectoryStepKind kind() { return self._kind; }
+    public bool ok() { return self._kind != DIRECTORY_STEP_FAILED; }
+    public DirectoryEntry entry() {
+        if (self._entry == null) { throw "directory step has no entry"; }
+        return self._entry;
+    }
+    public FileSystemError error() {
+        if (self._error == null) { throw "directory step has no error"; }
+        return self._error;
+    }
+}
+
+class FileSystemCloseOutcome {
+    private FileSystemCloseKind _kind;
+    private FileSystemError? _error;
+
+    private FileSystemCloseOutcome(
+        FileSystemCloseKind kind,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._error = error;
+    }
+
+    class FileSystemCloseOutcome closed() {
+        return FileSystemCloseOutcome(FS_CLOSED_NOW, null);
+    }
+    class FileSystemCloseOutcome alreadyClosed() {
+        return FileSystemCloseOutcome(FS_ALREADY_CLOSED, null);
+    }
+    class FileSystemCloseOutcome failed(FileSystemError error) {
+        if (error == null) { throw "filesystem close error is null"; }
+        return FileSystemCloseOutcome(FS_CLOSE_FAILED, error);
+    }
+
+    public FileSystemCloseKind kind() { return self._kind; }
+    public bool ok() { return self._kind != FS_CLOSE_FAILED; }
+    public FileSystemError error() {
+        if (self._error == null) { throw "filesystem close has no error"; }
+        return self._error;
+    }
+}
+
+class FileHandle {
+    private int _descriptor;
+    private string _path;
+    private FileSnapshot? _openedSnapshot;
+
+    private FileHandle(
+        int descriptor,
+        string path,
+        FileSnapshot openedSnapshot
+    ) {
+        self._descriptor = descriptor;
+        self._path = path;
+        self._openedSnapshot = openedSnapshot;
+    }
+
+    class FileSnapshotOutcome inspectExact(string path) {
+        if (path == null || path.isEmpty()) {
+            return FileSnapshotOutcome.failed(
+                FileSystemError.invalid("inspect", path));
+        }
+        return FileSnapshotOutcome.failed(
+            FileSystemError.unsupported("inspect", path));
+    }
+
+    class FileOpenOutcome openExact(string path) {
+        if (path == null || path.isEmpty()) {
+            return FileOpenOutcome.failed(
+                FileSystemError.invalid("open file", path));
+        }
+        return FileOpenOutcome.failed(
+            FileSystemError.unsupported("open file", path));
+    }
+
+    public bool isOpen() { return self._descriptor >= 0; }
+    public string path() { return self._path; }
+    public FileSnapshot openedSnapshot() {
+        if (self._openedSnapshot == null) {
+            throw "file handle has no opened snapshot";
+        }
+        return self._openedSnapshot;
+    }
+
+    public FileSnapshotOutcome snapshot() {
+        return FileSnapshotOutcome.failed(
+            FileSystemError.closed("inspect open file", self._path));
+    }
+
+    public FileReadOutcome readAt(long long offset, int maximumBytes) {
+        if (offset < 0LL || maximumBytes <= 0) {
+            return FileReadOutcome.failed(
+                FileSystemError.invalid("read file", self._path));
+        }
+        return FileReadOutcome.failed(
+            FileSystemError.closed("read file", self._path));
+    }
+
+    public FileSystemCloseOutcome close() {
+        return FileSystemCloseOutcome.alreadyClosed();
+    }
+
+    public void __del__() { self.close(); }
+}
+
+class DirectoryHandle {
+    private void* _directory;
+    private string _path;
+    private FileSnapshot? _openedSnapshot;
+
+    private DirectoryHandle(
+        void* directory,
+        string path,
+        FileSnapshot openedSnapshot
+    ) {
+        self._directory = directory;
+        self._path = path;
+        self._openedSnapshot = openedSnapshot;
+    }
+
+    class DirectoryOpenOutcome openExact(string path) {
+        if (path == null || path.isEmpty()) {
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.invalid("open directory", path));
+        }
+        return DirectoryOpenOutcome.failed(
+            FileSystemError.unsupported("open directory", path));
+    }
+
+    public bool isOpen() { return self._directory != null; }
+    public string path() { return self._path; }
+    public FileSnapshot openedSnapshot() {
+        if (self._openedSnapshot == null) {
+            throw "directory handle has no opened snapshot";
+        }
+        return self._openedSnapshot;
+    }
+
+    public FileSnapshotOutcome snapshot() {
+        return FileSnapshotOutcome.failed(
+            FileSystemError.closed("inspect open directory", self._path));
+    }
+
+    public DirectoryStepOutcome next() {
+        return DirectoryStepOutcome.failed(
+            FileSystemError.closed("read directory", self._path));
+    }
+
+    public FileSnapshotOutcome inspect(DirectoryEntry entry) {
+        if (entry == null || !entry.belongsTo(self)) {
+            return FileSnapshotOutcome.failed(
+                FileSystemError.invalid("inspect directory entry", self._path));
+        }
+        return FileSnapshotOutcome.failed(
+            FileSystemError.closed("inspect directory entry", entry.path()));
+    }
+
+    public FileOpenOutcome openFile(DirectoryEntry entry) {
+        if (entry == null || !entry.belongsTo(self)) {
+            return FileOpenOutcome.failed(
+                FileSystemError.invalid("open directory file", self._path));
+        }
+        return FileOpenOutcome.failed(
+            FileSystemError.closed("open directory file", entry.path()));
+    }
+
+    public DirectoryOpenOutcome openDirectory(DirectoryEntry entry) {
+        if (entry == null || !entry.belongsTo(self)) {
+            return DirectoryOpenOutcome.failed(FileSystemError.invalid(
+                "open child directory", self._path));
+        }
+        return DirectoryOpenOutcome.failed(FileSystemError.closed(
+            "open child directory", entry.path()));
+    }
+
+    public FileSystemCloseOutcome close() {
+        return FileSystemCloseOutcome.alreadyClosed();
+    }
+
+    public void __del__() { self.close(); }
+}
+
+class TemporaryDirectoryOpenOutcome {
+    private FileSystemOutcomeKind _kind;
+    private TemporaryDirectory? _directory;
+    private FileSystemError? _error;
+
+    private TemporaryDirectoryOpenOutcome(
+        FileSystemOutcomeKind kind,
+        TemporaryDirectory? directory,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._directory = directory;
+        self._error = error;
+    }
+
+    class TemporaryDirectoryOpenOutcome opened(
+        TemporaryDirectory directory
+    ) {
+        if (directory == null) { throw "temporary directory is null"; }
+        return TemporaryDirectoryOpenOutcome(FS_VALUE, directory, null);
+    }
+
+    class TemporaryDirectoryOpenOutcome failed(FileSystemError error) {
+        if (error == null) { throw "temporary directory error is null"; }
+        return TemporaryDirectoryOpenOutcome(FS_ERROR, null, error);
+    }
+
+    public bool ok() { return self._kind == FS_VALUE; }
+    public TemporaryDirectory directory() {
+        if (self._directory == null) {
+            throw "temporary directory unavailable";
+        }
+        return self._directory;
+    }
+    public FileSystemError error() {
+        if (self._error == null) {
+            throw "temporary directory open has no error";
+        }
+        return self._error;
+    }
+}
+
+class TemporaryDirectory {
+    private string _path;
+    private bool _open;
+
+    private TemporaryDirectory(string path) {
+        self._path = path;
+        self._open = true;
+    }
+
+    class TemporaryDirectoryOpenOutcome create(string prefix) {
+        if (prefix == null || prefix.isEmpty()
+                || prefix.equals(".") || prefix.equals("..")
+                || prefix.contains("/") || prefix.contains("\\")
+                || prefix.contains(":")) {
+            return TemporaryDirectoryOpenOutcome.failed(
+                FileSystemError.invalid("create temporary directory", prefix));
+        }
+        return TemporaryDirectoryOpenOutcome.failed(
+            FileSystemError.unsupported(
+                "create temporary directory", prefix));
+    }
+
+    public bool isOpen() { return self._open; }
+    public string path() { return self._path; }
+
+    public FileSystemCloseOutcome close() {
+        if (!self._open) { return FileSystemCloseOutcome.alreadyClosed(); }
+        self._open = false;
+        return FileSystemCloseOutcome.closed();
+    }
+
+    public void __del__() { self.close(); }
+}

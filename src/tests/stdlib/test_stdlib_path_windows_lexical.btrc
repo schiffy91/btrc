@@ -1,5 +1,5 @@
 /* Windows path rules are pure and therefore testable on every host. */
-import std.fs;
+import std.FileSystem;
 import std.platform;
 
 import ../../compiler/btrc/frontend/source_io.btrc;

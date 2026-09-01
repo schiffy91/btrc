@@ -279,7 +279,7 @@ def test_frontend_traversal_is_iterative_and_streaming() -> None:
     source_io = (REPO / "src/compiler/btrc/frontend/source_io.btrc").read_text()
     stdlib = (REPO / "src/compiler/btrc/frontend/stdlib.btrc").read_text()
     models = (REPO / "src/compiler/btrc/frontend/models.btrc").read_text()
-    filesystem = (REPO / "src/stdlib/fs.btrc").read_text()
+    filesystem = (REPO / "src/stdlib/FileSystem.btrc").read_text()
     stream_io = (REPO / "src/stdlib/io.btrc").read_text()
     python_sources = (REPO / "src/compiler/python/frontend/sources.py").read_text()
     python_imports = (REPO / "src/compiler/python/frontend/imports.py").read_text()
@@ -640,7 +640,7 @@ def test_stdlib_symbol_index_detects_changes_and_recovers_atomically(
     invalid_stdlib_source = "class Beta { }\nclass {\n"
     fixed_stdlib_source = "class Beta { }\nclass Gamma { }\n"
     program.write_text(
-        "import std.fs;\n"
+        "import std.FileSystem;\n"
         f"import {json.dumps(str(frontend_stage))};\n"
         "\n"
         "FeVisibilityCheckResult checkStdlibSnapshot(\n"

@@ -1,7 +1,7 @@
 /* Versioned package graph and native link-plan ownership. */
 
 import std.bytes;
-import std.fs;
+import std.FileSystem;
 import std.json;
 import std.map;
 import std.platform;

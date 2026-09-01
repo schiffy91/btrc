@@ -1,7 +1,7 @@
 /* PathTools.shellQuote(raw): the fs-module shell-escape helper (delegates to
  * ShellWords.quote). The process-side ShellWords.quote is tested directly, but
  * PathTools.shellQuote — what fs/path callers reach for — has zero references. */
-import std.fs;
+import std.FileSystem;
 
 #include <assert.h>
 

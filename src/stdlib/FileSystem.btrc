@@ -3,6 +3,7 @@
  */
 
 import std.io;
+import std.FileSystemHandles;
 import std.platform;
 import std.process;
 import std.strings;
@@ -749,6 +750,24 @@ class PathTools {
 }
 
 class FileSystem {
+    class FileSnapshotOutcome inspectExact(string path) {
+        return FileHandle.inspectExact(path);
+    }
+
+    class FileOpenOutcome openFileExact(string path) {
+        return FileHandle.openExact(path);
+    }
+
+    class DirectoryOpenOutcome openDirectoryExact(string path) {
+        return DirectoryHandle.openExact(path);
+    }
+
+    class TemporaryDirectoryOpenOutcome createTemporaryDirectory(
+        string prefix
+    ) {
+        return TemporaryDirectory.create(prefix);
+    }
+
     class bool exists(string path) {
         FileStatus status = FileStatus(path);
         bool result = status.exists();

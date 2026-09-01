@@ -3,7 +3,7 @@
  * platform backend. Native GTK/AppKit/WinUI backends can share this model.
  */
 
-import std.fs;
+import std.FileSystem;
 import std.process;
 import std.strings;
 import std.vector;
