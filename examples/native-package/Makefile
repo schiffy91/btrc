@@ -6,8 +6,8 @@ PYTHON ?= python3
 CC ?= cc
 CXX ?= c++
 PKG_CONFIG ?= pkg-config
-BTRCPY ?= PYTHONPATH=$(REPOSITORY) $(PYTHON) -m src.compiler.python.main
-NATIVE_PLAN ?= PYTHONPATH=$(REPOSITORY) $(PYTHON) -m tools.native_plan
+BTRCPY ?= PYTHONPATH=$(REPOSITORY) "$(PYTHON)" -m src.compiler.python.main
+NATIVE_PLAN ?= PYTHONPATH=$(REPOSITORY) "$(PYTHON)" -m tools.native_plan
 TARGET ?=
 BUILD_DIR ?= build
 GENERATED_C := $(BUILD_DIR)/native-package.c
