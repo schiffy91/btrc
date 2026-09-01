@@ -89,7 +89,7 @@ def _module_projection_project(tmp_path: Path) -> Path:
             '\n[[native.headers]]\npath = "native/Common.h"\n'
             '\n[[native.include-directories]]\npath = "native"\n'
             '\n[[native.sources]]\npath = "native/Direct.c"\nlanguage = "c"\nstandard = "c11"\n'
-            'modules = ["Direct"]\n'
+            'modules = [\n    "Direct",\n]\n'
             '\n[[native.sources]]\npath = "native/Primary.c"\nlanguage = "c"\nstandard = "c11"\n'
             'modules = ["Primary"]\n'
             '\n[[native.sources]]\npath = "native/Secondary.c"\nlanguage = "c"\nstandard = "c11"\n'

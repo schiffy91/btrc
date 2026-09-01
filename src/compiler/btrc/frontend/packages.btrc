@@ -286,6 +286,10 @@ class FeNativeBlock {
         int index = 0;
         while (index < parts.len) {
             string part = parts.get(index).trim();
+            if (part.isEmpty() && index == parts.len - 1) {
+                index++;
+                continue;
+            }
             int partLength = part.length();
             if (partLength < 2
                     || !((part[0] == '"' && part[partLength - 1] == '"')
@@ -665,6 +669,16 @@ class FePackageManifestParser {
             string raw = line.substring(
                 Toml.unquotedPosition(line, '=') + 1,
                 line.length() - Toml.unquotedPosition(line, '=') - 1).trim();
+            while (raw.startsWith("[")
+                    && Toml.unquotedPosition(raw, ']') < 0
+                    && index < lines.len) {
+                string continuation =
+                    Toml.stripInlineComment(lines.get(index));
+                index++;
+                if (!continuation.isEmpty()) {
+                    raw = raw + continuation;
+                }
+            }
             if (section.isEmpty()) {
                 if (!key.equals("manifest-version") || sawVersion
                         || !raw.equals("1")) {

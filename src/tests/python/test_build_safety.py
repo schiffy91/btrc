@@ -180,6 +180,18 @@ def test_btrcc_c_rebuilds_for_every_input_category():
         assert "python3 -m src.compiler.python.main" in output, source
 
 
+def test_native_btrcc_rebuilds_from_changed_selfhost_source():
+    output = _make_dry_run(
+        "--what-if",
+        "src/compiler/btrc/frontend/packages.btrc",
+        "bin/btrcc",
+        "NIX=",
+    )
+
+    assert "python3 -m src.compiler.python.main" in output
+    assert "dist/btrcc.c -o bin/btrcc" in output
+
+
 def test_btrcc_checks_ast_dependencies_before_transpiling():
     output = _make_dry_run("--what-if", "src/language/ast.asdl", "dist/btrcc.c")
 

@@ -420,6 +420,7 @@
           nativeBuildInputs = [
             pkgs.gnumake
             pkgs.stdenv.cc
+            self.packages.${system}.btrcc
             self.packages.${system}.btrcpy
             self.packages.${system}.btrc-native-plan
           ];
@@ -432,8 +433,24 @@
             BTRCPY=${self.packages.${system}.btrcpy}/bin/btrcpy \
             NATIVE_PLAN=${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan \
             CC=cc CXX=c++ PKG_CONFIG=pkg-config
+          (
+            cd source
+            ${self.packages.${system}.btrcc}/bin/btrcc \
+              --no-stdlib --strict-imports --target ${nativeTarget} \
+              --emit-link-plan build/native-package.selfhost.link.json \
+              src/main.btrc > build/native-package.selfhost.c
+            cmp \
+              build/native-package.link.json \
+              build/native-package.selfhost.link.json
+            ${self.packages.${system}.btrc-native-plan}/bin/btrc-native-plan \
+              --plan build/native-package.selfhost.link.json \
+              --generated-c build/native-package.selfhost.c \
+              --output build/native-package.selfhost \
+              --cc cc --cxx c++ --pkg-config pkg-config
+            ./build/native-package.selfhost
+          )
           mkdir -p "$out"
-          cp source/build/native-package.link.json "$out/"
+          cp source/build/native-package*.link.json "$out/"
         '';
       });
     };
