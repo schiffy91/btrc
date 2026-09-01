@@ -95,6 +95,32 @@ SPAN_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("trySet", "bool", "method", (("size_t", "index"), ("T", "value"),), "Replace an in-range element"),
 )
 
+# Generated from src/stdlib/ownedbuffer.btrc
+OWNEDBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("status", "OwnedBufferOpenKind", "method", (), "status"),
+    BuiltinMemberSpec("opened", "bool", "method", (), "opened"),
+    BuiltinMemberSpec("count", "size_t", "method", (), "count"),
+    BuiltinMemberSpec("borrow", "T*", "method", (), "borrow"),
+    BuiltinMemberSpec("tryPointerAt", "bool", "method", (("size_t", "index"), ("T**", "output"),), "tryPointerAt"),
+    BuiltinMemberSpec("tryGet", "bool", "method", (("size_t", "index"), ("T*", "output"),), "tryGet"),
+    BuiltinMemberSpec("trySet", "bool", "method", (("size_t", "index"), ("T*", "value"),), "trySet"),
+    BuiltinMemberSpec("get", "T", "method", (("size_t", "index"),), "get"),
+    BuiltinMemberSpec("set", "bool", "method", (("size_t", "index"), ("T", "value"),), "set"),
+    BuiltinMemberSpec("tryCopyFrom", "bool", "method", (("size_t", "destinationIndex"), ("T*", "source"), ("size_t", "elementCount"),), "tryCopyFrom"),
+    BuiltinMemberSpec("tryCopyTo", "bool", "method", (("size_t", "sourceIndex"), ("T*", "output"), ("size_t", "elementCount"),), "tryCopyTo"),
+    BuiltinMemberSpec("tryCopyFromBuffer", "bool", "method", (("size_t", "destinationIndex"), ("OwnedBuffer<T>", "source"), ("size_t", "sourceIndex"), ("size_t", "elementCount"),), "tryCopyFromBuffer"),
+    BuiltinMemberSpec("close", "void", "method", (), "close"),
+)
+
+# Generated from src/stdlib/atomicbuffer.btrc
+ATOMICBUFFER_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
+    BuiltinMemberSpec("status", "OwnedBufferOpenKind", "method", (), "status"),
+    BuiltinMemberSpec("opened", "bool", "method", (), "opened"),
+    BuiltinMemberSpec("count", "size_t", "method", (), "count"),
+    BuiltinMemberSpec("borrow", "Atomic<T>*", "method", (), "borrow"),
+    BuiltinMemberSpec("close", "void", "method", (), "close"),
+)
+
 # Generated from src/stdlib/array.btrc
 ARRAY_MEMBERS: tuple[BuiltinMemberSpec, ...] = (
     BuiltinMemberSpec("len", "int", "field", doc="len"),
@@ -294,6 +320,8 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("string", STRING_MEMBERS),
     ("Atomic", ATOMIC_MEMBERS),
     ("Span", SPAN_MEMBERS),
+    ("OwnedBuffer", OWNEDBUFFER_MEMBERS),
+    ("AtomicBuffer", ATOMICBUFFER_MEMBERS),
     ("Array", ARRAY_MEMBERS),
     ("OwnedClosure", OWNEDCLOSURE_MEMBERS),
     ("CallbackRegistration", CALLBACKREGISTRATION_MEMBERS),
@@ -380,6 +408,16 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     )),
     ("ExactFileSnapshot", (
         BuiltinMemberSpec("validate", "FileSystemError*", "method", (("FileSnapshot", "expected"), ("FileSnapshotOutcome", "held"), ("string", "path"), ("string", "operation"),), "validate"),
+    )),
+    ("OwnedBuffers", (
+        BuiltinMemberSpec("tryOpen", "OwnedBufferOpenKind", "method", (("size_t", "count"), ("size_t", "valueSize"), ("struct OwnedBufferStorage**", "output"),), "tryOpen"),
+        BuiltinMemberSpec("borrow", "void*", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"),), "borrow"),
+        BuiltinMemberSpec("count", "size_t", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"),), "count"),
+        BuiltinMemberSpec("tryPointerAt", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "index"), ("void**", "output"),), "tryPointerAt"),
+        BuiltinMemberSpec("tryCopyFrom", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "destinationIndex"), ("void*", "source"), ("size_t", "elementCount"),), "tryCopyFrom"),
+        BuiltinMemberSpec("tryCopyTo", "bool", "method", (("struct OwnedBufferStorage*", "storage"), ("size_t", "expectedValueSize"), ("size_t", "sourceIndex"), ("void*", "output"), ("size_t", "elementCount"),), "tryCopyTo"),
+        BuiltinMemberSpec("tryCopyBetween", "bool", "method", (("struct OwnedBufferStorage*", "destination"), ("size_t", "expectedValueSize"), ("size_t", "destinationIndex"), ("struct OwnedBufferStorage*", "source"), ("size_t", "sourceIndex"), ("size_t", "elementCount"),), "tryCopyBetween"),
+        BuiltinMemberSpec("close", "void", "method", (("struct OwnedBufferStorage**", "owner"),), "close"),
     )),
     ("Console", (
         BuiltinMemberSpec("log", "void", "method", (("string", "msg"),), "log"),

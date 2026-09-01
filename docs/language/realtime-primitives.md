@@ -2,9 +2,10 @@
 
 This document specifies the minimum BTRC value primitives used to build
 bounded realtime code.  They are deliberately small: fixed arrays remain the
-owning, fixed-size storage primitive; `Span<T>` is a borrowed view;
-`Atomic<T>` exposes typed C11 atomics; and `SpscQueue<T>` is the one canonical
-preallocated single-producer/single-consumer queue composition.
+inline fixed-size primitive; `OwnedBuffer<T>` owns fallible fixed heap storage;
+`Span<T>` is a lexical borrowed view; `Atomic<T>` exposes typed C11 atomics;
+and `SpscQueue<T>` is the one canonical preallocated
+single-producer/single-consumer queue composition.
 
 ## Fixed arrays
 
@@ -13,6 +14,36 @@ declaration and is preserved by fixed-array `for-in` lowering.  A fixed array
 does not resize, allocate, or carry a hidden length field.  Parameters continue
 to use C array/pointer semantics; use `Span<T>` when a callee needs an explicit
 borrowed extent.
+
+## Fixed owned buffers
+
+`std.OwnedBuffer` provides fixed, zero-initialized heap storage whose capacity
+never changes. `OwnedBuffer<T>` accepts realtime-POD values. It exposes
+`status()`, `opened()`, `count()`, checked value-level `get`/`set`, a stable
+`T* borrow()`, pointer-form `tryPointerAt`/`tryGet`/`trySet`, checked raw and
+buffer-to-buffer copy, and idempotent `close()`. The raw borrow remains valid
+only while the owner is open; destruction must run off native/realtime callback
+paths after all borrowers stop.
+
+The managed wrapper reports backing failures as `OWNED_BUFFER_OUT_OF_MEMORY`,
+but allocation of the wrapper object itself follows BTRC's normal fail-fast
+managed-allocation rule. Boundaries requiring completely fallible setup use
+`OwnedBuffers.tryOpen(count, sizeof(T), &owner)`. It returns
+`OWNED_BUFFER_OPENED`, `OWNED_BUFFER_INVALID_ARGUMENT`,
+`OWNED_BUFFER_COUNT_OUT_OF_RANGE`, `OWNED_BUFFER_SIZE_OVERFLOW`, or
+`OWNED_BUFFER_OUT_OF_MEMORY`, leaving the owner null on failure. The caller
+borrows storage with `OwnedBuffers.borrow(owner, sizeof(T))` and consumes the
+owner with `OwnedBuffers.close(&owner)` after borrowers stop. The byte-erased
+raw boundary exists for stored native callback contexts; product code must use
+one concrete type and matching `sizeof(T)` for the owner's whole lifetime.
+
+`AtomicBuffer<T>` is the distinct fixed owner for atomic payloads. It exposes
+only `status()`, `opened()`, `count()`, stable `Atomic<T>* borrow()`, and
+`close()`: get, set, and copy operations are deliberately unrepresentable.
+Initialize each borrowed element once off-callback and use only atomic
+operations afterward. `OwnedBuffer<Atomic<T>>`, `Array<Atomic<T>>`, aggregate
+atomic fields, managed buffer payloads, and unsupported atomic payloads remain
+rejected.
 
 ## Borrowed spans
 

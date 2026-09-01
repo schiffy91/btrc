@@ -1492,6 +1492,31 @@ class TypeSystem:
                 type_line,
                 type_col,
             )
+        if (
+            canonical
+            and canonical.base == "OwnedBuffer"
+            and canonical.generic_args
+            and canonical.generic_args[0].base not in set(active_type_params)
+        ):
+            payload = canonical.generic_args[0]
+            if not self.is_realtime_pod(payload):
+                self.session.error(
+                    "OwnedBuffer<T> payload must be realtime POD without managed or atomic ownership",
+                    type_line,
+                    type_col,
+                )
+        if (
+            canonical
+            and canonical.base == "AtomicBuffer"
+            and canonical.generic_args
+            and canonical.generic_args[0].base not in set(active_type_params)
+            and not self.is_atomic_payload(canonical.generic_args[0])
+        ):
+            self.session.error(
+                "AtomicBuffer<T> payload must be bool, int, uint, or a raw pointer",
+                type_line,
+                type_col,
+            )
         if canonical and canonical.base == "Span":
             direct_span = canonical.pointer_depth == 0 and not canonical.is_array
             if not direct_span or canonical.is_const or canonical.is_nullable:
