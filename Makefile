@@ -1,7 +1,7 @@
 .PHONY: all help build package wheel btrcc btrcc-release-c btrcc-macos-arm64 btrcc-macos-x64 btrcc-linux-x64 btrcc-linux-arm64 \
         btrcc-windows-x64 btrcc-dist test-windows app app-required gpu gpu-required background-jobs gui ast-generate ast-generate-btrc \
         test test-unit test-lsp test-debug test-btrc test-btrc-selfhost test-selfhost test-boundaries test-boundaries-observed bootstrap test-c11 test-generate-goldens \
-        generated-check compiler-codegen-generate compiler-codegen-check lint format format-check \
+        generated-check compiler-codegen-generate compiler-codegen-check lint format format-check format-btrc format-btrc-check \
         examples examples-todo examples-game examples-triangle examples-sgd examples-gui examples-native-package bench \
         extension extension-install \
         devcontainer clean
@@ -26,6 +26,10 @@ PYTEST_WORKERS ?= 8
 # confused with a run whose coverage was silently gated away.
 PYTEST_ARGS ?= -q -rs -n $(PYTEST_WORKERS)
 PYTEST_SERIAL_ARGS ?= -q -rs
+BTRC_FORMAT_PATHS := src examples bench
+# This fixture is deliberately noncanonical input for formatter grouping tests.
+# Keep exclusions exact: btrc-format rejects missing or undiscovered paths.
+BTRC_FORMAT_EXCLUDES := --exclude src/tests/formatter/fixtures/ImportGroups.btrc
 
 all: generated-check build gpu background-jobs gui test lint examples extension ## Build and verify everything
 
@@ -337,11 +341,17 @@ generated-check: compiler-codegen-check ## Check every committed generated sourc
 lint: generated-check ## Run generated-policy checks and ruff linter
 	$(NIX) ruff check src/
 
-format: ## Format with ruff
+format: format-btrc ## Format Python and BTRC sources
 	$(NIX) ruff format src/
 
-format-check: ## Check formatting (CI)
+format-check: format-btrc-check ## Check Python and BTRC formatting (CI)
 	$(NIX) ruff format --check src/
+
+format-btrc: ## Format canonical BTRC source while preserving intentional fixtures
+	$(NIX) btrc-format write $(BTRC_FORMAT_EXCLUDES) $(BTRC_FORMAT_PATHS)
+
+format-btrc-check: ## Check canonical BTRC source while preserving intentional fixtures
+	$(NIX) btrc-format check $(BTRC_FORMAT_EXCLUDES) $(BTRC_FORMAT_PATHS)
 
 # ─── Examples ────────────────────────────────────────────────────────────────
 

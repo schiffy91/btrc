@@ -19,6 +19,11 @@ Check mode returns `0` when clean, `1` when files would change, and `2` for
 usage, parse, read, or write failures. Write mode replaces changed files
 atomically and preserves their permission bits.
 
+`--exclude FILE` omits one exact file discovered beneath the requested paths
+and is repeatable. A missing, misspelled, or undiscovered exclusion is an error,
+so an intentional syntax/layout fixture cannot turn a repository gate into a
+false green through a broad glob.
+
 ## Default style
 
 - Tabs; four columns are used only when tabs must be measured.
@@ -47,6 +52,7 @@ Every default is a command-line option and applies identically in `check` and
 --indent-style tabs|spaces
 --indent-width N
 --line-width N                         # 0 means unlimited
+--exclude FILE                         # repeatable exact fixture path
 --[no-]single-line-signatures
 --[no-]single-line-conditions
 --[no-]single-line-statements

@@ -19,6 +19,13 @@ from .model import StyleConfig
 def build_parser() -> argparse.ArgumentParser:
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("paths", nargs="+", metavar="PATH", help="BTRC file, directory, or '-' for standard input")
+    common.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="FILE",
+        help="exclude one exact discovered .btrc file; repeat for additional intentional fixtures",
+    )
     common.add_argument("--indent-style", choices=("tabs", "spaces"), default="tabs")
     common.add_argument("--indent-width", type=_positive_integer, default=4, metavar="N")
     common.add_argument("--line-width", type=_nonnegative_integer, default=0, metavar="N", help="0 disables wrapping")
@@ -108,12 +115,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     if "-" in arguments.paths:
         if len(arguments.paths) != 1:
             parser.error("'-' cannot be combined with filesystem paths")
+        if arguments.exclude:
+            parser.error("--exclude cannot be used with standard input")
         if arguments.mode == "write":
             parser.error("write mode requires a filesystem path")
         return _check_standard_input(formatter, show_diff=arguments.diff)
 
     try:
-        paths = _discover_paths(arguments.paths)
+        paths = _discover_paths(arguments.paths, arguments.exclude)
     except OSError as error:
         print(f"btrc-format: {error}", file=sys.stderr)
         return 2
@@ -176,7 +185,7 @@ def _check_standard_input(formatter: BtrcFormatter, *, show_diff: bool) -> int:
     return 1
 
 
-def _discover_paths(raw_paths: Sequence[str]) -> tuple[Path, ...]:
+def _discover_paths(raw_paths: Sequence[str], raw_exclusions: Sequence[str] = ()) -> tuple[Path, ...]:
     result: dict[str, Path] = {}
     for raw_path in raw_paths:
         path = Path(raw_path)
@@ -186,6 +195,12 @@ def _discover_paths(raw_paths: Sequence[str]) -> tuple[Path, ...]:
         for candidate in candidates:
             if candidate.is_file() and candidate.suffix == ".btrc":
                 result[os.path.normcase(os.path.abspath(candidate))] = candidate
+    excluded = {os.path.normcase(os.path.abspath(Path(raw_path))): raw_path for raw_path in raw_exclusions}
+    unmatched = sorted(key for key in excluded if key not in result)
+    if unmatched:
+        raise FileNotFoundError(f"excluded file was not discovered: {excluded[unmatched[0]]}")
+    for key in excluded:
+        del result[key]
     return tuple(result[key] for key in sorted(result))
 
 

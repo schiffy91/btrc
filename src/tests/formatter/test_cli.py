@@ -97,6 +97,24 @@ def test_check_diff_and_recursive_discovery_are_deterministic(
     assert "+\tpublic int value;" in captured.out
 
 
+def test_exact_fixture_exclusions_are_auditable_and_typo_safe(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    ordinary = tmp_path / "Ordinary.btrc"
+    intentional = tmp_path / "IntentionalLayout.btrc"
+    ordinary.write_text("class Ordinary {\n  public int value;\n}\n", encoding="utf-8")
+    intentional.write_text("class IntentionalLayout {\n  public int value;\n}\n", encoding="utf-8")
+
+    assert main(["check", "--exclude", os.fspath(intentional), os.fspath(tmp_path)]) == 1
+    diagnostics = capsys.readouterr().err
+    assert os.fspath(ordinary) in diagnostics
+    assert os.fspath(intentional) not in diagnostics
+
+    assert main(["check", "--exclude", os.fspath(tmp_path / "Typo.btrc"), os.fspath(tmp_path)]) == 2
+    assert "excluded file was not discovered" in capsys.readouterr().err
+
+
 def test_parse_failure_is_exit_two_with_location(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     source = tmp_path / "Broken.btrc"
     source.write_text("class Broken {\n", encoding="utf-8")
