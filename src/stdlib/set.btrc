@@ -11,268 +11,255 @@ import std.iterable;
 import std.vector;
 
 class Set<T> implements Iterable {
-    public T* keys;
-    public bool* occupied;
-    public int len;
-    public int cap;
+	public T* keys;
+	public bool* occupied;
+	public int len;
+	public int cap;
 
-    private int nextCapacity() {
-        if (self.cap <= 0 || self.cap > 1073741823) {
-            fprintf(stderr, "Set capacity overflow\n");
-            exit(1);
-        }
-        int nextCap = self.cap * 2;
-        if ((size_t)nextCap > (size_t)(-1) / sizeof(T)
-                || (size_t)nextCap > (size_t)(-1) / sizeof(bool)) {
-            fprintf(stderr, "Set allocation size overflow\n");
-            exit(1);
-        }
-        return nextCap;
-    }
+	private int nextCapacity() {
+		if (self.cap <= 0 || self.cap > 1073741823) {
+			fprintf(stderr, "Set capacity overflow\n");
+			exit(1);
+		}
+		int nextCap = self.cap * 2;
+		if ((size_t)nextCap > (size_t)(-1) / sizeof(T) || (size_t)nextCap > (size_t)(-1) / sizeof(bool)) {
+			fprintf(stderr, "Set allocation size overflow\n");
+			exit(1);
+		}
+		return nextCap;
+	}
 
-    public Set() {
-        self.cap = 16;
-        self.len = 0;
-        self.keys = (T*)__btrc_safe_calloc(16, sizeof(T));
-        self.occupied = (bool*)__btrc_safe_calloc(16, sizeof(bool));
-    }
+	public Set() {
+		self.cap = 16;
+		self.len = 0;
+		self.keys = (T*)__btrc_safe_calloc(16, sizeof(T));
+		self.occupied = (bool*)__btrc_safe_calloc(16, sizeof(bool));
+	}
 
-    public void resize() {
-        var oldCap = self.cap;
-        var oldKeys = self.keys;
-        var oldOccupied = self.occupied;
-        self.cap = self.nextCapacity();
-        self.len = 0;
-        self.keys = (T*)__btrc_safe_calloc(self.cap, sizeof(T));
-        self.occupied = (bool*)__btrc_safe_calloc(self.cap, sizeof(bool));
-        for (int i = 0; i < oldCap; i++) {
-            if (oldOccupied[i]) {
-                self.addMoved(oldKeys[i]);
-            }
-        }
-        free(oldKeys);
-        free(oldOccupied);
-    }
+	public void resize() {
+		var oldCap = self.cap;
+		var oldKeys = self.keys;
+		var oldOccupied = self.occupied;
+		self.cap = self.nextCapacity();
+		self.len = 0;
+		self.keys = (T*)__btrc_safe_calloc(self.cap, sizeof(T));
+		self.occupied = (bool*)__btrc_safe_calloc(self.cap, sizeof(bool));
+		for (int i = 0; i < oldCap; i++) {
+			if (oldOccupied[i]) {
+				self.addMoved(oldKeys[i]);
+			}
+		}
+		free(oldKeys);
+		free(oldOccupied);
+	}
 
-    public void add(T key) {
-        if (self.len >= self.cap - self.cap / 4) { self.resize(); }
-        self.addRetained(key);
-    }
+	public void add(T key) {
+		if (self.len >= self.cap - self.cap / 4) { self.resize(); }
+		self.addRetained(key);
+	}
 
-    private void addMoved(T key) {
-        var index = __btrc_hash(key) % self.cap;
-        while (self.occupied[index]) {
-            if (__btrc_eq(self.keys[index], key)) { return; }
-            index = (index + 1) % self.cap;
-        }
-        self.keys[index] = key;
-        self.occupied[index] = true;
-        self.len++;
-    }
+	private void addMoved(T key) {
+		var index = __btrc_hash(key) % self.cap;
+		while (self.occupied[index]) {
+			if (__btrc_eq(self.keys[index], key)) { return; }
+			index = (index + 1) % self.cap;
+		}
+		self.keys[index] = key;
+		self.occupied[index] = true;
+		self.len++;
+	}
 
-    private void addRetained(T key) {
-        var index = __btrc_hash(key) % self.cap;
-        while (self.occupied[index]) {
-            if (__btrc_eq(self.keys[index], key)) { return; }
-            index = (index + 1) % self.cap;
-        }
-        keep key;
-        self.keys[index] = key;
-        self.occupied[index] = true;
-        self.len++;
-    }
+	private void addRetained(T key) {
+		var index = __btrc_hash(key) % self.cap;
+		while (self.occupied[index]) {
+			if (__btrc_eq(self.keys[index], key)) { return; }
+			index = (index + 1) % self.cap;
+		}
+		keep key;
+		self.keys[index] = key;
+		self.occupied[index] = true;
+		self.len++;
+	}
 
-    public bool contains(T key) {
-        var index = __btrc_hash(key) % self.cap;
-        while (self.occupied[index]) {
-            if (__btrc_eq(self.keys[index], key)) { return true; }
-            index = (index + 1) % self.cap;
-        }
-        return false;
-    }
+	public bool contains(T key) {
+		var index = __btrc_hash(key) % self.cap;
+		while (self.occupied[index]) {
+			if (__btrc_eq(self.keys[index], key)) { return true; }
+			index = (index + 1) % self.cap;
+		}
+		return false;
+	}
 
-    public bool has(T key) {
-        return self.contains(key);
-    }
+	public bool has(T key) { return self.contains(key); }
 
-    public void remove(T key) {
-        var index = __btrc_hash(key) % self.cap;
-        while (self.occupied[index]) {
-            if (__btrc_eq(self.keys[index], key)) {
-                release self.keys[index];
-                self.occupied[index] = false;
-                self.len--;
-                var next = (index + 1) % self.cap;
-                while (self.occupied[next]) {
-                    T rehashedKey = self.keys[next];
-                    self.occupied[next] = false;
-                    self.len--;
-                    self.addMoved(rehashedKey);
-                    next = (next + 1) % self.cap;
-                }
-                return;
-            }
-            index = (index + 1) % self.cap;
-        }
-    }
+	public void remove(T key) {
+		var index = __btrc_hash(key) % self.cap;
+		while (self.occupied[index]) {
+			if (__btrc_eq(self.keys[index], key)) {
+				release self.keys[index];
+				self.occupied[index] = false;
+				self.len--;
+				var next = (index + 1) % self.cap;
+				while (self.occupied[next]) {
+					T rehashedKey = self.keys[next];
+					self.occupied[next] = false;
+					self.len--;
+					self.addMoved(rehashedKey);
+					next = (next + 1) % self.cap;
+				}
+				return;
+			}
+			index = (index + 1) % self.cap;
+		}
+	}
 
-    public void free() {
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i]) {
-                release self.keys[i];
-            }
-        }
-        free(self.keys);
-        free(self.occupied);
-        self.keys = null;
-        self.occupied = null;
-        self.cap = 0;
-        self.len = 0;
-    }
+	public void free() {
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i]) {
+				release self.keys[i];
+			}
+		}
+		free(self.keys);
+		free(self.occupied);
+		self.keys = null;
+		self.occupied = null;
+		self.cap = 0;
+		self.len = 0;
+	}
 
-    public void __del__() {
-        self.free();
-    }
+	public void __del__() { self.free(); }
 
-    public void clear() {
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i]) {
-                release self.keys[i];
-                self.occupied[i] = false;
-            }
-        }
-        self.len = 0;
-    }
+	public void clear() {
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i]) {
+				release self.keys[i];
+				self.occupied[i] = false;
+			}
+		}
+		self.len = 0;
+	}
 
-    public int size() {
-        return self.len;
-    }
+	public int size() { return self.len; }
 
-    public bool isEmpty() {
-        return self.len == 0;
-    }
+	public bool isEmpty() { return self.len == 0; }
 
-    public Set<T> unite(Set<T> other) {
-        Set<T> result = Set();
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i]) { result.add(self.keys[i]); }
-        }
-        for (int i = 0; i < other.cap; i++) {
-            if (other.occupied[i]) { result.add(other.keys[i]); }
-        }
-        return result;
-    }
+	public Set<T> unite(Set<T> other) {
+		Set<T> result = Set();
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i]) { result.add(self.keys[i]); }
+		}
+		for (int i = 0; i < other.cap; i++) {
+			if (other.occupied[i]) { result.add(other.keys[i]); }
+		}
+		return result;
+	}
 
-    public Set<T> intersect(Set<T> other) {
-        Set<T> result = Set();
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i] && other.contains(self.keys[i])) {
-                result.add(self.keys[i]);
-            }
-        }
-        return result;
-    }
+	public Set<T> intersect(Set<T> other) {
+		Set<T> result = Set();
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i] && other.contains(self.keys[i])) {
+				result.add(self.keys[i]);
+			}
+		}
+		return result;
+	}
 
-    public Set<T> subtract(Set<T> other) {
-        Set<T> result = Set();
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i] && !other.contains(self.keys[i])) {
-                result.add(self.keys[i]);
-            }
-        }
-        return result;
-    }
+	public Set<T> subtract(Set<T> other) {
+		Set<T> result = Set();
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i] && !other.contains(self.keys[i])) {
+				result.add(self.keys[i]);
+			}
+		}
+		return result;
+	}
 
-    public bool isSubsetOf(Set<T> other) {
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i] && !other.contains(self.keys[i])) { return false; }
-        }
-        return true;
-    }
+	public bool isSubsetOf(Set<T> other) {
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i] && !other.contains(self.keys[i])) { return false; }
+		}
+		return true;
+	}
 
-    public bool isSupersetOf(Set<T> other) {
-        return other.isSubsetOf(self);
-    }
+	public bool isSupersetOf(Set<T> other) { return other.isSubsetOf(self); }
 
-    public Set<T> symmetricDifference(Set<T> other) {
-        Set<T> result = Set();
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i] && !other.contains(self.keys[i])) {
-                result.add(self.keys[i]);
-            }
-        }
-        for (int i = 0; i < other.cap; i++) {
-            if (other.occupied[i] && !self.contains(other.keys[i])) {
-                result.add(other.keys[i]);
-            }
-        }
-        return result;
-    }
+	public Set<T> symmetricDifference(Set<T> other) {
+		Set<T> result = Set();
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i] && !other.contains(self.keys[i])) {
+				result.add(self.keys[i]);
+			}
+		}
+		for (int i = 0; i < other.cap; i++) {
+			if (other.occupied[i] && !self.contains(other.keys[i])) {
+				result.add(other.keys[i]);
+			}
+		}
+		return result;
+	}
 
-    public Vector<T> toVector() {
-        Vector<T> result = [];
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i]) { result.push(self.keys[i]); }
-        }
-        return result;
-    }
+	public Vector<T> toVector() {
+		Vector<T> result = [];
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i]) { result.push(self.keys[i]); }
+		}
+		return result;
+	}
 
-    public Set<T> copy() {
-        Set<T> result = Set();
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i]) { result.add(self.keys[i]); }
-        }
-        return result;
-    }
+	public Set<T> copy() {
+		Set<T> result = Set();
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i]) { result.add(self.keys[i]); }
+		}
+		return result;
+	}
 
-    /* Higher-order methods */
+	/* Higher-order methods */
 
-    public Set<T> filter(__fn_ptr<bool, T> pred) {
-        Set<T> result = Set();
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i] && pred(self.keys[i])) {
-                result.add(self.keys[i]);
-            }
-        }
-        return result;
-    }
+	public Set<T> filter(__fn_ptr<bool, T> pred) {
+		Set<T> result = Set();
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i] && pred(self.keys[i])) {
+				result.add(self.keys[i]);
+			}
+		}
+		return result;
+	}
 
-    public bool any(__fn_ptr<bool, T> pred) {
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i] && pred(self.keys[i])) { return true; }
-        }
-        return false;
-    }
+	public bool any(__fn_ptr<bool, T> pred) {
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i] && pred(self.keys[i])) { return true; }
+		}
+		return false;
+	}
 
-    public bool all(__fn_ptr<bool, T> pred) {
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i] && !pred(self.keys[i])) { return false; }
-        }
-        return true;
-    }
+	public bool all(__fn_ptr<bool, T> pred) {
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i] && !pred(self.keys[i])) { return false; }
+		}
+		return true;
+	}
 
-    public void forEach(__fn_ptr<void, T> fn) {
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i]) { fn(self.keys[i]); }
-        }
-    }
+	public void forEach(__fn_ptr<void, T> fn) {
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i]) { fn(self.keys[i]); }
+		}
+	}
 
-    /* Iterable<T> protocol — O(n) per iterGet call, O(n²) total */
+	/* Iterable<T> protocol — O(n) per iterGet call, O(n²) total */
 
-    public int iterLen() {
-        return self.len;
-    }
+	public int iterLen() { return self.len; }
 
-    public T iterGet(int n) {
-        var count = 0;
-        for (int i = 0; i < self.cap; i++) {
-            if (self.occupied[i]) {
-                if (count == n) { return self.keys[i]; }
-                count++;
-            }
-        }
-        fprintf(stderr, "Set iterGet: index out of bounds\n");
-        exit(1);
-        return self.keys[0];
-    }
+	public T iterGet(int n) {
+		var count = 0;
+		for (int i = 0; i < self.cap; i++) {
+			if (self.occupied[i]) {
+				if (count == n) { return self.keys[i]; }
+				count++;
+			}
+		}
+		fprintf(stderr, "Set iterGet: index out of bounds\n");
+		exit(1);
+		return self.keys[0];
+	}
 }

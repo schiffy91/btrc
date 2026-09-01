@@ -12,50 +12,48 @@
  */
 
 class Error {
-    public string message;
-    public int code;
+	public string message;
+	public int code;
 
-    public Error(string message, int code) {
-        self.message = message;
-        self.code = code;
-    }
+	public Error(string message, int code) {
+		self.message = message;
+		self.code = code;
+	}
 
-    public string toString() {
-        return self.message;
-    }
+	public string toString() { return self.message; }
 }
 
 class ValueError extends Error {
-    public ValueError(string message) {
-        self.message = message;
-        self.code = 1;
-    }
+	public ValueError(string message) {
+		self.message = message;
+		self.code = 1;
+	}
 }
 
 class IOError extends Error {
-    public IOError(string message) {
-        self.message = message;
-        self.code = 2;
-    }
+	public IOError(string message) {
+		self.message = message;
+		self.code = 2;
+	}
 }
 
 class TypeError extends Error {
-    public TypeError(string message) {
-        self.message = message;
-        self.code = 3;
-    }
+	public TypeError(string message) {
+		self.message = message;
+		self.code = 3;
+	}
 }
 
 class IndexError extends Error {
-    public IndexError(string message) {
-        self.message = message;
-        self.code = 4;
-    }
+	public IndexError(string message) {
+		self.message = message;
+		self.code = 4;
+	}
 }
 
 class KeyError extends Error {
-    public KeyError(string message) {
-        self.message = message;
-        self.code = 5;
-    }
+	public KeyError(string message) {
+		self.message = message;
+		self.code = 5;
+	}
 }

@@ -9,35 +9,31 @@
 import std.bytes;
 
 class Fnv1a32 {
-    private uint _value;
+	private uint _value;
 
-    public Fnv1a32() {
-        self._value = 2166136261u;
-    }
+	public Fnv1a32() { self._value = 2166136261u; }
 
-    public void appendByte(int value) {
-        self._value = (self._value ^ (uint)(value & 255)) * 16777619u;
-    }
+	public void appendByte(int value) { self._value = (self._value ^ (uint)(value & 255)) * 16777619u; }
 
-    public void appendBytes(Bytes values) {
-        if (values == null) { return; }
-        for (int index = 0; index < values.length(); index++) {
-            self.appendByte(values.get(index));
-        }
-    }
+	public void appendBytes(Bytes values) {
+		if (values == null) { return; }
+		for (int index = 0; index < values.length(); index++) {
+			self.appendByte(values.get(index));
+		}
+	}
 
-    public void appendUInt32(uint value) {
-        self.appendByte((int)(value & 255u));
-        self.appendByte((int)((value >> 8u) & 255u));
-        self.appendByte((int)((value >> 16u) & 255u));
-        self.appendByte((int)((value >> 24u) & 255u));
-    }
+	public void appendUInt32(uint value) {
+		self.appendByte((int)(value & 255u));
+		self.appendByte((int)((value >> 8u) & 255u));
+		self.appendByte((int)((value >> 16u) & 255u));
+		self.appendByte((int)((value >> 24u) & 255u));
+	}
 
-    public void appendFloat(float value) {
-        uint bits = 0u;
-        memcpy(&bits, &value, sizeof(bits));
-        self.appendUInt32(bits);
-    }
+	public void appendFloat(float value) {
+		uint bits = 0u;
+		memcpy(&bits, &value, sizeof(bits));
+		self.appendUInt32(bits);
+	}
 
-    public uint value() { return self._value; }
+	public uint value() { return self._value; }
 }

@@ -5,26 +5,22 @@
 #include <time.h>
 
 class TerminalClock {
-    class long long milliseconds() {
-        struct timespec now;
-        if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
-            return LLONG_MAX;
-        }
-        if (now.tv_sec < (time_t)0 || now.tv_nsec < 0L
-                || now.tv_nsec >= 1000000000L
-                || (uintmax_t)now.tv_sec
-                    > (uintmax_t)(LLONG_MAX / 1000LL)) {
-            return LLONG_MAX;
-        }
-        long long milliseconds = (long long)now.tv_sec * 1000LL;
-        long long fraction = (long long)now.tv_nsec / 1000000LL;
-        return milliseconds > (long long)LLONG_MAX - fraction
-            ? LLONG_MAX : milliseconds + fraction;
-    }
+	class long long milliseconds() {
+		struct timespec now;
+		if (clock_gettime(CLOCK_MONOTONIC, &now) != 0) {
+			return LLONG_MAX;
+		}
+		if (now.tv_sec < (time_t)0 || now.tv_nsec < 0L || now.tv_nsec >= 1000000000L || (uintmax_t)now.tv_sec > (uintmax_t)(LLONG_MAX / 1000LL)) {
+			return LLONG_MAX;
+		}
+		long long milliseconds = (long long)now.tv_sec * 1000LL;
+		long long fraction = (long long)now.tv_nsec / 1000000LL;
+		return milliseconds > (long long)LLONG_MAX - fraction ? LLONG_MAX : milliseconds + fraction;
+	}
 
-    class long long deadlineAfter(int milliseconds) {
-        long long now = TerminalClock.milliseconds();
-        long long duration = milliseconds > 0 ? (long long)milliseconds : 0LL;
-        return now > (long long)LLONG_MAX - duration ? LLONG_MAX : now + duration;
-    }
+	class long long deadlineAfter(int milliseconds) {
+		long long now = TerminalClock.milliseconds();
+		long long duration = milliseconds > 0 ? (long long)milliseconds : 0LL;
+		return now > (long long)LLONG_MAX - duration ? LLONG_MAX : now + duration;
+	}
 }

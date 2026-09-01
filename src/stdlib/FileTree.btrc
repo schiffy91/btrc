@@ -12,486 +12,388 @@ import std.strings;
 import std.vector;
 
 class FileRevision {
-    private long long _value;
+	private long long _value;
 
-    public FileRevision(long long value) {
-        if (value < 0LL) { throw "file revision cannot be negative"; }
-        self._value = value;
-    }
+	public FileRevision(long long value) {
+		if (value < 0LL) { throw "file revision cannot be negative"; }
+		self._value = value;
+	}
 
-    class FileRevision fromSnapshot(FileSnapshot snapshot) {
-        if (snapshot == null) { throw "file revision snapshot is null"; }
-        FileRevisionBuilder builder = FileRevisionBuilder();
-        builder.appendSnapshot(snapshot);
-        return builder.revision();
-    }
+	class FileRevision fromSnapshot(FileSnapshot snapshot) {
+		if (snapshot == null) { throw "file revision snapshot is null"; }
+		FileRevisionBuilder builder = FileRevisionBuilder();
+		builder.appendSnapshot(snapshot);
+		return builder.revision();
+	}
 
-    public long long value() { return self._value; }
+	public long long value() { return self._value; }
 
-    public bool equals(FileRevision other) {
-        return other != null && self._value == other._value;
-    }
+	public bool equals(FileRevision other) { return other != null && self._value == other._value; }
 }
 
 /* A stable non-cryptographic cache-revision builder. The algorithm is part of
  * the serialized cache identity and therefore deliberately explicit. */
 class FileRevisionBuilder {
-    private unsigned long long _hash;
+	private unsigned long long _hash;
 
-    public FileRevisionBuilder() {
-        self._hash = 1469598103934665603ULL;
-    }
+	public FileRevisionBuilder() { self._hash = 1469598103934665603ULL; }
 
-    public void append(Bytes bytes) {
-        if (bytes == null) { throw "file revision bytes are null"; }
-        for (int index = 0; index < bytes.length(); index++) {
-            self._hash = self._hash ^ (unsigned long long)bytes.get(index);
-            self._hash = self._hash * 1099511628211ULL;
-        }
-    }
+	public void append(Bytes bytes) {
+		if (bytes == null) { throw "file revision bytes are null"; }
+		for (int index = 0; index < bytes.length(); index++) {
+			self._hash = self._hash ^ (unsigned long long)bytes.get(index);
+			self._hash = self._hash * 1099511628211ULL;
+		}
+	}
 
-    public void appendSnapshot(FileSnapshot snapshot) {
-        if (snapshot == null) { throw "file revision snapshot is null"; }
-        self.append(snapshot.cacheToken());
-    }
+	public void appendSnapshot(FileSnapshot snapshot) {
+		if (snapshot == null) { throw "file revision snapshot is null"; }
+		self.append(snapshot.cacheToken());
+	}
 
-    public void appendTerminatedText(string text) {
-        if (text == null) { throw "file revision text is null"; }
-        self.append(Bytes.fromString(text));
-        Bytes terminator = Bytes();
-        terminator.append(0);
-        self.append(terminator);
-    }
+	public void appendTerminatedText(string text) {
+		if (text == null) { throw "file revision text is null"; }
+		self.append(Bytes.fromString(text));
+		Bytes terminator = Bytes();
+		terminator.append(0);
+		self.append(terminator);
+	}
 
-    public void appendU64(unsigned long long value) {
-        Bytes bytes = Bytes();
-        for (int shift = 0; shift < 64; shift = shift + 8) {
-            bytes.append((int)((value >> shift) & 255ULL));
-        }
-        self.append(bytes);
-    }
+	public void appendU64(unsigned long long value) {
+		Bytes bytes = Bytes();
+		for (int shift = 0; shift < 64; shift = shift + 8) {
+			bytes.append((int)((value >> shift) & 255ULL));
+		}
+		self.append(bytes);
+	}
 
-    public FileRevision revision() {
-        return FileRevision(
-            (long long)(self._hash & 0x7fffffffffffffffULL));
-    }
+	public FileRevision revision() { return FileRevision((long long)(self._hash & 0x7fffffffffffffffULL)); }
 }
 
 /* Validate both a held object and the path that originally selected it. */
 class ExactFileSnapshot {
-    class FileSystemError? validate(
-        FileSnapshot expected,
-        FileSnapshotOutcome held,
-        string path,
-        string operation
-    ) {
-        if (expected == null || held == null || path == null
-                || path.isEmpty() || operation == null
-                || operation.isEmpty()) {
-            return FileSystemError.invalid(operation, path);
-        }
-        if (!held.ok()) { return held.error(); }
-        if (!expected.sameVersion(held.snapshot())) {
-            return FileSystemError.changed(operation, path);
-        }
-        FileSnapshotOutcome named = FileHandle.inspectExact(path);
-        if (!named.ok()) {
-            FileSystemError error = named.error();
-            if (error.kind() == FS_NOT_FOUND
-                    || error.kind() == FS_SYMLINK
-                    || error.kind() == FS_WRONG_TYPE) {
-                return FileSystemError.changed(
-                    operation, path, error.nativeCode());
-            }
-            return error;
-        }
-        if (!expected.sameVersion(named.snapshot())) {
-            return FileSystemError.changed(operation, path);
-        }
-        return null;
-    }
+	class FileSystemError? validate(FileSnapshot expected, FileSnapshotOutcome held, string path, string operation) {
+		if (expected == null || held == null || path == null || path.isEmpty() || operation == null || operation.isEmpty()) {
+			return FileSystemError.invalid(operation, path);
+		}
+		if (!held.ok()) { return held.error(); }
+		if (!expected.sameVersion(held.snapshot())) {
+			return FileSystemError.changed(operation, path);
+		}
+		FileSnapshotOutcome named = FileHandle.inspectExact(path);
+		if (!named.ok()) {
+			FileSystemError error = named.error();
+			if (error.kind() == FS_NOT_FOUND || error.kind() == FS_SYMLINK || error.kind() == FS_WRONG_TYPE) {
+				return FileSystemError.changed(operation, path, error.nativeCode());
+			}
+			return error;
+		}
+		if (!expected.sameVersion(named.snapshot())) {
+			return FileSystemError.changed(operation, path);
+		}
+		return null;
+	}
 }
 
 class FileTreeLimits {
-    private int _maximumDepth;
-    private int _maximumEntries;
-    private int _maximumNameBytes;
-    private int _maximumPathBytes;
+	private int _maximumDepth;
+	private int _maximumEntries;
+	private int _maximumNameBytes;
+	private int _maximumPathBytes;
 
-    public FileTreeLimits(
-        int maximumDepth,
-        int maximumEntries,
-        int maximumNameBytes,
-        int maximumPathBytes
-    ) {
-        if (maximumDepth < 0 || maximumEntries < 0
-                || maximumNameBytes <= 0 || maximumPathBytes <= 0) {
-            throw "invalid file tree limits";
-        }
-        self._maximumDepth = maximumDepth;
-        self._maximumEntries = maximumEntries;
-        self._maximumNameBytes = maximumNameBytes;
-        self._maximumPathBytes = maximumPathBytes;
-    }
+	public FileTreeLimits(int maximumDepth, int maximumEntries, int maximumNameBytes, int maximumPathBytes) {
+		if (maximumDepth < 0 || maximumEntries < 0 || maximumNameBytes <= 0 || maximumPathBytes <= 0) {
+			throw "invalid file tree limits";
+		}
+		self._maximumDepth = maximumDepth;
+		self._maximumEntries = maximumEntries;
+		self._maximumNameBytes = maximumNameBytes;
+		self._maximumPathBytes = maximumPathBytes;
+	}
 
-    public int maximumDepth() { return self._maximumDepth; }
-    public int maximumEntries() { return self._maximumEntries; }
-    public int maximumNameBytes() { return self._maximumNameBytes; }
-    public int maximumPathBytes() { return self._maximumPathBytes; }
+	public int maximumDepth() { return self._maximumDepth; }
+
+	public int maximumEntries() { return self._maximumEntries; }
+
+	public int maximumNameBytes() { return self._maximumNameBytes; }
+
+	public int maximumPathBytes() { return self._maximumPathBytes; }
 }
 
 enum FileTreeSnapshotStepKind {
-    FILE_TREE_SNAPSHOT_ADVANCED,
-    FILE_TREE_SNAPSHOT_COMPLETE,
-    FILE_TREE_SNAPSHOT_FAILED
+	FILE_TREE_SNAPSHOT_ADVANCED,
+	FILE_TREE_SNAPSHOT_COMPLETE,
+	FILE_TREE_SNAPSHOT_FAILED
 };
 
 class FileTreeSnapshotStep {
-    private FileTreeSnapshotStepKind _kind;
-    private FileRevision? _revision;
-    private FileSystemError? _error;
+	private FileTreeSnapshotStepKind _kind;
+	private FileRevision? _revision;
+	private FileSystemError? _error;
 
-    private FileTreeSnapshotStep(
-        FileTreeSnapshotStepKind kind,
-        FileRevision? revision,
-        FileSystemError? error
-    ) {
-        self._kind = kind;
-        self._revision = revision;
-        self._error = error;
-    }
+	private FileTreeSnapshotStep(FileTreeSnapshotStepKind kind, FileRevision? revision, FileSystemError? error) {
+		self._kind = kind;
+		self._revision = revision;
+		self._error = error;
+	}
 
-    class FileTreeSnapshotStep advanced() {
-        return FileTreeSnapshotStep(
-            FILE_TREE_SNAPSHOT_ADVANCED, null, null);
-    }
+	class FileTreeSnapshotStep advanced() { return FileTreeSnapshotStep(FILE_TREE_SNAPSHOT_ADVANCED, null, null); }
 
-    class FileTreeSnapshotStep complete(FileRevision revision) {
-        if (revision == null) { throw "file tree revision is null"; }
-        return FileTreeSnapshotStep(
-            FILE_TREE_SNAPSHOT_COMPLETE, revision, null);
-    }
+	class FileTreeSnapshotStep complete(FileRevision revision) {
+		if (revision == null) { throw "file tree revision is null"; }
+		return FileTreeSnapshotStep(FILE_TREE_SNAPSHOT_COMPLETE, revision, null);
+	}
 
-    class FileTreeSnapshotStep failed(FileSystemError error) {
-        if (error == null) { throw "file tree error is null"; }
-        return FileTreeSnapshotStep(
-            FILE_TREE_SNAPSHOT_FAILED, null, error);
-    }
+	class FileTreeSnapshotStep failed(FileSystemError error) {
+		if (error == null) { throw "file tree error is null"; }
+		return FileTreeSnapshotStep(FILE_TREE_SNAPSHOT_FAILED, null, error);
+	}
 
-    public FileTreeSnapshotStepKind kind() { return self._kind; }
-    public bool ok() { return self._kind != FILE_TREE_SNAPSHOT_FAILED; }
-    public FileRevision revision() {
-        if (self._revision == null) {
-            throw "file tree step has no revision";
-        }
-        return self._revision;
-    }
-    public FileSystemError error() {
-        if (self._error == null) { throw "file tree step has no error"; }
-        return self._error;
-    }
+	public FileTreeSnapshotStepKind kind() { return self._kind; }
+
+	public bool ok() { return self._kind != FILE_TREE_SNAPSHOT_FAILED; }
+
+	public FileRevision revision() {
+		if (self._revision == null) {
+			throw "file tree step has no revision";
+		}
+		return self._revision;
+	}
+
+	public FileSystemError error() {
+		if (self._error == null) { throw "file tree step has no error"; }
+		return self._error;
+	}
 }
 
 class FileTreeSnapshotOpenOutcome {
-    private FileTreeSnapshot? _snapshot;
-    private FileSystemError? _error;
+	private FileTreeSnapshot? _snapshot;
+	private FileSystemError? _error;
 
-    private FileTreeSnapshotOpenOutcome(
-        FileTreeSnapshot? snapshot,
-        FileSystemError? error
-    ) {
-        self._snapshot = snapshot;
-        self._error = error;
-    }
+	private FileTreeSnapshotOpenOutcome(FileTreeSnapshot? snapshot, FileSystemError? error) {
+		self._snapshot = snapshot;
+		self._error = error;
+	}
 
-    class FileTreeSnapshotOpenOutcome opened(FileTreeSnapshot snapshot) {
-        if (snapshot == null) { throw "file tree snapshot is null"; }
-        return FileTreeSnapshotOpenOutcome(snapshot, null);
-    }
+	class FileTreeSnapshotOpenOutcome opened(FileTreeSnapshot snapshot) {
+		if (snapshot == null) { throw "file tree snapshot is null"; }
+		return FileTreeSnapshotOpenOutcome(snapshot, null);
+	}
 
-    class FileTreeSnapshotOpenOutcome failed(FileSystemError error) {
-        if (error == null) { throw "file tree open error is null"; }
-        return FileTreeSnapshotOpenOutcome(null, error);
-    }
+	class FileTreeSnapshotOpenOutcome failed(FileSystemError error) {
+		if (error == null) { throw "file tree open error is null"; }
+		return FileTreeSnapshotOpenOutcome(null, error);
+	}
 
-    public bool ok() { return self._snapshot != null; }
-    public FileTreeSnapshot snapshot() {
-        if (self._snapshot == null) {
-            throw "file tree snapshot is unavailable";
-        }
-        return self._snapshot;
-    }
-    public FileSystemError error() {
-        if (self._error == null) {
-            throw "file tree snapshot open has no error";
-        }
-        return self._error;
-    }
+	public bool ok() { return self._snapshot != null; }
+
+	public FileTreeSnapshot snapshot() {
+		if (self._snapshot == null) {
+			throw "file tree snapshot is unavailable";
+		}
+		return self._snapshot;
+	}
+
+	public FileSystemError error() {
+		if (self._error == null) {
+			throw "file tree snapshot open has no error";
+		}
+		return self._error;
+	}
 }
 
 class FileTreeSnapshotFrame {
-    private DirectoryHandle _directory;
-    private Vector<DirectoryEntry> _entries;
-    private int _nextEntry;
-    private int _depth;
-    private bool _reading;
+	private DirectoryHandle _directory;
+	private Vector<DirectoryEntry> _entries;
+	private int _nextEntry;
+	private int _depth;
+	private bool _reading;
 
-    public FileTreeSnapshotFrame(DirectoryHandle directory, int depth) {
-        if (directory == null || !directory.isOpen() || depth < 0) {
-            throw "invalid file tree snapshot frame";
-        }
-        self._directory = directory;
-        self._entries = [];
-        self._nextEntry = 0;
-        self._depth = depth;
-        self._reading = true;
-    }
+	public FileTreeSnapshotFrame(DirectoryHandle directory, int depth) {
+		if (directory == null || !directory.isOpen() || depth < 0) {
+			throw "invalid file tree snapshot frame";
+		}
+		self._directory = directory;
+		self._entries = [];
+		self._nextEntry = 0;
+		self._depth = depth;
+		self._reading = true;
+	}
 
-    public DirectoryHandle directory() { return self._directory; }
-    public int depth() { return self._depth; }
-    public bool reading() { return self._reading; }
-    public void finishReading() { self._reading = false; }
-    public bool hasEntry() { return self._nextEntry < self._entries.len; }
+	public DirectoryHandle directory() { return self._directory; }
 
-    public DirectoryEntry nextEntry() {
-        if (!self.hasEntry()) { throw "file tree entry is unavailable"; }
-        DirectoryEntry entry = self._entries.get(self._nextEntry);
-        self._nextEntry++;
-        return entry;
-    }
+	public int depth() { return self._depth; }
 
-    public void insert(DirectoryEntry entry) {
-        int position = self._entries.len;
-        while (position > 0
-                && Strings.compare(
-                    self._entries.get(position - 1).name(),
-                    entry.name()) > 0) {
-            position--;
-        }
-        self._entries.insert(position, entry);
-    }
+	public bool reading() { return self._reading; }
+
+	public void finishReading() { self._reading = false; }
+
+	public bool hasEntry() { return self._nextEntry < self._entries.len; }
+
+	public DirectoryEntry nextEntry() {
+		if (!self.hasEntry()) { throw "file tree entry is unavailable"; }
+		DirectoryEntry entry = self._entries.get(self._nextEntry);
+		self._nextEntry++;
+		return entry;
+	}
+
+	public void insert(DirectoryEntry entry) {
+		int position = self._entries.len;
+		while (position > 0 && Strings.compare(self._entries.get(position - 1).name(), entry.name()) > 0) {
+			position--;
+		}
+		self._entries.insert(position, entry);
+	}
 }
 
 class FileTreeSnapshot {
-    private Vector<FileTreeSnapshotFrame> _frames;
-    private FileTreeLimits _limits;
-    private FileRevisionBuilder _revision;
-    private int _entryCount;
-    private FileRevision? _completedRevision;
-    private FileSystemError? _failure;
-    private bool _closed;
+	private Vector<FileTreeSnapshotFrame> _frames;
+	private FileTreeLimits _limits;
+	private FileRevisionBuilder _revision;
+	private int _entryCount;
+	private FileRevision? _completedRevision;
+	private FileSystemError? _failure;
+	private bool _closed;
 
-    private FileTreeSnapshot(
-        DirectoryHandle root,
-        FileTreeLimits limits
-    ) {
-        self._frames = [];
-        self._frames.push(FileTreeSnapshotFrame(root, 0));
-        self._limits = limits;
-        self._revision = FileRevisionBuilder();
-        self._revision.appendSnapshot(root.openedSnapshot());
-        self._entryCount = 0;
-        self._completedRevision = null;
-        self._failure = null;
-        self._closed = false;
-    }
+	private FileTreeSnapshot(DirectoryHandle root, FileTreeLimits limits) {
+		self._frames = [];
+		self._frames.push(FileTreeSnapshotFrame(root, 0));
+		self._limits = limits;
+		self._revision = FileRevisionBuilder();
+		self._revision.appendSnapshot(root.openedSnapshot());
+		self._entryCount = 0;
+		self._completedRevision = null;
+		self._failure = null;
+		self._closed = false;
+	}
 
-    class FileTreeSnapshotOpenOutcome takeOwnership(
-        DirectoryHandle root,
-        FileTreeLimits limits
-    ) {
-        if (root == null || limits == null || !root.isOpen()
-                || root.path().isEmpty()
-                || root.path().len() > limits.maximumPathBytes()) {
-            if (root != null) { root.close(); }
-            return FileTreeSnapshotOpenOutcome.failed(
-                FileSystemError.invalid(
-                    "open file tree snapshot",
-                    root == null ? "" : root.path()));
-        }
-        return FileTreeSnapshotOpenOutcome.opened(
-            FileTreeSnapshot(root, limits));
-    }
+	class FileTreeSnapshotOpenOutcome takeOwnership(DirectoryHandle root, FileTreeLimits limits) {
+		if (root == null || limits == null || !root.isOpen() || root.path().isEmpty() || root.path().len() > limits.maximumPathBytes()) {
+			if (root != null) { root.close(); }
+			return FileTreeSnapshotOpenOutcome.failed(FileSystemError.invalid("open file tree snapshot", root == null ? "" : root.path()));
+		}
+		return FileTreeSnapshotOpenOutcome.opened(FileTreeSnapshot(root, limits));
+	}
 
-    class FileTreeSnapshotOpenOutcome open(
-        string path,
-        FileTreeLimits limits
-    ) {
-        if (limits == null || path == null || path.isEmpty()
-                || path.len() > limits.maximumPathBytes()) {
-            return FileTreeSnapshotOpenOutcome.failed(
-                FileSystemError.invalid("open file tree snapshot", path));
-        }
-        DirectoryOpenOutcome opened = DirectoryHandle.openExact(path);
-        if (!opened.ok()) {
-            return FileTreeSnapshotOpenOutcome.failed(opened.error());
-        }
-        return FileTreeSnapshot.takeOwnership(opened.directory(), limits);
-    }
+	class FileTreeSnapshotOpenOutcome open(string path, FileTreeLimits limits) {
+		if (limits == null || path == null || path.isEmpty() || path.len() > limits.maximumPathBytes()) {
+			return FileTreeSnapshotOpenOutcome.failed(FileSystemError.invalid("open file tree snapshot", path));
+		}
+		DirectoryOpenOutcome opened = DirectoryHandle.openExact(path);
+		if (!opened.ok()) {
+			return FileTreeSnapshotOpenOutcome.failed(opened.error());
+		}
+		return FileTreeSnapshot.takeOwnership(opened.directory(), limits);
+	}
 
-    private FileSystemError? validate(
-        FileTreeSnapshotFrame frame,
-        string operation
-    ) {
-        return ExactFileSnapshot.validate(
-            frame.directory().openedSnapshot(),
-            frame.directory().snapshot(),
-            frame.directory().path(),
-            operation
-        );
-    }
+	private FileSystemError? validate(FileTreeSnapshotFrame frame, string operation) { return ExactFileSnapshot.validate(frame.directory().openedSnapshot(), frame.directory().snapshot(), frame.directory().path(), operation); }
 
-    private FileSystemError? closeFrames() {
-        FileSystemError? first = null;
-        while (self._frames.len > 0) {
-            FileTreeSnapshotFrame frame = self._frames.pop();
-            FileSystemCloseOutcome closed = frame.directory().close();
-            if (!closed.ok() && first == null) { first = closed.error(); }
-        }
-        self._closed = true;
-        return first;
-    }
+	private FileSystemError? closeFrames() {
+		FileSystemError? first = null;
+		while (self._frames.len > 0) {
+			FileTreeSnapshotFrame frame = self._frames.pop();
+			FileSystemCloseOutcome closed = frame.directory().close();
+			if (!closed.ok() && first == null) { first = closed.error(); }
+		}
+		self._closed = true;
+		return first;
+	}
 
-    private FileTreeSnapshotStep fail(FileSystemError error) {
-        FileSystemError? cleanup = self.closeFrames();
-        self._failure = error == null ? cleanup : error;
-        if (self._failure == null) {
-            self._failure = FileSystemError(
-                FS_IO,
-                "snapshot file tree",
-                "",
-                0,
-                "file tree snapshot failed"
-            );
-        }
-        return FileTreeSnapshotStep.failed(self._failure);
-    }
+	private FileTreeSnapshotStep fail(FileSystemError error) {
+		FileSystemError? cleanup = self.closeFrames();
+		self._failure = error == null ? cleanup : error;
+		if (self._failure == null) {
+			self._failure = FileSystemError(FS_IO, "snapshot file tree", "", 0, "file tree snapshot failed");
+		}
+		return FileTreeSnapshotStep.failed(self._failure);
+	}
 
-    private FileTreeSnapshotStep limit(
-        string path,
-        string message
-    ) {
-        return self.fail(FileSystemError(
-            FS_RESOURCE_EXHAUSTED,
-            "snapshot file tree",
-            path,
-            0,
-            message
-        ));
-    }
+	private FileTreeSnapshotStep limit(string path, string message) { return self.fail(FileSystemError(FS_RESOURCE_EXHAUSTED, "snapshot file tree", path, 0, message)); }
 
-    public FileTreeSnapshotStep advance() {
-        FileSystemError? failure = self._failure;
-        if (failure != null) {
-            return FileTreeSnapshotStep.failed(failure);
-        }
-        FileRevision? completed = self._completedRevision;
-        if (completed != null) {
-            return FileTreeSnapshotStep.complete(completed);
-        }
-        if (self._closed) {
-            return self.fail(FileSystemError.closed(
-                "advance file tree snapshot", ""));
-        }
-        if (self._frames.len == 0) {
-            return self.fail(FileSystemError(
-                FS_IO,
-                "advance file tree snapshot",
-                "",
-                0,
-                "file tree snapshot has no traversal frame"
-            ));
-        }
+	public FileTreeSnapshotStep advance() {
+		FileSystemError? failure = self._failure;
+		if (failure != null) {
+			return FileTreeSnapshotStep.failed(failure);
+		}
+		FileRevision? completed = self._completedRevision;
+		if (completed != null) {
+			return FileTreeSnapshotStep.complete(completed);
+		}
+		if (self._closed) {
+			return self.fail(FileSystemError.closed("advance file tree snapshot", ""));
+		}
+		if (self._frames.len == 0) {
+			return self.fail(FileSystemError(FS_IO, "advance file tree snapshot", "", 0, "file tree snapshot has no traversal frame"));
+		}
 
-        FileTreeSnapshotFrame frame = self._frames.get(
-            self._frames.len - 1);
-        FileSystemError? stability = self.validate(
-            frame, "validate file tree directory");
-        if (stability != null) { return self.fail(stability); }
+		FileTreeSnapshotFrame frame = self._frames.get(self._frames.len - 1);
+		FileSystemError? stability = self.validate(frame, "validate file tree directory");
+		if (stability != null) { return self.fail(stability); }
 
-        if (frame.reading()) {
-            DirectoryStepOutcome next = frame.directory().next();
-            if (next.kind() == DIRECTORY_STEP_FAILED) {
-                return self.fail(next.error());
-            }
-            if (next.kind() == DIRECTORY_STEP_END) {
-                frame.finishReading();
-                return FileTreeSnapshotStep.advanced();
-            }
-            DirectoryEntry entry = next.entry();
-            self._entryCount++;
-            if (self._entryCount > self._limits.maximumEntries()) {
-                return self.limit(
-                    entry.path(), "file tree entry bound exceeded");
-            }
-            if (entry.name().isEmpty()
-                    || entry.name().len()
-                        > self._limits.maximumNameBytes()
-                    || entry.path().len()
-                        > self._limits.maximumPathBytes()) {
-                return self.limit(
-                    entry.path(), "file tree path bound exceeded");
-            }
-            FileKind kind = entry.snapshot().kind();
-            if (kind != FILE_REGULAR && kind != FILE_DIRECTORY) {
-                return self.fail(FileSystemError(
-                    FS_UNSUPPORTED,
-                    "snapshot file tree entry",
-                    entry.path(),
-                    0,
-                    "file tree contains an unsupported entry kind"
-                ));
-            }
-            frame.insert(entry);
-            return FileTreeSnapshotStep.advanced();
-        }
+		if (frame.reading()) {
+			DirectoryStepOutcome next = frame.directory().next();
+			if (next.kind() == DIRECTORY_STEP_FAILED) {
+				return self.fail(next.error());
+			}
+			if (next.kind() == DIRECTORY_STEP_END) {
+				frame.finishReading();
+				return FileTreeSnapshotStep.advanced();
+			}
+			DirectoryEntry entry = next.entry();
+			self._entryCount++;
+			if (self._entryCount > self._limits.maximumEntries()) {
+				return self.limit(entry.path(), "file tree entry bound exceeded");
+			}
+			if (entry.name().isEmpty() || entry.name().len() > self._limits.maximumNameBytes() || entry.path().len() > self._limits.maximumPathBytes()) {
+				return self.limit(entry.path(), "file tree path bound exceeded");
+			}
+			FileKind kind = entry.snapshot().kind();
+			if (kind != FILE_REGULAR && kind != FILE_DIRECTORY) {
+				return self.fail(FileSystemError(FS_UNSUPPORTED, "snapshot file tree entry", entry.path(), 0, "file tree contains an unsupported entry kind"));
+			}
+			frame.insert(entry);
+			return FileTreeSnapshotStep.advanced();
+		}
 
-        if (frame.hasEntry()) {
-            DirectoryEntry entry = frame.nextEntry();
-            FileSnapshotOutcome inspected = frame.directory().inspect(entry);
-            if (!inspected.ok()) { return self.fail(inspected.error()); }
-            self._revision.appendTerminatedText(entry.name());
-            self._revision.appendSnapshot(inspected.snapshot());
-            if (entry.snapshot().kind() == FILE_REGULAR) {
-                return FileTreeSnapshotStep.advanced();
-            }
-            if (frame.depth() >= self._limits.maximumDepth()) {
-                return self.limit(
-                    entry.path(), "file tree depth bound exceeded");
-            }
-            DirectoryOpenOutcome opened = frame.directory().openDirectory(
-                entry);
-            if (!opened.ok()) { return self.fail(opened.error()); }
-            self._frames.push(FileTreeSnapshotFrame(
-                opened.directory(), frame.depth() + 1));
-            return FileTreeSnapshotStep.advanced();
-        }
+		if (frame.hasEntry()) {
+			DirectoryEntry entry = frame.nextEntry();
+			FileSnapshotOutcome inspected = frame.directory().inspect(entry);
+			if (!inspected.ok()) { return self.fail(inspected.error()); }
+			self._revision.appendTerminatedText(entry.name());
+			self._revision.appendSnapshot(inspected.snapshot());
+			if (entry.snapshot().kind() == FILE_REGULAR) {
+				return FileTreeSnapshotStep.advanced();
+			}
+			if (frame.depth() >= self._limits.maximumDepth()) {
+				return self.limit(entry.path(), "file tree depth bound exceeded");
+			}
+			DirectoryOpenOutcome opened = frame.directory().openDirectory(entry);
+			if (!opened.ok()) { return self.fail(opened.error()); }
+			self._frames.push(FileTreeSnapshotFrame(opened.directory(), frame.depth() + 1));
+			return FileTreeSnapshotStep.advanced();
+		}
 
-        stability = self.validate(
-            frame, "validate completed file tree directory");
-        self._frames.pop();
-        FileSystemCloseOutcome closed = frame.directory().close();
-        if (stability != null) { return self.fail(stability); }
-        if (!closed.ok()) { return self.fail(closed.error()); }
-        if (self._frames.len > 0) {
-            return FileTreeSnapshotStep.advanced();
-        }
-        self._revision.appendU64(
-            (unsigned long long)self._entryCount);
-        self._completedRevision = self._revision.revision();
-        self._closed = true;
-        return FileTreeSnapshotStep.complete(self._completedRevision);
-    }
+		stability = self.validate(frame, "validate completed file tree directory");
+		self._frames.pop();
+		FileSystemCloseOutcome closed = frame.directory().close();
+		if (stability != null) { return self.fail(stability); }
+		if (!closed.ok()) { return self.fail(closed.error()); }
+		if (self._frames.len > 0) {
+			return FileTreeSnapshotStep.advanced();
+		}
+		self._revision.appendU64((unsigned long long)self._entryCount);
+		self._completedRevision = self._revision.revision();
+		self._closed = true;
+		return FileTreeSnapshotStep.complete(self._completedRevision);
+	}
 
-    public FileSystemCloseOutcome close() {
-        if (self._closed) {
-            return FileSystemCloseOutcome.alreadyClosed();
-        }
-        FileSystemError? error = self.closeFrames();
-        return error == null
-            ? FileSystemCloseOutcome.closed()
-            : FileSystemCloseOutcome.failed(error);
-    }
+	public FileSystemCloseOutcome close() {
+		if (self._closed) {
+			return FileSystemCloseOutcome.alreadyClosed();
+		}
+		FileSystemError? error = self.closeFrames();
+		return error == null ? FileSystemCloseOutcome.closed() : FileSystemCloseOutcome.failed(error);
+	}
 
-    public void __del__() { self.close(); }
+	public void __del__() { self.close(); }
 }

@@ -9,134 +9,134 @@ import std.strings;
 import std.vector;
 
 class Toml {
-    class int unquotedPosition(string line, char target) {
-        if (line == null) { return -1; }
-        bool inString = false;
-        bool escaped = false;
-        char quote = (char)0;
-        for (int i = 0; i < line.len(); i++) {
-            char c = line[i];
-            if (inString) {
-                if (quote == (char)39) {
-                    if (c == quote) { inString = false; }
-                    continue;
-                }
-                if (!escaped && c == quote) { inString = false; }
-                escaped = !escaped && c == '\\';
-                if (c != '\\') { escaped = false; }
-                continue;
-            }
-            if (c == (char)34 || c == (char)39) {
-                inString = true;
-                escaped = false;
-                quote = c;
-                continue;
-            }
-            if (c == target) { return i; }
-        }
-        return -1;
-    }
+	class int unquotedPosition(string line, char target) {
+		if (line == null) { return -1; }
+		bool inString = false;
+		bool escaped = false;
+		char quote = (char)0;
+		for (int i = 0; i < line.len(); i++) {
+			char c = line[i];
+			if (inString) {
+				if (quote == (char)39) {
+					if (c == quote) { inString = false; }
+					continue;
+				}
+				if (!escaped && c == quote) { inString = false; }
+				escaped = !escaped && c == '\\';
+				if (c != '\\') { escaped = false; }
+				continue;
+			}
+			if (c == (char)34 || c == (char)39) {
+				inString = true;
+				escaped = false;
+				quote = c;
+				continue;
+			}
+			if (c == target) { return i; }
+		}
+		return -1;
+	}
 
-    class string stripInlineComment(string raw) {
-        if (raw == null) { return ""; }
-        int comment = Toml.unquotedPosition(raw, '#');
-        if (comment >= 0) { return raw.substring(0, comment).trim(); }
-        return raw.trim();
-    }
+	class string stripInlineComment(string raw) {
+		if (raw == null) { return ""; }
+		int comment = Toml.unquotedPosition(raw, '#');
+		if (comment >= 0) { return raw.substring(0, comment).trim(); }
+		return raw.trim();
+	}
 
-    class string unquote(string raw) {
-        string value = raw.trim();
-        if (value.startsWith("\"") && value.endsWith("\"") && value.len() >= 2) {
-            return JsonText.unescape(value.substring(1, value.len() - 2));
-        }
-        if (value.startsWith("'") && value.endsWith("'") && value.len() >= 2) {
-            return value.substring(1, value.len() - 2);
-        }
-        return value;
-    }
+	class string unquote(string raw) {
+		string value = raw.trim();
+		if (value.startsWith("\"") && value.endsWith("\"") && value.len() >= 2) {
+			return JsonText.unescape(value.substring(1, value.len() - 2));
+		}
+		if (value.startsWith("'") && value.endsWith("'") && value.len() >= 2) {
+			return value.substring(1, value.len() - 2);
+		}
+		return value;
+	}
 
-    class string key(string line) {
-        string cleaned = Toml.stripInlineComment(line);
-        int pos = Toml.unquotedPosition(cleaned, '=');
-        if (pos < 0) { return ""; }
-        return Toml.unquote(cleaned.substring(0, pos).trim());
-    }
+	class string key(string line) {
+		string cleaned = Toml.stripInlineComment(line);
+		int pos = Toml.unquotedPosition(cleaned, '=');
+		if (pos < 0) { return ""; }
+		return Toml.unquote(cleaned.substring(0, pos).trim());
+	}
 
-    class string value(string line) {
-        string cleaned = Toml.stripInlineComment(line);
-        int pos = Toml.unquotedPosition(cleaned, '=');
-        if (pos < 0) { return ""; }
-        return Toml.unquote(cleaned.substring(pos + 1, cleaned.len() - pos - 1).trim());
-    }
+	class string value(string line) {
+		string cleaned = Toml.stripInlineComment(line);
+		int pos = Toml.unquotedPosition(cleaned, '=');
+		if (pos < 0) { return ""; }
+		return Toml.unquote(cleaned.substring(pos + 1, cleaned.len() - pos - 1).trim());
+	}
 
-    class string sectionName(string line) {
-        string cleaned = Toml.stripInlineComment(line);
-        if (!cleaned.startsWith("[") || !cleaned.endsWith("]")) { return ""; }
-        if (cleaned.startsWith("[[")) { return ""; }
-        return cleaned.substring(1, cleaned.len() - 2).trim();
-    }
+	class string sectionName(string line) {
+		string cleaned = Toml.stripInlineComment(line);
+		if (!cleaned.startsWith("[") || !cleaned.endsWith("]")) { return ""; }
+		if (cleaned.startsWith("[[")) { return ""; }
+		return cleaned.substring(1, cleaned.len() - 2).trim();
+	}
 
-    class string tableArrayName(string line) {
-        string cleaned = Toml.stripInlineComment(line);
-        if (!cleaned.startsWith("[[") || !cleaned.endsWith("]]")) { return ""; }
-        return cleaned.substring(2, cleaned.len() - 4).trim();
-    }
+	class string tableArrayName(string line) {
+		string cleaned = Toml.stripInlineComment(line);
+		if (!cleaned.startsWith("[[") || !cleaned.endsWith("]]")) { return ""; }
+		return cleaned.substring(2, cleaned.len() - 4).trim();
+	}
 
-    class Map<string, string> rootMap(string content) {
-        Map<string, string> result = {};
-        for line in Strings.split(content, "\n") {
-            string trimmed = line.trim();
-            if (!Toml.sectionName(trimmed).isEmpty() || !Toml.tableArrayName(trimmed).isEmpty()) { break; }
-            string field = Toml.key(trimmed);
-            if (!field.isEmpty()) { result.put(field, Toml.value(trimmed)); }
-        }
-        return result;
-    }
+	class Map<string, string> rootMap(string content) {
+		Map<string, string> result = {};
+		for line in Strings.split(content, "\n") {
+			string trimmed = line.trim();
+			if (!Toml.sectionName(trimmed).isEmpty() || !Toml.tableArrayName(trimmed).isEmpty()) { break; }
+			string field = Toml.key(trimmed);
+			if (!field.isEmpty()) { result.put(field, Toml.value(trimmed)); }
+		}
+		return result;
+	}
 
-    /* Every key/value line inside [section] collected into a map. Scanning stops
+	/* Every key/value line inside [section] collected into a map. Scanning stops
      * at the next [section] or [[array-of-tables]] header. Missing keys are
      * simply absent — read them with map.getOrDefault(key, fallback). */
-    class Map<string, string> sectionMap(string content, string section) {
-        Map<string, string> result = {};
-        bool inSection = false;
-        for line in Strings.split(content, "\n") {
-            string trimmed = line.trim();
-            string name = Toml.sectionName(trimmed);
-            if (name.equals(section)) { inSection = true; continue; }
-            if (!name.isEmpty() || !Toml.tableArrayName(trimmed).isEmpty()) { inSection = false; continue; }
-            if (!inSection) { continue; }
-            string field = Toml.key(trimmed);
-            if (!field.isEmpty()) { result.put(field, Toml.value(trimmed)); }
-        }
-        return result;
-    }
+	class Map<string, string> sectionMap(string content, string section) {
+		Map<string, string> result = {};
+		bool inSection = false;
+		for line in Strings.split(content, "\n") {
+			string trimmed = line.trim();
+			string name = Toml.sectionName(trimmed);
+			if (name.equals(section)) { inSection = true; continue; }
+			if (!name.isEmpty() || !Toml.tableArrayName(trimmed).isEmpty()) { inSection = false; continue; }
+			if (!inSection) { continue; }
+			string field = Toml.key(trimmed);
+			if (!field.isEmpty()) { result.put(field, Toml.value(trimmed)); }
+		}
+		return result;
+	}
 
-    /* Each [[table]] occurrence as one key/value map, in document order. A fresh
+	/* Each [[table]] occurrence as one key/value map, in document order. A fresh
      * [[table]] header, any [section], or a different [[array-of-tables]] closes
      * the current block. Empty blocks are kept; the caller decides what counts. */
-    class Vector<Map<string, string>> tableArrayBlocks(string content, string table) {
-        Vector<Map<string, string>> blocks = [];
-        Map<string, string> current = {};
-        bool inTable = false;
-        for line in Strings.split(content, "\n") {
-            string trimmed = line.trim();
-            string name = Toml.tableArrayName(trimmed);
-            if (name.equals(table)) {
-                if (inTable) { blocks.push(current); }
-                current = {};
-                inTable = true;
-                continue;
-            }
-            if (!Toml.sectionName(trimmed).isEmpty() || !name.isEmpty()) {
-                if (inTable) { blocks.push(current); }
-                inTable = false;
-                continue;
-            }
-            if (!inTable) { continue; }
-            string field = Toml.key(trimmed);
-            if (!field.isEmpty()) { current.put(field, Toml.value(trimmed)); }
-        }
-        if (inTable) { blocks.push(current); }
-        return blocks;
-    }
+	class Vector<Map<string, string>> tableArrayBlocks(string content, string table) {
+		Vector<Map<string, string>> blocks = [];
+		Map<string, string> current = {};
+		bool inTable = false;
+		for line in Strings.split(content, "\n") {
+			string trimmed = line.trim();
+			string name = Toml.tableArrayName(trimmed);
+			if (name.equals(table)) {
+				if (inTable) { blocks.push(current); }
+				current = {};
+				inTable = true;
+				continue;
+			}
+			if (!Toml.sectionName(trimmed).isEmpty() || !name.isEmpty()) {
+				if (inTable) { blocks.push(current); }
+				inTable = false;
+				continue;
+			}
+			if (!inTable) { continue; }
+			string field = Toml.key(trimmed);
+			if (!field.isEmpty()) { current.put(field, Toml.value(trimmed)); }
+		}
+		if (inTable) { blocks.push(current); }
+		return blocks;
+	}
 }

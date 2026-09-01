@@ -19,255 +19,239 @@
 #include "gui/geometry.btrc"
 
 /* ---- C runtime prototypes ---- */
-void*        btrc_gui_surface_create(int width, int height);
-void         btrc_gui_surface_destroy(void* s);
-int          btrc_gui_surface_width(void* s);
-int          btrc_gui_surface_height(void* s);
-void         btrc_gui_surface_resize(void* s, int width, int height);
-void         btrc_gui_clear(void* s, unsigned int rgba);
-void         btrc_gui_fill_rect(void* s, int x, int y, int w, int h, unsigned int rgba);
-void         btrc_gui_blend_rect(void* s, int x, int y, int w, int h, unsigned int rgba);
-void         btrc_gui_draw_text(void* s, int x, int y, string text, unsigned int rgba, int scale);
-int          btrc_gui_text_width(string text, int scale);
-int          btrc_gui_text_height(int scale);
+void* btrc_gui_surface_create(int width, int height);
+void btrc_gui_surface_destroy(void* s);
+int btrc_gui_surface_width(void* s);
+int btrc_gui_surface_height(void* s);
+void btrc_gui_surface_resize(void* s, int width, int height);
+void btrc_gui_clear(void* s, unsigned int rgba);
+void btrc_gui_fill_rect(void* s, int x, int y, int w, int h, unsigned int rgba);
+void btrc_gui_blend_rect(void* s, int x, int y, int w, int h, unsigned int rgba);
+void btrc_gui_draw_text(void* s, int x, int y, string text, unsigned int rgba, int scale);
+int btrc_gui_text_width(string text, int scale);
+int btrc_gui_text_height(int scale);
 unsigned int btrc_gui_get_pixel(void* s, int x, int y);
-bool         btrc_gui_save_ppm(void* s, string path);
+bool btrc_gui_save_ppm(void* s, string path);
 
 class Color {
-    public int r;
-    public int g;
-    public int b;
-    public int a;
+	public int r;
+	public int g;
+	public int b;
+	public int a;
 
-    public Color(int r, int g, int b, int a) {
-        self.r = r < 0 ? 0 : (r > 255 ? 255 : r);
-        self.g = g < 0 ? 0 : (g > 255 ? 255 : g);
-        self.b = b < 0 ? 0 : (b > 255 ? 255 : b);
-        self.a = a < 0 ? 0 : (a > 255 ? 255 : a);
-    }
+	public Color(int r, int g, int b, int a) {
+		self.r = r < 0 ? 0 : (r > 255 ? 255 : r);
+		self.g = g < 0 ? 0 : (g > 255 ? 255 : g);
+		self.b = b < 0 ? 0 : (b > 255 ? 255 : b);
+		self.a = a < 0 ? 0 : (a > 255 ? 255 : a);
+	}
 
-    class Color rgb(int r, int g, int b) {
-        return Color(r, g, b, 255);
-    }
+	class Color rgb(int r, int g, int b) { return Color(r, g, b, 255); }
 
-    public unsigned int packed() {
-        return ((unsigned int)self.r << 24) | ((unsigned int)self.g << 16)
-            | ((unsigned int)self.b << 8) | (unsigned int)self.a;
-    }
+	public unsigned int packed() { return ((unsigned int)self.r << 24) | ((unsigned int)self.g << 16) | ((unsigned int)self.b << 8) | (unsigned int)self.a; }
 }
 
 class Surface {
-    public void* handle;
+	public void* handle;
 
-    public Surface(int width, int height) {
-        self.handle = btrc_gui_surface_create(width, height);
-    }
+	public Surface(int width, int height) { self.handle = btrc_gui_surface_create(width, height); }
 
-    public int width() { return btrc_gui_surface_width(self.handle); }
-    public int height() { return btrc_gui_surface_height(self.handle); }
-    public void resize(int w, int h) { btrc_gui_surface_resize(self.handle, w, h); }
+	public int width() { return btrc_gui_surface_width(self.handle); }
 
-    public void clear(Color c) { btrc_gui_clear(self.handle, c.packed()); }
-    public void fillRect(int x, int y, int w, int h, Color c) {
-        btrc_gui_fill_rect(self.handle, x, y, w, h, c.packed());
-    }
-    public void blendRect(int x, int y, int w, int h, Color c) {
-        btrc_gui_blend_rect(self.handle, x, y, w, h, c.packed());
-    }
-    public void text(int x, int y, string s, Color c, int scale) {
-        btrc_gui_draw_text(self.handle, x, y, s, c.packed(), scale);
-    }
-    public unsigned int pixel(int x, int y) { return btrc_gui_get_pixel(self.handle, x, y); }
-    public bool savePpm(string path) { return btrc_gui_save_ppm(self.handle, path); }
+	public int height() { return btrc_gui_surface_height(self.handle); }
 
-    public void __del__() {
-        if (self.handle != null) {
-            btrc_gui_surface_destroy(self.handle);
-            self.handle = null;
-        }
-    }
+	public void resize(int w, int h) { btrc_gui_surface_resize(self.handle, w, h); }
+
+	public void clear(Color c) { btrc_gui_clear(self.handle, c.packed()); }
+
+	public void fillRect(int x, int y, int w, int h, Color c) { btrc_gui_fill_rect(self.handle, x, y, w, h, c.packed()); }
+
+	public void blendRect(int x, int y, int w, int h, Color c) { btrc_gui_blend_rect(self.handle, x, y, w, h, c.packed()); }
+
+	public void text(int x, int y, string s, Color c, int scale) { btrc_gui_draw_text(self.handle, x, y, s, c.packed(), scale); }
+
+	public unsigned int pixel(int x, int y) { return btrc_gui_get_pixel(self.handle, x, y); }
+
+	public bool savePpm(string path) { return btrc_gui_save_ppm(self.handle, path); }
+
+	public void __del__() {
+		if (self.handle != null) {
+			btrc_gui_surface_destroy(self.handle);
+			self.handle = null;
+		}
+	}
 }
 
 /* Per-frame input. A window backend (or a test) fills these before beginFrame. */
 class GuiInput {
-    public int mouseX;
-    public int mouseY;
-    public bool mouseDown;     /* button currently held */
-    public bool mousePressed;  /* pressed this frame (rising edge) */
-    public string typed;       /* text typed this frame */
+	public int mouseX;
+	public int mouseY;
+	public bool mouseDown;     /* button currently held */
+	public bool mousePressed;  /* pressed this frame (rising edge) */
+	public string typed;       /* text typed this frame */
 
-    public GuiInput() {
-        self.mouseX = -1;
-        self.mouseY = -1;
-        self.mouseDown = false;
-        self.mousePressed = false;
-        self.typed = "";
-    }
+	public GuiInput() {
+		self.mouseX = -1;
+		self.mouseY = -1;
+		self.mouseDown = false;
+		self.mousePressed = false;
+		self.typed = "";
+	}
 }
 
 class Theme {
-    public Color bg;
-    public Color panel;
-    public Color text;
-    public Color accent;
-    public Color accentText;
-    public Color border;
+	public Color bg;
+	public Color panel;
+	public Color text;
+	public Color accent;
+	public Color accentText;
+	public Color border;
 
-    public Theme() {
-        self.bg = Color.rgb(250, 248, 245);
-        self.panel = Color.rgb(255, 255, 255);
-        self.text = Color.rgb(43, 38, 34);
-        self.accent = Color.rgb(189, 93, 58);
-        self.accentText = Color.rgb(255, 255, 255);
-        self.border = Color.rgb(226, 220, 211);
-    }
+	public Theme() {
+		self.bg = Color.rgb(250, 248, 245);
+		self.panel = Color.rgb(255, 255, 255);
+		self.text = Color.rgb(43, 38, 34);
+		self.accent = Color.rgb(189, 93, 58);
+		self.accentText = Color.rgb(255, 255, 255);
+		self.border = Color.rgb(226, 220, 211);
+	}
 
-    class Theme dark() {
-        Theme t = Theme();
-        t.bg = Color.rgb(28, 26, 24);
-        t.panel = Color.rgb(34, 31, 28);
-        t.text = Color.rgb(236, 231, 225);
-        t.accent = Color.rgb(217, 116, 79);
-        t.accentText = Color.rgb(28, 26, 24);
-        t.border = Color.rgb(56, 51, 46);
-        return t;
-    }
+	class Theme dark() {
+		Theme t = Theme();
+		t.bg = Color.rgb(28, 26, 24);
+		t.panel = Color.rgb(34, 31, 28);
+		t.text = Color.rgb(236, 231, 225);
+		t.accent = Color.rgb(217, 116, 79);
+		t.accentText = Color.rgb(28, 26, 24);
+		t.border = Color.rgb(56, 51, 46);
+		return t;
+	}
 }
 
 /* Immediate-mode UI context. Widgets are laid out top-to-bottom; each returns
  * the interaction that happened this frame. */
 class Gui {
-    public Surface surface;
-    public GuiInput input;
-    public Theme theme;
-    public int scale;
-    public int pad;
-    public int gap;
-    public int cursorX;
-    public int cursorY;
-    public int contentWidth;
+	public Surface surface;
+	public GuiInput input;
+	public Theme theme;
+	public int scale;
+	public int pad;
+	public int gap;
+	public int cursorX;
+	public int cursorY;
+	public int contentWidth;
 
-    public Gui(Surface surface) {
-        self.surface = surface;
-        self.input = GuiInput();
-        self.theme = Theme();
-        self.scale = 2;
-        self.pad = 16;
-        self.gap = 8;
-        self.cursorX = 16;
-        self.cursorY = 16;
-        self.contentWidth = GuiInt.subtract(surface.width(), 32);
-    }
+	public Gui(Surface surface) {
+		self.surface = surface;
+		self.input = GuiInput();
+		self.theme = Theme();
+		self.scale = 2;
+		self.pad = 16;
+		self.gap = 8;
+		self.cursorX = 16;
+		self.cursorY = 16;
+		self.contentWidth = GuiInt.subtract(surface.width(), 32);
+	}
 
-    public bool hit(int x, int y, int w, int h) {
-        if (w <= 0 || h <= 0) { return false; }
-        long long mx = (long long)self.input.mouseX;
-        long long my = (long long)self.input.mouseY;
-        return mx >= (long long)x && mx < (long long)x + (long long)w
-            && my >= (long long)y && my < (long long)y + (long long)h;
-    }
+	public bool hit(int x, int y, int w, int h) {
+		if (w <= 0 || h <= 0) { return false; }
+		long long mx = (long long)self.input.mouseX;
+		long long my = (long long)self.input.mouseY;
+		return mx >= (long long)x && mx < (long long)x + (long long)w && my >= (long long)y && my < (long long)y + (long long)h;
+	}
 
-    public void beginFrame() {
-        self.surface.clear(self.theme.bg);
-        self.cursorX = self.pad;
-        self.cursorY = self.pad;
-    }
+	public void beginFrame() {
+		self.surface.clear(self.theme.bg);
+		self.cursorX = self.pad;
+		self.cursorY = self.pad;
+	}
 
-    public void panel(int x, int y, int w, int h) {
-        self.surface.fillRect(x, y, w, h, self.theme.panel);
-        self.surface.fillRect(x, y, w, 1, self.theme.border);
-        self.surface.fillRect(x, GuiInt.subtract(GuiInt.add(y, h), 1), w, 1, self.theme.border);
-    }
+	public void panel(int x, int y, int w, int h) {
+		self.surface.fillRect(x, y, w, h, self.theme.panel);
+		self.surface.fillRect(x, y, w, 1, self.theme.border);
+		self.surface.fillRect(x, GuiInt.subtract(GuiInt.add(y, h), 1), w, 1, self.theme.border);
+	}
 
-    public void label(string text) {
-        self.surface.text(self.cursorX, GuiInt.add(self.cursorY, 4), text, self.theme.text, self.scale);
-        self.cursorY = GuiInt.add(
-            GuiInt.add(self.cursorY, btrc_gui_text_height(self.scale)), self.gap);
-    }
+	public void label(string text) {
+		self.surface.text(self.cursorX, GuiInt.add(self.cursorY, 4), text, self.theme.text, self.scale);
+		self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, btrc_gui_text_height(self.scale)), self.gap);
+	}
 
-    public void heading(string text) {
-        int headingScale = GuiInt.add(self.scale, 1);
-        self.surface.text(
-            self.cursorX, self.cursorY, text, self.theme.accent, headingScale);
-        self.cursorY = GuiInt.add(
-            GuiInt.add(self.cursorY, btrc_gui_text_height(headingScale)), self.gap);
-    }
+	public void heading(string text) {
+		int headingScale = GuiInt.add(self.scale, 1);
+		self.surface.text(self.cursorX, self.cursorY, text, self.theme.accent, headingScale);
+		self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, btrc_gui_text_height(headingScale)), self.gap);
+	}
 
-    public void spacer(int px) {
-        self.cursorY = GuiInt.add(self.cursorY, px);
-    }
+	public void spacer(int px) { self.cursorY = GuiInt.add(self.cursorY, px); }
 
-    /* A clickable button. Returns true on the frame it is clicked. */
-    public bool button(string text) {
-        int th = btrc_gui_text_height(self.scale);
-        int tw = btrc_gui_text_width(text, self.scale);
-        int w = GuiInt.add(tw, 20);
-        int h = GuiInt.add(th, 12);
-        int x = self.cursorX;
-        int y = self.cursorY;
-        bool hovered = self.hit(x, y, w, h);
-        bool clicked = hovered && self.input.mousePressed;
-        Color fill = hovered ? self.theme.accent : self.theme.panel;
-        Color fg = hovered ? self.theme.accentText : self.theme.text;
-        self.surface.fillRect(x, y, w, h, fill);
-        if (!hovered) {
-            self.surface.fillRect(x, y, w, 1, self.theme.border);
-            self.surface.fillRect(x, GuiInt.subtract(GuiInt.add(y, h), 1), w, 1, self.theme.border);
-            self.surface.fillRect(x, y, 1, h, self.theme.border);
-            self.surface.fillRect(GuiInt.subtract(GuiInt.add(x, w), 1), y, 1, h, self.theme.border);
-        }
-        self.surface.text(GuiInt.add(x, 10), GuiInt.add(y, 6), text, fg, self.scale);
-        self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
-        return clicked;
-    }
+	/* A clickable button. Returns true on the frame it is clicked. */
+	public bool button(string text) {
+		int th = btrc_gui_text_height(self.scale);
+		int tw = btrc_gui_text_width(text, self.scale);
+		int w = GuiInt.add(tw, 20);
+		int h = GuiInt.add(th, 12);
+		int x = self.cursorX;
+		int y = self.cursorY;
+		bool hovered = self.hit(x, y, w, h);
+		bool clicked = hovered && self.input.mousePressed;
+		Color fill = hovered ? self.theme.accent : self.theme.panel;
+		Color fg = hovered ? self.theme.accentText : self.theme.text;
+		self.surface.fillRect(x, y, w, h, fill);
+		if (!hovered) {
+			self.surface.fillRect(x, y, w, 1, self.theme.border);
+			self.surface.fillRect(x, GuiInt.subtract(GuiInt.add(y, h), 1), w, 1, self.theme.border);
+			self.surface.fillRect(x, y, 1, h, self.theme.border);
+			self.surface.fillRect(GuiInt.subtract(GuiInt.add(x, w), 1), y, 1, h, self.theme.border);
+		}
+		self.surface.text(GuiInt.add(x, 10), GuiInt.add(y, 6), text, fg, self.scale);
+		self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
+		return clicked;
+	}
 
-    /* A checkbox. Returns the (possibly toggled) value for this frame. */
-    public bool checkbox(string text, bool value) {
-        int box = btrc_gui_text_height(self.scale);
-        int x = self.cursorX;
-        int y = self.cursorY;
-        int w = GuiInt.add(
-            GuiInt.add(box, 8), btrc_gui_text_width(text, self.scale));
-        bool hovered = self.hit(x, y, w, box);
-        bool nv = value;
-        if (hovered && self.input.mousePressed) { nv = !value; }
-        self.surface.fillRect(x, y, box, box, self.theme.border);
-        if (nv) {
-            self.surface.fillRect(
-                GuiInt.add(x, 3), GuiInt.add(y, 3),
-                GuiInt.subtract(box, 6), GuiInt.subtract(box, 6), self.theme.accent);
-        }
-        self.surface.text(
-            GuiInt.add(GuiInt.add(x, box), 8), y, text, self.theme.text, self.scale);
-        self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, box), self.gap);
-        return nv;
-    }
+	/* A checkbox. Returns the (possibly toggled) value for this frame. */
+	public bool checkbox(string text, bool value) {
+		int box = btrc_gui_text_height(self.scale);
+		int x = self.cursorX;
+		int y = self.cursorY;
+		int w = GuiInt.add(GuiInt.add(box, 8), btrc_gui_text_width(text, self.scale));
+		bool hovered = self.hit(x, y, w, box);
+		bool nv = value;
+		if (hovered && self.input.mousePressed) { nv = !value; }
+		self.surface.fillRect(x, y, box, box, self.theme.border);
+		if (nv) {
+			self.surface.fillRect(GuiInt.add(x, 3), GuiInt.add(y, 3), GuiInt.subtract(box, 6), GuiInt.subtract(box, 6), self.theme.accent);
+		}
+		self.surface.text(GuiInt.add(GuiInt.add(x, box), 8), y, text, self.theme.text, self.scale);
+		self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, box), self.gap);
+		return nv;
+	}
 
-    /* A horizontal value bar (0..max). Returns the value, dragged by the mouse. */
-    public int slider(int value, int max) {
-        int h = 14;
-        int w = self.contentWidth;
-        int x = self.cursorX;
-        int y = self.cursorY;
-        int v = value;
-        if (max <= 0 || w <= 0) {
-            self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
-            return 0;
-        }
-        if (v < 0) { v = 0; }
-        if (v > max) { v = max; }
-        if (self.hit(x, y, w, h) && self.input.mouseDown && max > 0) {
-            int rel = self.input.mouseX - x;
-            if (rel < 0) { rel = 0; }
-            if (rel > w) { rel = w; }
-            v = (int)((long long)rel * (long long)max / (long long)w);
-        }
-        self.surface.fillRect(x, y, w, h, self.theme.border);
-        int fillW = (int)((long long)v * (long long)w / (long long)max);
-        self.surface.fillRect(x, y, fillW, h, self.theme.accent);
-        self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
-        return v;
-    }
+	/* A horizontal value bar (0..max). Returns the value, dragged by the mouse. */
+	public int slider(int value, int max) {
+		int h = 14;
+		int w = self.contentWidth;
+		int x = self.cursorX;
+		int y = self.cursorY;
+		int v = value;
+		if (max <= 0 || w <= 0) {
+			self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
+			return 0;
+		}
+		if (v < 0) { v = 0; }
+		if (v > max) { v = max; }
+		if (self.hit(x, y, w, h) && self.input.mouseDown && max > 0) {
+			int rel = self.input.mouseX - x;
+			if (rel < 0) { rel = 0; }
+			if (rel > w) { rel = w; }
+			v = (int)((long long)rel * (long long)max / (long long)w);
+		}
+		self.surface.fillRect(x, y, w, h, self.theme.border);
+		int fillW = (int)((long long)v * (long long)w / (long long)max);
+		self.surface.fillRect(x, y, fillW, h, self.theme.accent);
+		self.cursorY = GuiInt.add(GuiInt.add(self.cursorY, h), self.gap);
+		return v;
+	}
 }
 
 /* A threaded application shell. The render/update loop runs on a background
@@ -287,16 +271,17 @@ class Gui {
  *   t.join();
  */
 class GuiApp {
-    public Surface surface;
-    public Gui ui;
-    public Mutex<int> alive;   /* 1 = running, 0 = stopped (thread-safe) */
+	public Surface surface;
+	public Gui ui;
+	public Mutex<int> alive;   /* 1 = running, 0 = stopped (thread-safe) */
 
-    public GuiApp(int width, int height) {
-        self.surface = Surface(width, height);
-        self.ui = Gui(self.surface);
-        self.alive = Mutex(1);
-    }
+	public GuiApp(int width, int height) {
+		self.surface = Surface(width, height);
+		self.ui = Gui(self.surface);
+		self.alive = Mutex(1);
+	}
 
-    public bool running() { return self.alive.get() == 1; }
-    public void stop() { self.alive.set(0); }
+	public bool running() { return self.alive.get() == 1; }
+
+	public void stop() { self.alive.set(0); }
 }

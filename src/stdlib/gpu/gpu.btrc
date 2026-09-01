@@ -1,651 +1,491 @@
 /* btrc standard library -- opaque WebGPU rendering on a std.app surface. */
 
 import ../app/app.btrc;
-
 #include <btrc_gpu.h>
 
-int std_gpu_attach_surface(
-    unsigned long long surface, unsigned long long* gpuOut,
-    unsigned long long* ownerReceiptOut);
+int std_gpu_attach_surface(unsigned long long surface, unsigned long long* gpuOut, unsigned long long* ownerReceiptOut);
 string std_gpu_status_message(int status);
-int std_gpu_close(
-    unsigned long long gpu, unsigned long long ownerReceipt);
-void std_gpu_finalize(
-    unsigned long long gpu, unsigned long long ownerReceipt);
-int std_gpu_shader_create(
-    unsigned long long gpu, string wgsl,
-    unsigned long long* shaderOut,
-    unsigned long long* ownerReceiptOut);
-int std_gpu_shader_destroy(
-    unsigned long long shader, unsigned long long ownerReceipt);
-void std_gpu_shader_finalize(
-    unsigned long long shader, unsigned long long ownerReceipt);
-int std_gpu_pipeline_create(
-    unsigned long long gpu,
-    unsigned long long shader,
-    string vertexEntry,
-    string fragmentEntry,
-    unsigned long long* pipelineOut,
-    unsigned long long* ownerReceiptOut);
-int std_gpu_pipeline_destroy(
-    unsigned long long pipeline, unsigned long long ownerReceipt);
-void std_gpu_pipeline_finalize(
-    unsigned long long pipeline, unsigned long long ownerReceipt);
-int std_gpu_uniform_create(
-    unsigned long long gpu, int floatCount,
-    unsigned long long* uniformOut,
-    unsigned long long* ownerReceiptOut);
+int std_gpu_close(unsigned long long gpu, unsigned long long ownerReceipt);
+void std_gpu_finalize(unsigned long long gpu, unsigned long long ownerReceipt);
+int std_gpu_shader_create(unsigned long long gpu, string wgsl, unsigned long long* shaderOut, unsigned long long* ownerReceiptOut);
+int std_gpu_shader_destroy(unsigned long long shader, unsigned long long ownerReceipt);
+void std_gpu_shader_finalize(unsigned long long shader, unsigned long long ownerReceipt);
+int std_gpu_pipeline_create(unsigned long long gpu, unsigned long long shader, string vertexEntry, string fragmentEntry, unsigned long long* pipelineOut, unsigned long long* ownerReceiptOut);
+int std_gpu_pipeline_destroy(unsigned long long pipeline, unsigned long long ownerReceipt);
+void std_gpu_pipeline_finalize(unsigned long long pipeline, unsigned long long ownerReceipt);
+int std_gpu_uniform_create(unsigned long long gpu, int floatCount, unsigned long long* uniformOut, unsigned long long* ownerReceiptOut);
 int std_gpu_uniform_set(unsigned long long uniform, int index, float value);
-int std_gpu_uniform_destroy(
-    unsigned long long uniform, unsigned long long ownerReceipt);
-void std_gpu_uniform_finalize(
-    unsigned long long uniform, unsigned long long ownerReceipt);
-int std_gpu_begin_frame(
-    unsigned long long gpu, float r, float g, float b, float a);
-int std_gpu_draw(
-    unsigned long long gpu,
-    unsigned long long pipeline,
-    int vertexCount);
-int std_gpu_draw_uniform(
-    unsigned long long gpu,
-    unsigned long long pipeline,
-    int vertexCount,
-    unsigned long long uniform);
+int std_gpu_uniform_destroy(unsigned long long uniform, unsigned long long ownerReceipt);
+void std_gpu_uniform_finalize(unsigned long long uniform, unsigned long long ownerReceipt);
+int std_gpu_begin_frame(unsigned long long gpu, float r, float g, float b, float a);
+int std_gpu_draw(unsigned long long gpu, unsigned long long pipeline, int vertexCount);
+int std_gpu_draw_uniform(unsigned long long gpu, unsigned long long pipeline, int vertexCount, unsigned long long uniform);
 int std_gpu_end_frame(unsigned long long gpu);
 
 enum GPUAttachKind {
-    GPU_ATTACHED = 0,
-    GPU_ATTACH_INVALID_SURFACE = 1,
-    GPU_ATTACH_SURFACE_BUSY = 2,
-    GPU_ATTACH_ADAPTER_UNAVAILABLE = 3,
-    GPU_ATTACH_DEVICE_UNAVAILABLE = 4,
-    GPU_ATTACH_SURFACE_UNSUPPORTED = 5,
-    GPU_ATTACH_OUT_OF_MEMORY = 6,
-    GPU_ATTACH_INTERNAL_ERROR = 7,
-    GPU_ATTACH_NOT_OWNER_THREAD = 8
+	GPU_ATTACHED = 0,
+	GPU_ATTACH_INVALID_SURFACE = 1,
+	GPU_ATTACH_SURFACE_BUSY = 2,
+	GPU_ATTACH_ADAPTER_UNAVAILABLE = 3,
+	GPU_ATTACH_DEVICE_UNAVAILABLE = 4,
+	GPU_ATTACH_SURFACE_UNSUPPORTED = 5,
+	GPU_ATTACH_OUT_OF_MEMORY = 6,
+	GPU_ATTACH_INTERNAL_ERROR = 7,
+	GPU_ATTACH_NOT_OWNER_THREAD = 8
 };
 
 class GPUAttachOutcome {
-    public GPUAttachKind kind;
-    public GPU? gpu;
-    public string error;
+	public GPUAttachKind kind;
+	public GPU? gpu;
+	public string error;
 
-    public GPUAttachOutcome(GPUAttachKind kind, GPU? gpu, string error) {
-        self.kind = kind;
-        self.gpu = gpu;
-        self.error = error;
-    }
+	public GPUAttachOutcome(GPUAttachKind kind, GPU? gpu, string error) {
+		self.kind = kind;
+		self.gpu = gpu;
+		self.error = error;
+	}
 }
 
 enum GPUResourceKind {
-    GPU_RESOURCE_READY = 300,
-    GPU_RESOURCE_INVALID_GPU = 301,
-    GPU_RESOURCE_NOT_OWNER_THREAD = 302,
-    GPU_RESOURCE_DEVICE_LOST = 303,
-    GPU_RESOURCE_INVALID_DESCRIPTOR = 304,
-    GPU_RESOURCE_INVALID_RESOURCE = 305,
-    GPU_RESOURCE_CREATION_FAILED = 306,
-    GPU_RESOURCE_OUT_OF_MEMORY = 307,
-    GPU_RESOURCE_INTERNAL_ERROR = 308
+	GPU_RESOURCE_READY = 300,
+	GPU_RESOURCE_INVALID_GPU = 301,
+	GPU_RESOURCE_NOT_OWNER_THREAD = 302,
+	GPU_RESOURCE_DEVICE_LOST = 303,
+	GPU_RESOURCE_INVALID_DESCRIPTOR = 304,
+	GPU_RESOURCE_INVALID_RESOURCE = 305,
+	GPU_RESOURCE_CREATION_FAILED = 306,
+	GPU_RESOURCE_OUT_OF_MEMORY = 307,
+	GPU_RESOURCE_INTERNAL_ERROR = 308
 };
 
 class GPUResourceOutcome {
-    public GPUResourceKind kind;
-    public string error;
+	public GPUResourceKind kind;
+	public string error;
 
-    public GPUResourceOutcome(GPUResourceKind kind, string error) {
-        self.kind = kind;
-        self.error = error;
-    }
+	public GPUResourceOutcome(GPUResourceKind kind, string error) {
+		self.kind = kind;
+		self.error = error;
+	}
 }
 
 class GPUShaderOutcome {
-    public GPUResourceKind kind;
-    public GPUShader? shader;
-    public string error;
+	public GPUResourceKind kind;
+	public GPUShader? shader;
+	public string error;
 
-    public GPUShaderOutcome(
-            GPUResourceKind kind, GPUShader? shader, string error) {
-        self.kind = kind;
-        self.shader = shader;
-        self.error = error;
-    }
+	public GPUShaderOutcome(GPUResourceKind kind, GPUShader? shader, string error) {
+		self.kind = kind;
+		self.shader = shader;
+		self.error = error;
+	}
 }
 
 class GPUPipelineOutcome {
-    public GPUResourceKind kind;
-    public GPURenderPipeline? pipeline;
-    public string error;
+	public GPUResourceKind kind;
+	public GPURenderPipeline? pipeline;
+	public string error;
 
-    public GPUPipelineOutcome(
-            GPUResourceKind kind,
-            GPURenderPipeline? pipeline,
-            string error) {
-        self.kind = kind;
-        self.pipeline = pipeline;
-        self.error = error;
-    }
+	public GPUPipelineOutcome(GPUResourceKind kind, GPURenderPipeline? pipeline, string error) {
+		self.kind = kind;
+		self.pipeline = pipeline;
+		self.error = error;
+	}
 }
 
 class GPUUniformOutcome {
-    public GPUResourceKind kind;
-    public GPUUniform? uniform;
-    public string error;
+	public GPUResourceKind kind;
+	public GPUUniform? uniform;
+	public string error;
 
-    public GPUUniformOutcome(
-            GPUResourceKind kind, GPUUniform? uniform, string error) {
-        self.kind = kind;
-        self.uniform = uniform;
-        self.error = error;
-    }
+	public GPUUniformOutcome(GPUResourceKind kind, GPUUniform? uniform, string error) {
+		self.kind = kind;
+		self.uniform = uniform;
+		self.error = error;
+	}
 }
 
 enum GPUFrameKind {
-    GPU_FRAME_READY = 100,
-    GPU_FRAME_PRESENTED = 101,
-    GPU_FRAME_TIMEOUT = 102,
-    GPU_FRAME_OUTDATED = 103,
-    GPU_FRAME_SURFACE_LOST = 104,
-    GPU_FRAME_OUT_OF_MEMORY = 105,
-    GPU_FRAME_DEVICE_LOST = 106,
-    GPU_FRAME_REJECTED = 107
+	GPU_FRAME_READY = 100,
+	GPU_FRAME_PRESENTED = 101,
+	GPU_FRAME_TIMEOUT = 102,
+	GPU_FRAME_OUTDATED = 103,
+	GPU_FRAME_SURFACE_LOST = 104,
+	GPU_FRAME_OUT_OF_MEMORY = 105,
+	GPU_FRAME_DEVICE_LOST = 106,
+	GPU_FRAME_REJECTED = 107
 };
 
 class GPUFrameOutcome {
-    public GPUFrameKind kind;
-    public string error;
+	public GPUFrameKind kind;
+	public string error;
 
-    public GPUFrameOutcome(GPUFrameKind kind, string error) {
-        self.kind = kind;
-        self.error = error;
-    }
+	public GPUFrameOutcome(GPUFrameKind kind, string error) {
+		self.kind = kind;
+		self.error = error;
+	}
 }
 
 enum GPUDrawKind {
-    GPU_DRAW_RECORDED = 400,
-    GPU_DRAW_INVALID_GPU = 401,
-    GPU_DRAW_NOT_OWNER_THREAD = 402,
-    GPU_DRAW_DEVICE_LOST = 403,
-    GPU_DRAW_INVALID_DESCRIPTOR = 404,
-    GPU_DRAW_INVALID_RESOURCE = 405,
-    GPU_DRAW_NO_ACTIVE_FRAME = 406,
-    GPU_DRAW_BACKEND_FAILURE = 407
+	GPU_DRAW_RECORDED = 400,
+	GPU_DRAW_INVALID_GPU = 401,
+	GPU_DRAW_NOT_OWNER_THREAD = 402,
+	GPU_DRAW_DEVICE_LOST = 403,
+	GPU_DRAW_INVALID_DESCRIPTOR = 404,
+	GPU_DRAW_INVALID_RESOURCE = 405,
+	GPU_DRAW_NO_ACTIVE_FRAME = 406,
+	GPU_DRAW_BACKEND_FAILURE = 407
 };
 
 class GPUDrawOutcome {
-    public GPUDrawKind kind;
-    public string error;
+	public GPUDrawKind kind;
+	public string error;
 
-    public GPUDrawOutcome(GPUDrawKind kind, string error) {
-        self.kind = kind;
-        self.error = error;
-    }
+	public GPUDrawOutcome(GPUDrawKind kind, string error) {
+		self.kind = kind;
+		self.error = error;
+	}
 }
 
 enum GPUCloseKind {
-    GPU_CLOSED = 200,
-    GPU_CLOSE_REJECTED = 201,
-    GPU_ALREADY_CLOSED = 202
+	GPU_CLOSED = 200,
+	GPU_CLOSE_REJECTED = 201,
+	GPU_ALREADY_CLOSED = 202
 };
 
 class GPUCloseOutcome {
-    public GPUCloseKind kind;
-    public string error;
+	public GPUCloseKind kind;
+	public string error;
 
-    public GPUCloseOutcome(GPUCloseKind kind, string error) {
-        self.kind = kind;
-        self.error = error;
-    }
+	public GPUCloseOutcome(GPUCloseKind kind, string error) {
+		self.kind = kind;
+		self.error = error;
+	}
 }
 
 class GPU {
-    private unsigned long long handle;
-    private unsigned long long ownerReceipt;
-    private AppSurfaceAttachment surface;
+	private unsigned long long handle;
+	private unsigned long long ownerReceipt;
+	private AppSurfaceAttachment surface;
 
-    private GPU(
-            unsigned long long handle,
-            unsigned long long ownerReceipt,
-            AppSurfaceAttachment surface) {
-        self.handle = handle;
-        self.ownerReceipt = ownerReceipt;
-        self.surface = surface;
-    }
+	private GPU(unsigned long long handle, unsigned long long ownerReceipt, AppSurfaceAttachment surface) {
+		self.handle = handle;
+		self.ownerReceipt = ownerReceipt;
+		self.surface = surface;
+	}
 
-    class GPUAttachOutcome attach(AppSurfaceAttachment surface) {
-        if (!surface.isOpen()) {
-            return new GPUAttachOutcome(
-                GPU_ATTACH_INVALID_SURFACE,
-                null,
-                "surface attachment is closed");
-        }
-        unsigned long long handle = 0ULL;
-        unsigned long long ownerReceipt = 0ULL;
-        int status = std_gpu_attach_surface(
-            surface.attachmentIdentity(), &handle, &ownerReceipt);
-        if (status != GPU_ATTACHED || handle == 0ULL || ownerReceipt == 0ULL) {
-            bool malformed = handle != 0ULL || ownerReceipt != 0ULL
-                || status == GPU_ATTACHED;
-            if (handle != 0ULL && ownerReceipt != 0ULL) {
-                std_gpu_close(handle, ownerReceipt);
-                handle = 0ULL;
-                ownerReceipt = 0ULL;
-            }
-            GPUAttachKind kind = GPU_ATTACH_INTERNAL_ERROR;
-            if (!malformed && status >= GPU_ATTACH_INVALID_SURFACE &&
-                    status <= GPU_ATTACH_NOT_OWNER_THREAD) {
-                kind = (GPUAttachKind)status;
-            }
-            return new GPUAttachOutcome(
-                kind,
-                null,
-                std_gpu_status_message((int)kind));
-        }
-        return new GPUAttachOutcome(
-            GPU_ATTACHED,
-            new GPU(handle, ownerReceipt, surface),
-            "");
-    }
+	class GPUAttachOutcome attach(AppSurfaceAttachment surface) {
+		if (!surface.isOpen()) {
+			return new GPUAttachOutcome(GPU_ATTACH_INVALID_SURFACE, null, "surface attachment is closed");
+		}
+		unsigned long long handle = 0ULL;
+		unsigned long long ownerReceipt = 0ULL;
+		int status = std_gpu_attach_surface(surface.attachmentIdentity(), &handle, &ownerReceipt);
+		if (status != GPU_ATTACHED || handle == 0ULL || ownerReceipt == 0ULL) {
+			bool malformed = handle != 0ULL || ownerReceipt != 0ULL || status == GPU_ATTACHED;
+			if (handle != 0ULL && ownerReceipt != 0ULL) {
+				std_gpu_close(handle, ownerReceipt);
+				handle = 0ULL;
+				ownerReceipt = 0ULL;
+			}
+			GPUAttachKind kind = GPU_ATTACH_INTERNAL_ERROR;
+			if (!malformed && status >= GPU_ATTACH_INVALID_SURFACE && status <= GPU_ATTACH_NOT_OWNER_THREAD) {
+				kind = (GPUAttachKind)status;
+			}
+			return new GPUAttachOutcome(kind, null, std_gpu_status_message((int)kind));
+		}
+		return new GPUAttachOutcome(GPU_ATTACHED, new GPU(handle, ownerReceipt, surface), "");
+	}
 
-    public bool isOpen() {
-        return self.handle != 0ULL && self.ownerReceipt != 0ULL;
-    }
-    /* Cross-resource native bridge capability. This is a monotonic identity,
+	public bool isOpen() { return self.handle != 0ULL && self.ownerReceipt != 0ULL; }
+	/* Cross-resource native bridge capability. This is a monotonic identity,
      * never a WebGPU pointer. */
-    public unsigned long long gpuIdentity() { return self.handle; }
+	public unsigned long long gpuIdentity() { return self.handle; }
 
-    public GPUShaderOutcome createShader(string wgsl) {
-        if (!self.isOpen()) {
-            return new GPUShaderOutcome(
-                GPU_RESOURCE_INVALID_GPU,
-                null,
-                std_gpu_status_message(GPU_RESOURCE_INVALID_GPU));
-        }
-        if (wgsl.isEmpty()) {
-            return new GPUShaderOutcome(
-                GPU_RESOURCE_INVALID_DESCRIPTOR,
-                null,
-                std_gpu_status_message(GPU_RESOURCE_INVALID_DESCRIPTOR));
-        }
-        return GPUShader.create(self, wgsl);
-    }
+	public GPUShaderOutcome createShader(string wgsl) {
+		if (!self.isOpen()) {
+			return new GPUShaderOutcome(GPU_RESOURCE_INVALID_GPU, null, std_gpu_status_message(GPU_RESOURCE_INVALID_GPU));
+		}
+		if (wgsl.isEmpty()) {
+			return new GPUShaderOutcome(GPU_RESOURCE_INVALID_DESCRIPTOR, null, std_gpu_status_message(GPU_RESOURCE_INVALID_DESCRIPTOR));
+		}
+		return GPUShader.create(self, wgsl);
+	}
 
-    public GPUPipelineOutcome createPipeline(GPUShader shader) {
-        if (!self.isOpen()) {
-            return new GPUPipelineOutcome(
-                GPU_RESOURCE_INVALID_GPU,
-                null,
-                std_gpu_status_message(GPU_RESOURCE_INVALID_GPU));
-        }
-        if (!shader.isOpen()) {
-            return new GPUPipelineOutcome(
-                GPU_RESOURCE_INVALID_RESOURCE,
-                null,
-                std_gpu_status_message(GPU_RESOURCE_INVALID_RESOURCE));
-        }
-        return GPURenderPipeline.create(self, shader);
-    }
+	public GPUPipelineOutcome createPipeline(GPUShader shader) {
+		if (!self.isOpen()) {
+			return new GPUPipelineOutcome(GPU_RESOURCE_INVALID_GPU, null, std_gpu_status_message(GPU_RESOURCE_INVALID_GPU));
+		}
+		if (!shader.isOpen()) {
+			return new GPUPipelineOutcome(GPU_RESOURCE_INVALID_RESOURCE, null, std_gpu_status_message(GPU_RESOURCE_INVALID_RESOURCE));
+		}
+		return GPURenderPipeline.create(self, shader);
+	}
 
-    public GPUUniformOutcome createUniform(int floatCount) {
-        if (!self.isOpen()) {
-            return new GPUUniformOutcome(
-                GPU_RESOURCE_INVALID_GPU,
-                null,
-                std_gpu_status_message(GPU_RESOURCE_INVALID_GPU));
-        }
-        if (floatCount <= 0) {
-            return new GPUUniformOutcome(
-                GPU_RESOURCE_INVALID_DESCRIPTOR,
-                null,
-                std_gpu_status_message(GPU_RESOURCE_INVALID_DESCRIPTOR));
-        }
-        return GPUUniform.create(self, floatCount);
-    }
+	public GPUUniformOutcome createUniform(int floatCount) {
+		if (!self.isOpen()) {
+			return new GPUUniformOutcome(GPU_RESOURCE_INVALID_GPU, null, std_gpu_status_message(GPU_RESOURCE_INVALID_GPU));
+		}
+		if (floatCount <= 0) {
+			return new GPUUniformOutcome(GPU_RESOURCE_INVALID_DESCRIPTOR, null, std_gpu_status_message(GPU_RESOURCE_INVALID_DESCRIPTOR));
+		}
+		return GPUUniform.create(self, floatCount);
+	}
 
-    public GPUFrameOutcome beginFrame(float r, float g, float b) {
-        if (!self.isOpen()) {
-            return new GPUFrameOutcome(GPU_FRAME_REJECTED, "GPU is closed");
-        }
-        int status = std_gpu_begin_frame(self.handle, r, g, b, 1.0f);
-        GPUFrameKind kind = GPU_FRAME_REJECTED;
-        if (status >= GPU_FRAME_READY && status <= GPU_FRAME_REJECTED) {
-            kind = (GPUFrameKind)status;
-        }
-        return new GPUFrameOutcome(
-            kind,
-            kind == GPU_FRAME_READY ? "" : std_gpu_status_message(status));
-    }
+	public GPUFrameOutcome beginFrame(float r, float g, float b) {
+		if (!self.isOpen()) {
+			return new GPUFrameOutcome(GPU_FRAME_REJECTED, "GPU is closed");
+		}
+		int status = std_gpu_begin_frame(self.handle, r, g, b, 1.0f);
+		GPUFrameKind kind = GPU_FRAME_REJECTED;
+		if (status >= GPU_FRAME_READY && status <= GPU_FRAME_REJECTED) {
+			kind = (GPUFrameKind)status;
+		}
+		return new GPUFrameOutcome(kind, kind == GPU_FRAME_READY ? "" : std_gpu_status_message(status));
+	}
 
-    public GPUDrawOutcome draw(
-            GPURenderPipeline pipeline, int vertexCount) {
-        if (!self.isOpen()) {
-            return new GPUDrawOutcome(
-                GPU_DRAW_INVALID_GPU,
-                std_gpu_status_message(GPU_DRAW_INVALID_GPU));
-        }
-        if (!pipeline.isOpen()) {
-            return new GPUDrawOutcome(
-                GPU_DRAW_INVALID_RESOURCE,
-                std_gpu_status_message(GPU_DRAW_INVALID_RESOURCE));
-        }
-        if (vertexCount <= 0) {
-            return new GPUDrawOutcome(
-                GPU_DRAW_INVALID_DESCRIPTOR,
-                std_gpu_status_message(GPU_DRAW_INVALID_DESCRIPTOR));
-        }
-        int status = std_gpu_draw(
-            self.handle, pipeline.resourceIdentity(), vertexCount);
-        GPUDrawKind kind = GPU_DRAW_BACKEND_FAILURE;
-        if (status >= GPU_DRAW_RECORDED &&
-                status <= GPU_DRAW_BACKEND_FAILURE) {
-            kind = (GPUDrawKind)status;
-        }
-        return new GPUDrawOutcome(
-            kind,
-            kind == GPU_DRAW_RECORDED ? "" : std_gpu_status_message(status));
-    }
+	public GPUDrawOutcome draw(GPURenderPipeline pipeline, int vertexCount) {
+		if (!self.isOpen()) {
+			return new GPUDrawOutcome(GPU_DRAW_INVALID_GPU, std_gpu_status_message(GPU_DRAW_INVALID_GPU));
+		}
+		if (!pipeline.isOpen()) {
+			return new GPUDrawOutcome(GPU_DRAW_INVALID_RESOURCE, std_gpu_status_message(GPU_DRAW_INVALID_RESOURCE));
+		}
+		if (vertexCount <= 0) {
+			return new GPUDrawOutcome(GPU_DRAW_INVALID_DESCRIPTOR, std_gpu_status_message(GPU_DRAW_INVALID_DESCRIPTOR));
+		}
+		int status = std_gpu_draw(self.handle, pipeline.resourceIdentity(), vertexCount);
+		GPUDrawKind kind = GPU_DRAW_BACKEND_FAILURE;
+		if (status >= GPU_DRAW_RECORDED && status <= GPU_DRAW_BACKEND_FAILURE) {
+			kind = (GPUDrawKind)status;
+		}
+		return new GPUDrawOutcome(kind, kind == GPU_DRAW_RECORDED ? "" : std_gpu_status_message(status));
+	}
 
-    public GPUDrawOutcome drawWithUniform(
-            GPURenderPipeline pipeline,
-            int vertexCount,
-            GPUUniform uniform) {
-        if (!self.isOpen()) {
-            return new GPUDrawOutcome(
-                GPU_DRAW_INVALID_GPU,
-                std_gpu_status_message(GPU_DRAW_INVALID_GPU));
-        }
-        if (!pipeline.isOpen() || !uniform.isOpen()) {
-            return new GPUDrawOutcome(
-                GPU_DRAW_INVALID_RESOURCE,
-                std_gpu_status_message(GPU_DRAW_INVALID_RESOURCE));
-        }
-        if (vertexCount <= 0) {
-            return new GPUDrawOutcome(
-                GPU_DRAW_INVALID_DESCRIPTOR,
-                std_gpu_status_message(GPU_DRAW_INVALID_DESCRIPTOR));
-        }
-        int status = std_gpu_draw_uniform(
-            self.handle,
-            pipeline.resourceIdentity(),
-            vertexCount,
-            uniform.resourceIdentity());
-        GPUDrawKind kind = GPU_DRAW_BACKEND_FAILURE;
-        if (status >= GPU_DRAW_RECORDED &&
-                status <= GPU_DRAW_BACKEND_FAILURE) {
-            kind = (GPUDrawKind)status;
-        }
-        return new GPUDrawOutcome(
-            kind,
-            kind == GPU_DRAW_RECORDED ? "" : std_gpu_status_message(status));
-    }
+	public GPUDrawOutcome drawWithUniform(GPURenderPipeline pipeline, int vertexCount, GPUUniform uniform) {
+		if (!self.isOpen()) {
+			return new GPUDrawOutcome(GPU_DRAW_INVALID_GPU, std_gpu_status_message(GPU_DRAW_INVALID_GPU));
+		}
+		if (!pipeline.isOpen() || !uniform.isOpen()) {
+			return new GPUDrawOutcome(GPU_DRAW_INVALID_RESOURCE, std_gpu_status_message(GPU_DRAW_INVALID_RESOURCE));
+		}
+		if (vertexCount <= 0) {
+			return new GPUDrawOutcome(GPU_DRAW_INVALID_DESCRIPTOR, std_gpu_status_message(GPU_DRAW_INVALID_DESCRIPTOR));
+		}
+		int status = std_gpu_draw_uniform(self.handle, pipeline.resourceIdentity(), vertexCount, uniform.resourceIdentity());
+		GPUDrawKind kind = GPU_DRAW_BACKEND_FAILURE;
+		if (status >= GPU_DRAW_RECORDED && status <= GPU_DRAW_BACKEND_FAILURE) {
+			kind = (GPUDrawKind)status;
+		}
+		return new GPUDrawOutcome(kind, kind == GPU_DRAW_RECORDED ? "" : std_gpu_status_message(status));
+	}
 
-    public GPUFrameOutcome endFrame() {
-        if (!self.isOpen()) {
-            return new GPUFrameOutcome(GPU_FRAME_REJECTED, "GPU is closed");
-        }
-        int status = std_gpu_end_frame(self.handle);
-        GPUFrameKind kind = GPU_FRAME_REJECTED;
-        if (status >= GPU_FRAME_READY && status <= GPU_FRAME_REJECTED) {
-            kind = (GPUFrameKind)status;
-        }
-        return new GPUFrameOutcome(
-            kind,
-            kind == GPU_FRAME_PRESENTED ? "" : std_gpu_status_message(status));
-    }
+	public GPUFrameOutcome endFrame() {
+		if (!self.isOpen()) {
+			return new GPUFrameOutcome(GPU_FRAME_REJECTED, "GPU is closed");
+		}
+		int status = std_gpu_end_frame(self.handle);
+		GPUFrameKind kind = GPU_FRAME_REJECTED;
+		if (status >= GPU_FRAME_READY && status <= GPU_FRAME_REJECTED) {
+			kind = (GPUFrameKind)status;
+		}
+		return new GPUFrameOutcome(kind, kind == GPU_FRAME_PRESENTED ? "" : std_gpu_status_message(status));
+	}
 
-    public GPUCloseOutcome close() {
-        if (self.handle == 0ULL) {
-            return new GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
-        }
-        int status = std_gpu_close(self.handle, self.ownerReceipt);
-        if (status != GPU_CLOSED) {
-            return new GPUCloseOutcome(
-                GPU_CLOSE_REJECTED, std_gpu_status_message(status));
-        }
-        self.handle = 0ULL;
-        self.ownerReceipt = 0ULL;
-        return new GPUCloseOutcome(GPU_CLOSED, "");
-    }
+	public GPUCloseOutcome close() {
+		if (self.handle == 0ULL) {
+			return new GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
+		}
+		int status = std_gpu_close(self.handle, self.ownerReceipt);
+		if (status != GPU_CLOSED) {
+			return new GPUCloseOutcome(GPU_CLOSE_REJECTED, std_gpu_status_message(status));
+		}
+		self.handle = 0ULL;
+		self.ownerReceipt = 0ULL;
+		return new GPUCloseOutcome(GPU_CLOSED, "");
+	}
 
-    public void __del__() {
-        if (self.handle != 0ULL && self.ownerReceipt != 0ULL) {
-            std_gpu_finalize(self.handle, self.ownerReceipt);
-        }
-    }
+	public void __del__() {
+		if (self.handle != 0ULL && self.ownerReceipt != 0ULL) {
+			std_gpu_finalize(self.handle, self.ownerReceipt);
+		}
+	}
 }
 
 class GPUShader {
-    private GPU gpu;
-    private unsigned long long identity;
-    private unsigned long long ownerReceipt;
+	private GPU gpu;
+	private unsigned long long identity;
+	private unsigned long long ownerReceipt;
 
-    private GPUShader(
-            GPU gpu,
-            unsigned long long identity,
-            unsigned long long ownerReceipt) {
-        self.gpu = gpu;
-        self.identity = identity;
-        self.ownerReceipt = ownerReceipt;
-    }
+	private GPUShader(GPU gpu, unsigned long long identity, unsigned long long ownerReceipt) {
+		self.gpu = gpu;
+		self.identity = identity;
+		self.ownerReceipt = ownerReceipt;
+	}
 
-    class GPUShaderOutcome create(GPU gpu, string wgsl) {
-        unsigned long long identity = 0ULL;
-        unsigned long long ownerReceipt = 0ULL;
-        int status = std_gpu_shader_create(
-            gpu.gpuIdentity(), wgsl, &identity, &ownerReceipt);
-        if (status != GPU_RESOURCE_READY ||
-                identity == 0ULL || ownerReceipt == 0ULL) {
-            bool malformed = identity != 0ULL || ownerReceipt != 0ULL
-                || status == GPU_RESOURCE_READY;
-            if (identity != 0ULL && ownerReceipt != 0ULL) {
-                std_gpu_shader_destroy(identity, ownerReceipt);
-                identity = 0ULL;
-                ownerReceipt = 0ULL;
-            }
-            GPUResourceKind kind = GPU_RESOURCE_INTERNAL_ERROR;
-            if (!malformed && status >= GPU_RESOURCE_INVALID_GPU &&
-                    status <= GPU_RESOURCE_INTERNAL_ERROR) {
-                kind = (GPUResourceKind)status;
-            }
-            return new GPUShaderOutcome(
-                kind, null, std_gpu_status_message((int)kind));
-        }
-        return new GPUShaderOutcome(
-            GPU_RESOURCE_READY,
-            new GPUShader(gpu, identity, ownerReceipt),
-            "");
-    }
+	class GPUShaderOutcome create(GPU gpu, string wgsl) {
+		unsigned long long identity = 0ULL;
+		unsigned long long ownerReceipt = 0ULL;
+		int status = std_gpu_shader_create(gpu.gpuIdentity(), wgsl, &identity, &ownerReceipt);
+		if (status != GPU_RESOURCE_READY || identity == 0ULL || ownerReceipt == 0ULL) {
+			bool malformed = identity != 0ULL || ownerReceipt != 0ULL || status == GPU_RESOURCE_READY;
+			if (identity != 0ULL && ownerReceipt != 0ULL) {
+				std_gpu_shader_destroy(identity, ownerReceipt);
+				identity = 0ULL;
+				ownerReceipt = 0ULL;
+			}
+			GPUResourceKind kind = GPU_RESOURCE_INTERNAL_ERROR;
+			if (!malformed && status >= GPU_RESOURCE_INVALID_GPU && status <= GPU_RESOURCE_INTERNAL_ERROR) {
+				kind = (GPUResourceKind)status;
+			}
+			return new GPUShaderOutcome(kind, null, std_gpu_status_message((int)kind));
+		}
+		return new GPUShaderOutcome(GPU_RESOURCE_READY, new GPUShader(gpu, identity, ownerReceipt), "");
+	}
 
-    public bool isOpen() {
-        return self.identity != 0ULL && self.ownerReceipt != 0ULL
-            && self.gpu.isOpen();
-    }
-    public unsigned long long resourceIdentity() { return self.identity; }
+	public bool isOpen() { return self.identity != 0ULL && self.ownerReceipt != 0ULL && self.gpu.isOpen(); }
 
-    public GPUCloseOutcome close() {
-        if (self.identity == 0ULL) {
-            return new GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
-        }
-        int status = std_gpu_shader_destroy(
-            self.identity, self.ownerReceipt);
-        if (status != GPU_CLOSED) {
-            return new GPUCloseOutcome(
-                GPU_CLOSE_REJECTED, std_gpu_status_message(status));
-        }
-        self.identity = 0ULL;
-        self.ownerReceipt = 0ULL;
-        return new GPUCloseOutcome(GPU_CLOSED, "");
-    }
+	public unsigned long long resourceIdentity() { return self.identity; }
 
-    public void __del__() {
-        if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
-            std_gpu_shader_finalize(self.identity, self.ownerReceipt);
-        }
-    }
+	public GPUCloseOutcome close() {
+		if (self.identity == 0ULL) {
+			return new GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
+		}
+		int status = std_gpu_shader_destroy(self.identity, self.ownerReceipt);
+		if (status != GPU_CLOSED) {
+			return new GPUCloseOutcome(GPU_CLOSE_REJECTED, std_gpu_status_message(status));
+		}
+		self.identity = 0ULL;
+		self.ownerReceipt = 0ULL;
+		return new GPUCloseOutcome(GPU_CLOSED, "");
+	}
+
+	public void __del__() {
+		if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
+			std_gpu_shader_finalize(self.identity, self.ownerReceipt);
+		}
+	}
 }
 
 class GPURenderPipeline {
-    private GPU gpu;
-    private GPUShader shader;
-    private unsigned long long identity;
-    private unsigned long long ownerReceipt;
+	private GPU gpu;
+	private GPUShader shader;
+	private unsigned long long identity;
+	private unsigned long long ownerReceipt;
 
-    private GPURenderPipeline(
-            GPU gpu,
-            GPUShader shader,
-            unsigned long long identity,
-            unsigned long long ownerReceipt) {
-        self.gpu = gpu;
-        self.shader = shader;
-        self.identity = identity;
-        self.ownerReceipt = ownerReceipt;
-    }
+	private GPURenderPipeline(GPU gpu, GPUShader shader, unsigned long long identity, unsigned long long ownerReceipt) {
+		self.gpu = gpu;
+		self.shader = shader;
+		self.identity = identity;
+		self.ownerReceipt = ownerReceipt;
+	}
 
-    class GPUPipelineOutcome create(GPU gpu, GPUShader shader) {
-        unsigned long long identity = 0ULL;
-        unsigned long long ownerReceipt = 0ULL;
-        int status = std_gpu_pipeline_create(
-            gpu.gpuIdentity(),
-            shader.resourceIdentity(),
-            "vs_main",
-            "fs_main",
-            &identity,
-            &ownerReceipt);
-        if (status != GPU_RESOURCE_READY ||
-                identity == 0ULL || ownerReceipt == 0ULL) {
-            bool malformed = identity != 0ULL || ownerReceipt != 0ULL
-                || status == GPU_RESOURCE_READY;
-            if (identity != 0ULL && ownerReceipt != 0ULL) {
-                std_gpu_pipeline_destroy(identity, ownerReceipt);
-                identity = 0ULL;
-                ownerReceipt = 0ULL;
-            }
-            GPUResourceKind kind = GPU_RESOURCE_INTERNAL_ERROR;
-            if (!malformed && status >= GPU_RESOURCE_INVALID_GPU &&
-                    status <= GPU_RESOURCE_INTERNAL_ERROR) {
-                kind = (GPUResourceKind)status;
-            }
-            return new GPUPipelineOutcome(
-                kind, null, std_gpu_status_message((int)kind));
-        }
-        return new GPUPipelineOutcome(
-            GPU_RESOURCE_READY,
-            new GPURenderPipeline(
-                gpu, shader, identity, ownerReceipt),
-            "");
-    }
+	class GPUPipelineOutcome create(GPU gpu, GPUShader shader) {
+		unsigned long long identity = 0ULL;
+		unsigned long long ownerReceipt = 0ULL;
+		int status = std_gpu_pipeline_create(gpu.gpuIdentity(), shader.resourceIdentity(), "vs_main", "fs_main", &identity, &ownerReceipt);
+		if (status != GPU_RESOURCE_READY || identity == 0ULL || ownerReceipt == 0ULL) {
+			bool malformed = identity != 0ULL || ownerReceipt != 0ULL || status == GPU_RESOURCE_READY;
+			if (identity != 0ULL && ownerReceipt != 0ULL) {
+				std_gpu_pipeline_destroy(identity, ownerReceipt);
+				identity = 0ULL;
+				ownerReceipt = 0ULL;
+			}
+			GPUResourceKind kind = GPU_RESOURCE_INTERNAL_ERROR;
+			if (!malformed && status >= GPU_RESOURCE_INVALID_GPU && status <= GPU_RESOURCE_INTERNAL_ERROR) {
+				kind = (GPUResourceKind)status;
+			}
+			return new GPUPipelineOutcome(kind, null, std_gpu_status_message((int)kind));
+		}
+		return new GPUPipelineOutcome(GPU_RESOURCE_READY, new GPURenderPipeline(gpu, shader, identity, ownerReceipt), "");
+	}
 
-    public bool isOpen() {
-        return self.identity != 0ULL && self.ownerReceipt != 0ULL
-            && self.gpu.isOpen();
-    }
-    public unsigned long long resourceIdentity() { return self.identity; }
+	public bool isOpen() { return self.identity != 0ULL && self.ownerReceipt != 0ULL && self.gpu.isOpen(); }
 
-    public GPUCloseOutcome close() {
-        if (self.identity == 0ULL) {
-            return new GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
-        }
-        int status = std_gpu_pipeline_destroy(
-            self.identity, self.ownerReceipt);
-        if (status != GPU_CLOSED) {
-            return new GPUCloseOutcome(
-                GPU_CLOSE_REJECTED, std_gpu_status_message(status));
-        }
-        self.identity = 0ULL;
-        self.ownerReceipt = 0ULL;
-        return new GPUCloseOutcome(GPU_CLOSED, "");
-    }
+	public unsigned long long resourceIdentity() { return self.identity; }
 
-    public void __del__() {
-        if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
-            std_gpu_pipeline_finalize(self.identity, self.ownerReceipt);
-        }
-    }
+	public GPUCloseOutcome close() {
+		if (self.identity == 0ULL) {
+			return new GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
+		}
+		int status = std_gpu_pipeline_destroy(self.identity, self.ownerReceipt);
+		if (status != GPU_CLOSED) {
+			return new GPUCloseOutcome(GPU_CLOSE_REJECTED, std_gpu_status_message(status));
+		}
+		self.identity = 0ULL;
+		self.ownerReceipt = 0ULL;
+		return new GPUCloseOutcome(GPU_CLOSED, "");
+	}
+
+	public void __del__() {
+		if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
+			std_gpu_pipeline_finalize(self.identity, self.ownerReceipt);
+		}
+	}
 }
 
 class GPUUniform {
-    private GPU gpu;
-    private unsigned long long identity;
-    private unsigned long long ownerReceipt;
+	private GPU gpu;
+	private unsigned long long identity;
+	private unsigned long long ownerReceipt;
 
-    private GPUUniform(
-            GPU gpu,
-            unsigned long long identity,
-            unsigned long long ownerReceipt) {
-        self.gpu = gpu;
-        self.identity = identity;
-        self.ownerReceipt = ownerReceipt;
-    }
+	private GPUUniform(GPU gpu, unsigned long long identity, unsigned long long ownerReceipt) {
+		self.gpu = gpu;
+		self.identity = identity;
+		self.ownerReceipt = ownerReceipt;
+	}
 
-    class GPUUniformOutcome create(GPU gpu, int floatCount) {
-        unsigned long long identity = 0ULL;
-        unsigned long long ownerReceipt = 0ULL;
-        int status = std_gpu_uniform_create(
-            gpu.gpuIdentity(), floatCount, &identity, &ownerReceipt);
-        if (status != GPU_RESOURCE_READY ||
-                identity == 0ULL || ownerReceipt == 0ULL) {
-            bool malformed = identity != 0ULL || ownerReceipt != 0ULL
-                || status == GPU_RESOURCE_READY;
-            if (identity != 0ULL && ownerReceipt != 0ULL) {
-                std_gpu_uniform_destroy(identity, ownerReceipt);
-                identity = 0ULL;
-                ownerReceipt = 0ULL;
-            }
-            GPUResourceKind kind = GPU_RESOURCE_INTERNAL_ERROR;
-            if (!malformed && status >= GPU_RESOURCE_INVALID_GPU &&
-                    status <= GPU_RESOURCE_INTERNAL_ERROR) {
-                kind = (GPUResourceKind)status;
-            }
-            return new GPUUniformOutcome(
-                kind, null, std_gpu_status_message((int)kind));
-        }
-        return new GPUUniformOutcome(
-            GPU_RESOURCE_READY,
-            new GPUUniform(gpu, identity, ownerReceipt),
-            "");
-    }
+	class GPUUniformOutcome create(GPU gpu, int floatCount) {
+		unsigned long long identity = 0ULL;
+		unsigned long long ownerReceipt = 0ULL;
+		int status = std_gpu_uniform_create(gpu.gpuIdentity(), floatCount, &identity, &ownerReceipt);
+		if (status != GPU_RESOURCE_READY || identity == 0ULL || ownerReceipt == 0ULL) {
+			bool malformed = identity != 0ULL || ownerReceipt != 0ULL || status == GPU_RESOURCE_READY;
+			if (identity != 0ULL && ownerReceipt != 0ULL) {
+				std_gpu_uniform_destroy(identity, ownerReceipt);
+				identity = 0ULL;
+				ownerReceipt = 0ULL;
+			}
+			GPUResourceKind kind = GPU_RESOURCE_INTERNAL_ERROR;
+			if (!malformed && status >= GPU_RESOURCE_INVALID_GPU && status <= GPU_RESOURCE_INTERNAL_ERROR) {
+				kind = (GPUResourceKind)status;
+			}
+			return new GPUUniformOutcome(kind, null, std_gpu_status_message((int)kind));
+		}
+		return new GPUUniformOutcome(GPU_RESOURCE_READY, new GPUUniform(gpu, identity, ownerReceipt), "");
+	}
 
-    public bool isOpen() {
-        return self.identity != 0ULL && self.ownerReceipt != 0ULL
-            && self.gpu.isOpen();
-    }
-    public unsigned long long resourceIdentity() { return self.identity; }
+	public bool isOpen() { return self.identity != 0ULL && self.ownerReceipt != 0ULL && self.gpu.isOpen(); }
 
-    public GPUResourceOutcome set(int index, float value) {
-        if (!self.isOpen()) {
-            return new GPUResourceOutcome(
-                GPU_RESOURCE_INVALID_RESOURCE,
-                std_gpu_status_message(GPU_RESOURCE_INVALID_RESOURCE));
-        }
-        int status = std_gpu_uniform_set(self.identity, index, value);
-        GPUResourceKind kind = GPU_RESOURCE_INTERNAL_ERROR;
-        if (status >= GPU_RESOURCE_READY &&
-                status <= GPU_RESOURCE_INTERNAL_ERROR) {
-            kind = (GPUResourceKind)status;
-        }
-        return new GPUResourceOutcome(
-            kind,
-            kind == GPU_RESOURCE_READY ? "" : std_gpu_status_message(status));
-    }
+	public unsigned long long resourceIdentity() { return self.identity; }
 
-    public GPUCloseOutcome close() {
-        if (self.identity == 0ULL) {
-            return new GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
-        }
-        int status = std_gpu_uniform_destroy(
-            self.identity, self.ownerReceipt);
-        if (status != GPU_CLOSED) {
-            return new GPUCloseOutcome(
-                GPU_CLOSE_REJECTED, std_gpu_status_message(status));
-        }
-        self.identity = 0ULL;
-        self.ownerReceipt = 0ULL;
-        return new GPUCloseOutcome(GPU_CLOSED, "");
-    }
+	public GPUResourceOutcome set(int index, float value) {
+		if (!self.isOpen()) {
+			return new GPUResourceOutcome(GPU_RESOURCE_INVALID_RESOURCE, std_gpu_status_message(GPU_RESOURCE_INVALID_RESOURCE));
+		}
+		int status = std_gpu_uniform_set(self.identity, index, value);
+		GPUResourceKind kind = GPU_RESOURCE_INTERNAL_ERROR;
+		if (status >= GPU_RESOURCE_READY && status <= GPU_RESOURCE_INTERNAL_ERROR) {
+			kind = (GPUResourceKind)status;
+		}
+		return new GPUResourceOutcome(kind, kind == GPU_RESOURCE_READY ? "" : std_gpu_status_message(status));
+	}
 
-    public void __del__() {
-        if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
-            std_gpu_uniform_finalize(self.identity, self.ownerReceipt);
-        }
-    }
+	public GPUCloseOutcome close() {
+		if (self.identity == 0ULL) {
+			return new GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
+		}
+		int status = std_gpu_uniform_destroy(self.identity, self.ownerReceipt);
+		if (status != GPU_CLOSED) {
+			return new GPUCloseOutcome(GPU_CLOSE_REJECTED, std_gpu_status_message(status));
+		}
+		self.identity = 0ULL;
+		self.ownerReceipt = 0ULL;
+		return new GPUCloseOutcome(GPU_CLOSED, "");
+	}
+
+	public void __del__() {
+		if (self.identity != 0ULL && self.ownerReceipt != 0ULL) {
+			std_gpu_uniform_finalize(self.identity, self.ownerReceipt);
+		}
+	}
 }

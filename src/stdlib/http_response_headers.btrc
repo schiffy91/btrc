@@ -2,23 +2,12 @@
 import std.strings;
 
 class HttpResponseHeaders {
-    /* Framing and connection-lifecycle headers are owned by HttpServer.respond.
+	/* Framing and connection-lifecycle headers are owned by HttpServer.respond.
      * RFC 9110/9112 hop-by-hop fields must not be forwarded through the
      * application-supplied extra-header boundary. */
-    class bool reserved(string name) {
-        if (name == null) { return true; }
-        string lower = name.toLower();
-        return lower.equals("content-type")
-            || lower.equals("content-length")
-            || lower.equals("cache-control")
-            || lower.equals("connection")
-            || lower.equals("keep-alive")
-            || lower.equals("proxy-authenticate")
-            || lower.equals("proxy-authorization")
-            || lower.equals("proxy-connection")
-            || lower.equals("te")
-            || lower.equals("trailer")
-            || lower.equals("transfer-encoding")
-            || lower.equals("upgrade");
-    }
+	class bool reserved(string name) {
+		if (name == null) { return true; }
+		string lower = name.toLower();
+		return lower.equals("content-type") || lower.equals("content-length") || lower.equals("cache-control") || lower.equals("connection") || lower.equals("keep-alive") || lower.equals("proxy-authenticate") || lower.equals("proxy-authorization") || lower.equals("proxy-connection") || lower.equals("te") || lower.equals("trailer") || lower.equals("transfer-encoding") || lower.equals("upgrade");
+	}
 }

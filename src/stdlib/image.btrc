@@ -10,711 +10,627 @@ import std.bytes;
 import std.io;
 
 class RGBA {
-    public int red;
-    public int green;
-    public int blue;
-    public int alpha;
+	public int red;
+	public int green;
+	public int blue;
+	public int alpha;
 
-    public RGBA(int red, int green, int blue, int alpha = 255) {
-        self.red = RGBA.channel(red);
-        self.green = RGBA.channel(green);
-        self.blue = RGBA.channel(blue);
-        self.alpha = RGBA.channel(alpha);
-    }
+	public RGBA(int red, int green, int blue, int alpha = 255) {
+		self.red = RGBA.channel(red);
+		self.green = RGBA.channel(green);
+		self.blue = RGBA.channel(blue);
+		self.alpha = RGBA.channel(alpha);
+	}
 
-    class int channel(int value) {
-        if (value < 0) { return 0; }
-        if (value > 255) { return 255; }
-        return value;
-    }
+	class int channel(int value) {
+		if (value < 0) { return 0; }
+		if (value > 255) { return 255; }
+		return value;
+	}
 
-    public bool equals(RGBA other) {
-        return other != null
-            && self.red == other.red
-            && self.green == other.green
-            && self.blue == other.blue
-            && self.alpha == other.alpha;
-    }
+	public bool equals(RGBA other) { return other != null && self.red == other.red && self.green == other.green && self.blue == other.blue && self.alpha == other.alpha; }
 }
 
 class ImageDiff {
-    public bool comparable;
-    public string error;
-    public int pixelCount;
-    public int changedPixels;
-    public int maxChannelDelta;
-    public double meanAbsoluteError;
-    public int tolerance;
+	public bool comparable;
+	public string error;
+	public int pixelCount;
+	public int changedPixels;
+	public int maxChannelDelta;
+	public double meanAbsoluteError;
+	public int tolerance;
 
-    public ImageDiff(bool comparable, string error, int pixelCount,
-                     int changedPixels, int maxChannelDelta,
-                     double meanAbsoluteError, int tolerance) {
-        self.comparable = comparable;
-        self.error = error;
-        self.pixelCount = pixelCount;
-        self.changedPixels = changedPixels;
-        self.maxChannelDelta = maxChannelDelta;
-        self.meanAbsoluteError = meanAbsoluteError;
-        self.tolerance = tolerance;
-    }
+	public ImageDiff(bool comparable, string error, int pixelCount, int changedPixels, int maxChannelDelta, double meanAbsoluteError, int tolerance) {
+		self.comparable = comparable;
+		self.error = error;
+		self.pixelCount = pixelCount;
+		self.changedPixels = changedPixels;
+		self.maxChannelDelta = maxChannelDelta;
+		self.meanAbsoluteError = meanAbsoluteError;
+		self.tolerance = tolerance;
+	}
 
-    class ImageDiff incompatible(string error) {
-        return ImageDiff(false, error, 0, 0, 0, 0.0, 0);
-    }
+	class ImageDiff incompatible(string error) { return ImageDiff(false, error, 0, 0, 0, 0.0, 0); }
 
-    public bool matches() {
-        return self.comparable && self.changedPixels == 0;
-    }
+	public bool matches() { return self.comparable && self.changedPixels == 0; }
 
-    public bool exact() {
-        return self.matches() && self.maxChannelDelta == 0;
-    }
+	public bool exact() { return self.matches() && self.maxChannelDelta == 0; }
 }
 
 class Image {
-    public int width;
-    public int height;
-    /* Tightly packed, top-to-bottom row-major RGBA bytes. The typed pixel API
+	public int width;
+	public int height;
+	/* Tightly packed, top-to-bottom row-major RGBA bytes. The typed pixel API
      * is the normal interface; public data also permits zero-allocation codec,
      * GPU, and verifier integrations, matching Bytes/Array's storage model. */
-    public unsigned char* data;
+	public unsigned char* data;
 
-    public Image(int width, int height) {
-        if (width == 0 && height == 0) {
-            self.width = 0;
-            self.height = 0;
-            self.data = null;
-            return;
-        }
-        if (!Image.validDimensions(width, height)) {
-            fprintf(stderr, "Image dimensions out of range: %d x %d\n", width, height);
-            exit(1);
-        }
-        self.width = width;
-        self.height = height;
-        long long byteCount = (long long)width * (long long)height * 4LL;
-        self.data = (unsigned char*)calloc(
-            (size_t)byteCount, sizeof(unsigned char));
-        if (self.data == null) {
-            fprintf(stderr, "Image: cannot allocate %lld pixel bytes\n", byteCount);
-            exit(1);
-        }
-    }
+	public Image(int width, int height) {
+		if (width == 0 && height == 0) {
+			self.width = 0;
+			self.height = 0;
+			self.data = null;
+			return;
+		}
+		if (!Image.validDimensions(width, height)) {
+			fprintf(stderr, "Image dimensions out of range: %d x %d\n", width, height);
+			exit(1);
+		}
+		self.width = width;
+		self.height = height;
+		long long byteCount = (long long)width * (long long)height * 4LL;
+		self.data = (unsigned char*)calloc((size_t)byteCount, sizeof(unsigned char));
+		if (self.data == null) {
+			fprintf(stderr, "Image: cannot allocate %lld pixel bytes\n", byteCount);
+			exit(1);
+		}
+	}
 
-    class Image empty() {
-        return Image(0, 0);
-    }
+	class Image empty() { return Image(0, 0); }
 
-    /* Leave headroom for a codec header while keeping every public size and
+	/* Leave headroom for a codec header while keeping every public size and
      * Bytes length representable by BTRC's int-indexed collections. */
-    class bool validDimensions(long long width, long long height) {
-        if (width <= 0 || height <= 0) { return false; }
-        if (width > 2147483647LL || height > 2147483647LL) { return false; }
-        /* Bytes grows in powers of two with an int capacity. Keeping every
+	class bool validDimensions(long long width, long long height) {
+		if (width <= 0 || height <= 0) { return false; }
+		if (width > 2147483647LL || height > 2147483647LL) { return false; }
+		/* Bytes grows in powers of two with an int capacity. Keeping every
          * encoded form below 1 GiB prevents the next growth step overflowing
          * that capacity, while remaining far above practical evidence sizes. */
-        long long maxPixels = (1073741824LL - 1024LL) / 4LL;
-        return width <= maxPixels / height;
-    }
+		long long maxPixels = (1073741824LL - 1024LL) / 4LL;
+		return width <= maxPixels / height;
+	}
 
-    public int area() {
-        return self.width * self.height;
-    }
+	public int area() { return self.width * self.height; }
 
-    public bool isEmpty() {
-        return self.width == 0 && self.height == 0;
-    }
+	public bool isEmpty() { return self.width == 0 && self.height == 0; }
 
-    public bool containsRegion(int x, int y, int width, int height) {
-        if (x < 0 || y < 0 || width <= 0 || height <= 0) { return false; }
-        if (x > self.width || y > self.height) { return false; }
-        return width <= self.width - x && height <= self.height - y;
-    }
+	public bool containsRegion(int x, int y, int width, int height) {
+		if (x < 0 || y < 0 || width <= 0 || height <= 0) { return false; }
+		if (x > self.width || y > self.height) { return false; }
+		return width <= self.width - x && height <= self.height - y;
+	}
 
-    private int offset(int x, int y) {
-        if (!self.containsRegion(x, y, 1, 1)) {
-            fprintf(stderr, "Image pixel out of bounds: (%d, %d) in %d x %d\n",
-                    x, y, self.width, self.height);
-            exit(1);
-        }
-        return (y * self.width + x) * 4;
-    }
+	private int offset(int x, int y) {
+		if (!self.containsRegion(x, y, 1, 1)) {
+			fprintf(stderr, "Image pixel out of bounds: (%d, %d) in %d x %d\n", x, y, self.width, self.height);
+			exit(1);
+		}
+		return (y * self.width + x) * 4;
+	}
 
-    public RGBA pixel(int x, int y) {
-        int offset = self.offset(x, y);
-        return RGBA(
-            (int)self.data[offset],
-            (int)self.data[offset + 1],
-            (int)self.data[offset + 2],
-            (int)self.data[offset + 3]);
-    }
+	public RGBA pixel(int x, int y) {
+		int offset = self.offset(x, y);
+		return RGBA((int)self.data[offset], (int)self.data[offset + 1], (int)self.data[offset + 2], (int)self.data[offset + 3]);
+	}
 
-    public void setPixel(int x, int y, RGBA color) {
-        if (color == null) {
-            fprintf(stderr, "Image.setPixel: color is null\n");
-            exit(1);
-        }
-        self.setRGBA(x, y, color.red, color.green, color.blue, color.alpha);
-    }
+	public void setPixel(int x, int y, RGBA color) {
+		if (color == null) {
+			fprintf(stderr, "Image.setPixel: color is null\n");
+			exit(1);
+		}
+		self.setRGBA(x, y, color.red, color.green, color.blue, color.alpha);
+	}
 
-    public void setRGBA(int x, int y, int red, int green, int blue,
-                        int alpha = 255) {
-        int offset = self.offset(x, y);
-        self.data[offset] = (unsigned char)RGBA.channel(red);
-        self.data[offset + 1] = (unsigned char)RGBA.channel(green);
-        self.data[offset + 2] = (unsigned char)RGBA.channel(blue);
-        self.data[offset + 3] = (unsigned char)RGBA.channel(alpha);
-    }
+	public void setRGBA(int x, int y, int red, int green, int blue, int alpha = 255) {
+		int offset = self.offset(x, y);
+		self.data[offset] = (unsigned char)RGBA.channel(red);
+		self.data[offset + 1] = (unsigned char)RGBA.channel(green);
+		self.data[offset + 2] = (unsigned char)RGBA.channel(blue);
+		self.data[offset + 3] = (unsigned char)RGBA.channel(alpha);
+	}
 
-    /* Copy one complete tightly packed RGBA raster from a native codec or GPU
+	/* Copy one complete tightly packed RGBA raster from a native codec or GPU
      * boundary. Partial rasters never mutate the image. */
-    public bool tryCopyPackedRgba(
-        const void* source,
-        unsigned long long byteCount
-    ) {
-        if (self.isEmpty()) {
-            return source == null && byteCount == 0ULL;
-        }
-        unsigned long long expected =
-            (unsigned long long)self.width
-            * (unsigned long long)self.height * 4ULL;
-        if (source == null || byteCount != expected) { return false; }
-        memcpy(self.data, source, (size_t)expected);
-        return true;
-    }
+	public bool tryCopyPackedRgba(const void* source, unsigned long long byteCount) {
+		if (self.isEmpty()) {
+			return source == null && byteCount == 0ULL;
+		}
+		unsigned long long expected = (unsigned long long)self.width * (unsigned long long)self.height * 4ULL;
+		if (source == null || byteCount != expected) { return false; }
+		memcpy(self.data, source, (size_t)expected);
+		return true;
+	}
 
-    public Image crop(int x, int y, int width, int height) {
-        if (!self.containsRegion(x, y, width, height)) { return Image.empty(); }
-        Image result = Image(width, height);
-        for (int row = 0; row < height; row++) {
-            int sourceOffset = ((y + row) * self.width + x) * 4;
-            int targetOffset = row * width * 4;
-            memcpy(result.data + targetOffset, self.data + sourceOffset,
-                   (size_t)(width * 4));
-        }
-        return result;
-    }
+	public Image crop(int x, int y, int width, int height) {
+		if (!self.containsRegion(x, y, width, height)) { return Image.empty(); }
+		Image result = Image(width, height);
+		for (int row = 0; row < height; row++) {
+			int sourceOffset = ((y + row) * self.width + x) * 4;
+			int targetOffset = row * width * 4;
+			memcpy(result.data + targetOffset, self.data + sourceOffset, (size_t)(width * 4));
+		}
+		return result;
+	}
 
-    public ImageDiff diff(Image other, int tolerance = 0) {
-        if (other == null) {
-            return ImageDiff.incompatible("other image is null");
-        }
-        if (self.width != other.width || self.height != other.height) {
-            return ImageDiff.incompatible(
-                f"image dimensions differ: {self.width}x{self.height} vs "
-                + f"{other.width}x{other.height}");
-        }
-        return self.diffRegion(other, 0, 0, 0, 0,
-                               self.width, self.height, tolerance);
-    }
+	public ImageDiff diff(Image other, int tolerance = 0) {
+		if (other == null) {
+			return ImageDiff.incompatible("other image is null");
+		}
+		if (self.width != other.width || self.height != other.height) {
+			return ImageDiff.incompatible(f"image dimensions differ: {self.width}x{self.height} vs " + f"{other.width}x{other.height}");
+		}
+		return self.diffRegion(other, 0, 0, 0, 0, self.width, self.height, tolerance);
+	}
 
-    public ImageDiff diffRegion(Image other,
-                                int x, int y, int otherX, int otherY,
-                                int width, int height, int tolerance = 0) {
-        if (other == null) {
-            return ImageDiff.incompatible("other image is null");
-        }
-        if (!self.containsRegion(x, y, width, height)
-                || !other.containsRegion(otherX, otherY, width, height)) {
-            return ImageDiff.incompatible("comparison region is out of bounds");
-        }
-        int allowed = RGBA.channel(tolerance);
-        int changed = 0;
-        int maximum = 0;
-        long long absoluteDelta = 0LL;
-        for (int row = 0; row < height; row++) {
-            int left = ((y + row) * self.width + x) * 4;
-            int right = ((otherY + row) * other.width + otherX) * 4;
-            for (int column = 0; column < width; column++) {
-                bool pixelChanged = false;
-                for (int channel = 0; channel < 4; channel++) {
-                    int delta = (int)self.data[left + channel]
-                              - (int)other.data[right + channel];
-                    if (delta < 0) { delta = -delta; }
-                    absoluteDelta += (long long)delta;
-                    if (delta > maximum) { maximum = delta; }
-                    if (delta > allowed) { pixelChanged = true; }
-                }
-                if (pixelChanged) { changed++; }
-                left += 4;
-                right += 4;
-            }
-        }
-        int compared = width * height;
-        double mean = (double)absoluteDelta / ((double)compared * 4.0);
-        return ImageDiff(true, "", compared, changed, maximum, mean, allowed);
-    }
+	public ImageDiff diffRegion(Image other, int x, int y, int otherX, int otherY, int width, int height, int tolerance = 0) {
+		if (other == null) {
+			return ImageDiff.incompatible("other image is null");
+		}
+		if (!self.containsRegion(x, y, width, height) || !other.containsRegion(otherX, otherY, width, height)) {
+			return ImageDiff.incompatible("comparison region is out of bounds");
+		}
+		int allowed = RGBA.channel(tolerance);
+		int changed = 0;
+		int maximum = 0;
+		long long absoluteDelta = 0LL;
+		for (int row = 0; row < height; row++) {
+			int left = ((y + row) * self.width + x) * 4;
+			int right = ((otherY + row) * other.width + otherX) * 4;
+			for (int column = 0; column < width; column++) {
+				bool pixelChanged = false;
+				for (int channel = 0; channel < 4; channel++) {
+					int delta = (int)self.data[left + channel] - (int)other.data[right + channel];
+					if (delta < 0) { delta = -delta; }
+					absoluteDelta += (long long)delta;
+					if (delta > maximum) { maximum = delta; }
+					if (delta > allowed) { pixelChanged = true; }
+				}
+				if (pixelChanged) { changed++; }
+				left += 4;
+				right += 4;
+			}
+		}
+		int compared = width * height;
+		double mean = (double)absoluteDelta / ((double)compared * 4.0);
+		return ImageDiff(true, "", compared, changed, maximum, mean, allowed);
+	}
 
-    public void __del__() {
-        if (self.data != null) {
-            free(self.data);
-            self.data = null;
-        }
-    }
+	public void __del__() {
+		if (self.data != null) {
+			free(self.data);
+			self.data = null;
+		}
+	}
 }
 
 class ImageLoad {
-    public Image image;
-    public string error;
+	public Image image;
+	public string error;
 
-    public ImageLoad(Image image, string error) {
-        self.image = image == null ? Image.empty() : image;
-        self.error = error == null ? "unknown image error" : error;
-        if (self.image.isEmpty() && self.error.isEmpty()) {
-            self.error = "image is empty";
-        }
-    }
+	public ImageLoad(Image image, string error) {
+		self.image = image == null ? Image.empty() : image;
+		self.error = error == null ? "unknown image error" : error;
+		if (self.image.isEmpty() && self.error.isEmpty()) {
+			self.error = "image is empty";
+		}
+	}
 
-    class ImageLoad success(Image image) {
-        return ImageLoad(image, "");
-    }
+	class ImageLoad success(Image image) { return ImageLoad(image, ""); }
 
-    class ImageLoad failure(string error) {
-        return ImageLoad(Image.empty(), error);
-    }
+	class ImageLoad failure(string error) { return ImageLoad(Image.empty(), error); }
 
-    public bool ok() {
-        return !self.image.isEmpty() && self.error.isEmpty();
-    }
+	public bool ok() { return !self.image.isEmpty() && self.error.isEmpty(); }
 }
 
 class ImageFileRead {
-    public Bytes bytes;
-    public string error;
+	public Bytes bytes;
+	public string error;
 
-    public ImageFileRead(Bytes bytes, string error) {
-        self.bytes = bytes == null ? Bytes() : bytes;
-        self.error = error == null ? "unknown image file error" : error;
-    }
+	public ImageFileRead(Bytes bytes, string error) {
+		self.bytes = bytes == null ? Bytes() : bytes;
+		self.error = error == null ? "unknown image file error" : error;
+	}
 
-    class ImageFileRead success(Bytes bytes) {
-        return ImageFileRead(bytes, "");
-    }
+	class ImageFileRead success(Bytes bytes) { return ImageFileRead(bytes, ""); }
 
-    class ImageFileRead failure(string error) {
-        return ImageFileRead(Bytes(), error);
-    }
+	class ImageFileRead failure(string error) { return ImageFileRead(Bytes(), error); }
 
-    public bool ok() {
-        return self.error.isEmpty();
-    }
+	public bool ok() { return self.error.isEmpty(); }
 }
 
 class ImageBinary {
-    class bool has(Bytes bytes, long long offset, long long count) {
-        if (bytes == null || offset < 0 || count < 0) { return false; }
-        long long length = (long long)bytes.length();
-        return offset <= length && count <= length - offset;
-    }
+	class bool has(Bytes bytes, long long offset, long long count) {
+		if (bytes == null || offset < 0 || count < 0) { return false; }
+		long long length = (long long)bytes.length();
+		return offset <= length && count <= length - offset;
+	}
 
-    class int u16(Bytes bytes, int offset) {
-        return bytes.get(offset) | (bytes.get(offset + 1) << 8);
-    }
+	class int u16(Bytes bytes, int offset) { return bytes.get(offset) | (bytes.get(offset + 1) << 8); }
 
-    class long long u32(Bytes bytes, int offset) {
-        long long b0 = (long long)bytes.get(offset);
-        long long b1 = (long long)bytes.get(offset + 1);
-        long long b2 = (long long)bytes.get(offset + 2);
-        long long b3 = (long long)bytes.get(offset + 3);
-        return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
-    }
+	class long long u32(Bytes bytes, int offset) {
+		long long b0 = (long long)bytes.get(offset);
+		long long b1 = (long long)bytes.get(offset + 1);
+		long long b2 = (long long)bytes.get(offset + 2);
+		long long b3 = (long long)bytes.get(offset + 3);
+		return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+	}
 
-    class long long i32(Bytes bytes, int offset) {
-        long long value = ImageBinary.u32(bytes, offset);
-        if (value >= 2147483648LL) { return value - 4294967296LL; }
-        return value;
-    }
+	class long long i32(Bytes bytes, int offset) {
+		long long value = ImageBinary.u32(bytes, offset);
+		if (value >= 2147483648LL) { return value - 4294967296LL; }
+		return value;
+	}
 
-    class void appendU16(Bytes bytes, int value) {
-        bytes.append(value & 255);
-        bytes.append((value >> 8) & 255);
-    }
+	class void appendU16(Bytes bytes, int value) {
+		bytes.append(value & 255);
+		bytes.append((value >> 8) & 255);
+	}
 
-    class void appendU32(Bytes bytes, long long value) {
-        bytes.append((int)(value & 255LL));
-        bytes.append((int)((value >> 8) & 255LL));
-        bytes.append((int)((value >> 16) & 255LL));
-        bytes.append((int)((value >> 24) & 255LL));
-    }
+	class void appendU32(Bytes bytes, long long value) {
+		bytes.append((int)(value & 255LL));
+		bytes.append((int)((value >> 8) & 255LL));
+		bytes.append((int)((value >> 16) & 255LL));
+		bytes.append((int)((value >> 24) & 255LL));
+	}
 }
 
 class PpmCursor {
-    public Bytes bytes;
-    public int position;
-    public bool ok;
+	public Bytes bytes;
+	public int position;
+	public bool ok;
 
-    public PpmCursor(Bytes bytes, int position) {
-        self.bytes = bytes;
-        self.position = position;
-        self.ok = true;
-    }
+	public PpmCursor(Bytes bytes, int position) {
+		self.bytes = bytes;
+		self.position = position;
+		self.ok = true;
+	}
 
-    class bool whitespace(int byte) {
-        return byte == 32 || byte == 9 || byte == 10 || byte == 13
-            || byte == 11 || byte == 12;
-    }
+	class bool whitespace(int byte) { return byte == 32 || byte == 9 || byte == 10 || byte == 13 || byte == 11 || byte == 12; }
 
-    private bool skipSeparators() {
-        bool consumed = false;
-        while (self.position < self.bytes.length()) {
-            int byte = self.bytes.get(self.position);
-            if (PpmCursor.whitespace(byte)) {
-                consumed = true;
-                self.position++;
-                continue;
-            }
-            if (byte == 35) {
-                consumed = true;
-                self.position++;
-                while (self.position < self.bytes.length()) {
-                    int commentByte = self.bytes.get(self.position);
-                    self.position++;
-                    if (commentByte == 10 || commentByte == 13) { break; }
-                }
-                continue;
-            }
-            break;
-        }
-        return consumed;
-    }
+	private bool skipSeparators() {
+		bool consumed = false;
+		while (self.position < self.bytes.length()) {
+			int byte = self.bytes.get(self.position);
+			if (PpmCursor.whitespace(byte)) {
+				consumed = true;
+				self.position++;
+				continue;
+			}
+			if (byte == 35) {
+				consumed = true;
+				self.position++;
+				while (self.position < self.bytes.length()) {
+					int commentByte = self.bytes.get(self.position);
+					self.position++;
+					if (commentByte == 10 || commentByte == 13) { break; }
+				}
+				continue;
+			}
+			break;
+		}
+		return consumed;
+	}
 
-    public int decimal() {
-        if (!self.skipSeparators()) {
-            self.ok = false;
-            return -1;
-        }
-        if (self.position >= self.bytes.length()) {
-            self.ok = false;
-            return -1;
-        }
-        int value = 0;
-        int digits = 0;
-        while (self.position < self.bytes.length()) {
-            int byte = self.bytes.get(self.position);
-            if (byte < 48 || byte > 57) { break; }
-            int digit = byte - 48;
-            if (value > (2147483647 - digit) / 10) {
-                self.ok = false;
-                return -1;
-            }
-            value = value * 10 + digit;
-            digits++;
-            self.position++;
-        }
-        if (digits == 0) {
-            self.ok = false;
-            return -1;
-        }
-        return value;
-    }
+	public int decimal() {
+		if (!self.skipSeparators()) {
+			self.ok = false;
+			return -1;
+		}
+		if (self.position >= self.bytes.length()) {
+			self.ok = false;
+			return -1;
+		}
+		int value = 0;
+		int digits = 0;
+		while (self.position < self.bytes.length()) {
+			int byte = self.bytes.get(self.position);
+			if (byte < 48 || byte > 57) { break; }
+			int digit = byte - 48;
+			if (value > (2147483647 - digit) / 10) {
+				self.ok = false;
+				return -1;
+			}
+			value = value * 10 + digit;
+			digits++;
+			self.position++;
+		}
+		if (digits == 0) {
+			self.ok = false;
+			return -1;
+		}
+		return value;
+	}
 
-    public bool consumeRasterSeparator() {
-        if (self.position >= self.bytes.length()) { return false; }
-        int separator = self.bytes.get(self.position);
-        if (!PpmCursor.whitespace(separator)) { return false; }
-        self.position++;
-        /* Treat a conventional CRLF as the one header separator. Arbitrary
+	public bool consumeRasterSeparator() {
+		if (self.position >= self.bytes.length()) { return false; }
+		int separator = self.bytes.get(self.position);
+		if (!PpmCursor.whitespace(separator)) { return false; }
+		self.position++;
+		/* Treat a conventional CRLF as the one header separator. Arbitrary
          * additional whitespace belongs to the raster and must not be lost. */
-        if (separator == 13 && self.position < self.bytes.length()
-                && self.bytes.get(self.position) == 10) {
-            self.position++;
-        }
-        return true;
-    }
+		if (separator == 13 && self.position < self.bytes.length() && self.bytes.get(self.position) == 10) {
+			self.position++;
+		}
+		return true;
+	}
 }
 
 class ImageIO {
-    class ImageLoad decode(Bytes bytes) {
-        if (bytes == null || bytes.length() < 2) {
-            return ImageLoad.failure("image data is empty or truncated");
-        }
-        if (bytes.get(0) == 80 && bytes.get(1) == 54) {
-            return ImageIO.decodePpm(bytes);
-        }
-        if (bytes.get(0) == 66 && bytes.get(1) == 77) {
-            return ImageIO.decodeBmp(bytes);
-        }
-        return ImageLoad.failure("unsupported image signature");
-    }
+	class ImageLoad decode(Bytes bytes) {
+		if (bytes == null || bytes.length() < 2) {
+			return ImageLoad.failure("image data is empty or truncated");
+		}
+		if (bytes.get(0) == 80 && bytes.get(1) == 54) {
+			return ImageIO.decodePpm(bytes);
+		}
+		if (bytes.get(0) == 66 && bytes.get(1) == 77) {
+			return ImageIO.decodeBmp(bytes);
+		}
+		return ImageLoad.failure("unsupported image signature");
+	}
 
-    class ImageLoad decodePpm(Bytes bytes) {
-        if (bytes == null || bytes.length() < 3
-                || bytes.get(0) != 80 || bytes.get(1) != 54) {
-            return ImageLoad.failure("PPM signature is not P6");
-        }
-        if (!PpmCursor.whitespace(bytes.get(2)) && bytes.get(2) != 35) {
-            return ImageLoad.failure("PPM signature is not followed by a separator");
-        }
-        PpmCursor cursor = PpmCursor(bytes, 2);
-        int width = cursor.decimal();
-        int height = cursor.decimal();
-        int maximum = cursor.decimal();
-        if (!cursor.ok) { return ImageLoad.failure("PPM header is malformed"); }
-        if (maximum != 255) {
-            return ImageLoad.failure("PPM must use an 8-bit max value of 255");
-        }
-        if (!Image.validDimensions((long long)width, (long long)height)) {
-            return ImageLoad.failure("PPM dimensions are invalid or overflow");
-        }
-        if (!cursor.consumeRasterSeparator()) {
-            return ImageLoad.failure("PPM raster separator is missing");
-        }
-        long long pixelCount = (long long)width * (long long)height;
-        long long rasterBytes = pixelCount * 3LL;
-        if (!ImageBinary.has(bytes, (long long)cursor.position, rasterBytes)) {
-            return ImageLoad.failure("PPM raster is truncated");
-        }
-        Image image = Image(width, height);
-        int position = cursor.position;
-        for (int pixel = 0; pixel < image.area(); pixel++) {
-            int target = pixel * 4;
-            image.data[target] = (unsigned char)bytes.data[position];
-            image.data[target + 1] = (unsigned char)bytes.data[position + 1];
-            image.data[target + 2] = (unsigned char)bytes.data[position + 2];
-            image.data[target + 3] = (unsigned char)255;
-            position += 3;
-        }
-        return ImageLoad.success(image);
-    }
+	class ImageLoad decodePpm(Bytes bytes) {
+		if (bytes == null || bytes.length() < 3 || bytes.get(0) != 80 || bytes.get(1) != 54) {
+			return ImageLoad.failure("PPM signature is not P6");
+		}
+		if (!PpmCursor.whitespace(bytes.get(2)) && bytes.get(2) != 35) {
+			return ImageLoad.failure("PPM signature is not followed by a separator");
+		}
+		PpmCursor cursor = PpmCursor(bytes, 2);
+		int width = cursor.decimal();
+		int height = cursor.decimal();
+		int maximum = cursor.decimal();
+		if (!cursor.ok) { return ImageLoad.failure("PPM header is malformed"); }
+		if (maximum != 255) {
+			return ImageLoad.failure("PPM must use an 8-bit max value of 255");
+		}
+		if (!Image.validDimensions((long long)width, (long long)height)) {
+			return ImageLoad.failure("PPM dimensions are invalid or overflow");
+		}
+		if (!cursor.consumeRasterSeparator()) {
+			return ImageLoad.failure("PPM raster separator is missing");
+		}
+		long long pixelCount = (long long)width * (long long)height;
+		long long rasterBytes = pixelCount * 3LL;
+		if (!ImageBinary.has(bytes, (long long)cursor.position, rasterBytes)) {
+			return ImageLoad.failure("PPM raster is truncated");
+		}
+		Image image = Image(width, height);
+		int position = cursor.position;
+		for (int pixel = 0; pixel < image.area(); pixel++) {
+			int target = pixel * 4;
+			image.data[target] = (unsigned char)bytes.data[position];
+			image.data[target + 1] = (unsigned char)bytes.data[position + 1];
+			image.data[target + 2] = (unsigned char)bytes.data[position + 2];
+			image.data[target + 3] = (unsigned char)255;
+			position += 3;
+		}
+		return ImageLoad.success(image);
+	}
 
-    class ImageLoad decodeBmp(Bytes bytes) {
-        if (!ImageBinary.has(bytes, 0LL, 54LL)
-                || bytes.get(0) != 66 || bytes.get(1) != 77) {
-            return ImageLoad.failure("BMP header is missing or truncated");
-        }
-        long long declaredSize = ImageBinary.u32(bytes, 2);
-        long long pixelOffset = ImageBinary.u32(bytes, 10);
-        long long dibSize = ImageBinary.u32(bytes, 14);
-        if (dibSize < 40LL || dibSize > (long long)bytes.length() - 14LL) {
-            return ImageLoad.failure("BMP DIB header size is invalid");
-        }
-        long long headerEnd = 14LL + dibSize;
-        if (pixelOffset < headerEnd || pixelOffset > (long long)bytes.length()) {
-            return ImageLoad.failure("BMP pixel offset is invalid");
-        }
-        long long signedWidth = ImageBinary.i32(bytes, 18);
-        long long signedHeight = ImageBinary.i32(bytes, 22);
-        if (signedWidth <= 0LL || signedHeight == 0LL
-                || signedHeight == -2147483648LL) {
-            return ImageLoad.failure("BMP dimensions are invalid");
-        }
-        bool topDown = signedHeight < 0LL;
-        long long absoluteHeight = topDown ? -signedHeight : signedHeight;
-        if (!Image.validDimensions(signedWidth, absoluteHeight)) {
-            return ImageLoad.failure("BMP dimensions overflow");
-        }
-        int planes = ImageBinary.u16(bytes, 26);
-        int bitsPerPixel = ImageBinary.u16(bytes, 28);
-        long long compression = ImageBinary.u32(bytes, 30);
-        if (planes != 1) { return ImageLoad.failure("BMP plane count must be one"); }
-        if (bitsPerPixel != 24 && bitsPerPixel != 32) {
-            return ImageLoad.failure("BMP must contain 24-bit or 32-bit pixels");
-        }
-        bool bitfields = (compression == 3LL || compression == 6LL)
-            && bitsPerPixel == 32;
-        bool bitfieldsHaveAlpha = false;
-        if (compression != 0LL && !bitfields) {
-            return ImageLoad.failure("compressed BMP data is unsupported");
-        }
-        // BI_BITFIELDS is the native 32-bit BMP emitted by macOS `sips`.
-        // Accept the canonical BGRA masks only; arbitrary masks would need
-        // scaling/extraction and silently treating them as BGRA is unsafe.
-        if (bitfields) {
-            long long maskBytes = dibSize >= 56LL || compression == 6LL
-                ? 16LL
-                : 12LL;
-            long long maskEnd = 54LL + maskBytes;
-            bool supportedHeader = dibSize == 40LL || dibSize >= 52LL;
-            if (!supportedHeader || !ImageBinary.has(bytes, 54LL, maskBytes)
-                    || pixelOffset < maskEnd) {
-                return ImageLoad.failure("BMP bitfield masks are truncated");
-            }
-            long long redMask = ImageBinary.u32(bytes, 54);
-            long long greenMask = ImageBinary.u32(bytes, 58);
-            long long blueMask = ImageBinary.u32(bytes, 62);
-            long long alphaMask = maskBytes == 16LL
-                ? ImageBinary.u32(bytes, 66)
-                : 0LL;
-            bitfieldsHaveAlpha = alphaMask != 0LL;
-            if (redMask != 16711680LL || greenMask != 65280LL
-                    || blueMask != 255LL
-                    || (alphaMask != 0LL && alphaMask != 4278190080LL)
-                    || (compression == 6LL && alphaMask == 0LL)) {
-                return ImageLoad.failure("unsupported BMP bitfield channel masks");
-            }
-        }
-        long long bytesPerPixel = (long long)(bitsPerPixel / 8);
-        long long rowBytes = signedWidth * bytesPerPixel;
-        long long rowStride = ((rowBytes + 3LL) / 4LL) * 4LL;
-        long long rasterBytes = rowStride * absoluteHeight;
-        if (!ImageBinary.has(bytes, pixelOffset, rasterBytes)) {
-            return ImageLoad.failure("BMP raster is truncated");
-        }
-        long long requiredSize = pixelOffset + rasterBytes;
-        if (declaredSize != 0LL
-                && (declaredSize < requiredSize
-                    || declaredSize > (long long)bytes.length())) {
-            return ImageLoad.failure("BMP declared file size is inconsistent");
-        }
-        int width = (int)signedWidth;
-        int height = (int)absoluteHeight;
-        Image image = Image(width, height);
-        for (int y = 0; y < height; y++) {
-            int sourceY = topDown ? y : height - 1 - y;
-            long long rowStart = pixelOffset + (long long)sourceY * rowStride;
-            for (int x = 0; x < width; x++) {
-                int position = (int)(rowStart + (long long)x * bytesPerPixel);
-                int target = (y * width + x) * 4;
-                image.data[target] = (unsigned char)bytes.data[position + 2];
-                image.data[target + 1] = (unsigned char)bytes.data[position + 1];
-                image.data[target + 2] = (unsigned char)bytes.data[position];
-                /* BI_RGB's fourth byte is reserved, not a declared alpha
+	class ImageLoad decodeBmp(Bytes bytes) {
+		if (!ImageBinary.has(bytes, 0LL, 54LL) || bytes.get(0) != 66 || bytes.get(1) != 77) {
+			return ImageLoad.failure("BMP header is missing or truncated");
+		}
+		long long declaredSize = ImageBinary.u32(bytes, 2);
+		long long pixelOffset = ImageBinary.u32(bytes, 10);
+		long long dibSize = ImageBinary.u32(bytes, 14);
+		if (dibSize < 40LL || dibSize > (long long)bytes.length() - 14LL) {
+			return ImageLoad.failure("BMP DIB header size is invalid");
+		}
+		long long headerEnd = 14LL + dibSize;
+		if (pixelOffset < headerEnd || pixelOffset > (long long)bytes.length()) {
+			return ImageLoad.failure("BMP pixel offset is invalid");
+		}
+		long long signedWidth = ImageBinary.i32(bytes, 18);
+		long long signedHeight = ImageBinary.i32(bytes, 22);
+		if (signedWidth <= 0LL || signedHeight == 0LL || signedHeight == -2147483648LL) {
+			return ImageLoad.failure("BMP dimensions are invalid");
+		}
+		bool topDown = signedHeight < 0LL;
+		long long absoluteHeight = topDown ? -signedHeight : signedHeight;
+		if (!Image.validDimensions(signedWidth, absoluteHeight)) {
+			return ImageLoad.failure("BMP dimensions overflow");
+		}
+		int planes = ImageBinary.u16(bytes, 26);
+		int bitsPerPixel = ImageBinary.u16(bytes, 28);
+		long long compression = ImageBinary.u32(bytes, 30);
+		if (planes != 1) { return ImageLoad.failure("BMP plane count must be one"); }
+		if (bitsPerPixel != 24 && bitsPerPixel != 32) {
+			return ImageLoad.failure("BMP must contain 24-bit or 32-bit pixels");
+		}
+		bool bitfields = (compression == 3LL || compression == 6LL) && bitsPerPixel == 32;
+		bool bitfieldsHaveAlpha = false;
+		if (compression != 0LL && !bitfields) {
+			return ImageLoad.failure("compressed BMP data is unsupported");
+		}
+		// BI_BITFIELDS is the native 32-bit BMP emitted by macOS `sips`.
+		// Accept the canonical BGRA masks only; arbitrary masks would need
+		// scaling/extraction and silently treating them as BGRA is unsafe.
+		if (bitfields) {
+			long long maskBytes = dibSize >= 56LL || compression == 6LL ? 16LL : 12LL;
+			long long maskEnd = 54LL + maskBytes;
+			bool supportedHeader = dibSize == 40LL || dibSize >= 52LL;
+			if (!supportedHeader || !ImageBinary.has(bytes, 54LL, maskBytes) || pixelOffset < maskEnd) {
+				return ImageLoad.failure("BMP bitfield masks are truncated");
+			}
+			long long redMask = ImageBinary.u32(bytes, 54);
+			long long greenMask = ImageBinary.u32(bytes, 58);
+			long long blueMask = ImageBinary.u32(bytes, 62);
+			long long alphaMask = maskBytes == 16LL ? ImageBinary.u32(bytes, 66) : 0LL;
+			bitfieldsHaveAlpha = alphaMask != 0LL;
+			if (redMask != 16711680LL || greenMask != 65280LL || blueMask != 255LL || (alphaMask != 0LL && alphaMask != 4278190080LL) || (compression == 6LL && alphaMask == 0LL)) {
+				return ImageLoad.failure("unsupported BMP bitfield channel masks");
+			}
+		}
+		long long bytesPerPixel = (long long)(bitsPerPixel / 8);
+		long long rowBytes = signedWidth * bytesPerPixel;
+		long long rowStride = ((rowBytes + 3LL) / 4LL) * 4LL;
+		long long rasterBytes = rowStride * absoluteHeight;
+		if (!ImageBinary.has(bytes, pixelOffset, rasterBytes)) {
+			return ImageLoad.failure("BMP raster is truncated");
+		}
+		long long requiredSize = pixelOffset + rasterBytes;
+		if (declaredSize != 0LL && (declaredSize < requiredSize || declaredSize > (long long)bytes.length())) {
+			return ImageLoad.failure("BMP declared file size is inconsistent");
+		}
+		int width = (int)signedWidth;
+		int height = (int)absoluteHeight;
+		Image image = Image(width, height);
+		for (int y = 0; y < height; y++) {
+			int sourceY = topDown ? y : height - 1 - y;
+			long long rowStart = pixelOffset + (long long)sourceY * rowStride;
+			for (int x = 0; x < width; x++) {
+				int position = (int)(rowStart + (long long)x * bytesPerPixel);
+				int target = (y * width + x) * 4;
+				image.data[target] = (unsigned char)bytes.data[position + 2];
+				image.data[target + 1] = (unsigned char)bytes.data[position + 1];
+				image.data[target + 2] = (unsigned char)bytes.data[position];
+				/* BI_RGB's fourth byte is reserved, not a declared alpha
                  * channel. Only preserve it when a canonical alpha mask is
                  * present; otherwise decode the pixel as opaque. */
-                image.data[target + 3] = bitfields && bitfieldsHaveAlpha
-                    ? (unsigned char)bytes.data[position + 3]
-                    : (unsigned char)255;
-            }
-        }
-        return ImageLoad.success(image);
-    }
+				image.data[target + 3] = bitfields && bitfieldsHaveAlpha ? (unsigned char)bytes.data[position + 3] : (unsigned char)255;
+			}
+		}
+		return ImageLoad.success(image);
+	}
 
-    class Bytes encodePpm(Image image) {
-        Bytes encoded = Bytes();
-        if (image == null || image.isEmpty()) { return encoded; }
-        encoded.appendBytes(Bytes.fromString(
-            f"P6\n{image.width} {image.height}\n255\n"));
-        for (int y = 0; y < image.height; y++) {
-            for (int x = 0; x < image.width; x++) {
-                int offset = (y * image.width + x) * 4;
-                encoded.append((int)image.data[offset]);
-                encoded.append((int)image.data[offset + 1]);
-                encoded.append((int)image.data[offset + 2]);
-            }
-        }
-        return encoded;
-    }
+	class Bytes encodePpm(Image image) {
+		Bytes encoded = Bytes();
+		if (image == null || image.isEmpty()) { return encoded; }
+		encoded.appendBytes(Bytes.fromString(f"P6\n{image.width} {image.height}\n255\n"));
+		for (int y = 0; y < image.height; y++) {
+			for (int x = 0; x < image.width; x++) {
+				int offset = (y * image.width + x) * 4;
+				encoded.append((int)image.data[offset]);
+				encoded.append((int)image.data[offset + 1]);
+				encoded.append((int)image.data[offset + 2]);
+			}
+		}
+		return encoded;
+	}
 
-    class Bytes encodeBmp(Image image, int bitsPerPixel = 32,
-                          bool topDown = false) {
-        Bytes encoded = Bytes();
-        if (image == null || image.isEmpty()
-                || (bitsPerPixel != 24 && bitsPerPixel != 32)) {
-            return encoded;
-        }
-        long long bytesPerPixel = (long long)(bitsPerPixel / 8);
-        long long rowBytes = (long long)image.width * bytesPerPixel;
-        long long rowStride = ((rowBytes + 3LL) / 4LL) * 4LL;
-        long long rasterBytes = rowStride * (long long)image.height;
-        long long headerSize = bitsPerPixel == 32 ? 70LL : 54LL;
-        long long dibSize = bitsPerPixel == 32 ? 56LL : 40LL;
-        long long fileSize = headerSize + rasterBytes;
+	class Bytes encodeBmp(Image image, int bitsPerPixel = 32, bool topDown = false) {
+		Bytes encoded = Bytes();
+		if (image == null || image.isEmpty() || (bitsPerPixel != 24 && bitsPerPixel != 32)) {
+			return encoded;
+		}
+		long long bytesPerPixel = (long long)(bitsPerPixel / 8);
+		long long rowBytes = (long long)image.width * bytesPerPixel;
+		long long rowStride = ((rowBytes + 3LL) / 4LL) * 4LL;
+		long long rasterBytes = rowStride * (long long)image.height;
+		long long headerSize = bitsPerPixel == 32 ? 70LL : 54LL;
+		long long dibSize = bitsPerPixel == 32 ? 56LL : 40LL;
+		long long fileSize = headerSize + rasterBytes;
+		encoded.append(66);
+		encoded.append(77);
+		ImageBinary.appendU32(encoded, fileSize);
+		ImageBinary.appendU16(encoded, 0);
+		ImageBinary.appendU16(encoded, 0);
+		ImageBinary.appendU32(encoded, headerSize);
+		ImageBinary.appendU32(encoded, dibSize);
+		ImageBinary.appendU32(encoded, (long long)image.width);
+		long long storedHeight = topDown ? 4294967296LL - (long long)image.height : (long long)image.height;
+		ImageBinary.appendU32(encoded, storedHeight);
+		ImageBinary.appendU16(encoded, 1);
+		ImageBinary.appendU16(encoded, bitsPerPixel);
+		ImageBinary.appendU32(encoded, bitsPerPixel == 32 ? 3LL : 0LL);
+		ImageBinary.appendU32(encoded, rasterBytes);
+		ImageBinary.appendU32(encoded, 2835LL);
+		ImageBinary.appendU32(encoded, 2835LL);
+		ImageBinary.appendU32(encoded, 0LL);
+		ImageBinary.appendU32(encoded, 0LL);
 
-        encoded.append(66);
-        encoded.append(77);
-        ImageBinary.appendU32(encoded, fileSize);
-        ImageBinary.appendU16(encoded, 0);
-        ImageBinary.appendU16(encoded, 0);
-        ImageBinary.appendU32(encoded, headerSize);
-        ImageBinary.appendU32(encoded, dibSize);
-        ImageBinary.appendU32(encoded, (long long)image.width);
-        long long storedHeight = topDown
-            ? 4294967296LL - (long long)image.height
-            : (long long)image.height;
-        ImageBinary.appendU32(encoded, storedHeight);
-        ImageBinary.appendU16(encoded, 1);
-        ImageBinary.appendU16(encoded, bitsPerPixel);
-        ImageBinary.appendU32(encoded, bitsPerPixel == 32 ? 3LL : 0LL);
-        ImageBinary.appendU32(encoded, rasterBytes);
-        ImageBinary.appendU32(encoded, 2835LL);
-        ImageBinary.appendU32(encoded, 2835LL);
-        ImageBinary.appendU32(encoded, 0LL);
-        ImageBinary.appendU32(encoded, 0LL);
-
-        if (bitsPerPixel == 32) {
-            /* BITMAPV3INFOHEADER with explicit canonical RGBA masks. A plain
+		if (bitsPerPixel == 32) {
+			/* BITMAPV3INFOHEADER with explicit canonical RGBA masks. A plain
              * 32-bit BI_RGB header only promises BGRX, so emitting it would
              * make the stored alpha byte ambiguous to conforming readers. */
-            ImageBinary.appendU32(encoded, 16711680LL);
-            ImageBinary.appendU32(encoded, 65280LL);
-            ImageBinary.appendU32(encoded, 255LL);
-            ImageBinary.appendU32(encoded, 4278190080LL);
-        }
+			ImageBinary.appendU32(encoded, 16711680LL);
+			ImageBinary.appendU32(encoded, 65280LL);
+			ImageBinary.appendU32(encoded, 255LL);
+			ImageBinary.appendU32(encoded, 4278190080LL);
+		}
 
-        for (int outputRow = 0; outputRow < image.height; outputRow++) {
-            int y = topDown ? outputRow : image.height - 1 - outputRow;
-            for (int x = 0; x < image.width; x++) {
-                int offset = (y * image.width + x) * 4;
-                encoded.append((int)image.data[offset + 2]);
-                encoded.append((int)image.data[offset + 1]);
-                encoded.append((int)image.data[offset]);
-                if (bitsPerPixel == 32) {
-                    encoded.append((int)image.data[offset + 3]);
-                }
-            }
-            for (long long padding = rowBytes; padding < rowStride; padding++) {
-                encoded.append(0);
-            }
-        }
-        return encoded;
-    }
+		for (int outputRow = 0; outputRow < image.height; outputRow++) {
+			int y = topDown ? outputRow : image.height - 1 - outputRow;
+			for (int x = 0; x < image.width; x++) {
+				int offset = (y * image.width + x) * 4;
+				encoded.append((int)image.data[offset + 2]);
+				encoded.append((int)image.data[offset + 1]);
+				encoded.append((int)image.data[offset]);
+				if (bitsPerPixel == 32) {
+					encoded.append((int)image.data[offset + 3]);
+				}
+			}
+			for (long long padding = rowBytes; padding < rowStride; padding++) {
+				encoded.append(0);
+			}
+		}
+		return encoded;
+	}
 
-    class ImageFileRead readImageFile(string path, string description) {
-        File file = File(path, "rb");
-        if (!file.ok()) {
-            return ImageFileRead.failure(
-                f"cannot open {description}: {path}");
-        }
-        Bytes bytes = file.readBytes();
-        bool readFailed = file.failed();
-        bool closed = file.close();
-        if (readFailed) {
-            return ImageFileRead.failure(
-                f"cannot read {description}: {path}");
-        }
-        if (!closed) {
-            return ImageFileRead.failure(
-                f"cannot close {description}: {path}");
-        }
-        return ImageFileRead.success(bytes);
-    }
+	class ImageFileRead readImageFile(string path, string description) {
+		File file = File(path, "rb");
+		if (!file.ok()) {
+			return ImageFileRead.failure(f"cannot open {description}: {path}");
+		}
+		Bytes bytes = file.readBytes();
+		bool readFailed = file.failed();
+		bool closed = file.close();
+		if (readFailed) {
+			return ImageFileRead.failure(f"cannot read {description}: {path}");
+		}
+		if (!closed) {
+			return ImageFileRead.failure(f"cannot close {description}: {path}");
+		}
+		return ImageFileRead.success(bytes);
+	}
 
-    class ImageLoad load(string path) {
-        ImageFileRead loaded = ImageIO.readImageFile(path, "image");
-        if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
-        return ImageIO.decode(loaded.bytes);
-    }
+	class ImageLoad load(string path) {
+		ImageFileRead loaded = ImageIO.readImageFile(path, "image");
+		if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
+		return ImageIO.decode(loaded.bytes);
+	}
 
-    class ImageLoad loadPpm(string path) {
-        ImageFileRead loaded = ImageIO.readImageFile(path, "PPM");
-        if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
-        return ImageIO.decodePpm(loaded.bytes);
-    }
+	class ImageLoad loadPpm(string path) {
+		ImageFileRead loaded = ImageIO.readImageFile(path, "PPM");
+		if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
+		return ImageIO.decodePpm(loaded.bytes);
+	}
 
-    class ImageLoad loadBmp(string path) {
-        ImageFileRead loaded = ImageIO.readImageFile(path, "BMP");
-        if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
-        return ImageIO.decodeBmp(loaded.bytes);
-    }
+	class ImageLoad loadBmp(string path) {
+		ImageFileRead loaded = ImageIO.readImageFile(path, "BMP");
+		if (!loaded.ok()) { return ImageLoad.failure(loaded.error); }
+		return ImageIO.decodeBmp(loaded.bytes);
+	}
 
-    class bool savePpm(Image image, string path) {
-        Bytes encoded = ImageIO.encodePpm(image);
-        if (encoded.isEmpty()) { return false; }
-        File file = File(path, "wb");
-        if (!file.ok()) { return false; }
-        bool wrote = file.writeBytes(encoded);
-        bool closed = file.close();
-        return wrote && closed;
-    }
+	class bool savePpm(Image image, string path) {
+		Bytes encoded = ImageIO.encodePpm(image);
+		if (encoded.isEmpty()) { return false; }
+		File file = File(path, "wb");
+		if (!file.ok()) { return false; }
+		bool wrote = file.writeBytes(encoded);
+		bool closed = file.close();
+		return wrote && closed;
+	}
 
-    class bool saveBmp(Image image, string path, int bitsPerPixel = 32,
-                       bool topDown = false) {
-        Bytes encoded = ImageIO.encodeBmp(image, bitsPerPixel, topDown);
-        if (encoded.isEmpty()) { return false; }
-        File file = File(path, "wb");
-        if (!file.ok()) { return false; }
-        bool wrote = file.writeBytes(encoded);
-        bool closed = file.close();
-        return wrote && closed;
-    }
+	class bool saveBmp(Image image, string path, int bitsPerPixel = 32, bool topDown = false) {
+		Bytes encoded = ImageIO.encodeBmp(image, bitsPerPixel, topDown);
+		if (encoded.isEmpty()) { return false; }
+		File file = File(path, "wb");
+		if (!file.ok()) { return false; }
+		bool wrote = file.writeBytes(encoded);
+		bool closed = file.close();
+		return wrote && closed;
+	}
 }

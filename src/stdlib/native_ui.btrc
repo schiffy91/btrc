@@ -13,633 +13,479 @@ import std.strings;
 import std.vector;
 
 enum NativeUiElementKind {
-    NATIVE_UI_COLUMN = 0,
-    NATIVE_UI_GRID = 1,
-    NATIVE_UI_TEXT = 2,
-    NATIVE_UI_IMAGE = 3,
-    NATIVE_UI_BUTTON = 4,
-    NATIVE_UI_VIRTUAL_GRID = 5,
-    NATIVE_UI_TEXT_INPUT = 6
+	NATIVE_UI_COLUMN = 0,
+	NATIVE_UI_GRID = 1,
+	NATIVE_UI_TEXT = 2,
+	NATIVE_UI_IMAGE = 3,
+	NATIVE_UI_BUTTON = 4,
+	NATIVE_UI_VIRTUAL_GRID = 5,
+	NATIVE_UI_TEXT_INPUT = 6
 };
 
 enum NativeUiEventKind {
-    NATIVE_UI_CLICKED = 0,
-    NATIVE_UI_HOVER_ENTERED = 1,
-    NATIVE_UI_HOVER_LEFT = 2,
-    NATIVE_UI_SCROLLED = 3,
-    NATIVE_UI_VIEWPORT_CHANGED = 4,
-    NATIVE_UI_VALUE_CHANGED = 5
+	NATIVE_UI_CLICKED = 0,
+	NATIVE_UI_HOVER_ENTERED = 1,
+	NATIVE_UI_HOVER_LEFT = 2,
+	NATIVE_UI_SCROLLED = 3,
+	NATIVE_UI_VIEWPORT_CHANGED = 4,
+	NATIVE_UI_VALUE_CHANGED = 5
 };
 
 enum NativeUiStyleErrorCode {
-    NATIVE_UI_STYLE_VALID = 0,
-    NATIVE_UI_STYLE_INVALID_DECLARATION = 1,
-    NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY = 2,
-    NATIVE_UI_STYLE_INVALID_VALUE = 3,
-    NATIVE_UI_STYLE_INVALID_SELECTOR = 4,
-    NATIVE_UI_STYLE_DUPLICATE_RULE = 5,
-    NATIVE_UI_STYLE_LIMIT_EXCEEDED = 6
+	NATIVE_UI_STYLE_VALID = 0,
+	NATIVE_UI_STYLE_INVALID_DECLARATION = 1,
+	NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY = 2,
+	NATIVE_UI_STYLE_INVALID_VALUE = 3,
+	NATIVE_UI_STYLE_INVALID_SELECTOR = 4,
+	NATIVE_UI_STYLE_DUPLICATE_RULE = 5,
+	NATIVE_UI_STYLE_LIMIT_EXCEEDED = 6
 };
 
 enum NativeUiVirtualGridErrorCode {
-    NATIVE_UI_VIRTUAL_GRID_VALID = 0,
-    NATIVE_UI_VIRTUAL_GRID_INVALID_TOTAL_COUNT = 1,
-    NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS = 2,
-    NATIVE_UI_VIRTUAL_GRID_INVALID_ROW_HEIGHT = 3,
-    NATIVE_UI_VIRTUAL_GRID_INVALID_FIRST_INDEX = 4
+	NATIVE_UI_VIRTUAL_GRID_VALID = 0,
+	NATIVE_UI_VIRTUAL_GRID_INVALID_TOTAL_COUNT = 1,
+	NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS = 2,
+	NATIVE_UI_VIRTUAL_GRID_INVALID_ROW_HEIGHT = 3,
+	NATIVE_UI_VIRTUAL_GRID_INVALID_FIRST_INDEX = 4
 };
 
 class NativeUiStyleError {
-    private NativeUiStyleErrorCode errorCode;
-    private string propertyName;
-    private string errorMessage;
+	private NativeUiStyleErrorCode errorCode;
+	private string propertyName;
+	private string errorMessage;
 
-    public NativeUiStyleError(
-        NativeUiStyleErrorCode code,
-        string property,
-        string message
-    ) {
-        self.errorCode = code;
-        self.propertyName = property;
-        self.errorMessage = message;
-    }
+	public NativeUiStyleError(NativeUiStyleErrorCode code, string property, string message) {
+		self.errorCode = code;
+		self.propertyName = property;
+		self.errorMessage = message;
+	}
 
-    class NativeUiStyleError valid() {
-        return NativeUiStyleError(NATIVE_UI_STYLE_VALID, "", "");
-    }
+	class NativeUiStyleError valid() { return NativeUiStyleError(NATIVE_UI_STYLE_VALID, "", ""); }
 
-    public NativeUiStyleErrorCode code() { return self.errorCode; }
-    public string property() { return self.propertyName; }
-    public string message() { return self.errorMessage; }
-    public bool ok() { return self.errorCode == NATIVE_UI_STYLE_VALID; }
+	public NativeUiStyleErrorCode code() { return self.errorCode; }
+
+	public string property() { return self.propertyName; }
+
+	public string message() { return self.errorMessage; }
+
+	public bool ok() { return self.errorCode == NATIVE_UI_STYLE_VALID; }
 }
 
 class NativeUiStyle {
-    class bool decimal(string value, bool allowZero) {
-        if (value == null || value.isEmpty()) { return false; }
-        for (int index = 0; index < value.len(); index++) {
-            char digit = value[index];
-            if (digit < '0' || digit > '9') { return false; }
-        }
-        return allowZero || Strings.toInt(value) > 0;
-    }
+	class bool decimal(string value, bool allowZero) {
+		if (value == null || value.isEmpty()) { return false; }
+		for (int index = 0; index < value.len(); index++) {
+			char digit = value[index];
+			if (digit < '0' || digit > '9') { return false; }
+		}
+		return allowZero || Strings.toInt(value) > 0;
+	}
 
-    class bool pixels(string value, bool allowZero) {
-        if (value == null || value.len() <= 2 || !value.endsWith("px")) {
-            return false;
-        }
-        string digits = value.substring(0, value.len() - 2);
-        return digits.len() <= 4
-            && NativeUiStyle.decimal(digits, allowZero)
-            && Strings.toInt(digits) <= 4096;
-    }
+	class bool pixels(string value, bool allowZero) {
+		if (value == null || value.len() <= 2 || !value.endsWith("px")) {
+			return false;
+		}
+		string digits = value.substring(0, value.len() - 2);
+		return digits.len() <= 4 && NativeUiStyle.decimal(digits, allowZero) && Strings.toInt(digits) <= 4096;
+	}
 
-    class bool hexDigit(char value) {
-        return (value >= '0' && value <= '9')
-            || (value >= 'a' && value <= 'f')
-            || (value >= 'A' && value <= 'F');
-    }
+	class bool hexDigit(char value) { return (value >= '0' && value <= '9') || (value >= 'a' && value <= 'f') || (value >= 'A' && value <= 'F'); }
 
-    class bool color(string value) {
-        if (value == null || (value.len() != 7 && value.len() != 9)
-                || value[0] != '#') {
-            return false;
-        }
-        for (int index = 1; index < value.len(); index++) {
-            if (!NativeUiStyle.hexDigit(value[index])) { return false; }
-        }
-        return true;
-    }
+	class bool color(string value) {
+		if (value == null || (value.len() != 7 && value.len() != 9) || value[0] != '#') {
+			return false;
+		}
+		for (int index = 1; index < value.len(); index++) {
+			if (!NativeUiStyle.hexDigit(value[index])) { return false; }
+		}
+		return true;
+	}
 
-    class NativeUiStyleError validate(string css) {
-        if (css == null || css.trim().isEmpty()) {
-            return NativeUiStyleError.valid();
-        }
-        Vector<string> declarations = Strings.split(css, ";");
-        for declarationValue in declarations {
-            string declaration = declarationValue.trim();
-            if (declaration.isEmpty()) { continue; }
-            int separator = declaration.indexOf(":");
-            if (separator <= 0 || separator >= declaration.len() - 1) {
-                return NativeUiStyleError(
-                    NATIVE_UI_STYLE_INVALID_DECLARATION,
-                    "",
-                    f"invalid native UI style declaration: {declaration}"
-                );
-            }
-            string property = declaration.substring(0, separator)
-                .trim().toLower();
-            string value = declaration.substring(
-                separator + 1,
-                declaration.len() - separator - 1
-            ).trim();
-            if (property.equals("gap") || property.equals("padding")
-                    || property.equals("border-radius")) {
-                if (!NativeUiStyle.pixels(value, true)) {
-                    return NativeUiStyleError(
-                        NATIVE_UI_STYLE_INVALID_VALUE,
-                        property,
-                        f"{property} requires a non-negative px value"
-                    );
-                }
-            } else if (property.equals("width")
-                    || property.equals("height")) {
-                if (!NativeUiStyle.pixels(value, false)) {
-                    return NativeUiStyleError(
-                        NATIVE_UI_STYLE_INVALID_VALUE,
-                        property,
-                        f"{property} requires a positive px value"
-                    );
-                }
-            } else if (property.equals("background-color")
-                    || property.equals("color")) {
-                if (!NativeUiStyle.color(value)) {
-                    return NativeUiStyleError(
-                        NATIVE_UI_STYLE_INVALID_VALUE,
-                        property,
-                        f"{property} requires #RRGGBB or #RRGGBBAA"
-                    );
-                }
-            } else {
-                return NativeUiStyleError(
-                    NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY,
-                    property,
-                    f"unsupported native UI style property: {property}"
-                );
-            }
-        }
-        return NativeUiStyleError.valid();
-    }
+	class NativeUiStyleError validate(string css) {
+		if (css == null || css.trim().isEmpty()) {
+			return NativeUiStyleError.valid();
+		}
+		Vector<string> declarations = Strings.split(css, ";");
+		for declarationValue in declarations {
+			string declaration = declarationValue.trim();
+			if (declaration.isEmpty()) { continue; }
+			int separator = declaration.indexOf(":");
+			if (separator <= 0 || separator >= declaration.len() - 1) {
+				return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_DECLARATION, "", f"invalid native UI style declaration: {declaration}");
+			}
+			string property = declaration.substring(0, separator).trim().toLower();
+			string value = declaration.substring(separator + 1, declaration.len() - separator - 1).trim();
+			if (property.equals("gap") || property.equals("padding") || property.equals("border-radius")) {
+				if (!NativeUiStyle.pixels(value, true)) {
+					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires a non-negative px value");
+				}
+			} else if (property.equals("width") || property.equals("height")) {
+				if (!NativeUiStyle.pixels(value, false)) {
+					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires a positive px value");
+				}
+			} else if (property.equals("background-color") || property.equals("color")) {
+				if (!NativeUiStyle.color(value)) {
+					return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, property, f"{property} requires #RRGGBB or #RRGGBBAA");
+				}
+			} else {
+				return NativeUiStyleError(NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY, property, f"unsupported native UI style property: {property}");
+			}
+		}
+		return NativeUiStyleError.valid();
+	}
 
-    class NativeUiStyleError validateClassName(string value) {
-        if (value == null || value.isEmpty() || value.len() > 128) {
-            return NativeUiStyleError(
-                NATIVE_UI_STYLE_INVALID_SELECTOR,
-                "className",
-                "native UI class names must contain 1..128 bytes"
-            );
-        }
-        for (int index = 0; index < value.len(); index++) {
-            char character = value[index];
-            bool valid = (character >= 'a' && character <= 'z')
-                || (character >= 'A' && character <= 'Z')
-                || (character >= '0' && character <= '9')
-                || character == '-' || character == '_';
-            if (!valid) {
-                return NativeUiStyleError(
-                    NATIVE_UI_STYLE_INVALID_SELECTOR,
-                    "className",
-                    "native UI class names use letters, digits, '-' and '_'"
-                );
-            }
-        }
-        return NativeUiStyleError.valid();
-    }
+	class NativeUiStyleError validateClassName(string value) {
+		if (value == null || value.isEmpty() || value.len() > 128) {
+			return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_SELECTOR, "className", "native UI class names must contain 1..128 bytes");
+		}
+		for (int index = 0; index < value.len(); index++) {
+			char character = value[index];
+			bool valid = (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character >= '0' && character <= '9') || character == '-' || character == '_';
+			if (!valid) {
+				return NativeUiStyleError(NATIVE_UI_STYLE_INVALID_SELECTOR, "className", "native UI class names use letters, digits, '-' and '_'");
+			}
+		}
+		return NativeUiStyleError.valid();
+	}
 }
 
 class NativeUiStyleSheet {
-    private Vector<string> selectors;
-    private Vector<string> rules;
-    private NativeUiStyleError issueValue;
-    private int ruleBytes;
+	private Vector<string> selectors;
+	private Vector<string> rules;
+	private NativeUiStyleError issueValue;
+	private int ruleBytes;
 
-    public NativeUiStyleSheet() {
-        self.selectors = [];
-        self.rules = [];
-        self.issueValue = NativeUiStyleError.valid();
-        self.ruleBytes = 0;
-    }
+	public NativeUiStyleSheet() {
+		self.selectors = [];
+		self.rules = [];
+		self.issueValue = NativeUiStyleError.valid();
+		self.ruleBytes = 0;
+	}
 
-    public NativeUiStyleSheet rule(string className, string css) {
-        if (!self.issueValue.ok()) { return self; }
-        NativeUiStyleError selectorIssue =
-            NativeUiStyle.validateClassName(className);
-        if (!selectorIssue.ok()) {
-            self.issueValue = selectorIssue;
-            return self;
-        }
-        NativeUiStyleError ruleIssue = NativeUiStyle.validate(css);
-        if (!ruleIssue.ok()) {
-            self.issueValue = ruleIssue;
-            return self;
-        }
-        if (self.selectors.len >= 256
-                || (long long)self.ruleBytes + (long long)className.len()
-                    + (long long)css.len() > 65536LL) {
-            self.issueValue = NativeUiStyleError(
-                NATIVE_UI_STYLE_LIMIT_EXCEEDED,
-                "styleSheet",
-                "native UI style sheets allow 256 rules and 64 KiB"
-            );
-            return self;
-        }
-        for selector in self.selectors {
-            if (selector.equals(className)) {
-                self.issueValue = NativeUiStyleError(
-                    NATIVE_UI_STYLE_DUPLICATE_RULE,
-                    className,
-                    f"duplicate native UI class rule: {className}"
-                );
-                return self;
-            }
-        }
-        self.selectors.push(className);
-        self.rules.push(css);
-        self.ruleBytes += className.len() + css.len();
-        return self;
-    }
+	public NativeUiStyleSheet rule(string className, string css) {
+		if (!self.issueValue.ok()) { return self; }
+		NativeUiStyleError selectorIssue = NativeUiStyle.validateClassName(className);
+		if (!selectorIssue.ok()) {
+			self.issueValue = selectorIssue;
+			return self;
+		}
+		NativeUiStyleError ruleIssue = NativeUiStyle.validate(css);
+		if (!ruleIssue.ok()) {
+			self.issueValue = ruleIssue;
+			return self;
+		}
+		if (self.selectors.len >= 256 || (long long)self.ruleBytes + (long long)className.len() + (long long)css.len() > 65536LL) {
+			self.issueValue = NativeUiStyleError(NATIVE_UI_STYLE_LIMIT_EXCEEDED, "styleSheet", "native UI style sheets allow 256 rules and 64 KiB");
+			return self;
+		}
+		for selector in self.selectors {
+			if (selector.equals(className)) {
+				self.issueValue = NativeUiStyleError(NATIVE_UI_STYLE_DUPLICATE_RULE, className, f"duplicate native UI class rule: {className}");
+				return self;
+			}
+		}
+		self.selectors.push(className);
+		self.rules.push(css);
+		self.ruleBytes += className.len() + css.len();
+		return self;
+	}
 
-    public bool ok() { return self.issueValue.ok(); }
-    public NativeUiStyleError issue() { return self.issueValue; }
-    public int ruleCount() { return self.selectors.len; }
-    public string classNameAt(int index) { return self.selectors.get(index); }
-    public string cssAt(int index) { return self.rules.get(index); }
+	public bool ok() { return self.issueValue.ok(); }
 
-    public string cssFor(string className) {
-        for (int index = 0; index < self.selectors.len; index++) {
-            if (self.selectors.get(index).equals(className)) {
-                return self.rules.get(index);
-            }
-        }
-        return "";
-    }
+	public NativeUiStyleError issue() { return self.issueValue; }
+
+	public int ruleCount() { return self.selectors.len; }
+
+	public string classNameAt(int index) { return self.selectors.get(index); }
+
+	public string cssAt(int index) { return self.rules.get(index); }
+
+	public string cssFor(string className) {
+		for (int index = 0; index < self.selectors.len; index++) {
+			if (self.selectors.get(index).equals(className)) {
+				return self.rules.get(index);
+			}
+		}
+		return "";
+	}
 }
 
 class NativeUiVirtualGridError {
-    private NativeUiVirtualGridErrorCode errorCode;
-    private string errorMessage;
+	private NativeUiVirtualGridErrorCode errorCode;
+	private string errorMessage;
 
-    public NativeUiVirtualGridError(
-        NativeUiVirtualGridErrorCode code,
-        string message
-    ) {
-        self.errorCode = code;
-        self.errorMessage = message;
-    }
+	public NativeUiVirtualGridError(NativeUiVirtualGridErrorCode code, string message) {
+		self.errorCode = code;
+		self.errorMessage = message;
+	}
 
-    public NativeUiVirtualGridErrorCode code() { return self.errorCode; }
-    public string message() { return self.errorMessage; }
-    public bool ok() { return self.errorCode == NATIVE_UI_VIRTUAL_GRID_VALID; }
+	public NativeUiVirtualGridErrorCode code() { return self.errorCode; }
+
+	public string message() { return self.errorMessage; }
+
+	public bool ok() { return self.errorCode == NATIVE_UI_VIRTUAL_GRID_VALID; }
 }
 
 class NativeUiVirtualGrid {
-    private int totalCountValue;
-    private int columnsValue;
-    private int rowHeightValue;
-    private int firstIndexValue;
-    private NativeUiVirtualGridError issueValue;
+	private int totalCountValue;
+	private int columnsValue;
+	private int rowHeightValue;
+	private int firstIndexValue;
+	private NativeUiVirtualGridError issueValue;
 
-    public NativeUiVirtualGrid(
-        int totalCount,
-        int columns,
-        int rowHeight,
-        int firstDataIndex
-    ) {
-        self.totalCountValue = totalCount;
-        self.columnsValue = columns;
-        self.rowHeightValue = rowHeight;
-        self.firstIndexValue = firstDataIndex;
-        self.issueValue = NativeUiVirtualGridError(
-            NATIVE_UI_VIRTUAL_GRID_VALID, "");
-        if (totalCount < 0) {
-            self.issueValue = NativeUiVirtualGridError(
-                NATIVE_UI_VIRTUAL_GRID_INVALID_TOTAL_COUNT,
-                "virtual grid totalCount must be non-negative"
-            );
-        } else if (columns <= 0) {
-            self.issueValue = NativeUiVirtualGridError(
-                NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS,
-                "virtual grid columns must be positive"
-            );
-        } else if (rowHeight <= 0) {
-            self.issueValue = NativeUiVirtualGridError(
-                NATIVE_UI_VIRTUAL_GRID_INVALID_ROW_HEIGHT,
-                "virtual grid rowHeight must be positive"
-            );
-        } else if (firstDataIndex < 0 || firstDataIndex > totalCount) {
-            self.issueValue = NativeUiVirtualGridError(
-                NATIVE_UI_VIRTUAL_GRID_INVALID_FIRST_INDEX,
-                "virtual grid firstDataIndex must be within totalCount"
-            );
-        }
-    }
+	public NativeUiVirtualGrid(int totalCount, int columns, int rowHeight, int firstDataIndex) {
+		self.totalCountValue = totalCount;
+		self.columnsValue = columns;
+		self.rowHeightValue = rowHeight;
+		self.firstIndexValue = firstDataIndex;
+		self.issueValue = NativeUiVirtualGridError(NATIVE_UI_VIRTUAL_GRID_VALID, "");
+		if (totalCount < 0) {
+			self.issueValue = NativeUiVirtualGridError(NATIVE_UI_VIRTUAL_GRID_INVALID_TOTAL_COUNT, "virtual grid totalCount must be non-negative");
+		} else if (columns <= 0) {
+			self.issueValue = NativeUiVirtualGridError(NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS, "virtual grid columns must be positive");
+		} else if (rowHeight <= 0) {
+			self.issueValue = NativeUiVirtualGridError(NATIVE_UI_VIRTUAL_GRID_INVALID_ROW_HEIGHT, "virtual grid rowHeight must be positive");
+		} else if (firstDataIndex < 0 || firstDataIndex > totalCount) {
+			self.issueValue = NativeUiVirtualGridError(NATIVE_UI_VIRTUAL_GRID_INVALID_FIRST_INDEX, "virtual grid firstDataIndex must be within totalCount");
+		}
+	}
 
-    public int totalCount() { return self.totalCountValue; }
-    public int columns() { return self.columnsValue; }
-    public int rowHeight() { return self.rowHeightValue; }
-    public int firstDataIndex() { return self.firstIndexValue; }
-    public NativeUiVirtualGridError issue() { return self.issueValue; }
-    public bool ok() { return self.issueValue.ok(); }
+	public int totalCount() { return self.totalCountValue; }
+
+	public int columns() { return self.columnsValue; }
+
+	public int rowHeight() { return self.rowHeightValue; }
+
+	public int firstDataIndex() { return self.firstIndexValue; }
+
+	public NativeUiVirtualGridError issue() { return self.issueValue; }
+
+	public bool ok() { return self.issueValue.ok(); }
 }
 
 class NativeUiViewportMetrics {
-    private int metricWidth;
-    private int metricHeight;
-    private int metricScrollX;
-    private int metricScrollY;
+	private int metricWidth;
+	private int metricHeight;
+	private int metricScrollX;
+	private int metricScrollY;
 
-    public NativeUiViewportMetrics(
-        int width,
-        int height,
-        int scrollX,
-        int scrollY
-    ) {
-        self.metricWidth = width;
-        self.metricHeight = height;
-        self.metricScrollX = scrollX;
-        self.metricScrollY = scrollY;
-    }
+	public NativeUiViewportMetrics(int width, int height, int scrollX, int scrollY) {
+		self.metricWidth = width;
+		self.metricHeight = height;
+		self.metricScrollX = scrollX;
+		self.metricScrollY = scrollY;
+	}
 
-    public int width() { return self.metricWidth; }
-    public int height() { return self.metricHeight; }
-    public int scrollX() { return self.metricScrollX; }
-    public int scrollY() { return self.metricScrollY; }
+	public int width() { return self.metricWidth; }
+
+	public int height() { return self.metricHeight; }
+
+	public int scrollX() { return self.metricScrollX; }
+
+	public int scrollY() { return self.metricScrollY; }
 }
 
 class NativeUiScrollDelta {
-    private int deltaX;
-    private int deltaY;
+	private int deltaX;
+	private int deltaY;
 
-    public NativeUiScrollDelta(int x, int y) {
-        self.deltaX = x;
-        self.deltaY = y;
-    }
+	public NativeUiScrollDelta(int x, int y) {
+		self.deltaX = x;
+		self.deltaY = y;
+	}
 
-    public int x() { return self.deltaX; }
-    public int y() { return self.deltaY; }
+	public int x() { return self.deltaX; }
+
+	public int y() { return self.deltaY; }
 }
 
 class NativeUiVirtualGridViewport {
-    private string gridIdentity;
-    private int totalCountValue;
-    private int columnsValue;
-    private int rowHeightValue;
-    private int rowPitchValue;
-    private int contentOffsetYValue;
-    private int contentLocalScrollYValue;
-    private int firstVisibleIndexValue;
-    private int visibleCountValue;
+	private string gridIdentity;
+	private int totalCountValue;
+	private int columnsValue;
+	private int rowHeightValue;
+	private int rowPitchValue;
+	private int contentOffsetYValue;
+	private int contentLocalScrollYValue;
+	private int firstVisibleIndexValue;
+	private int visibleCountValue;
 
-    public NativeUiVirtualGridViewport(
-        string gridId,
-        int totalCount,
-        int columns,
-        int rowHeight,
-        int rowPitch,
-        int contentOffsetY,
-        int contentLocalScrollY,
-        int firstVisibleDataIndex,
-        int visibleDataCount
-    ) {
-        self.gridIdentity = gridId;
-        self.totalCountValue = totalCount;
-        self.columnsValue = columns;
-        self.rowHeightValue = rowHeight;
-        self.rowPitchValue = rowPitch;
-        self.contentOffsetYValue = contentOffsetY;
-        self.contentLocalScrollYValue = contentLocalScrollY;
-        self.firstVisibleIndexValue = firstVisibleDataIndex;
-        self.visibleCountValue = visibleDataCount;
-    }
+	public NativeUiVirtualGridViewport(string gridId, int totalCount, int columns, int rowHeight, int rowPitch, int contentOffsetY, int contentLocalScrollY, int firstVisibleDataIndex, int visibleDataCount) {
+		self.gridIdentity = gridId;
+		self.totalCountValue = totalCount;
+		self.columnsValue = columns;
+		self.rowHeightValue = rowHeight;
+		self.rowPitchValue = rowPitch;
+		self.contentOffsetYValue = contentOffsetY;
+		self.contentLocalScrollYValue = contentLocalScrollY;
+		self.firstVisibleIndexValue = firstVisibleDataIndex;
+		self.visibleCountValue = visibleDataCount;
+	}
 
-    public string gridId() { return self.gridIdentity; }
-    public int totalCount() { return self.totalCountValue; }
-    public int columns() { return self.columnsValue; }
-    public int rowHeight() { return self.rowHeightValue; }
-    public int rowPitch() { return self.rowPitchValue; }
-    public int contentOffsetY() { return self.contentOffsetYValue; }
-    public int contentLocalScrollY() { return self.contentLocalScrollYValue; }
-    public int firstVisibleDataIndex() {
-        return self.firstVisibleIndexValue;
-    }
-    public int visibleDataCount() { return self.visibleCountValue; }
+	public string gridId() { return self.gridIdentity; }
+
+	public int totalCount() { return self.totalCountValue; }
+
+	public int columns() { return self.columnsValue; }
+
+	public int rowHeight() { return self.rowHeightValue; }
+
+	public int rowPitch() { return self.rowPitchValue; }
+
+	public int contentOffsetY() { return self.contentOffsetYValue; }
+
+	public int contentLocalScrollY() { return self.contentLocalScrollYValue; }
+
+	public int firstVisibleDataIndex() { return self.firstVisibleIndexValue; }
+
+	public int visibleDataCount() { return self.visibleCountValue; }
 }
 
 class NativeUiEvent {
-    private NativeUiEventKind eventKind;
-    private string targetIdentity;
-    private NativeUiViewportMetrics viewportValue;
-    private NativeUiScrollDelta scrollValue;
-    private NativeUiVirtualGridViewport? virtualGridViewportValue;
-    private string inputValue;
+	private NativeUiEventKind eventKind;
+	private string targetIdentity;
+	private NativeUiViewportMetrics viewportValue;
+	private NativeUiScrollDelta scrollValue;
+	private NativeUiVirtualGridViewport? virtualGridViewportValue;
+	private string inputValue;
 
-    private NativeUiEvent(
-        NativeUiEventKind kind,
-        string elementId,
-        NativeUiViewportMetrics viewport,
-        NativeUiScrollDelta scroll,
-        NativeUiVirtualGridViewport? virtualGridViewport,
-        string value
-    ) {
-        self.eventKind = kind;
-        self.targetIdentity = elementId;
-        self.viewportValue = viewport;
-        self.scrollValue = scroll;
-        self.virtualGridViewportValue = virtualGridViewport;
-        self.inputValue = value;
-    }
+	private NativeUiEvent(NativeUiEventKind kind, string elementId, NativeUiViewportMetrics viewport, NativeUiScrollDelta scroll, NativeUiVirtualGridViewport? virtualGridViewport, string value) {
+		self.eventKind = kind;
+		self.targetIdentity = elementId;
+		self.viewportValue = viewport;
+		self.scrollValue = scroll;
+		self.virtualGridViewportValue = virtualGridViewport;
+		self.inputValue = value;
+	}
 
-    class NativeUiEvent clicked(string elementId) {
-        return NativeUiEvent(
-            NATIVE_UI_CLICKED,
-            elementId,
-            NativeUiViewportMetrics(0, 0, 0, 0),
-            NativeUiScrollDelta(0, 0),
-            null,
-            ""
-        );
-    }
+	class NativeUiEvent clicked(string elementId) { return NativeUiEvent(NATIVE_UI_CLICKED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, ""); }
 
-    class NativeUiEvent hoverEntered(string elementId) {
-        return NativeUiEvent(
-            NATIVE_UI_HOVER_ENTERED,
-            elementId,
-            NativeUiViewportMetrics(0, 0, 0, 0),
-            NativeUiScrollDelta(0, 0),
-            null,
-            ""
-        );
-    }
+	class NativeUiEvent hoverEntered(string elementId) { return NativeUiEvent(NATIVE_UI_HOVER_ENTERED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, ""); }
 
-    class NativeUiEvent hoverLeft(string elementId) {
-        return NativeUiEvent(
-            NATIVE_UI_HOVER_LEFT,
-            elementId,
-            NativeUiViewportMetrics(0, 0, 0, 0),
-            NativeUiScrollDelta(0, 0),
-            null,
-            ""
-        );
-    }
+	class NativeUiEvent hoverLeft(string elementId) { return NativeUiEvent(NATIVE_UI_HOVER_LEFT, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, ""); }
 
-    class NativeUiEvent scrolled(
-        string elementId,
-        NativeUiViewportMetrics resultingViewport,
-        NativeUiScrollDelta delta,
-        NativeUiVirtualGridViewport? virtualGridViewport = null
-    ) {
-        return NativeUiEvent(NATIVE_UI_SCROLLED, elementId,
-            resultingViewport, delta, virtualGridViewport, "");
-    }
+	class NativeUiEvent scrolled(string elementId, NativeUiViewportMetrics resultingViewport, NativeUiScrollDelta delta, NativeUiVirtualGridViewport? virtualGridViewport = null) { return NativeUiEvent(NATIVE_UI_SCROLLED, elementId, resultingViewport, delta, virtualGridViewport, ""); }
 
-    class NativeUiEvent viewportChanged(
-        string elementId,
-        NativeUiViewportMetrics metrics,
-        NativeUiVirtualGridViewport? virtualGridViewport = null
-    ) {
-        return NativeUiEvent(
-            NATIVE_UI_VIEWPORT_CHANGED,
-            elementId,
-            metrics,
-            NativeUiScrollDelta(0, 0),
-            virtualGridViewport,
-            ""
-        );
-    }
+	class NativeUiEvent viewportChanged(string elementId, NativeUiViewportMetrics metrics, NativeUiVirtualGridViewport? virtualGridViewport = null) { return NativeUiEvent(NATIVE_UI_VIEWPORT_CHANGED, elementId, metrics, NativeUiScrollDelta(0, 0), virtualGridViewport, ""); }
 
-    class NativeUiEvent valueChanged(string elementId, string value) {
-        return NativeUiEvent(
-            NATIVE_UI_VALUE_CHANGED,
-            elementId,
-            NativeUiViewportMetrics(0, 0, 0, 0),
-            NativeUiScrollDelta(0, 0),
-            null,
-            value
-        );
-    }
+	class NativeUiEvent valueChanged(string elementId, string value) { return NativeUiEvent(NATIVE_UI_VALUE_CHANGED, elementId, NativeUiViewportMetrics(0, 0, 0, 0), NativeUiScrollDelta(0, 0), null, value); }
 
-    public NativeUiEventKind kind() { return self.eventKind; }
-    public string elementId() { return self.targetIdentity; }
-    public NativeUiViewportMetrics viewport() { return self.viewportValue; }
-    public NativeUiScrollDelta scroll() { return self.scrollValue; }
-    public NativeUiVirtualGridViewport? virtualGridViewport() {
-        return self.virtualGridViewportValue;
-    }
-    public string value() { return self.inputValue; }
+	public NativeUiEventKind kind() { return self.eventKind; }
+
+	public string elementId() { return self.targetIdentity; }
+
+	public NativeUiViewportMetrics viewport() { return self.viewportValue; }
+
+	public NativeUiScrollDelta scroll() { return self.scrollValue; }
+
+	public NativeUiVirtualGridViewport? virtualGridViewport() { return self.virtualGridViewportValue; }
+
+	public string value() { return self.inputValue; }
 }
 
 class NativeUiElement {
-    private NativeUiElementKind elementKind;
-    private string elementIdentity;
-    private string classValue;
-    private string styleValue;
-    private string textValue;
-    private Image? imageValue;
-    private unsigned long long imageRevisionValue;
-    private string altValue;
-    private Vector<NativeUiElement> childValues;
-    private NativeUiStyleError styleErrorValue;
-    private NativeUiVirtualGrid? virtualGridValue;
-    private string placeholderValue;
-    private int textInputMaxBytesValue;
+	private NativeUiElementKind elementKind;
+	private string elementIdentity;
+	private string classValue;
+	private string styleValue;
+	private string textValue;
+	private Image? imageValue;
+	private unsigned long long imageRevisionValue;
+	private string altValue;
+	private Vector<NativeUiElement> childValues;
+	private NativeUiStyleError styleErrorValue;
+	private NativeUiVirtualGrid? virtualGridValue;
+	private string placeholderValue;
+	private int textInputMaxBytesValue;
 
-    private NativeUiElement(
-        NativeUiElementKind kind,
-        string id,
-        string text,
-        Image? image,
-        string alt
-    ) {
-        self.elementKind = kind;
-        self.elementIdentity = id;
-        self.classValue = "";
-        self.styleValue = "";
-        self.textValue = text;
-        self.imageValue = image;
-        self.imageRevisionValue = 0ULL;
-        self.altValue = alt;
-        self.childValues = [];
-        self.styleErrorValue = NativeUiStyleError.valid();
-        self.virtualGridValue = null;
-        self.placeholderValue = "";
-        self.textInputMaxBytesValue = 0;
-    }
+	private NativeUiElement(NativeUiElementKind kind, string id, string text, Image? image, string alt) {
+		self.elementKind = kind;
+		self.elementIdentity = id;
+		self.classValue = "";
+		self.styleValue = "";
+		self.textValue = text;
+		self.imageValue = image;
+		self.imageRevisionValue = 0ULL;
+		self.altValue = alt;
+		self.childValues = [];
+		self.styleErrorValue = NativeUiStyleError.valid();
+		self.virtualGridValue = null;
+		self.placeholderValue = "";
+		self.textInputMaxBytesValue = 0;
+	}
 
-    class NativeUiElement column(string id) {
-        return NativeUiElement(NATIVE_UI_COLUMN, id, "", null, "");
-    }
+	class NativeUiElement column(string id) { return NativeUiElement(NATIVE_UI_COLUMN, id, "", null, ""); }
 
-    class NativeUiElement grid(string id) {
-        return NativeUiElement(NATIVE_UI_GRID, id, "", null, "");
-    }
+	class NativeUiElement grid(string id) { return NativeUiElement(NATIVE_UI_GRID, id, "", null, ""); }
 
-    class NativeUiElement virtualGrid(
-        string id,
-        NativeUiVirtualGrid descriptor
-    ) {
-        NativeUiElement element = NativeUiElement(
-            NATIVE_UI_VIRTUAL_GRID, id, "", null, "");
-        element.virtualGridValue = descriptor;
-        return element;
-    }
+	class NativeUiElement virtualGrid(string id, NativeUiVirtualGrid descriptor) {
+		NativeUiElement element = NativeUiElement(NATIVE_UI_VIRTUAL_GRID, id, "", null, "");
+		element.virtualGridValue = descriptor;
+		return element;
+	}
 
-    class NativeUiElement text(string id, string text) {
-        return NativeUiElement(NATIVE_UI_TEXT, id, text, null, "");
-    }
+	class NativeUiElement text(string id, string text) { return NativeUiElement(NATIVE_UI_TEXT, id, text, null, ""); }
 
-    class NativeUiElement image(string id, Image image, string alt) {
-        return NativeUiElement(NATIVE_UI_IMAGE, id, "", image, alt);
-    }
+	class NativeUiElement image(string id, Image image, string alt) { return NativeUiElement(NATIVE_UI_IMAGE, id, "", image, alt); }
 
-    class NativeUiElement button(string id, string label) {
-        return NativeUiElement(NATIVE_UI_BUTTON, id, label, null, "");
-    }
+	class NativeUiElement button(string id, string label) { return NativeUiElement(NATIVE_UI_BUTTON, id, label, null, ""); }
 
-    class NativeUiElement textInput(
-        string id,
-        string value,
-        string placeholder = "",
-        int maxBytes = 4096
-    ) {
-        NativeUiElement element = NativeUiElement(
-            NATIVE_UI_TEXT_INPUT, id, value, null, "");
-        element.placeholderValue = placeholder;
-        element.textInputMaxBytesValue = maxBytes;
-        return element;
-    }
+	class NativeUiElement textInput(string id, string value, string placeholder = "", int maxBytes = 4096) {
+		NativeUiElement element = NativeUiElement(NATIVE_UI_TEXT_INPUT, id, value, null, "");
+		element.placeholderValue = placeholder;
+		element.textInputMaxBytesValue = maxBytes;
+		return element;
+	}
 
-    public NativeUiElement className(string value) {
-        self.classValue = value;
-        return self;
-    }
+	public NativeUiElement className(string value) {
+		self.classValue = value;
+		return self;
+	}
 
-    public NativeUiElement style(string css) {
-        self.styleValue = css;
-        self.styleErrorValue = NativeUiStyle.validate(css);
-        return self;
-    }
+	public NativeUiElement style(string css) {
+		self.styleValue = css;
+		self.styleErrorValue = NativeUiStyle.validate(css);
+		return self;
+	}
 
-    /* Increment when mutating/replacing pixels under the same stable ID. */
-    public NativeUiElement imageRevision(unsigned long long revision) {
-        self.imageRevisionValue = revision;
-        return self;
-    }
+	/* Increment when mutating/replacing pixels under the same stable ID. */
+	public NativeUiElement imageRevision(unsigned long long revision) {
+		self.imageRevisionValue = revision;
+		return self;
+	}
 
-    public NativeUiElement child(NativeUiElement value) {
-        self.childValues.push(value);
-        return self;
-    }
+	public NativeUiElement child(NativeUiElement value) {
+		self.childValues.push(value);
+		return self;
+	}
 
-    public NativeUiElementKind kind() { return self.elementKind; }
-    public string id() { return self.elementIdentity; }
-    public string cssClass() { return self.classValue; }
-    public string inlineStyle() { return self.styleValue; }
-    public string contentText() { return self.textValue; }
-    public Image? contentImage() { return self.imageValue; }
-    public unsigned long long contentImageRevision() {
-        return self.imageRevisionValue;
-    }
-    public string imageAlt() { return self.altValue; }
-    public NativeUiStyleError styleError() { return self.styleErrorValue; }
-    public NativeUiVirtualGrid? virtualGridDescriptor() {
-        return self.virtualGridValue;
-    }
-    public string placeholderText() { return self.placeholderValue; }
-    public int textInputMaxBytes() { return self.textInputMaxBytesValue; }
-    public int childCount() { return self.childValues.len; }
-    public NativeUiElement childAt(int index) {
-        return self.childValues.get(index);
-    }
+	public NativeUiElementKind kind() { return self.elementKind; }
+
+	public string id() { return self.elementIdentity; }
+
+	public string cssClass() { return self.classValue; }
+
+	public string inlineStyle() { return self.styleValue; }
+
+	public string contentText() { return self.textValue; }
+
+	public Image? contentImage() { return self.imageValue; }
+
+	public unsigned long long contentImageRevision() { return self.imageRevisionValue; }
+
+	public string imageAlt() { return self.altValue; }
+
+	public NativeUiStyleError styleError() { return self.styleErrorValue; }
+
+	public NativeUiVirtualGrid? virtualGridDescriptor() { return self.virtualGridValue; }
+
+	public string placeholderText() { return self.placeholderValue; }
+
+	public int textInputMaxBytes() { return self.textInputMaxBytesValue; }
+
+	public int childCount() { return self.childValues.len; }
+
+	public NativeUiElement childAt(int index) { return self.childValues.get(index); }
 }
 
 #include "native_ui/Render.btrc"

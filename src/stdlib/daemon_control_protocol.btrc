@@ -8,118 +8,103 @@ import std.daemon_control_files;
 #include <unistd.h>
 
 class DaemonControlProtocol {
-    class bool pauseBeforeRetry(long long deadline) {
-        if (deadline >= 0LL && !DaemonControlClock.before(deadline)) {
-            return false;
-        }
-        DaemonControlClock.pause();
-        return deadline < 0LL || DaemonControlClock.before(deadline);
-    }
+	class bool pauseBeforeRetry(long long deadline) {
+		if (deadline >= 0LL && !DaemonControlClock.before(deadline)) {
+			return false;
+		}
+		DaemonControlClock.pause();
+		return deadline < 0LL || DaemonControlClock.before(deadline);
+	}
 
-    class string randomToken() {
-        int descriptor = open(
-            "/dev/urandom", (int)O_RDONLY | (int)O_CLOEXEC);
-        if (descriptor < 0) { return ""; }
-        unsigned char bytes[16];
-        int offset = 0;
-        while (offset < 16) {
-            ssize_t count = read(descriptor, bytes + offset,
-                (size_t)(16 - offset));
-            if (count > (ssize_t)0) {
-                offset = offset + (int)count;
-            } else if (count < (ssize_t)0 && errno == EINTR) {
-                continue;
-            } else {
-                break;
-            }
-        }
-        close(descriptor);
-        if (offset != 16) { return ""; }
-        const char* digits = "0123456789abcdef";
-        char* token = (char*)__btrc_safe_realloc(NULL, (size_t)33);
-        for (int i = 0; i < 16; i++) {
-            token[i * 2] = digits[(bytes[i] >> 4) & 15];
-            token[i * 2 + 1] = digits[bytes[i] & 15];
-        }
-        token[32] = '\0';
-        return __btrc_str_track(token);
-    }
+	class string randomToken() {
+		int descriptor = open("/dev/urandom", (int)O_RDONLY | (int)O_CLOEXEC);
+		if (descriptor < 0) { return ""; }
+		unsigned char bytes[16];
+		int offset = 0;
+		while (offset < 16) {
+			ssize_t count = read(descriptor, bytes + offset, (size_t)(16 - offset));
+			if (count > (ssize_t)0) {
+				offset = offset + (int)count;
+			} else if (count < (ssize_t)0 && errno == EINTR) {
+				continue;
+			} else {
+				break;
+			}
+		}
+		close(descriptor);
+		if (offset != 16) { return ""; }
+		const char* digits = "0123456789abcdef";
+		char* token = (char*)__btrc_safe_realloc(NULL, (size_t)33);
+		for (int i = 0; i < 16; i++) {
+			token[i * 2] = digits[(bytes[i] >> 4) & 15];
+			token[i * 2 + 1] = digits[bytes[i] & 15];
+		}
+		token[32] = '\0';
+		return __btrc_str_track(token);
+	}
 
-    class DaemonControlRecord record(string pidFile) {
-        return DaemonControlRecord.parse(DaemonControlFiles.read(pidFile));
-    }
+	class DaemonControlRecord record(string pidFile) { return DaemonControlRecord.parse(DaemonControlFiles.read(pidFile)); }
 
-    class bool probe(string pidFile, DaemonControlRecord record,
-                     int timeoutMilliseconds) {
-        if (!record.valid || timeoutMilliseconds < 0) { return false; }
-        string challenge = DaemonControlProtocol.randomToken();
-        if (challenge.isEmpty()) { return false; }
-        string probe = DaemonControlPaths.probe(
-            pidFile, record.token, challenge);
-        string acknowledgement = DaemonControlPaths.acknowledgement(probe);
-        if (!DaemonControlFiles.create(probe, record.token + "\n")) {
-            return false;
-        }
-        long long now = DaemonControlClock.milliseconds();
-        long long deadline = DaemonControlClock.deadline(
-            now, timeoutMilliseconds);
-        int attempts = timeoutMilliseconds / 20 + 1;
-        bool acknowledged = false;
-        while (attempts > 0) {
-            string response = DaemonControlFiles.read(acknowledgement);
-            if (response.equals(record.token + "\n")) {
-                acknowledged = true;
-                break;
-            }
-            attempts--;
-            if (attempts == 0
-                    || !DaemonControlProtocol.pauseBeforeRetry(deadline)) {
-                break;
-            }
-        }
-        DaemonControlFiles.remove(probe);
-        DaemonControlFiles.remove(acknowledgement);
-        return acknowledged;
-    }
+	class bool probe(string pidFile, DaemonControlRecord record, int timeoutMilliseconds) {
+		if (!record.valid || timeoutMilliseconds < 0) { return false; }
+		string challenge = DaemonControlProtocol.randomToken();
+		if (challenge.isEmpty()) { return false; }
+		string probe = DaemonControlPaths.probe(pidFile, record.token, challenge);
+		string acknowledgement = DaemonControlPaths.acknowledgement(probe);
+		if (!DaemonControlFiles.create(probe, record.token + "\n")) {
+			return false;
+		}
+		long long now = DaemonControlClock.milliseconds();
+		long long deadline = DaemonControlClock.deadline(now, timeoutMilliseconds);
+		int attempts = timeoutMilliseconds / 20 + 1;
+		bool acknowledged = false;
+		while (attempts > 0) {
+			string response = DaemonControlFiles.read(acknowledgement);
+			if (response.equals(record.token + "\n")) {
+				acknowledged = true;
+				break;
+			}
+			attempts--;
+			if (attempts == 0 || !DaemonControlProtocol.pauseBeforeRetry(deadline)) {
+				break;
+			}
+		}
+		DaemonControlFiles.remove(probe);
+		DaemonControlFiles.remove(acknowledgement);
+		return acknowledged;
+	}
 
-    class bool waitForRecord(string pidFile, int timeoutMilliseconds) {
-        if (timeoutMilliseconds < 0) { return false; }
-        long long now = DaemonControlClock.milliseconds();
-        long long deadline = DaemonControlClock.deadline(
-            now, timeoutMilliseconds);
-        int attempts = timeoutMilliseconds / 20 + 1;
-        while (attempts > 0) {
-            if (DaemonControlProtocol.record(pidFile).valid) { return true; }
-            attempts--;
-            if (attempts == 0
-                    || !DaemonControlProtocol.pauseBeforeRetry(deadline)) {
-                break;
-            }
-        }
-        return false;
-    }
+	class bool waitForRecord(string pidFile, int timeoutMilliseconds) {
+		if (timeoutMilliseconds < 0) { return false; }
+		long long now = DaemonControlClock.milliseconds();
+		long long deadline = DaemonControlClock.deadline(now, timeoutMilliseconds);
+		int attempts = timeoutMilliseconds / 20 + 1;
+		while (attempts > 0) {
+			if (DaemonControlProtocol.record(pidFile).valid) { return true; }
+			attempts--;
+			if (attempts == 0 || !DaemonControlProtocol.pauseBeforeRetry(deadline)) {
+				break;
+			}
+		}
+		return false;
+	}
 
-    class bool waitForRemoval(string pidFile,
-                              DaemonControlRecord original,
-                              int timeoutMilliseconds) {
-        if (timeoutMilliseconds < 0) { return false; }
-        long long now = DaemonControlClock.milliseconds();
-        long long deadline = DaemonControlClock.deadline(
-            now, timeoutMilliseconds);
-        int attempts = timeoutMilliseconds / 20 + 1;
-        while (attempts > 0) {
-            if (DaemonControlFiles.absent(pidFile)) { return true; }
-            DaemonControlRecord current = DaemonControlProtocol.record(pidFile);
-            if (!current.valid || !current.token.equals(original.token)
-                    || current.supervisorPid != original.supervisorPid) {
-                return false;
-            }
-            attempts--;
-            if (attempts == 0
-                    || !DaemonControlProtocol.pauseBeforeRetry(deadline)) {
-                break;
-            }
-        }
-        return false;
-    }
+	class bool waitForRemoval(string pidFile, DaemonControlRecord original, int timeoutMilliseconds) {
+		if (timeoutMilliseconds < 0) { return false; }
+		long long now = DaemonControlClock.milliseconds();
+		long long deadline = DaemonControlClock.deadline(now, timeoutMilliseconds);
+		int attempts = timeoutMilliseconds / 20 + 1;
+		while (attempts > 0) {
+			if (DaemonControlFiles.absent(pidFile)) { return true; }
+			DaemonControlRecord current = DaemonControlProtocol.record(pidFile);
+			if (!current.valid || !current.token.equals(original.token) || current.supervisorPid != original.supervisorPid) {
+				return false;
+			}
+			attempts--;
+			if (attempts == 0 || !DaemonControlProtocol.pauseBeforeRetry(deadline)) {
+				break;
+			}
+		}
+		return false;
+	}
 }

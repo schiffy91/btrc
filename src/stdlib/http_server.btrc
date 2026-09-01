@@ -12,292 +12,256 @@ import std.vector;
 #include <string.h>
 
 class HttpServer {
-    public int fd;
-    public int port;
-    public bool bindAny;   /* bind 0.0.0.0 instead of 127.0.0.1 */
-    public int timeoutSecs;
-    public int maxHeaderBytes;
-    public int maxBodyBytes;
-    public int maxRequestBytes;
+	public int fd;
+	public int port;
+	public bool bindAny;   /* bind 0.0.0.0 instead of 127.0.0.1 */
+	public int timeoutSecs;
+	public int maxHeaderBytes;
+	public int maxBodyBytes;
+	public int maxRequestBytes;
 
-    public HttpServer(int port) {
-        self.port = port;
-        self.fd = -1;
-        self.bindAny = false;
-        self.timeoutSecs = 15;
-        self.maxHeaderBytes = 65536;
-        self.maxBodyBytes = 8388608;
-        self.maxRequestBytes = 16777216;
-    }
+	public HttpServer(int port) {
+		self.port = port;
+		self.fd = -1;
+		self.bindAny = false;
+		self.timeoutSecs = 15;
+		self.maxHeaderBytes = 65536;
+		self.maxBodyBytes = 8388608;
+		self.maxRequestBytes = 16777216;
+	}
 
-    public bool start() {
-        if (self.fd >= 0) { return false; }
-        self.fd = HttpSocket.openListener(self.port, self.bindAny);
-        return self.fd >= 0;
-    }
+	public bool start() {
+		if (self.fd >= 0) { return false; }
+		self.fd = HttpSocket.openListener(self.port, self.bindAny);
+		return self.fd >= 0;
+	}
 
-    public int acceptConn() {
-        return HttpSocket.acceptConnection(self.fd, self.timeoutSecs);
-    }
+	public int acceptConn() { return HttpSocket.acceptConnection(self.fd, self.timeoutSecs); }
 
-    public void closeConn(int c) {
-        HttpSocket.closeConnection(c);
-    }
+	public void closeConn(int c) { HttpSocket.closeConnection(c); }
 
-    public void stop() {
-        if (self.fd >= 0) {
-            HttpSocket.closeConnection(self.fd);
-            self.fd = -1;
-        }
-    }
+	public void stop() {
+		if (self.fd >= 0) {
+			HttpSocket.closeConnection(self.fd);
+			self.fd = -1;
+		}
+	}
 
-    public void __del__() {
-        self.stop();
-    }
+	public void __del__() { self.stop(); }
 
-    class int headerContentLength(string head, int headerEnd) {
-        if (head == null || headerEnd < 0 || headerEnd > head.len()) { return 0; }
-        int value = HttpFraming.contentLength(head.substring(0, headerEnd));
-        return value >= 0 ? value : 0;
-    }
+	class int headerContentLength(string head, int headerEnd) {
+		if (head == null || headerEnd < 0 || headerEnd > head.len()) { return 0; }
+		int value = HttpFraming.contentLength(head.substring(0, headerEnd));
+		return value >= 0 ? value : 0;
+	}
 
-    public Bytes readRequestRawBytes(int c) {
-        return HttpSocket.readRequest(
-            c, self.maxHeaderBytes, self.maxBodyBytes, self.maxRequestBytes,
-            self.timeoutSecs);
-    }
+	public Bytes readRequestRawBytes(int c) { return HttpSocket.readRequest(c, self.maxHeaderBytes, self.maxBodyBytes, self.maxRequestBytes, self.timeoutSecs); }
 
-    /* Text-only compatibility view; use bodyBytes for binary requests. */
-    public string readRequestRaw(int c) {
-        Bytes data = self.readRequestRawBytes(c);
-        string out = data.toStringLossy();
-        return out;
-    }
+	/* Text-only compatibility view; use bodyBytes for binary requests. */
+	public string readRequestRaw(int c) {
+		Bytes data = self.readRequestRawBytes(c);
+		string out = data.toStringLossy();
+		return out;
+	}
 
-    public HttpRequest readRequest(int c) {
-        return self.parseBytes(self.readRequestRawBytes(c));
-    }
+	public HttpRequest readRequest(int c) { return self.parseBytes(self.readRequestRawBytes(c)); }
 
-    class HttpRequest invalidRequest(string message) {
-        HttpRequest request = HttpRequest();
-        request.error = message;
-        return request;
-    }
+	class HttpRequest invalidRequest(string message) {
+		HttpRequest request = HttpRequest();
+		request.error = message;
+		return request;
+	}
 
-    private bool parseHead(HttpRequest request, string head) {
-        Vector<string> lines = Strings.split(head, "\r\n");
-        if (lines.len == 0) {
-            request.error = "missing request line";
-            return false;
-        }
-        Vector<string> parts = Strings.split(lines.get(0), " ");
-        if (parts.len != 3 || !HttpFraming.token(parts.get(0))
-                || !HttpFraming.requestTarget(parts.get(1))
-                || (!parts.get(2).equals("HTTP/1.1")
-                    && !parts.get(2).equals("HTTP/1.0"))) {
-            request.error = "malformed request line";
-            return false;
-        }
-        request.method = parts.get(0);
-        request.version = parts.get(2);
-        string target = parts.get(1);
-        int query = Strings.find(target, "?", 0);
-        if (query >= 0) {
-            request.path = target.substring(0, query);
-            request.query = target.substring(
-                query + 1, target.len() - query - 1);
-        } else {
-            request.path = target;
-        }
+	private bool parseHead(HttpRequest request, string head) {
+		Vector<string> lines = Strings.split(head, "\r\n");
+		if (lines.len == 0) {
+			request.error = "missing request line";
+			return false;
+		}
+		Vector<string> parts = Strings.split(lines.get(0), " ");
+		if (parts.len != 3 || !HttpFraming.token(parts.get(0)) || !HttpFraming.requestTarget(parts.get(1)) || (!parts.get(2).equals("HTTP/1.1") && !parts.get(2).equals("HTTP/1.0"))) {
+			request.error = "malformed request line";
+			return false;
+		}
+		request.method = parts.get(0);
+		request.version = parts.get(2);
+		string target = parts.get(1);
+		int query = Strings.find(target, "?", 0);
+		if (query >= 0) {
+			request.path = target.substring(0, query);
+			request.query = target.substring(query + 1, target.len() - query - 1);
+		} else {
+			request.path = target;
+		}
 
-        int hostCount = 0;
-        for (int index = 1; index < lines.len; index++) {
-            string line = lines.get(index);
-            if (!HttpFraming.headerLine(line)) {
-                request.error = "malformed header line";
-                return false;
-            }
-            int colon = Strings.find(line, ":", 0);
-            string name = line.substring(0, colon).toLower();
-            string value = line.substring(
-                colon + 1, line.len() - colon - 1).trim();
-            if (name.equals("host")) {
-                hostCount++;
-                if (value.isEmpty()) {
-                    request.error = "empty Host header";
-                    return false;
-                }
-            }
-            request.headers.put(name, value);
-        }
-        if (request.version.equals("HTTP/1.1") && hostCount != 1) {
-            request.error = "HTTP/1.1 requires exactly one Host header";
-            return false;
-        }
-        return true;
-    }
+		int hostCount = 0;
+		for (int index = 1; index < lines.len; index++) {
+			string line = lines.get(index);
+			if (!HttpFraming.headerLine(line)) {
+				request.error = "malformed header line";
+				return false;
+			}
+			int colon = Strings.find(line, ":", 0);
+			string name = line.substring(0, colon).toLower();
+			string value = line.substring(colon + 1, line.len() - colon - 1).trim();
+			if (name.equals("host")) {
+				hostCount++;
+				if (value.isEmpty()) {
+					request.error = "empty Host header";
+					return false;
+				}
+			}
+			request.headers.put(name, value);
+		}
+		if (request.version.equals("HTTP/1.1") && hostCount != 1) {
+			request.error = "HTTP/1.1 requires exactly one Host header";
+			return false;
+		}
+		return true;
+	}
 
-    /* Parse exactly one framed request. Bytes after that request are ignored. */
-    public HttpRequest parseBytes(Bytes raw) {
-        if (raw == null || raw.len == 0) {
-            return HttpServer.invalidRequest("request is incomplete");
-        }
-        if (self.maxHeaderBytes < 4 || self.maxBodyBytes < 0
-                || self.maxRequestBytes < self.maxHeaderBytes) {
-            return HttpServer.invalidRequest("server request limits are invalid");
-        }
-        if (raw.len > self.maxRequestBytes) {
-            return HttpServer.invalidRequest("request exceeds configured limit");
-        }
-        int headerEnd = HttpFraming.headerEnd(raw);
-        if (headerEnd == -1) {
-            return HttpServer.invalidRequest("request headers are incomplete");
-        }
-        if (headerEnd == -2 || headerEnd > self.maxHeaderBytes - 4
-                || headerEnd > 2147483643) {
-            return HttpServer.invalidRequest("request headers are malformed or too large");
-        }
-        Bytes headerBytes = raw.slice(0, headerEnd);
-        string head = headerBytes.toStringLossy();
-        int contentLength = HttpFraming.contentLength(head);
-        int transferEncoding = HttpFraming.transferEncoding(head);
-        if (contentLength == -2) {
-            return HttpServer.invalidRequest("invalid Content-Length");
-        }
-        if (transferEncoding == -2) {
-            return HttpServer.invalidRequest("unsupported Transfer-Encoding");
-        }
-        if (contentLength >= 0 && transferEncoding == 1) {
-            return HttpServer.invalidRequest(
-                "Content-Length and Transfer-Encoding cannot be combined");
-        }
-        if (contentLength > self.maxBodyBytes) {
-            return HttpServer.invalidRequest("request body exceeds configured limit");
-        }
+	/* Parse exactly one framed request. Bytes after that request are ignored. */
+	public HttpRequest parseBytes(Bytes raw) {
+		if (raw == null || raw.len == 0) {
+			return HttpServer.invalidRequest("request is incomplete");
+		}
+		if (self.maxHeaderBytes < 4 || self.maxBodyBytes < 0 || self.maxRequestBytes < self.maxHeaderBytes) {
+			return HttpServer.invalidRequest("server request limits are invalid");
+		}
+		if (raw.len > self.maxRequestBytes) {
+			return HttpServer.invalidRequest("request exceeds configured limit");
+		}
+		int headerEnd = HttpFraming.headerEnd(raw);
+		if (headerEnd == -1) {
+			return HttpServer.invalidRequest("request headers are incomplete");
+		}
+		if (headerEnd == -2 || headerEnd > self.maxHeaderBytes - 4 || headerEnd > 2147483643) {
+			return HttpServer.invalidRequest("request headers are malformed or too large");
+		}
+		Bytes headerBytes = raw.slice(0, headerEnd);
+		string head = headerBytes.toStringLossy();
+		int contentLength = HttpFraming.contentLength(head);
+		int transferEncoding = HttpFraming.transferEncoding(head);
+		if (contentLength == -2) {
+			return HttpServer.invalidRequest("invalid Content-Length");
+		}
+		if (transferEncoding == -2) {
+			return HttpServer.invalidRequest("unsupported Transfer-Encoding");
+		}
+		if (contentLength >= 0 && transferEncoding == 1) {
+			return HttpServer.invalidRequest("Content-Length and Transfer-Encoding cannot be combined");
+		}
+		if (contentLength > self.maxBodyBytes) {
+			return HttpServer.invalidRequest("request body exceeds configured limit");
+		}
 
-        HttpRequest request = HttpRequest();
-        if (!self.parseHead(request, head)) { return request; }
-        if (request.version.equals("HTTP/1.0") && transferEncoding == 1) {
-            return HttpServer.invalidRequest(
-                "HTTP/1.0 does not support Transfer-Encoding");
-        }
-        int bodyStart = headerEnd + 4;
-        if (transferEncoding == 1) {
-            int end = HttpFraming.chunkedEnd(
-                raw, bodyStart, self.maxBodyBytes, self.maxHeaderBytes);
-            if (end == -1) {
-                return HttpServer.invalidRequest("chunked request is incomplete");
-            }
-            if (end == -2) {
-                return HttpServer.invalidRequest("chunked request is malformed or too large");
-            }
-            Bytes encoded = raw.slice(bodyStart, end);
-            request.bodyBytes = HttpFraming.decodeChunked(
-                encoded, self.maxBodyBytes, self.maxHeaderBytes);
-        } else if (contentLength >= 0) {
-            if (contentLength > raw.len - bodyStart) {
-                return HttpServer.invalidRequest("request body is incomplete");
-            }
-            request.bodyBytes = raw.slice(bodyStart, bodyStart + contentLength);
-        } else {
-            request.bodyBytes = Bytes();
-        }
-        request.body = request.bodyBytes.toStringLossy();
-        request.valid = true;
-        request.error = "";
-        return request;
-    }
+		HttpRequest request = HttpRequest();
+		if (!self.parseHead(request, head)) { return request; }
+		if (request.version.equals("HTTP/1.0") && transferEncoding == 1) {
+			return HttpServer.invalidRequest("HTTP/1.0 does not support Transfer-Encoding");
+		}
+		int bodyStart = headerEnd + 4;
+		if (transferEncoding == 1) {
+			int end = HttpFraming.chunkedEnd(raw, bodyStart, self.maxBodyBytes, self.maxHeaderBytes);
+			if (end == -1) {
+				return HttpServer.invalidRequest("chunked request is incomplete");
+			}
+			if (end == -2) {
+				return HttpServer.invalidRequest("chunked request is malformed or too large");
+			}
+			Bytes encoded = raw.slice(bodyStart, end);
+			request.bodyBytes = HttpFraming.decodeChunked(encoded, self.maxBodyBytes, self.maxHeaderBytes);
+		} else if (contentLength >= 0) {
+			if (contentLength > raw.len - bodyStart) {
+				return HttpServer.invalidRequest("request body is incomplete");
+			}
+			request.bodyBytes = raw.slice(bodyStart, bodyStart + contentLength);
+		} else {
+			request.bodyBytes = Bytes();
+		}
+		request.body = request.bodyBytes.toStringLossy();
+		request.valid = true;
+		request.error = "";
+		return request;
+	}
 
-    public HttpRequest parse(string raw) {
-        if (raw == null) { return HttpServer.invalidRequest("request is null"); }
-        return self.parseBytes(Bytes.fromString(raw));
-    }
+	public HttpRequest parse(string raw) {
+		if (raw == null) { return HttpServer.invalidRequest("request is null"); }
+		return self.parseBytes(Bytes.fromString(raw));
+	}
 
-    class bool isChunked(string head, int headerEnd) {
-        if (head == null || headerEnd < 0 || headerEnd > head.len()) { return false; }
-        return HttpFraming.transferEncoding(head.substring(0, headerEnd)) == 1;
-    }
+	class bool isChunked(string head, int headerEnd) {
+		if (head == null || headerEnd < 0 || headerEnd > head.len()) { return false; }
+		return HttpFraming.transferEncoding(head.substring(0, headerEnd)) == 1;
+	}
 
-    /* Malformed or incomplete chunk streams decode to an empty string. */
-    class string decodeChunked(string body) {
-        if (body == null) { return ""; }
-        Bytes encoded = Bytes.fromString(body);
-        Bytes decoded = HttpFraming.decodeChunked(encoded, encoded.len, 65536);
-        return decoded.toStringLossy();
-    }
+	/* Malformed or incomplete chunk streams decode to an empty string. */
+	class string decodeChunked(string body) {
+		if (body == null) { return ""; }
+		Bytes encoded = Bytes.fromString(body);
+		Bytes decoded = HttpFraming.decodeChunked(encoded, encoded.len, 65536);
+		return decoded.toStringLossy();
+	}
 
-    /* Map a hex digit char to its 0..15 value, or -1 if not hex. */
-    class int hexVal(char ch) {
-        return HttpFraming.hexVal(ch);
-    }
+	/* Map a hex digit char to its 0..15 value, or -1 if not hex. */
+	class int hexVal(char ch) { return HttpFraming.hexVal(ch); }
 
-    /* Percent-decode an application/x-www-form-urlencoded token: "%XX" -> the
+	/* Percent-decode an application/x-www-form-urlencoded token: "%XX" -> the
      * byte XX, "+" -> space, everything else passes through. A "%" not followed
      * by two hex digits is left verbatim (lenient, matches browsers). */
-    class string urlDecode(string s) {
-        return HttpUrl.decode(s);
-    }
+	class string urlDecode(string s) { return HttpUrl.decode(s); }
 
-    /* Percent-encode a string for use in a query value. Unreserved characters
+	/* Percent-encode a string for use in a query value. Unreserved characters
      * (RFC 3986: A-Z a-z 0-9 - _ . ~) pass through; everything else becomes
      * "%XX" with upper-case hex. Space becomes "%20" (not "+"), so the result
      * is valid in both query and path contexts. */
-    class string urlEncode(string s) {
-        return HttpUrl.encode(s);
-    }
+	class string urlEncode(string s) { return HttpUrl.encode(s); }
 
-    public string reason(int status) {
-        return HttpStatus.reason(status);
-    }
+	public string reason(int status) { return HttpStatus.reason(status); }
 
-    public bool trySendAll(int c, string data) {
-        return HttpSocket.sendAll(c, data, self.timeoutSecs);
-    }
+	public bool trySendAll(int c, string data) { return HttpSocket.sendAll(c, data, self.timeoutSecs); }
 
-    /* Back-compatible fire-and-forget wrapper. */
-    public void sendAll(int c, string data) {
-        self.trySendAll(c, data);
-    }
+	/* Back-compatible fire-and-forget wrapper. */
+	public void sendAll(int c, string data) { self.trySendAll(c, data); }
 
-    public void respond(int c, HttpResponse resp) {
-        if (c < 0) { return; }
-        HttpResponse response = resp;
-        if (response == null) {
-            response = HttpResponse.error(500, "Internal Server Error");
-        }
-        int status = response.status;
-        /* This API emits a final response, so informational statuses are not
+	public void respond(int c, HttpResponse resp) {
+		if (c < 0) { return; }
+		HttpResponse response = resp;
+		if (response == null) {
+			response = HttpResponse.error(500, "Internal Server Error");
+		}
+		int status = response.status;
+		/* This API emits a final response, so informational statuses are not
          * representable without a following response. */
-        if (status < 200 || status > 599) { status = 500; }
-        string body = response.body == null ? "" : response.body;
-        if (status == 204 || status == 205 || status == 304) {
-            body = "";
-        }
-        string contentType = response.contentType;
-        if (contentType == null || contentType.isEmpty()
-                || contentType.len() > 1024 || !HttpFraming.fieldValue(contentType)) {
-            contentType = "application/octet-stream";
-        }
-        long long bodyLength = (long long)strlen(body);
-        string phrase = self.reason(status);
-        string head = f"HTTP/1.1 {status} {phrase}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyLength}\r\nCache-Control: no-store\r\nConnection: close\r\n";
-        if (response.extraHeaders != null) {
-            for h in response.extraHeaders {
-                if (!HttpFraming.headerLine(h)) { continue; }
-                int colon = Strings.find(h, ":", 0);
-                string name = h.substring(0, colon);
-                if (HttpResponseHeaders.reserved(name)) { continue; }
-                int available = 65536 - head.len();
-                if (available < 4 || h.len() > available - 4) { continue; }
-                head = head + h + "\r\n";
-            }
-        }
-        head = head + "\r\n";
-        long long deadline = HttpSocket.deadlineAfter(self.timeoutSecs);
-        bool sent = HttpSocket.sendAllUntil(c, head, deadline);
-        if (sent && !body.isEmpty()) {
-            HttpSocket.sendAllUntil(c, body, deadline);
-        }
-        shutdown(c, SHUT_WR);
-    }
+		if (status < 200 || status > 599) { status = 500; }
+		string body = response.body == null ? "" : response.body;
+		if (status == 204 || status == 205 || status == 304) {
+			body = "";
+		}
+		string contentType = response.contentType;
+		if (contentType == null || contentType.isEmpty() || contentType.len() > 1024 || !HttpFraming.fieldValue(contentType)) {
+			contentType = "application/octet-stream";
+		}
+		long long bodyLength = (long long)strlen(body);
+		string phrase = self.reason(status);
+		string head = f"HTTP/1.1 {status} {phrase}\r\nContent-Type: {contentType}\r\nContent-Length: {bodyLength}\r\nCache-Control: no-store\r\nConnection: close\r\n";
+		if (response.extraHeaders != null) {
+			for h in response.extraHeaders {
+				if (!HttpFraming.headerLine(h)) { continue; }
+				int colon = Strings.find(h, ":", 0);
+				string name = h.substring(0, colon);
+				if (HttpResponseHeaders.reserved(name)) { continue; }
+				int available = 65536 - head.len();
+				if (available < 4 || h.len() > available - 4) { continue; }
+				head = head + h + "\r\n";
+			}
+		}
+		head = head + "\r\n";
+		long long deadline = HttpSocket.deadlineAfter(self.timeoutSecs);
+		bool sent = HttpSocket.sendAllUntil(c, head, deadline);
+		if (sent && !body.isEmpty()) {
+			HttpSocket.sendAllUntil(c, body, deadline);
+		}
+		shutdown(c, SHUT_WR);
+	}
 }

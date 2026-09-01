@@ -12,35 +12,21 @@ typedef const RealtimeAudioInputChannel* RealtimeAudioInputChannels;
 typedef float* RealtimeAudioOutputChannel;
 typedef const RealtimeAudioOutputChannel* RealtimeAudioOutputChannels;
 
-typedef CFunction<
-    void,
-    void*,
-    RealtimeAudioInputChannels,
-    int,
-    RealtimeAudioOutputChannels,
-    int,
-    int
-> RealtimeAudioProcess;
+typedef CFunction< void, void*, RealtimeAudioInputChannels, int, RealtimeAudioOutputChannels, int, int > RealtimeAudioProcess;
 
 class RealtimeAudioProgram {
-    private RealtimeAudioProcess _process;
-    private void* _context;
+	private RealtimeAudioProcess _process;
+	private void* _context;
 
-    public RealtimeAudioProgram(
-            RealtimeAudioProcess process,
-            void* context) {
-        if (process == null) {
-            throw "realtime audio program requires a process callback";
-        }
-        self._process = process;
-        self._context = context;
-    }
+	public RealtimeAudioProgram(RealtimeAudioProcess process, void* context) {
+		if (process == null) {
+			throw "realtime audio program requires a process callback";
+		}
+		self._process = process;
+		self._context = context;
+	}
 
-    public RealtimeAudioProcess invokePointer() {
-        return self._process;
-    }
+	public RealtimeAudioProcess invokePointer() { return self._process; }
 
-    public void* context() {
-        return self._context;
-    }
+	public void* context() { return self._context; }
 }

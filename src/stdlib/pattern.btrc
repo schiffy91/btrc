@@ -5,21 +5,19 @@ import std.vector;
 #include <fnmatch.h>
 
 class UnixPattern {
-    class bool matches(string pattern, string text) {
-        if (pattern == null || text == null) { return false; }
-        return fnmatch(pattern, text, 0) == 0;
-    }
+	class bool matches(string pattern, string text) {
+		if (pattern == null || text == null) { return false; }
+		return fnmatch(pattern, text, 0) == 0;
+	}
 }
 
 class Pattern {
-    class bool matches(string pattern, string text) {
-        return UnixPattern.matches(pattern, text);
-    }
+	class bool matches(string pattern, string text) { return UnixPattern.matches(pattern, text); }
 
-    class bool anyMatches(Vector<string> patterns, string text) {
-        for pattern in patterns {
-            if (Pattern.matches(pattern, text)) { return true; }
-        }
-        return false;
-    }
+	class bool anyMatches(Vector<string> patterns, string text) {
+		for pattern in patterns {
+			if (Pattern.matches(pattern, text)) { return true; }
+		}
+		return false;
+	}
 }

@@ -9,1782 +9,1236 @@
 /* Text-input limits are byte limits; editing and rendering advance only at
  * validated UTF-8 scalar boundaries. */
 class NativeUiTextInput {
-    class int byteAt(string value, int index) {
-        return (int)(unsigned char)value[index];
-    }
+	class int byteAt(string value, int index) { return (int)(unsigned char)value[index]; }
 
-    class bool continuation(int value) {
-        return value >= 0x80 && value <= 0xBF;
-    }
+	class bool continuation(int value) { return value >= 0x80 && value <= 0xBF; }
 
-    class int scalarWidth(string value, int index) {
-        if (value == null || index < 0 || index >= value.len()) { return 0; }
-        int remaining = value.len() - index;
-        int first = NativeUiTextInput.byteAt(value, index);
-        if (first <= 0x7F) { return 1; }
-        if (first >= 0xC2 && first <= 0xDF && remaining >= 2
-                && NativeUiTextInput.continuation(
-                    NativeUiTextInput.byteAt(value, index + 1))) {
-            return 2;
-        }
-        if (remaining >= 3) {
-            int second = NativeUiTextInput.byteAt(value, index + 1);
-            int third = NativeUiTextInput.byteAt(value, index + 2);
-            bool validSecond = (first == 0xE0
-                    && second >= 0xA0 && second <= 0xBF)
-                || (first >= 0xE1 && first <= 0xEC
-                    && NativeUiTextInput.continuation(second))
-                || (first == 0xED && second >= 0x80 && second <= 0x9F)
-                || (first >= 0xEE && first <= 0xEF
-                    && NativeUiTextInput.continuation(second));
-            if (validSecond && NativeUiTextInput.continuation(third)) {
-                return 3;
-            }
-        }
-        if (remaining >= 4) {
-            int second = NativeUiTextInput.byteAt(value, index + 1);
-            int third = NativeUiTextInput.byteAt(value, index + 2);
-            int fourth = NativeUiTextInput.byteAt(value, index + 3);
-            bool validSecond = (first == 0xF0
-                    && second >= 0x90 && second <= 0xBF)
-                || (first >= 0xF1 && first <= 0xF3
-                    && NativeUiTextInput.continuation(second))
-                || (first == 0xF4 && second >= 0x80 && second <= 0x8F);
-            if (validSecond
-                    && NativeUiTextInput.continuation(third)
-                    && NativeUiTextInput.continuation(fourth)) {
-                return 4;
-            }
-        }
-        return 0;
-    }
+	class int scalarWidth(string value, int index) {
+		if (value == null || index < 0 || index >= value.len()) { return 0; }
+		int remaining = value.len() - index;
+		int first = NativeUiTextInput.byteAt(value, index);
+		if (first <= 0x7F) { return 1; }
+		if (first >= 0xC2 && first <= 0xDF && remaining >= 2 && NativeUiTextInput.continuation(NativeUiTextInput.byteAt(value, index + 1))) {
+			return 2;
+		}
+		if (remaining >= 3) {
+			int second = NativeUiTextInput.byteAt(value, index + 1);
+			int third = NativeUiTextInput.byteAt(value, index + 2);
+			bool validSecond = (first == 0xE0 && second >= 0xA0 && second <= 0xBF) || (first >= 0xE1 && first <= 0xEC && NativeUiTextInput.continuation(second)) || (first == 0xED && second >= 0x80 && second <= 0x9F) || (first >= 0xEE && first <= 0xEF && NativeUiTextInput.continuation(second));
+			if (validSecond && NativeUiTextInput.continuation(third)) {
+				return 3;
+			}
+		}
+		if (remaining >= 4) {
+			int second = NativeUiTextInput.byteAt(value, index + 1);
+			int third = NativeUiTextInput.byteAt(value, index + 2);
+			int fourth = NativeUiTextInput.byteAt(value, index + 3);
+			bool validSecond = (first == 0xF0 && second >= 0x90 && second <= 0xBF) || (first >= 0xF1 && first <= 0xF3 && NativeUiTextInput.continuation(second)) || (first == 0xF4 && second >= 0x80 && second <= 0x8F);
+			if (validSecond && NativeUiTextInput.continuation(third) && NativeUiTextInput.continuation(fourth)) {
+				return 4;
+			}
+		}
+		return 0;
+	}
 
-    class bool validUtf8(string value) {
-        if (value == null) { return false; }
-        int index = 0;
-        while (index < value.len()) {
-            int width = NativeUiTextInput.scalarWidth(value, index);
-            if (width == 0) { return false; }
-            index += width;
-        }
-        return true;
-    }
+	class bool validUtf8(string value) {
+		if (value == null) { return false; }
+		int index = 0;
+		while (index < value.len()) {
+			int width = NativeUiTextInput.scalarWidth(value, index);
+			if (width == 0) { return false; }
+			index += width;
+		}
+		return true;
+	}
 
-    class int previousBoundary(string value, int offset) {
-        if (value == null || offset <= 0) { return 0; }
-        int bounded = offset > value.len() ? value.len() : offset;
-        int index = bounded - 1;
-        while (index > 0 && NativeUiTextInput.continuation(
-                NativeUiTextInput.byteAt(value, index))) {
-            index--;
-        }
-        return index;
-    }
+	class int previousBoundary(string value, int offset) {
+		if (value == null || offset <= 0) { return 0; }
+		int bounded = offset > value.len() ? value.len() : offset;
+		int index = bounded - 1;
+		while (index > 0 && NativeUiTextInput.continuation(NativeUiTextInput.byteAt(value, index))) {
+			index--;
+		}
+		return index;
+	}
 
-    class int nextBoundary(string value, int offset) {
-        if (value == null || offset >= value.len()) {
-            return value == null ? 0 : value.len();
-        }
-        int bounded = offset < 0 ? 0 : offset;
-        int width = NativeUiTextInput.scalarWidth(value, bounded);
-        return width == 0 ? bounded : bounded + width;
-    }
+	class int nextBoundary(string value, int offset) {
+		if (value == null || offset >= value.len()) {
+			return value == null ? 0 : value.len();
+		}
+		int bounded = offset < 0 ? 0 : offset;
+		int width = NativeUiTextInput.scalarWidth(value, bounded);
+		return width == 0 ? bounded : bounded + width;
+	}
 
-    class int scalarCount(string value, int endOffset) {
-        if (value == null) { return 0; }
-        int end = endOffset < value.len() ? endOffset : value.len();
-        if (end < 0) { end = 0; }
-        int index = 0;
-        int count = 0;
-        while (index < end) {
-            int next = NativeUiTextInput.nextBoundary(value, index);
-            if (next <= index || next > end) { break; }
-            index = next;
-            count++;
-        }
-        return count;
-    }
+	class int scalarCount(string value, int endOffset) {
+		if (value == null) { return 0; }
+		int end = endOffset < value.len() ? endOffset : value.len();
+		if (end < 0) { end = 0; }
+		int index = 0;
+		int count = 0;
+		while (index < end) {
+			int next = NativeUiTextInput.nextBoundary(value, index);
+			if (next <= index || next > end) { break; }
+			index = next;
+			count++;
+		}
+		return count;
+	}
 }
 
 enum NativeUiFrameStatus {
-    NATIVE_UI_FRAME_READY = 0,
-    NATIVE_UI_FRAME_INVALID_VIEWPORT = 1,
-    NATIVE_UI_FRAME_INVALID_TREE = 2,
-    NATIVE_UI_FRAME_INVALID_STYLE = 3,
-    NATIVE_UI_FRAME_LIMIT_EXCEEDED = 4
+	NATIVE_UI_FRAME_READY = 0,
+	NATIVE_UI_FRAME_INVALID_VIEWPORT = 1,
+	NATIVE_UI_FRAME_INVALID_TREE = 2,
+	NATIVE_UI_FRAME_INVALID_STYLE = 3,
+	NATIVE_UI_FRAME_LIMIT_EXCEEDED = 4
 };
 
 class NativeUiColor {
-    public int red;
-    public int green;
-    public int blue;
-    public int alpha;
+	public int red;
+	public int green;
+	public int blue;
+	public int alpha;
 
-    public NativeUiColor(int red, int green, int blue, int alpha = 255) {
-        self.red = RGBA.channel(red);
-        self.green = RGBA.channel(green);
-        self.blue = RGBA.channel(blue);
-        self.alpha = RGBA.channel(alpha);
-    }
+	public NativeUiColor(int red, int green, int blue, int alpha = 255) {
+		self.red = RGBA.channel(red);
+		self.green = RGBA.channel(green);
+		self.blue = RGBA.channel(blue);
+		self.alpha = RGBA.channel(alpha);
+	}
 
-    class NativeUiColor hex(string value) {
-        int red = NativeUiColor.hexPair(value, 1);
-        int green = NativeUiColor.hexPair(value, 3);
-        int blue = NativeUiColor.hexPair(value, 5);
-        int alpha = value.len() == 9
-            ? NativeUiColor.hexPair(value, 7)
-            : 255;
-        return NativeUiColor(red, green, blue, alpha);
-    }
+	class NativeUiColor hex(string value) {
+		int red = NativeUiColor.hexPair(value, 1);
+		int green = NativeUiColor.hexPair(value, 3);
+		int blue = NativeUiColor.hexPair(value, 5);
+		int alpha = value.len() == 9 ? NativeUiColor.hexPair(value, 7) : 255;
+		return NativeUiColor(red, green, blue, alpha);
+	}
 
-    class int hexDigit(char value) {
-        if (value >= '0' && value <= '9') { return value - '0'; }
-        if (value >= 'a' && value <= 'f') { return value - 'a' + 10; }
-        return value - 'A' + 10;
-    }
+	class int hexDigit(char value) {
+		if (value >= '0' && value <= '9') { return value - '0'; }
+		if (value >= 'a' && value <= 'f') { return value - 'a' + 10; }
+		return value - 'A' + 10;
+	}
 
-    class int hexPair(string value, int offset) {
-        return NativeUiColor.hexDigit(value[offset]) * 16
-            + NativeUiColor.hexDigit(value[offset + 1]);
-    }
+	class int hexPair(string value, int offset) { return NativeUiColor.hexDigit(value[offset]) * 16 + NativeUiColor.hexDigit(value[offset + 1]); }
 }
 
 class NativeUiTheme {
-    public NativeUiColor background;
-    public NativeUiColor panel;
-    public NativeUiColor text;
-    public NativeUiColor mutedText;
-    public NativeUiColor accent;
-    public NativeUiColor accentText;
-    public NativeUiColor border;
+	public NativeUiColor background;
+	public NativeUiColor panel;
+	public NativeUiColor text;
+	public NativeUiColor mutedText;
+	public NativeUiColor accent;
+	public NativeUiColor accentText;
+	public NativeUiColor border;
 
-    public NativeUiTheme(
-        NativeUiColor background,
-        NativeUiColor panel,
-        NativeUiColor text,
-        NativeUiColor mutedText,
-        NativeUiColor accent,
-        NativeUiColor accentText,
-        NativeUiColor border
-    ) {
-        self.background = background;
-        self.panel = panel;
-        self.text = text;
-        self.mutedText = mutedText;
-        self.accent = accent;
-        self.accentText = accentText;
-        self.border = border;
-    }
+	public NativeUiTheme(NativeUiColor background, NativeUiColor panel, NativeUiColor text, NativeUiColor mutedText, NativeUiColor accent, NativeUiColor accentText, NativeUiColor border) {
+		self.background = background;
+		self.panel = panel;
+		self.text = text;
+		self.mutedText = mutedText;
+		self.accent = accent;
+		self.accentText = accentText;
+		self.border = border;
+	}
 
-    class NativeUiTheme nativeDefault() {
-        return NativeUiTheme(
-            NativeUiColor(246, 246, 248),
-            NativeUiColor(255, 255, 255),
-            NativeUiColor(31, 31, 34),
-            NativeUiColor(99, 99, 105),
-            NativeUiColor(24, 105, 222),
-            NativeUiColor(255, 255, 255),
-            NativeUiColor(205, 205, 211)
-        );
-    }
+	class NativeUiTheme nativeDefault() { return NativeUiTheme(NativeUiColor(246, 246, 248), NativeUiColor(255, 255, 255), NativeUiColor(31, 31, 34), NativeUiColor(99, 99, 105), NativeUiColor(24, 105, 222), NativeUiColor(255, 255, 255), NativeUiColor(205, 205, 211)); }
 }
 
 class NativeUiRect {
-    public int x;
-    public int y;
-    public int width;
-    public int height;
+	public int x;
+	public int y;
+	public int width;
+	public int height;
 
-    public NativeUiRect(int x, int y, int width, int height) {
-        self.x = x;
-        self.y = y;
-        self.width = width;
-        self.height = height;
-    }
+	public NativeUiRect(int x, int y, int width, int height) {
+		self.x = x;
+		self.y = y;
+		self.width = width;
+		self.height = height;
+	}
 
-    public bool contains(int pointX, int pointY) {
-        if (self.width <= 0 || self.height <= 0) { return false; }
-        long long px = (long long)pointX;
-        long long py = (long long)pointY;
-        return px >= (long long)self.x && py >= (long long)self.y
-            && px < (long long)self.x + (long long)self.width
-            && py < (long long)self.y + (long long)self.height;
-    }
+	public bool contains(int pointX, int pointY) {
+		if (self.width <= 0 || self.height <= 0) { return false; }
+		long long px = (long long)pointX;
+		long long py = (long long)pointY;
+		return px >= (long long)self.x && py >= (long long)self.y && px < (long long)self.x + (long long)self.width && py < (long long)self.y + (long long)self.height;
+	}
 }
 
 class NativeUiLayoutBox {
-    public NativeUiElement element;
-    public NativeUiRect bounds;
-    public int depth;
-    public NativeUiResolvedStyle style;
+	public NativeUiElement element;
+	public NativeUiRect bounds;
+	public int depth;
+	public NativeUiResolvedStyle style;
 
-    public NativeUiLayoutBox(
-        NativeUiElement element,
-        NativeUiRect bounds,
-        int depth,
-        NativeUiResolvedStyle style
-    ) {
-        self.element = element;
-        self.bounds = bounds;
-        self.depth = depth;
-        self.style = style;
-    }
+	public NativeUiLayoutBox(NativeUiElement element, NativeUiRect bounds, int depth, NativeUiResolvedStyle style) {
+		self.element = element;
+		self.bounds = bounds;
+		self.depth = depth;
+		self.style = style;
+	}
 
-    public string id() { return self.element.id(); }
-    public NativeUiElementKind kind() { return self.element.kind(); }
-    public bool interactive() {
-        return self.element.kind() == NATIVE_UI_BUTTON
-            || self.element.kind() == NATIVE_UI_TEXT_INPUT;
-    }
-    public bool clickable() { return self.element.kind() == NATIVE_UI_BUTTON; }
-    public bool focusable() {
-        return self.element.kind() == NATIVE_UI_TEXT_INPUT;
-    }
+	public string id() { return self.element.id(); }
+
+	public NativeUiElementKind kind() { return self.element.kind(); }
+
+	public bool interactive() { return self.element.kind() == NATIVE_UI_BUTTON || self.element.kind() == NATIVE_UI_TEXT_INPUT; }
+
+	public bool clickable() { return self.element.kind() == NATIVE_UI_BUTTON; }
+
+	public bool focusable() { return self.element.kind() == NATIVE_UI_TEXT_INPUT; }
 }
 
 class NativeUiFrame {
-    public NativeUiFrameStatus status;
-    public string error;
-    public NativeUiStyleError styleIssue;
-    public Image image;
-    public NativeUiViewportMetrics viewport;
-    public Vector<NativeUiLayoutBox> boxes;
-    public Vector<NativeUiVirtualGridViewport> virtualGrids;
-    public int contentWidth;
-    public int contentHeight;
+	public NativeUiFrameStatus status;
+	public string error;
+	public NativeUiStyleError styleIssue;
+	public Image image;
+	public NativeUiViewportMetrics viewport;
+	public Vector<NativeUiLayoutBox> boxes;
+	public Vector<NativeUiVirtualGridViewport> virtualGrids;
+	public int contentWidth;
+	public int contentHeight;
 
-    public NativeUiFrame(
-        NativeUiFrameStatus status,
-        string error,
-        NativeUiStyleError styleIssue,
-        Image image,
-        NativeUiViewportMetrics viewport,
-        Vector<NativeUiLayoutBox> boxes,
-        Vector<NativeUiVirtualGridViewport> virtualGrids,
-        int contentWidth,
-        int contentHeight
-    ) {
-        self.status = status;
-        self.error = error;
-        self.styleIssue = styleIssue;
-        self.image = image;
-        self.viewport = viewport;
-        self.boxes = boxes;
-        self.virtualGrids = virtualGrids;
-        self.contentWidth = contentWidth;
-        self.contentHeight = contentHeight;
-    }
+	public NativeUiFrame(NativeUiFrameStatus status, string error, NativeUiStyleError styleIssue, Image image, NativeUiViewportMetrics viewport, Vector<NativeUiLayoutBox> boxes, Vector<NativeUiVirtualGridViewport> virtualGrids, int contentWidth, int contentHeight) {
+		self.status = status;
+		self.error = error;
+		self.styleIssue = styleIssue;
+		self.image = image;
+		self.viewport = viewport;
+		self.boxes = boxes;
+		self.virtualGrids = virtualGrids;
+		self.contentWidth = contentWidth;
+		self.contentHeight = contentHeight;
+	}
 
-    class NativeUiFrame failed(
-        NativeUiFrameStatus status,
-        string error,
-        NativeUiStyleError styleIssue,
-        int width,
-        int height,
-        int scrollX,
-        int scrollY
-    ) {
-        Vector<NativeUiLayoutBox> boxes = [];
-        Vector<NativeUiVirtualGridViewport> virtualGrids = [];
-        return NativeUiFrame(
-            status,
-            error,
-            styleIssue,
-            Image.empty(),
-            NativeUiViewportMetrics(width, height, scrollX, scrollY),
-            boxes,
-            virtualGrids,
-            0,
-            0
-        );
-    }
+	class NativeUiFrame failed(NativeUiFrameStatus status, string error, NativeUiStyleError styleIssue, int width, int height, int scrollX, int scrollY) {
+		Vector<NativeUiLayoutBox> boxes = [];
+		Vector<NativeUiVirtualGridViewport> virtualGrids = [];
+		return NativeUiFrame(status, error, styleIssue, Image.empty(), NativeUiViewportMetrics(width, height, scrollX, scrollY), boxes, virtualGrids, 0, 0);
+	}
 
-    public bool ok() { return self.status == NATIVE_UI_FRAME_READY; }
-    public int boxCount() { return self.boxes.len; }
-    public NativeUiLayoutBox boxAt(int index) { return self.boxes.get(index); }
-    public int virtualGridCount() { return self.virtualGrids.len; }
-    public NativeUiVirtualGridViewport virtualGridAt(int index) {
-        return self.virtualGrids.get(index);
-    }
+	public bool ok() { return self.status == NATIVE_UI_FRAME_READY; }
 
-    public NativeUiLayoutBox? boxFor(string identity) {
-        for box in self.boxes {
-            if (box.id().equals(identity)) { return box; }
-        }
-        return null;
-    }
+	public int boxCount() { return self.boxes.len; }
 
-    public NativeUiVirtualGridViewport? virtualGridFor(string identity) {
-        for geometry in self.virtualGrids {
-            if (geometry.gridId().equals(identity)) { return geometry; }
-        }
-        return null;
-    }
+	public NativeUiLayoutBox boxAt(int index) { return self.boxes.get(index); }
 
-    public string scrollOwnerId(int x, int y) {
-        int contentX = x + self.viewport.scrollX();
-        int contentY = y + self.viewport.scrollY();
-        for (int index = self.boxes.len - 1; index >= 0; index--) {
-            NativeUiLayoutBox box = self.boxes.get(index);
-            if (box.kind() == NATIVE_UI_VIRTUAL_GRID
-                    && box.bounds.contains(contentX, contentY)) {
-                return box.id();
-            }
-        }
-        long long viewportTop = (long long)self.viewport.scrollY();
-        long long viewportBottom = viewportTop
-            + (long long)self.viewport.height();
-        long long bestIntersection = -1LL;
-        long long bestDistance = 9223372036854775807LL;
-        string bestIdentity = "";
-        for box in self.boxes {
-            if (box.kind() != NATIVE_UI_VIRTUAL_GRID) { continue; }
-            long long boxTop = (long long)box.bounds.y;
-            long long boxBottom = boxTop + (long long)box.bounds.height;
-            long long intersectionTop = viewportTop > boxTop
-                ? viewportTop : boxTop;
-            long long intersectionBottom = viewportBottom < boxBottom
-                ? viewportBottom : boxBottom;
-            long long intersection = intersectionBottom > intersectionTop
-                ? intersectionBottom - intersectionTop : 0LL;
-            long long distance = 0LL;
-            if (boxBottom < viewportTop) {
-                distance = viewportTop - boxBottom;
-            } else if (boxTop > viewportBottom) {
-                distance = boxTop - viewportBottom;
-            }
-            if (intersection > bestIntersection
-                    || (intersection == bestIntersection
-                        && distance < bestDistance)) {
-                bestIntersection = intersection;
-                bestDistance = distance;
-                bestIdentity = box.id();
-            }
-        }
-        return bestIdentity;
-    }
+	public int virtualGridCount() { return self.virtualGrids.len; }
 
-    public string hitId(int x, int y, bool interactiveOnly = false) {
-        NativeUiLayoutBox? optionalBox = self.hitBox(
-            x, y, interactiveOnly);
-        if (optionalBox == null) { return ""; }
-        NativeUiLayoutBox box = optionalBox;
-        return box.id();
-    }
+	public NativeUiVirtualGridViewport virtualGridAt(int index) { return self.virtualGrids.get(index); }
 
-    public NativeUiLayoutBox? hitBox(
-        int x,
-        int y,
-        bool interactiveOnly = false
-    ) {
-        int contentX = x + self.viewport.scrollX();
-        int contentY = y + self.viewport.scrollY();
-        for (int index = self.boxes.len - 1; index >= 0; index--) {
-            NativeUiLayoutBox box = self.boxes.get(index);
-            if ((!interactiveOnly || box.interactive())
-                    && box.bounds.contains(contentX, contentY)) {
-                return box;
-            }
-        }
-        return null;
-    }
+	public NativeUiLayoutBox? boxFor(string identity) {
+		for box in self.boxes {
+			if (box.id().equals(identity)) { return box; }
+		}
+		return null;
+	}
 
-    public string clickableId(int x, int y) {
-        int contentX = x + self.viewport.scrollX();
-        int contentY = y + self.viewport.scrollY();
-        for (int index = self.boxes.len - 1; index >= 0; index--) {
-            NativeUiLayoutBox box = self.boxes.get(index);
-            if (box.clickable()
-                    && box.bounds.contains(contentX, contentY)) {
-                return box.id();
-            }
-        }
-        return "";
-    }
+	public NativeUiVirtualGridViewport? virtualGridFor(string identity) {
+		for geometry in self.virtualGrids {
+			if (geometry.gridId().equals(identity)) { return geometry; }
+		}
+		return null;
+	}
+
+	public string scrollOwnerId(int x, int y) {
+		int contentX = x + self.viewport.scrollX();
+		int contentY = y + self.viewport.scrollY();
+		for (int index = self.boxes.len - 1; index >= 0; index--) {
+			NativeUiLayoutBox box = self.boxes.get(index);
+			if (box.kind() == NATIVE_UI_VIRTUAL_GRID && box.bounds.contains(contentX, contentY)) {
+				return box.id();
+			}
+		}
+		long long viewportTop = (long long)self.viewport.scrollY();
+		long long viewportBottom = viewportTop + (long long)self.viewport.height();
+		long long bestIntersection = -1LL;
+		long long bestDistance = 9223372036854775807LL;
+		string bestIdentity = "";
+		for box in self.boxes {
+			if (box.kind() != NATIVE_UI_VIRTUAL_GRID) { continue; }
+			long long boxTop = (long long)box.bounds.y;
+			long long boxBottom = boxTop + (long long)box.bounds.height;
+			long long intersectionTop = viewportTop > boxTop ? viewportTop : boxTop;
+			long long intersectionBottom = viewportBottom < boxBottom ? viewportBottom : boxBottom;
+			long long intersection = intersectionBottom > intersectionTop ? intersectionBottom - intersectionTop : 0LL;
+			long long distance = 0LL;
+			if (boxBottom < viewportTop) {
+				distance = viewportTop - boxBottom;
+			} else if (boxTop > viewportBottom) {
+				distance = boxTop - viewportBottom;
+			}
+			if (intersection > bestIntersection || (intersection == bestIntersection && distance < bestDistance)) {
+				bestIntersection = intersection;
+				bestDistance = distance;
+				bestIdentity = box.id();
+			}
+		}
+		return bestIdentity;
+	}
+
+	public string hitId(int x, int y, bool interactiveOnly = false) {
+		NativeUiLayoutBox? optionalBox = self.hitBox(x, y, interactiveOnly);
+		if (optionalBox == null) { return ""; }
+		NativeUiLayoutBox box = optionalBox;
+		return box.id();
+	}
+
+	public NativeUiLayoutBox? hitBox(int x, int y, bool interactiveOnly = false) {
+		int contentX = x + self.viewport.scrollX();
+		int contentY = y + self.viewport.scrollY();
+		for (int index = self.boxes.len - 1; index >= 0; index--) {
+			NativeUiLayoutBox box = self.boxes.get(index);
+			if ((!interactiveOnly || box.interactive()) && box.bounds.contains(contentX, contentY)) {
+				return box;
+			}
+		}
+		return null;
+	}
+
+	public string clickableId(int x, int y) {
+		int contentX = x + self.viewport.scrollX();
+		int contentY = y + self.viewport.scrollY();
+		for (int index = self.boxes.len - 1; index >= 0; index--) {
+			NativeUiLayoutBox box = self.boxes.get(index);
+			if (box.clickable() && box.bounds.contains(contentX, contentY)) {
+				return box.id();
+			}
+		}
+		return "";
+	}
 }
 
 class NativeUiEventBatch {
-    public NativeUiFrame frame;
-    public Vector<NativeUiEvent> events;
+	public NativeUiFrame frame;
+	public Vector<NativeUiEvent> events;
 
-    public NativeUiEventBatch(
-        NativeUiFrame frame,
-        Vector<NativeUiEvent> events
-    ) {
-        self.frame = frame;
-        self.events = events;
-    }
+	public NativeUiEventBatch(NativeUiFrame frame, Vector<NativeUiEvent> events) {
+		self.frame = frame;
+		self.events = events;
+	}
 
-    public int eventCount() { return self.events.len; }
-    public NativeUiEvent eventAt(int index) { return self.events.get(index); }
+	public int eventCount() { return self.events.len; }
+
+	public NativeUiEvent eventAt(int index) { return self.events.get(index); }
 }
 
 class NativeUiResolvedStyle {
-    public int gap;
-    public int padding;
-    public int radius;
-    public int width;
-    public int height;
-    public bool hasBackground;
-    public NativeUiColor background;
-    public bool hasForeground;
-    public NativeUiColor foreground;
+	public int gap;
+	public int padding;
+	public int radius;
+	public int width;
+	public int height;
+	public bool hasBackground;
+	public NativeUiColor background;
+	public bool hasForeground;
+	public NativeUiColor foreground;
 
-    public NativeUiResolvedStyle(NativeUiElementKind kind) {
-        self.gap = kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID
-            ? 12 : 8;
-        self.padding = kind == NATIVE_UI_COLUMN || kind == NATIVE_UI_GRID
-                || kind == NATIVE_UI_VIRTUAL_GRID
-            ? 12
-            : (kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT
-                ? 10 : 2);
-        self.radius = kind == NATIVE_UI_BUTTON
-                || kind == NATIVE_UI_TEXT_INPUT
-            ? 8 : 0;
-        self.width = 0;
-        self.height = 0;
-        self.hasBackground = false;
-        self.background = NativeUiColor(0, 0, 0, 0);
-        self.hasForeground = false;
-        self.foreground = NativeUiColor(0, 0, 0, 0);
-    }
+	public NativeUiResolvedStyle(NativeUiElementKind kind) {
+		self.gap = kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID ? 12 : 8;
+		self.padding = kind == NATIVE_UI_COLUMN || kind == NATIVE_UI_GRID || kind == NATIVE_UI_VIRTUAL_GRID ? 12 : (kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT ? 10 : 2);
+		self.radius = kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT ? 8 : 0;
+		self.width = 0;
+		self.height = 0;
+		self.hasBackground = false;
+		self.background = NativeUiColor(0, 0, 0, 0);
+		self.hasForeground = false;
+		self.foreground = NativeUiColor(0, 0, 0, 0);
+	}
 
-    class int pixelValue(string value) {
-        return Strings.toInt(value.substring(0, value.len() - 2));
-    }
+	class int pixelValue(string value) { return Strings.toInt(value.substring(0, value.len() - 2)); }
 
-    public void apply(string source) {
-        if (source == null || source.trim().isEmpty()) { return; }
-        Vector<string> declarations = Strings.split(source, ";");
-        for declarationValue in declarations {
-            string declaration = declarationValue.trim();
-            if (declaration.isEmpty()) { continue; }
-            int separator = declaration.indexOf(":");
-            string property = declaration.substring(0, separator)
-                .trim().toLower();
-            string value = declaration.substring(
-                separator + 1,
-                declaration.len() - separator - 1
-            ).trim();
-            if (property.equals("gap")) {
-                self.gap = NativeUiResolvedStyle.pixelValue(value);
-            } else if (property.equals("padding")) {
-                self.padding = NativeUiResolvedStyle.pixelValue(value);
-            } else if (property.equals("border-radius")) {
-                self.radius = NativeUiResolvedStyle.pixelValue(value);
-            } else if (property.equals("width")) {
-                self.width = NativeUiResolvedStyle.pixelValue(value);
-            } else if (property.equals("height")) {
-                self.height = NativeUiResolvedStyle.pixelValue(value);
-            } else if (property.equals("background-color")) {
-                self.hasBackground = true;
-                self.background = NativeUiColor.hex(value);
-            } else if (property.equals("color")) {
-                self.hasForeground = true;
-                self.foreground = NativeUiColor.hex(value);
-            }
-        }
-    }
+	public void apply(string source) {
+		if (source == null || source.trim().isEmpty()) { return; }
+		Vector<string> declarations = Strings.split(source, ";");
+		for declarationValue in declarations {
+			string declaration = declarationValue.trim();
+			if (declaration.isEmpty()) { continue; }
+			int separator = declaration.indexOf(":");
+			string property = declaration.substring(0, separator).trim().toLower();
+			string value = declaration.substring(separator + 1, declaration.len() - separator - 1).trim();
+			if (property.equals("gap")) {
+				self.gap = NativeUiResolvedStyle.pixelValue(value);
+			} else if (property.equals("padding")) {
+				self.padding = NativeUiResolvedStyle.pixelValue(value);
+			} else if (property.equals("border-radius")) {
+				self.radius = NativeUiResolvedStyle.pixelValue(value);
+			} else if (property.equals("width")) {
+				self.width = NativeUiResolvedStyle.pixelValue(value);
+			} else if (property.equals("height")) {
+				self.height = NativeUiResolvedStyle.pixelValue(value);
+			} else if (property.equals("background-color")) {
+				self.hasBackground = true;
+				self.background = NativeUiColor.hex(value);
+			} else if (property.equals("color")) {
+				self.hasForeground = true;
+				self.foreground = NativeUiColor.hex(value);
+			}
+		}
+	}
 
-    class NativeUiResolvedStyle from(
-        NativeUiElement element,
-        NativeUiStyleSheet sheet
-    ) {
-        NativeUiResolvedStyle style = NativeUiResolvedStyle(element.kind());
-        if (!element.cssClass().isEmpty()) {
-            style.apply(sheet.cssFor(element.cssClass()));
-        }
-        style.apply(element.inlineStyle());
-        return style;
-    }
+	class NativeUiResolvedStyle from(NativeUiElement element, NativeUiStyleSheet sheet) {
+		NativeUiResolvedStyle style = NativeUiResolvedStyle(element.kind());
+		if (!element.cssClass().isEmpty()) {
+			style.apply(sheet.cssFor(element.cssClass()));
+		}
+		style.apply(element.inlineStyle());
+		return style;
+	}
 }
 
 class NativeUiMeasuredNode {
-    public NativeUiElement element;
-    public NativeUiResolvedStyle style;
-    public Vector<NativeUiMeasuredNode> children;
-    public int width;
-    public int height;
+	public NativeUiElement element;
+	public NativeUiResolvedStyle style;
+	public Vector<NativeUiMeasuredNode> children;
+	public int width;
+	public int height;
 
-    public NativeUiMeasuredNode(
-        NativeUiElement element,
-        NativeUiResolvedStyle style
-    ) {
-        self.element = element;
-        self.style = style;
-        self.children = [];
-        self.width = 0;
-        self.height = 0;
-    }
+	public NativeUiMeasuredNode(NativeUiElement element, NativeUiResolvedStyle style) {
+		self.element = element;
+		self.style = style;
+		self.children = [];
+		self.width = 0;
+		self.height = 0;
+	}
 }
 
 class NativeUiBuildContext {
-    public NativeUiFrameStatus status;
-    public string error;
-    public NativeUiStyleError styleIssue;
-    public Vector<string> identities;
-    public int nodes;
-    public long long imagePixels;
-    public long long metadataBytes;
-    public NativeUiStyleSheet sheet;
+	public NativeUiFrameStatus status;
+	public string error;
+	public NativeUiStyleError styleIssue;
+	public Vector<string> identities;
+	public int nodes;
+	public long long imagePixels;
+	public long long metadataBytes;
+	public NativeUiStyleSheet sheet;
 
-    public NativeUiBuildContext(NativeUiStyleSheet sheet) {
-        self.status = NATIVE_UI_FRAME_READY;
-        self.error = "";
-        self.styleIssue = NativeUiStyleError.valid();
-        self.identities = [];
-        self.nodes = 0;
-        self.imagePixels = 0LL;
-        self.metadataBytes = 0LL;
-        self.sheet = sheet;
-    }
+	public NativeUiBuildContext(NativeUiStyleSheet sheet) {
+		self.status = NATIVE_UI_FRAME_READY;
+		self.error = "";
+		self.styleIssue = NativeUiStyleError.valid();
+		self.identities = [];
+		self.nodes = 0;
+		self.imagePixels = 0LL;
+		self.metadataBytes = 0LL;
+		self.sheet = sheet;
+	}
 
-    public void fail(NativeUiFrameStatus status, string error) {
-        if (self.status == NATIVE_UI_FRAME_READY) {
-            self.status = status;
-            self.error = error;
-        }
-    }
+	public void fail(NativeUiFrameStatus status, string error) {
+		if (self.status == NATIVE_UI_FRAME_READY) {
+			self.status = status;
+			self.error = error;
+		}
+	}
 
-    public bool addIdentity(string identity) {
-        if (identity == null || identity.isEmpty() || identity.len() > 512) {
-            self.fail(
-                NATIVE_UI_FRAME_INVALID_TREE,
-                "native UI element IDs must contain 1..512 bytes"
-            );
-            return false;
-        }
-        for existing in self.identities {
-            if (existing.equals(identity)) {
-                self.fail(
-                    NATIVE_UI_FRAME_INVALID_TREE,
-                    f"duplicate native UI element ID: {identity}"
-                );
-                return false;
-            }
-        }
-        self.identities.push(identity);
-        return true;
-    }
+	public bool addIdentity(string identity) {
+		if (identity == null || identity.isEmpty() || identity.len() > 512) {
+			self.fail(NATIVE_UI_FRAME_INVALID_TREE, "native UI element IDs must contain 1..512 bytes");
+			return false;
+		}
+		for existing in self.identities {
+			if (existing.equals(identity)) {
+				self.fail(NATIVE_UI_FRAME_INVALID_TREE, f"duplicate native UI element ID: {identity}");
+				return false;
+			}
+		}
+		self.identities.push(identity);
+		return true;
+	}
 }
 
 class NativeUiLayout {
-    class int maximum(int left, int right) {
-        return left > right ? left : right;
-    }
+	class int maximum(int left, int right) { return left > right ? left : right; }
 
-    class int minimum(int left, int right) {
-        return left < right ? left : right;
-    }
+	class int minimum(int left, int right) { return left < right ? left : right; }
 
-    class int gridColumns(int width, int gap) {
-        int columns = (width + gap) / (180 + gap);
-        if (columns < 1) { return 1; }
-        if (columns > 12) { return 12; }
-        return columns;
-    }
+	class int gridColumns(int width, int gap) {
+		int columns = (width + gap) / (180 + gap);
+		if (columns < 1) { return 1; }
+		if (columns > 12) { return 12; }
+		return columns;
+	}
 
-    class NativeUiMeasuredNode? measure(
-        NativeUiElement element,
-        int availableWidth,
-        int depth,
-        NativeUiBuildContext context
-    ) {
-        if (element == null) {
-            context.fail(
-                NATIVE_UI_FRAME_INVALID_TREE,
-                "native UI trees cannot contain null children"
-            );
-            return null;
-        }
-        if (depth > 64) {
-            context.fail(
-                NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                "native UI tree exceeds 64 levels"
-            );
-            return null;
-        }
-        context.nodes++;
-        if (context.nodes > 4096) {
-            context.fail(
-                NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                "native UI tree exceeds 4096 elements"
-            );
-            return null;
-        }
-        if (!context.addIdentity(element.id())) { return null; }
+	class NativeUiMeasuredNode? measure(NativeUiElement element, int availableWidth, int depth, NativeUiBuildContext context) {
+		if (element == null) {
+			context.fail(NATIVE_UI_FRAME_INVALID_TREE, "native UI trees cannot contain null children");
+			return null;
+		}
+		if (depth > 64) {
+			context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI tree exceeds 64 levels");
+			return null;
+		}
+		context.nodes++;
+		if (context.nodes > 4096) {
+			context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI tree exceeds 4096 elements");
+			return null;
+		}
+		if (!context.addIdentity(element.id())) { return null; }
 
-        NativeUiStyleError styleError = element.styleError();
-        if (!styleError.ok()) {
-            context.status = NATIVE_UI_FRAME_INVALID_STYLE;
-            context.error = styleError.message();
-            context.styleIssue = styleError;
-            return null;
-        }
-        if (!element.cssClass().isEmpty()) {
-            NativeUiStyleError selectorIssue =
-                NativeUiStyle.validateClassName(element.cssClass());
-            if (!selectorIssue.ok()) {
-                context.status = NATIVE_UI_FRAME_INVALID_STYLE;
-                context.error = selectorIssue.message();
-                context.styleIssue = selectorIssue;
-                return null;
-            }
-        }
-        if (element.kind() == NATIVE_UI_TEXT_INPUT
-                && (element.contentText() == null
-                    || element.placeholderText() == null)) {
-            context.fail(
-                NATIVE_UI_FRAME_INVALID_TREE,
-                f"native UI text input requires non-null UTF-8 text: "
-                    + f"{element.id()}"
-            );
-            return null;
-        }
-        if (element.inlineStyle().len() > 4096
-                || element.cssClass().len() > 128
-                || element.contentText().len() > 4096
-                || element.placeholderText().len() > 4096
-                || element.imageAlt().len() > 4096) {
-            context.fail(
-                NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                f"native UI element metadata exceeds its bound: {element.id()}"
-            );
-            return null;
-        }
-        if (element.kind() == NATIVE_UI_TEXT_INPUT
-                && (element.textInputMaxBytes() < 1
-                    || element.textInputMaxBytes() > 4096
-                    || element.contentText().len()
-                        > element.textInputMaxBytes()
-                    || !NativeUiTextInput.validUtf8(element.contentText())
-                    || !NativeUiTextInput.validUtf8(
-                        element.placeholderText()))) {
-            context.fail(
-                NATIVE_UI_FRAME_INVALID_TREE,
-                f"native UI text input is invalid or exceeds its byte bound: "
-                    + f"{element.id()}"
-            );
-            return null;
-        }
-        context.metadataBytes += (long long)element.id().len()
-            + (long long)element.inlineStyle().len()
-            + (long long)element.cssClass().len()
-            + (long long)element.contentText().len()
-            + (long long)element.placeholderText().len()
-            + (long long)element.imageAlt().len();
-        if (context.metadataBytes > 4194304LL) {
-            context.fail(
-                NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                "native UI tree metadata exceeds 4 MiB"
-            );
-            return null;
-        }
+		NativeUiStyleError styleError = element.styleError();
+		if (!styleError.ok()) {
+			context.status = NATIVE_UI_FRAME_INVALID_STYLE;
+			context.error = styleError.message();
+			context.styleIssue = styleError;
+			return null;
+		}
+		if (!element.cssClass().isEmpty()) {
+			NativeUiStyleError selectorIssue = NativeUiStyle.validateClassName(element.cssClass());
+			if (!selectorIssue.ok()) {
+				context.status = NATIVE_UI_FRAME_INVALID_STYLE;
+				context.error = selectorIssue.message();
+				context.styleIssue = selectorIssue;
+				return null;
+			}
+		}
+		if (element.kind() == NATIVE_UI_TEXT_INPUT && (element.contentText() == null || element.placeholderText() == null)) {
+			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI text input requires non-null UTF-8 text: " + f"{element.id()}");
+			return null;
+		}
+		if (element.inlineStyle().len() > 4096 || element.cssClass().len() > 128 || element.contentText().len() > 4096 || element.placeholderText().len() > 4096 || element.imageAlt().len() > 4096) {
+			context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, f"native UI element metadata exceeds its bound: {element.id()}");
+			return null;
+		}
+		if (element.kind() == NATIVE_UI_TEXT_INPUT && (element.textInputMaxBytes() < 1 || element.textInputMaxBytes() > 4096 || element.contentText().len() > element.textInputMaxBytes() || !NativeUiTextInput.validUtf8(element.contentText()) || !NativeUiTextInput.validUtf8(element.placeholderText()))) {
+			context.fail(NATIVE_UI_FRAME_INVALID_TREE, f"native UI text input is invalid or exceeds its byte bound: " + f"{element.id()}");
+			return null;
+		}
+		context.metadataBytes += (long long)element.id().len() + (long long)element.inlineStyle().len() + (long long)element.cssClass().len() + (long long)element.contentText().len() + (long long)element.placeholderText().len() + (long long)element.imageAlt().len();
+		if (context.metadataBytes > 4194304LL) {
+			context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI tree metadata exceeds 4 MiB");
+			return null;
+		}
 
-        NativeUiResolvedStyle style = NativeUiResolvedStyle.from(
-            element, context.sheet);
-        NativeUiMeasuredNode measured = NativeUiMeasuredNode(element, style);
-        int inset = style.padding * 2;
-        int innerWidth = availableWidth - inset;
-        if (innerWidth < 1) { innerWidth = 1; }
+		NativeUiResolvedStyle style = NativeUiResolvedStyle.from(element, context.sheet);
+		NativeUiMeasuredNode measured = NativeUiMeasuredNode(element, style);
+		int inset = style.padding * 2;
+		int innerWidth = availableWidth - inset;
+		if (innerWidth < 1) { innerWidth = 1; }
 
-        if (element.kind() == NATIVE_UI_TEXT) {
-            measured.width = NativeUiLayout.minimum(
-                availableWidth,
-                NativeUiTextInput.scalarCount(
-                    element.contentText(), element.contentText().len())
-                    * 12 + inset
-            );
-            measured.height = 14 + inset;
-        } else if (element.kind() == NATIVE_UI_TEXT_INPUT) {
-            measured.width = availableWidth;
-            measured.height = NativeUiLayout.maximum(36, 14 + inset);
-        } else if (element.kind() == NATIVE_UI_IMAGE) {
-            Image? optionalImage = element.contentImage();
-            if (optionalImage == null || optionalImage.isEmpty()) {
-                measured.width = NativeUiLayout.minimum(96 + inset, availableWidth);
-                measured.height = 96 + inset;
-            } else {
-                Image image = optionalImage;
-                long long pixels =
-                    (long long)image.width * (long long)image.height;
-                if (image.width > 4096 || image.height > 4096
-                        || pixels > 16777216LL
-                        || context.imagePixels + pixels > 67108864LL) {
-                    context.fail(
-                        NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                        f"native UI image exceeds renderer bounds: {element.id()}"
-                    );
-                    return null;
-                }
-                context.imagePixels += pixels;
-                measured.width = NativeUiLayout.minimum(
-                    NativeUiLayout.maximum(1, image.width) + inset,
-                    availableWidth
-                );
-                measured.height = NativeUiLayout.maximum(1, image.height) + inset;
-            }
-        } else {
-            bool regularGrid = element.kind() == NATIVE_UI_GRID;
-            bool virtualGrid = element.kind() == NATIVE_UI_VIRTUAL_GRID;
-            if (virtualGrid && style.height > 0) {
-                NativeUiStyleError virtualHeightIssue = NativeUiStyleError(
-                    NATIVE_UI_STYLE_INVALID_VALUE,
-                    "height",
-                    "virtual grid height is derived from its total content"
-                );
-                context.status = NATIVE_UI_FRAME_INVALID_STYLE;
-                context.error = virtualHeightIssue.message();
-                context.styleIssue = virtualHeightIssue;
-                return null;
-            }
-            int childWidth = innerWidth;
-            int columns = regularGrid
-                ? NativeUiLayout.gridColumns(innerWidth, style.gap)
-                : 1;
-            NativeUiVirtualGrid? optionalVirtual = null;
-            if (virtualGrid) {
-                optionalVirtual = element.virtualGridDescriptor();
-                if (optionalVirtual == null || !optionalVirtual.ok()) {
-                    context.fail(
-                        NATIVE_UI_FRAME_INVALID_TREE,
-                        optionalVirtual == null
-                            ? "virtual grid requires a descriptor"
-                            : optionalVirtual.issue().message()
-                    );
-                    return null;
-                }
-                NativeUiVirtualGrid descriptor = optionalVirtual;
-                if (descriptor.columns() > 64
-                        || descriptor.rowHeight() > 4096
-                        || descriptor.totalCount() > 100000000) {
-                    context.fail(
-                        NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                        "virtual grid geometry exceeds native UI bounds"
-                    );
-                    return null;
-                }
-                if ((long long)descriptor.firstDataIndex()
-                        + (long long)element.childCount()
-                        > (long long)descriptor.totalCount()) {
-                    context.fail(
-                        NATIVE_UI_FRAME_INVALID_TREE,
-                        "virtual grid child pool exceeds totalCount"
-                    );
-                    return null;
-                }
-                columns = descriptor.columns();
-            }
-            if (regularGrid || virtualGrid) {
-                childWidth = (innerWidth - style.gap * (columns - 1)) / columns;
-                if (childWidth < 1) { childWidth = 1; }
-            }
-            for (int index = 0; index < element.childCount(); index++) {
-                NativeUiMeasuredNode? optionalChild = NativeUiLayout.measure(
-                    element.childAt(index), childWidth, depth + 1, context);
-                if (optionalChild == null) { return null; }
-                if (virtualGrid) {
-                    NativeUiVirtualGrid descriptor = optionalVirtual;
-                    optionalChild.height = descriptor.rowHeight();
-                }
-                measured.children.push(optionalChild);
-            }
+		if (element.kind() == NATIVE_UI_TEXT) {
+			measured.width = NativeUiLayout.minimum(availableWidth, NativeUiTextInput.scalarCount(element.contentText(), element.contentText().len()) * 12 + inset);
+			measured.height = 14 + inset;
+		} else if (element.kind() == NATIVE_UI_TEXT_INPUT) {
+			measured.width = availableWidth;
+			measured.height = NativeUiLayout.maximum(36, 14 + inset);
+		} else if (element.kind() == NATIVE_UI_IMAGE) {
+			Image? optionalImage = element.contentImage();
+			if (optionalImage == null || optionalImage.isEmpty()) {
+				measured.width = NativeUiLayout.minimum(96 + inset, availableWidth);
+				measured.height = 96 + inset;
+			} else {
+				Image image = optionalImage;
+				long long pixels = (long long)image.width * (long long)image.height;
+				if (image.width > 4096 || image.height > 4096 || pixels > 16777216LL || context.imagePixels + pixels > 67108864LL) {
+					context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, f"native UI image exceeds renderer bounds: {element.id()}");
+					return null;
+				}
+				context.imagePixels += pixels;
+				measured.width = NativeUiLayout.minimum(NativeUiLayout.maximum(1, image.width) + inset, availableWidth);
+				measured.height = NativeUiLayout.maximum(1, image.height) + inset;
+			}
+		} else {
+			bool regularGrid = element.kind() == NATIVE_UI_GRID;
+			bool virtualGrid = element.kind() == NATIVE_UI_VIRTUAL_GRID;
+			if (virtualGrid && style.height > 0) {
+				NativeUiStyleError virtualHeightIssue = NativeUiStyleError(NATIVE_UI_STYLE_INVALID_VALUE, "height", "virtual grid height is derived from its total content");
+				context.status = NATIVE_UI_FRAME_INVALID_STYLE;
+				context.error = virtualHeightIssue.message();
+				context.styleIssue = virtualHeightIssue;
+				return null;
+			}
+			int childWidth = innerWidth;
+			int columns = regularGrid ? NativeUiLayout.gridColumns(innerWidth, style.gap) : 1;
+			NativeUiVirtualGrid? optionalVirtual = null;
+			if (virtualGrid) {
+				optionalVirtual = element.virtualGridDescriptor();
+				if (optionalVirtual == null || !optionalVirtual.ok()) {
+					context.fail(NATIVE_UI_FRAME_INVALID_TREE, optionalVirtual == null ? "virtual grid requires a descriptor" : optionalVirtual.issue().message());
+					return null;
+				}
+				NativeUiVirtualGrid descriptor = optionalVirtual;
+				if (descriptor.columns() > 64 || descriptor.rowHeight() > 4096 || descriptor.totalCount() > 100000000) {
+					context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "virtual grid geometry exceeds native UI bounds");
+					return null;
+				}
+				if ((long long)descriptor.firstDataIndex() + (long long)element.childCount() > (long long)descriptor.totalCount()) {
+					context.fail(NATIVE_UI_FRAME_INVALID_TREE, "virtual grid child pool exceeds totalCount");
+					return null;
+				}
+				columns = descriptor.columns();
+			}
+			if (regularGrid || virtualGrid) {
+				childWidth = (innerWidth - style.gap * (columns - 1)) / columns;
+				if (childWidth < 1) { childWidth = 1; }
+			}
+			for (int index = 0; index < element.childCount(); index++) {
+				NativeUiMeasuredNode? optionalChild = NativeUiLayout.measure(element.childAt(index), childWidth, depth + 1, context);
+				if (optionalChild == null) { return null; }
+				if (virtualGrid) {
+					NativeUiVirtualGrid descriptor = optionalVirtual;
+					optionalChild.height = descriptor.rowHeight();
+				}
+				measured.children.push(optionalChild);
+			}
 
-            if (virtualGrid) {
-                NativeUiVirtualGrid descriptor = optionalVirtual;
-                long long totalRows = descriptor.totalCount() == 0
-                    ? 0LL
-                    : ((long long)descriptor.totalCount()
-                        + (long long)columns - 1LL) / (long long)columns;
-                long long contentHeight = totalRows
-                    * (long long)descriptor.rowHeight()
-                    + (totalRows > 0 ? totalRows - 1LL : 0LL)
-                        * (long long)style.gap
-                    + (long long)inset;
-                if (contentHeight > 1000000000LL) {
-                    context.fail(
-                        NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                        "virtual grid content extent exceeds 1 billion pixels"
-                    );
-                    return null;
-                }
-                measured.width = availableWidth;
-                measured.height = (int)contentHeight;
-            } else if (regularGrid) {
-                long long rowsHeight = 0LL;
-                int rowHeight = 0;
-                for (int index = 0; index < measured.children.len; index++) {
-                    NativeUiMeasuredNode child = measured.children.get(index);
-                    rowHeight = NativeUiLayout.maximum(rowHeight, child.height);
-                    if ((index + 1) % columns == 0
-                            || index == measured.children.len - 1) {
-                        if (rowsHeight > 0LL) {
-                            rowsHeight += (long long)style.gap;
-                        }
-                        rowsHeight += (long long)rowHeight;
-                        rowHeight = 0;
-                    }
-                }
-                if (rowsHeight + (long long)inset > 1000000000LL) {
-                    context.fail(
-                        NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                        "native UI grid content exceeds 1 billion pixels"
-                    );
-                    return null;
-                }
-                measured.width = availableWidth;
-                measured.height = (int)(rowsHeight + (long long)inset);
-            } else {
-                long long childrenHeight = 0LL;
-                int childrenWidth = 0;
-                for child in measured.children {
-                    if (childrenHeight > 0LL) {
-                        childrenHeight += (long long)style.gap;
-                    }
-                    childrenHeight += (long long)child.height;
-                    childrenWidth = NativeUiLayout.maximum(
-                        childrenWidth, child.width);
-                }
-                int labelHeight = element.kind() == NATIVE_UI_BUTTON ? 20 : 0;
-                if (labelHeight > 0 && childrenHeight > 0LL) {
-                    childrenHeight += (long long)style.gap;
-                }
-                measured.width = element.kind() == NATIVE_UI_BUTTON
-                    ? NativeUiLayout.minimum(
-                        availableWidth,
-                        NativeUiLayout.maximum(
-                            element.contentText().len() * 12 + inset,
-                            childrenWidth + inset))
-                    : availableWidth;
-                long long totalHeight = (long long)labelHeight
-                    + childrenHeight + (long long)inset;
-                if (totalHeight > 1000000000LL) {
-                    context.fail(
-                        NATIVE_UI_FRAME_LIMIT_EXCEEDED,
-                        "native UI column content exceeds 1 billion pixels"
-                    );
-                    return null;
-                }
-                measured.height = (int)totalHeight;
-                if (element.kind() == NATIVE_UI_BUTTON
-                        && measured.height < 36) {
-                    measured.height = 36;
-                }
-            }
-        }
-        if (style.width > 0) {
-            measured.width = NativeUiLayout.minimum(style.width, availableWidth);
-        }
-        if (style.height > 0) { measured.height = style.height; }
-        if (measured.width < 1) { measured.width = 1; }
-        if (measured.height < 1) { measured.height = 1; }
-        return measured;
-    }
+			if (virtualGrid) {
+				NativeUiVirtualGrid descriptor = optionalVirtual;
+				long long totalRows = descriptor.totalCount() == 0 ? 0LL : ((long long)descriptor.totalCount() + (long long)columns - 1LL) / (long long)columns;
+				long long contentHeight = totalRows * (long long)descriptor.rowHeight() + (totalRows > 0 ? totalRows - 1LL : 0LL) * (long long)style.gap + (long long)inset;
+				if (contentHeight > 1000000000LL) {
+					context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "virtual grid content extent exceeds 1 billion pixels");
+					return null;
+				}
+				measured.width = availableWidth;
+				measured.height = (int)contentHeight;
+			} else if (regularGrid) {
+				long long rowsHeight = 0LL;
+				int rowHeight = 0;
+				for (int index = 0; index < measured.children.len; index++) {
+					NativeUiMeasuredNode child = measured.children.get(index);
+					rowHeight = NativeUiLayout.maximum(rowHeight, child.height);
+					if ((index + 1) % columns == 0 || index == measured.children.len - 1) {
+						if (rowsHeight > 0LL) {
+							rowsHeight += (long long)style.gap;
+						}
+						rowsHeight += (long long)rowHeight;
+						rowHeight = 0;
+					}
+				}
+				if (rowsHeight + (long long)inset > 1000000000LL) {
+					context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI grid content exceeds 1 billion pixels");
+					return null;
+				}
+				measured.width = availableWidth;
+				measured.height = (int)(rowsHeight + (long long)inset);
+			} else {
+				long long childrenHeight = 0LL;
+				int childrenWidth = 0;
+				for child in measured.children {
+					if (childrenHeight > 0LL) {
+						childrenHeight += (long long)style.gap;
+					}
+					childrenHeight += (long long)child.height;
+					childrenWidth = NativeUiLayout.maximum(childrenWidth, child.width);
+				}
+				int labelHeight = element.kind() == NATIVE_UI_BUTTON ? 20 : 0;
+				if (labelHeight > 0 && childrenHeight > 0LL) {
+					childrenHeight += (long long)style.gap;
+				}
+				measured.width = element.kind() == NATIVE_UI_BUTTON ? NativeUiLayout.minimum(availableWidth, NativeUiLayout.maximum(element.contentText().len() * 12 + inset, childrenWidth + inset)) : availableWidth;
+				long long totalHeight = (long long)labelHeight + childrenHeight + (long long)inset;
+				if (totalHeight > 1000000000LL) {
+					context.fail(NATIVE_UI_FRAME_LIMIT_EXCEEDED, "native UI column content exceeds 1 billion pixels");
+					return null;
+				}
+				measured.height = (int)totalHeight;
+				if (element.kind() == NATIVE_UI_BUTTON && measured.height < 36) {
+					measured.height = 36;
+				}
+			}
+		}
+		if (style.width > 0) {
+			measured.width = NativeUiLayout.minimum(style.width, availableWidth);
+		}
+		if (style.height > 0) { measured.height = style.height; }
+		if (measured.width < 1) { measured.width = 1; }
+		if (measured.height < 1) { measured.height = 1; }
+		return measured;
+	}
 
-    class void place(
-        NativeUiMeasuredNode node,
-        int x,
-        int y,
-        int width,
-        int depth,
-        Vector<NativeUiLayoutBox> boxes
-    ) {
-        boxes.push(NativeUiLayoutBox(
-            node.element,
-            NativeUiRect(x, y, width, node.height),
-            depth,
-            node.style
-        ));
-        int innerX = x + node.style.padding;
-        int innerY = y + node.style.padding;
-        int innerWidth = width - node.style.padding * 2;
-        if (innerWidth < 1) { innerWidth = 1; }
-        if (node.element.kind() == NATIVE_UI_VIRTUAL_GRID) {
-            NativeUiVirtualGrid descriptor =
-                node.element.virtualGridDescriptor();
-            int columns = descriptor.columns();
-            int childWidth =
-                (innerWidth - node.style.gap * (columns - 1)) / columns;
-            if (childWidth < 1) { childWidth = 1; }
-            for (int index = 0; index < node.children.len; index++) {
-                int dataIndex = descriptor.firstDataIndex() + index;
-                int row = dataIndex / columns;
-                int column = dataIndex % columns;
-                NativeUiLayout.place(
-                    node.children.get(index),
-                    innerX + column * (childWidth + node.style.gap),
-                    innerY + row
-                        * (descriptor.rowHeight() + node.style.gap),
-                    childWidth,
-                    depth + 1,
-                    boxes
-                );
-            }
-        } else if (node.element.kind() == NATIVE_UI_GRID) {
-            int columns = NativeUiLayout.gridColumns(innerWidth, node.style.gap);
-            int childWidth =
-                (innerWidth - node.style.gap * (columns - 1)) / columns;
-            int cursorY = innerY;
-            int index = 0;
-            while (index < node.children.len) {
-                int rowEnd = NativeUiLayout.minimum(
-                    index + columns, node.children.len);
-                int rowHeight = 0;
-                for (int cell = index; cell < rowEnd; cell++) {
-                    rowHeight = NativeUiLayout.maximum(
-                        rowHeight, node.children.get(cell).height);
-                }
-                for (int cell = index; cell < rowEnd; cell++) {
-                    int column = cell - index;
-                    NativeUiLayout.place(
-                        node.children.get(cell),
-                        innerX + column * (childWidth + node.style.gap),
-                        cursorY,
-                        childWidth,
-                        depth + 1,
-                        boxes
-                    );
-                }
-                cursorY += rowHeight + node.style.gap;
-                index = rowEnd;
-            }
-        } else if (node.children.len > 0) {
-            int cursorY = innerY;
-            if (node.element.kind() == NATIVE_UI_BUTTON) {
-                cursorY += 20 + node.style.gap;
-            }
-            for child in node.children {
-                NativeUiLayout.place(
-                    child,
-                    innerX,
-                    cursorY,
-                    innerWidth,
-                    depth + 1,
-                    boxes
-                );
-                cursorY += child.height + node.style.gap;
-            }
-        }
-    }
+	class void place(NativeUiMeasuredNode node, int x, int y, int width, int depth, Vector<NativeUiLayoutBox> boxes) {
+		boxes.push(NativeUiLayoutBox(node.element, NativeUiRect(x, y, width, node.height), depth, node.style));
+		int innerX = x + node.style.padding;
+		int innerY = y + node.style.padding;
+		int innerWidth = width - node.style.padding * 2;
+		if (innerWidth < 1) { innerWidth = 1; }
+		if (node.element.kind() == NATIVE_UI_VIRTUAL_GRID) {
+			NativeUiVirtualGrid descriptor = node.element.virtualGridDescriptor();
+			int columns = descriptor.columns();
+			int childWidth = (innerWidth - node.style.gap * (columns - 1)) / columns;
+			if (childWidth < 1) { childWidth = 1; }
+			for (int index = 0; index < node.children.len; index++) {
+				int dataIndex = descriptor.firstDataIndex() + index;
+				int row = dataIndex / columns;
+				int column = dataIndex % columns;
+				NativeUiLayout.place(node.children.get(index), innerX + column * (childWidth + node.style.gap), innerY + row * (descriptor.rowHeight() + node.style.gap), childWidth, depth + 1, boxes);
+			}
+		} else if (node.element.kind() == NATIVE_UI_GRID) {
+			int columns = NativeUiLayout.gridColumns(innerWidth, node.style.gap);
+			int childWidth = (innerWidth - node.style.gap * (columns - 1)) / columns;
+			int cursorY = innerY;
+			int index = 0;
+			while (index < node.children.len) {
+				int rowEnd = NativeUiLayout.minimum(index + columns, node.children.len);
+				int rowHeight = 0;
+				for (int cell = index; cell < rowEnd; cell++) {
+					rowHeight = NativeUiLayout.maximum(rowHeight, node.children.get(cell).height);
+				}
+				for (int cell = index; cell < rowEnd; cell++) {
+					int column = cell - index;
+					NativeUiLayout.place(node.children.get(cell), innerX + column * (childWidth + node.style.gap), cursorY, childWidth, depth + 1, boxes);
+				}
+				cursorY += rowHeight + node.style.gap;
+				index = rowEnd;
+			}
+		} else if (node.children.len > 0) {
+			int cursorY = innerY;
+			if (node.element.kind() == NATIVE_UI_BUTTON) {
+				cursorY += 20 + node.style.gap;
+			}
+			for child in node.children {
+				NativeUiLayout.place(child, innerX, cursorY, innerWidth, depth + 1, boxes);
+				cursorY += child.height + node.style.gap;
+			}
+		}
+	}
 
-    class Vector<NativeUiVirtualGridViewport> virtualGridViewports(
-        Vector<NativeUiLayoutBox> boxes,
-        NativeUiViewportMetrics viewport
-    ) {
-        Vector<NativeUiVirtualGridViewport> geometries = [];
-        long long viewportTop = (long long)viewport.scrollY();
-        long long viewportBottom = viewportTop + (long long)viewport.height();
-        for box in boxes {
-            if (box.kind() != NATIVE_UI_VIRTUAL_GRID) { continue; }
-            NativeUiVirtualGrid descriptor =
-                box.element.virtualGridDescriptor();
-            int rowPitch = descriptor.rowHeight() + box.style.gap;
-            long long contentTop = (long long)box.bounds.y
-                + (long long)box.style.padding;
-            long long contentBottom = (long long)box.bounds.y
-                + (long long)box.bounds.height
-                - (long long)box.style.padding;
-            if (contentBottom < contentTop) { contentBottom = contentTop; }
-            long long localScroll = viewportTop - contentTop;
-            if (localScroll < 0LL) { localScroll = 0LL; }
-            if (localScroll > contentBottom - contentTop) {
-                localScroll = contentBottom - contentTop;
-            }
-            int firstVisible = 0;
-            int visibleCount = 0;
-            long long intersectionTop = viewportTop > contentTop
-                ? viewportTop : contentTop;
-            long long intersectionBottom = viewportBottom < contentBottom
-                ? viewportBottom : contentBottom;
-            if (intersectionBottom > intersectionTop
-                    && descriptor.totalCount() > 0) {
-                long long firstRow =
-                    (intersectionTop - contentTop) / (long long)rowPitch;
-                long long lastRowExclusive =
-                    (intersectionBottom - contentTop
-                        + (long long)rowPitch - 1LL)
-                    / (long long)rowPitch;
-                long long first = firstRow * (long long)descriptor.columns();
-                long long count = (lastRowExclusive - firstRow)
-                    * (long long)descriptor.columns();
-                if (first > (long long)descriptor.totalCount()) {
-                    first = (long long)descriptor.totalCount();
-                }
-                if (count > (long long)descriptor.totalCount() - first) {
-                    count = (long long)descriptor.totalCount() - first;
-                }
-                firstVisible = (int)first;
-                visibleCount = (int)count;
-            } else if (viewportTop >= contentBottom) {
-                firstVisible = descriptor.totalCount();
-            }
-            geometries.push(NativeUiVirtualGridViewport(
-                box.id(),
-                descriptor.totalCount(),
-                descriptor.columns(),
-                descriptor.rowHeight(),
-                rowPitch,
-                (int)contentTop,
-                (int)localScroll,
-                firstVisible,
-                visibleCount
-            ));
-        }
-        return geometries;
-    }
+	class Vector<NativeUiVirtualGridViewport> virtualGridViewports(Vector<NativeUiLayoutBox> boxes, NativeUiViewportMetrics viewport) {
+		Vector<NativeUiVirtualGridViewport> geometries = [];
+		long long viewportTop = (long long)viewport.scrollY();
+		long long viewportBottom = viewportTop + (long long)viewport.height();
+		for box in boxes {
+			if (box.kind() != NATIVE_UI_VIRTUAL_GRID) { continue; }
+			NativeUiVirtualGrid descriptor = box.element.virtualGridDescriptor();
+			int rowPitch = descriptor.rowHeight() + box.style.gap;
+			long long contentTop = (long long)box.bounds.y + (long long)box.style.padding;
+			long long contentBottom = (long long)box.bounds.y + (long long)box.bounds.height - (long long)box.style.padding;
+			if (contentBottom < contentTop) { contentBottom = contentTop; }
+			long long localScroll = viewportTop - contentTop;
+			if (localScroll < 0LL) { localScroll = 0LL; }
+			if (localScroll > contentBottom - contentTop) {
+				localScroll = contentBottom - contentTop;
+			}
+			int firstVisible = 0;
+			int visibleCount = 0;
+			long long intersectionTop = viewportTop > contentTop ? viewportTop : contentTop;
+			long long intersectionBottom = viewportBottom < contentBottom ? viewportBottom : contentBottom;
+			if (intersectionBottom > intersectionTop && descriptor.totalCount() > 0) {
+				long long firstRow = (intersectionTop - contentTop) / (long long)rowPitch;
+				long long lastRowExclusive = (intersectionBottom - contentTop + (long long)rowPitch - 1LL) / (long long)rowPitch;
+				long long first = firstRow * (long long)descriptor.columns();
+				long long count = (lastRowExclusive - firstRow) * (long long)descriptor.columns();
+				if (first > (long long)descriptor.totalCount()) {
+					first = (long long)descriptor.totalCount();
+				}
+				if (count > (long long)descriptor.totalCount() - first) {
+					count = (long long)descriptor.totalCount() - first;
+				}
+				firstVisible = (int)first;
+				visibleCount = (int)count;
+			} else if (viewportTop >= contentBottom) {
+				firstVisible = descriptor.totalCount();
+			}
+			geometries.push(NativeUiVirtualGridViewport(box.id(), descriptor.totalCount(), descriptor.columns(), descriptor.rowHeight(), rowPitch, (int)contentTop, (int)localScroll, firstVisible, visibleCount));
+		}
+		return geometries;
+	}
 }
 
 class NativeUiRaster {
-    class void pixel(Image image, int x, int y, NativeUiColor color) {
-        if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
-            return;
-        }
-        int offset = (y * image.width + x) * 4;
-        if (color.alpha == 255) {
-            image.data[offset] = (unsigned char)color.red;
-            image.data[offset + 1] = (unsigned char)color.green;
-            image.data[offset + 2] = (unsigned char)color.blue;
-            image.data[offset + 3] = (unsigned char)255;
-            return;
-        }
-        int inverse = 255 - color.alpha;
-        image.data[offset] = (unsigned char)(
-            (color.red * color.alpha + (int)image.data[offset] * inverse) / 255);
-        image.data[offset + 1] = (unsigned char)(
-            (color.green * color.alpha
-                + (int)image.data[offset + 1] * inverse) / 255);
-        image.data[offset + 2] = (unsigned char)(
-            (color.blue * color.alpha
-                + (int)image.data[offset + 2] * inverse) / 255);
-        image.data[offset + 3] = (unsigned char)255;
-    }
+	class void pixel(Image image, int x, int y, NativeUiColor color) {
+		if (x < 0 || y < 0 || x >= image.width || y >= image.height) {
+			return;
+		}
+		int offset = (y * image.width + x) * 4;
+		if (color.alpha == 255) {
+			image.data[offset] = (unsigned char)color.red;
+			image.data[offset + 1] = (unsigned char)color.green;
+			image.data[offset + 2] = (unsigned char)color.blue;
+			image.data[offset + 3] = (unsigned char)255;
+			return;
+		}
+		int inverse = 255 - color.alpha;
+		image.data[offset] = (unsigned char)((color.red * color.alpha + (int)image.data[offset] * inverse) / 255);
+		image.data[offset + 1] = (unsigned char)((color.green * color.alpha + (int)image.data[offset + 1] * inverse) / 255);
+		image.data[offset + 2] = (unsigned char)((color.blue * color.alpha + (int)image.data[offset + 2] * inverse) / 255);
+		image.data[offset + 3] = (unsigned char)255;
+	}
 
-    class void fillRect(
-        Image image,
-        int x,
-        int y,
-        int width,
-        int height,
-        NativeUiColor color,
-        int radius = 0
-    ) {
-        int startX = x < 0 ? 0 : x;
-        int startY = y < 0 ? 0 : y;
-        int endX = x + width > image.width ? image.width : x + width;
-        int endY = y + height > image.height ? image.height : y + height;
-        int safeRadius = radius;
-        int halfWidth = width / 2;
-        int halfHeight = height / 2;
-        if (safeRadius > halfWidth) { safeRadius = halfWidth; }
-        if (safeRadius > halfHeight) { safeRadius = halfHeight; }
-        for (int row = startY; row < endY; row++) {
-            for (int column = startX; column < endX; column++) {
-                if (safeRadius > 0) {
-                    int localX = column - x;
-                    int localY = row - y;
-                    int centerX = localX < safeRadius
-                        ? safeRadius
-                        : (localX >= width - safeRadius
-                            ? width - safeRadius - 1
-                            : localX);
-                    int centerY = localY < safeRadius
-                        ? safeRadius
-                        : (localY >= height - safeRadius
-                            ? height - safeRadius - 1
-                            : localY);
-                    int dx = localX - centerX;
-                    int dy = localY - centerY;
-                    if (dx * dx + dy * dy > safeRadius * safeRadius) {
-                        continue;
-                    }
-                }
-                NativeUiRaster.pixel(image, column, row, color);
-            }
-        }
-    }
+	class void fillRect(Image image, int x, int y, int width, int height, NativeUiColor color, int radius = 0) {
+		int startX = x < 0 ? 0 : x;
+		int startY = y < 0 ? 0 : y;
+		int endX = x + width > image.width ? image.width : x + width;
+		int endY = y + height > image.height ? image.height : y + height;
+		int safeRadius = radius;
+		int halfWidth = width / 2;
+		int halfHeight = height / 2;
+		if (safeRadius > halfWidth) { safeRadius = halfWidth; }
+		if (safeRadius > halfHeight) { safeRadius = halfHeight; }
+		for (int row = startY; row < endY; row++) {
+			for (int column = startX; column < endX; column++) {
+				if (safeRadius > 0) {
+					int localX = column - x;
+					int localY = row - y;
+					int centerX = localX < safeRadius ? safeRadius : (localX >= width - safeRadius ? width - safeRadius - 1 : localX);
+					int centerY = localY < safeRadius ? safeRadius : (localY >= height - safeRadius ? height - safeRadius - 1 : localY);
+					int dx = localX - centerX;
+					int dy = localY - centerY;
+					if (dx * dx + dy * dy > safeRadius * safeRadius) {
+						continue;
+					}
+				}
+				NativeUiRaster.pixel(image, column, row, color);
+			}
+		}
+	}
 
-    class unsigned long long glyph(char raw) {
-        char value = raw >= 'a' && raw <= 'z' ? raw - 'a' + 'A' : raw;
-        switch (value) {
-            case '0': return 0x3a33ae62eULL;
-            case '1': return 0x3884210c4ULL;
-            case '2': return 0x7c444422eULL;
-            case '3': return 0x3e107420fULL;
-            case '4': return 0x211f4a988ULL;
-            case '5': return 0x3e107843fULL;
-            case '6': return 0x3a317842eULL;
-            case '7': return 0x8422221fULL;
-            case '8': return 0x3a317462eULL;
-            case '9': return 0x3a10f462eULL;
-            case 'A': return 0x4631fc62eULL;
-            case 'B': return 0x3e317c62fULL;
-            case 'C': return 0x78210843eULL;
-            case 'D': return 0x3e318c62fULL;
-            case 'E': return 0x7c217843fULL;
-            case 'F': return 0x4217843fULL;
-            case 'G': return 0x7a31e843eULL;
-            case 'H': return 0x4631fc631ULL;
-            case 'I': return 0x7c842109fULL;
-            case 'J': return 0x19294211cULL;
-            case 'K': return 0x452519531ULL;
-            case 'L': return 0x7c2108421ULL;
-            case 'M': return 0x4631ad771ULL;
-            case 'N': return 0x4631cd671ULL;
-            case 'O': return 0x3a318c62eULL;
-            case 'P': return 0x4217c62fULL;
-            case 'Q': return 0x59358c62eULL;
-            case 'R': return 0x45257c62fULL;
-            case 'S': return 0x3e107043eULL;
-            case 'T': return 0x10842109fULL;
-            case 'U': return 0x3a318c631ULL;
-            case 'V': return 0x11518c631ULL;
-            case 'W': return 0x2ab5ac631ULL;
-            case 'X': return 0x462a22a31ULL;
-            case 'Y': return 0x108422a31ULL;
-            case 'Z': return 0x7c222221fULL;
-            case '-': return 0x00003e000ULL;
-            case '.': return 0x300000000ULL;
-            case ':': return 0x018000180ULL;
-            default: return value == ' ' ? 0ULL : 0x2318c62a2ULL;
-        }
-    }
+	class unsigned long long glyph(char raw) {
+		char value = raw >= 'a' && raw <= 'z' ? raw - 'a' + 'A' : raw;
+		switch (value) {
+			case '0': return 0x3a33ae62eULL;
+			case '1': return 0x3884210c4ULL;
+			case '2': return 0x7c444422eULL;
+			case '3': return 0x3e107420fULL;
+			case '4': return 0x211f4a988ULL;
+			case '5': return 0x3e107843fULL;
+			case '6': return 0x3a317842eULL;
+			case '7': return 0x8422221fULL;
+			case '8': return 0x3a317462eULL;
+			case '9': return 0x3a10f462eULL;
+			case 'A': return 0x4631fc62eULL;
+			case 'B': return 0x3e317c62fULL;
+			case 'C': return 0x78210843eULL;
+			case 'D': return 0x3e318c62fULL;
+			case 'E': return 0x7c217843fULL;
+			case 'F': return 0x4217843fULL;
+			case 'G': return 0x7a31e843eULL;
+			case 'H': return 0x4631fc631ULL;
+			case 'I': return 0x7c842109fULL;
+			case 'J': return 0x19294211cULL;
+			case 'K': return 0x452519531ULL;
+			case 'L': return 0x7c2108421ULL;
+			case 'M': return 0x4631ad771ULL;
+			case 'N': return 0x4631cd671ULL;
+			case 'O': return 0x3a318c62eULL;
+			case 'P': return 0x4217c62fULL;
+			case 'Q': return 0x59358c62eULL;
+			case 'R': return 0x45257c62fULL;
+			case 'S': return 0x3e107043eULL;
+			case 'T': return 0x10842109fULL;
+			case 'U': return 0x3a318c631ULL;
+			case 'V': return 0x11518c631ULL;
+			case 'W': return 0x2ab5ac631ULL;
+			case 'X': return 0x462a22a31ULL;
+			case 'Y': return 0x108422a31ULL;
+			case 'Z': return 0x7c222221fULL;
+			case '-': return 0x00003e000ULL;
+			case '.': return 0x300000000ULL;
+			case ':': return 0x018000180ULL;
+			default: return value == ' ' ? 0ULL : 0x2318c62a2ULL;
+		}
+	}
 
-    class void text(
-        Image image,
-        int x,
-        int y,
-        string value,
-        NativeUiColor color
-    ) {
-        int cursor = x;
-        int index = 0;
-        while (index < value.len()) {
-            unsigned long long glyph = NativeUiRaster.glyph(value[index]);
-            for (int row = 0; row < 7; row++) {
-                for (int column = 0; column < 5; column++) {
-                    int bit = row * 5 + column;
-                    if (((glyph >> bit) & 1ULL) != 0ULL) {
-                        NativeUiRaster.fillRect(
-                            image,
-                            cursor + column * 2,
-                            y + row * 2,
-                            2,
-                            2,
-                            color
-                        );
-                    }
-                }
-            }
-            index = NativeUiTextInput.nextBoundary(value, index);
-            cursor += 12;
-            if (cursor >= image.width) { return; }
-        }
-    }
+	class void text(Image image, int x, int y, string value, NativeUiColor color) {
+		int cursor = x;
+		int index = 0;
+		while (index < value.len()) {
+			unsigned long long glyph = NativeUiRaster.glyph(value[index]);
+			for (int row = 0; row < 7; row++) {
+				for (int column = 0; column < 5; column++) {
+					int bit = row * 5 + column;
+					if (((glyph >> bit) & 1ULL) != 0ULL) {
+						NativeUiRaster.fillRect(image, cursor + column * 2, y + row * 2, 2, 2, color);
+					}
+				}
+			}
+			index = NativeUiTextInput.nextBoundary(value, index);
+			cursor += 12;
+			if (cursor >= image.width) { return; }
+		}
+	}
 
-    class void image(
-        Image target,
-        Image source,
-        NativeUiRect bounds,
-        int scrollX,
-        int scrollY,
-        int padding
-    ) {
-        int x = bounds.x - scrollX + padding;
-        int y = bounds.y - scrollY + padding;
-        int width = bounds.width - padding * 2;
-        int height = bounds.height - padding * 2;
-        if (width <= 0 || height <= 0 || source.isEmpty()) { return; }
-        for (int row = 0; row < height; row++) {
-            int targetY = y + row;
-            if (targetY < 0 || targetY >= target.height) { continue; }
-            int sourceY = row * source.height / height;
-            for (int column = 0; column < width; column++) {
-                int targetX = x + column;
-                if (targetX < 0 || targetX >= target.width) { continue; }
-                int sourceX = column * source.width / width;
-                int sourceOffset = (sourceY * source.width + sourceX) * 4;
-                NativeUiRaster.pixel(
-                    target,
-                    targetX,
-                    targetY,
-                    NativeUiColor(
-                        (int)source.data[sourceOffset],
-                        (int)source.data[sourceOffset + 1],
-                        (int)source.data[sourceOffset + 2],
-                        (int)source.data[sourceOffset + 3]
-                    )
-                );
-            }
-        }
-    }
+	class void image(Image target, Image source, NativeUiRect bounds, int scrollX, int scrollY, int padding) {
+		int x = bounds.x - scrollX + padding;
+		int y = bounds.y - scrollY + padding;
+		int width = bounds.width - padding * 2;
+		int height = bounds.height - padding * 2;
+		if (width <= 0 || height <= 0 || source.isEmpty()) { return; }
+		for (int row = 0; row < height; row++) {
+			int targetY = y + row;
+			if (targetY < 0 || targetY >= target.height) { continue; }
+			int sourceY = row * source.height / height;
+			for (int column = 0; column < width; column++) {
+				int targetX = x + column;
+				if (targetX < 0 || targetX >= target.width) { continue; }
+				int sourceX = column * source.width / width;
+				int sourceOffset = (sourceY * source.width + sourceX) * 4;
+				NativeUiRaster.pixel(target, targetX, targetY, NativeUiColor((int)source.data[sourceOffset], (int)source.data[sourceOffset + 1], (int)source.data[sourceOffset + 2], (int)source.data[sourceOffset + 3]));
+			}
+		}
+	}
 
-    class void frame(
-        Image image,
-        Vector<NativeUiLayoutBox> boxes,
-        NativeUiTheme theme,
-        string hovered,
-        string focused,
-        string focusedValue,
-        int caretByteOffset,
-        int scrollX,
-        int scrollY
-    ) {
-        NativeUiRaster.fillRect(
-            image, 0, 0, image.width, image.height, theme.background);
-        for box in boxes {
-            NativeUiResolvedStyle style = box.style;
-            int x = box.bounds.x - scrollX;
-            int y = box.bounds.y - scrollY;
-            if (box.element.kind() == NATIVE_UI_TEXT_INPUT) {
-                bool hasFocus = box.id().equals(focused);
-                NativeUiRaster.fillRect(
-                    image, x, y, box.bounds.width, box.bounds.height,
-                    hasFocus ? theme.accent : theme.border,
-                    style.radius);
-                NativeUiColor fill = style.hasBackground
-                    ? style.background : theme.panel;
-                if (box.bounds.width > 2 && box.bounds.height > 2) {
-                    NativeUiRaster.fillRect(
-                        image,
-                        x + 1,
-                        y + 1,
-                        box.bounds.width - 2,
-                        box.bounds.height - 2,
-                        fill,
-                        style.radius > 0 ? style.radius - 1 : 0);
-                }
-                string value = hasFocus
-                    ? focusedValue : box.element.contentText();
-                bool placeholder = value.isEmpty();
-                string visibleValue = placeholder
-                    ? box.element.placeholderText() : value;
-                NativeUiRaster.text(
-                    image,
-                    x + style.padding,
-                    y + (box.bounds.height - 14) / 2,
-                    visibleValue,
-                    placeholder
-                        ? theme.mutedText
-                        : (style.hasForeground
-                            ? style.foreground : theme.text)
-                );
-                if (hasFocus) {
-                    int caretX = x + style.padding
-                        + NativeUiTextInput.scalarCount(
-                            value, caretByteOffset) * 12;
-                    if (caretX >= x + style.padding
-                            && caretX < x + box.bounds.width
-                                - style.padding + 1) {
-                        NativeUiRaster.fillRect(
-                            image,
-                            caretX,
-                            y + (box.bounds.height - 16) / 2,
-                            2,
-                            16,
-                            style.hasForeground
-                                ? style.foreground : theme.text);
-                    }
-                }
-            } else if (box.element.kind() == NATIVE_UI_BUTTON) {
-                NativeUiColor fill = box.id().equals(hovered)
-                    ? theme.accent
-                    : theme.panel;
-                NativeUiRaster.fillRect(
-                    image, x, y, box.bounds.width, box.bounds.height,
-                    fill, style.radius);
-                NativeUiColor label = box.id().equals(hovered)
-                    ? theme.accentText
-                    : (style.hasForeground ? style.foreground : theme.text);
-                NativeUiRaster.text(
-                    image,
-                    x + style.padding,
-                    y + style.padding,
-                    box.element.contentText(),
-                    label
-                );
-            } else {
-                if (style.hasBackground) {
-                    NativeUiRaster.fillRect(
-                        image, x, y, box.bounds.width, box.bounds.height,
-                        style.background, style.radius);
-                }
-                if (box.element.kind() == NATIVE_UI_TEXT) {
-                    NativeUiRaster.text(
-                        image,
-                        x + style.padding,
-                        y + style.padding,
-                        box.element.contentText(),
-                        style.hasForeground ? style.foreground : theme.text
-                    );
-                } else if (box.element.kind() == NATIVE_UI_IMAGE) {
-                    Image? optionalImage = box.element.contentImage();
-                    if (optionalImage != null && !optionalImage.isEmpty()) {
-                        NativeUiRaster.image(
-                            image,
-                            optionalImage,
-                            box.bounds,
-                            scrollX,
-                            scrollY,
-                            style.padding
-                        );
-                    } else {
-                        NativeUiRaster.fillRect(
-                            image, x, y, box.bounds.width, box.bounds.height,
-                            theme.border, style.radius);
-                    }
-                }
-            }
-        }
-    }
+	class void frame(Image image, Vector<NativeUiLayoutBox> boxes, NativeUiTheme theme, string hovered, string focused, string focusedValue, int caretByteOffset, int scrollX, int scrollY) {
+		NativeUiRaster.fillRect(image, 0, 0, image.width, image.height, theme.background);
+		for box in boxes {
+			NativeUiResolvedStyle style = box.style;
+			int x = box.bounds.x - scrollX;
+			int y = box.bounds.y - scrollY;
+			if (box.element.kind() == NATIVE_UI_TEXT_INPUT) {
+				bool hasFocus = box.id().equals(focused);
+				NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, hasFocus ? theme.accent : theme.border, style.radius);
+				NativeUiColor fill = style.hasBackground ? style.background : theme.panel;
+				if (box.bounds.width > 2 && box.bounds.height > 2) {
+					NativeUiRaster.fillRect(image, x + 1, y + 1, box.bounds.width - 2, box.bounds.height - 2, fill, style.radius > 0 ? style.radius - 1 : 0);
+				}
+				string value = hasFocus ? focusedValue : box.element.contentText();
+				bool placeholder = value.isEmpty();
+				string visibleValue = placeholder ? box.element.placeholderText() : value;
+				NativeUiRaster.text(image, x + style.padding, y + (box.bounds.height - 14) / 2, visibleValue, placeholder ? theme.mutedText : (style.hasForeground ? style.foreground : theme.text));
+				if (hasFocus) {
+					int caretX = x + style.padding + NativeUiTextInput.scalarCount(value, caretByteOffset) * 12;
+					if (caretX >= x + style.padding && caretX < x + box.bounds.width - style.padding + 1) {
+						NativeUiRaster.fillRect(image, caretX, y + (box.bounds.height - 16) / 2, 2, 16, style.hasForeground ? style.foreground : theme.text);
+					}
+				}
+			} else if (box.element.kind() == NATIVE_UI_BUTTON) {
+				NativeUiColor fill = box.id().equals(hovered) ? theme.accent : theme.panel;
+				NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, fill, style.radius);
+				NativeUiColor label = box.id().equals(hovered) ? theme.accentText : (style.hasForeground ? style.foreground : theme.text);
+				NativeUiRaster.text(image, x + style.padding, y + style.padding, box.element.contentText(), label);
+			} else {
+				if (style.hasBackground) {
+					NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, style.background, style.radius);
+				}
+				if (box.element.kind() == NATIVE_UI_TEXT) {
+					NativeUiRaster.text(image, x + style.padding, y + style.padding, box.element.contentText(), style.hasForeground ? style.foreground : theme.text);
+				} else if (box.element.kind() == NATIVE_UI_IMAGE) {
+					Image? optionalImage = box.element.contentImage();
+					if (optionalImage != null && !optionalImage.isEmpty()) {
+						NativeUiRaster.image(image, optionalImage, box.bounds, scrollX, scrollY, style.padding);
+					} else {
+						NativeUiRaster.fillRect(image, x, y, box.bounds.width, box.bounds.height, theme.border, style.radius);
+					}
+				}
+			}
+		}
+	}
 }
 
 class NativeUiRenderer {
-    private NativeUiTheme themeValue;
-    private NativeUiStyleSheet sheetValue;
-    private NativeUiElement? rootValue;
-    private NativeUiFrame frameValue;
-    private int widthValue;
-    private int heightValue;
-    private int scrollXValue;
-    private int scrollYValue;
-    private int pointerXValue;
-    private int pointerYValue;
-    private string hoveredIdentity;
-    private string pressedIdentity;
-    private string focusedIdentity;
-    private string focusedInputValue;
-    private int focusedCaretByteOffset;
-    private int focusedMaxBytes;
-    private bool proofRasterValue;
+	private NativeUiTheme themeValue;
+	private NativeUiStyleSheet sheetValue;
+	private NativeUiElement? rootValue;
+	private NativeUiFrame frameValue;
+	private int widthValue;
+	private int heightValue;
+	private int scrollXValue;
+	private int scrollYValue;
+	private int pointerXValue;
+	private int pointerYValue;
+	private string hoveredIdentity;
+	private string pressedIdentity;
+	private string focusedIdentity;
+	private string focusedInputValue;
+	private int focusedCaretByteOffset;
+	private int focusedMaxBytes;
+	private bool proofRasterValue;
 
-    public NativeUiRenderer(
-        NativeUiTheme? theme = null,
-        NativeUiStyleSheet? styleSheet = null
-    ) {
-        self.themeValue = theme == null
-            ? NativeUiTheme.nativeDefault()
-            : theme;
-        self.sheetValue = styleSheet == null
-            ? NativeUiStyleSheet()
-            : styleSheet;
-        self.rootValue = null;
-        self.widthValue = 0;
-        self.heightValue = 0;
-        self.scrollXValue = 0;
-        self.scrollYValue = 0;
-        self.pointerXValue = -1;
-        self.pointerYValue = -1;
-        self.hoveredIdentity = "";
-        self.pressedIdentity = "";
-        self.focusedIdentity = "";
-        self.focusedInputValue = "";
-        self.focusedCaretByteOffset = 0;
-        self.focusedMaxBytes = 0;
-        self.proofRasterValue = false;
-        self.frameValue = NativeUiFrame.failed(
-            NATIVE_UI_FRAME_INVALID_VIEWPORT,
-            "native UI has not rendered a viewport",
-            NativeUiStyleError.valid(),
-            0, 0, 0, 0
-        );
-    }
+	public NativeUiRenderer(NativeUiTheme? theme = null, NativeUiStyleSheet? styleSheet = null) {
+		self.themeValue = theme == null ? NativeUiTheme.nativeDefault() : theme;
+		self.sheetValue = styleSheet == null ? NativeUiStyleSheet() : styleSheet;
+		self.rootValue = null;
+		self.widthValue = 0;
+		self.heightValue = 0;
+		self.scrollXValue = 0;
+		self.scrollYValue = 0;
+		self.pointerXValue = -1;
+		self.pointerYValue = -1;
+		self.hoveredIdentity = "";
+		self.pressedIdentity = "";
+		self.focusedIdentity = "";
+		self.focusedInputValue = "";
+		self.focusedCaretByteOffset = 0;
+		self.focusedMaxBytes = 0;
+		self.proofRasterValue = false;
+		self.frameValue = NativeUiFrame.failed(NATIVE_UI_FRAME_INVALID_VIEWPORT, "native UI has not rendered a viewport", NativeUiStyleError.valid(), 0, 0, 0, 0);
+	}
 
-    class NativeUiRenderer styled(NativeUiStyleSheet styleSheet) {
-        return NativeUiRenderer(null, styleSheet);
-    }
+	class NativeUiRenderer styled(NativeUiStyleSheet styleSheet) { return NativeUiRenderer(null, styleSheet); }
 
-    public NativeUiFrame currentFrame() { return self.frameValue; }
-    public string hoveredId() { return self.hoveredIdentity; }
-    public string pressedId() { return self.pressedIdentity; }
-    public string focusedId() { return self.focusedIdentity; }
-    public string focusedValue() { return self.focusedInputValue; }
-    public int focusedCaret() { return self.focusedCaretByteOffset; }
+	public NativeUiFrame currentFrame() { return self.frameValue; }
 
-    public string displayValue(NativeUiElement element) {
-        if (element.kind() == NATIVE_UI_TEXT_INPUT
-                && element.id().equals(self.focusedIdentity)) {
-            return self.focusedInputValue;
-        }
-        return element.contentText();
-    }
+	public string hoveredId() { return self.hoveredIdentity; }
 
-    private void clearFocus() {
-        self.focusedIdentity = "";
-        self.focusedInputValue = "";
-        self.focusedCaretByteOffset = 0;
-        self.focusedMaxBytes = 0;
-    }
+	public string pressedId() { return self.pressedIdentity; }
 
-    private void focus(NativeUiLayoutBox box) {
-        if (!box.focusable()) {
-            self.clearFocus();
-            return;
-        }
-        if (!box.id().equals(self.focusedIdentity)) {
-            self.focusedIdentity = box.id();
-            self.focusedInputValue = box.element.contentText();
-            self.focusedCaretByteOffset = self.focusedInputValue.len();
-        }
-        self.focusedMaxBytes = box.element.textInputMaxBytes();
-    }
+	public string focusedId() { return self.focusedIdentity; }
 
-    private void synchronizeFocus(Vector<NativeUiLayoutBox> boxes) {
-        if (self.focusedIdentity.isEmpty()) { return; }
-        for box in boxes {
-            if (box.focusable() && box.id().equals(self.focusedIdentity)) {
-                self.focusedMaxBytes = box.element.textInputMaxBytes();
-                if (!box.element.contentText().equals(
-                        self.focusedInputValue)) {
-                    self.focusedInputValue = box.element.contentText();
-                    self.focusedCaretByteOffset =
-                        self.focusedInputValue.len();
-                }
-                return;
-            }
-        }
-        self.clearFocus();
-    }
+	public string focusedValue() { return self.focusedInputValue; }
 
-    private NativeUiFrame buildFrame(
-        NativeUiElement root,
-        int width,
-        int height,
-        bool proofRaster,
-        bool synchronizeInput
-    ) {
-        self.proofRasterValue = proofRaster;
-        self.rootValue = root;
-        self.widthValue = width;
-        self.heightValue = height;
-        if (width <= 0 || height <= 0
-                || width > 4096 || height > 4096
-                || (long long)width * (long long)height > 16777216LL) {
-            self.frameValue = NativeUiFrame.failed(
-                NATIVE_UI_FRAME_INVALID_VIEWPORT,
-                "native UI viewport must be positive and at most 16M pixels",
-                NativeUiStyleError.valid(),
-                width, height, self.scrollXValue, self.scrollYValue
-            );
-            return self.frameValue;
-        }
-        if (!self.sheetValue.ok()) {
-            self.frameValue = NativeUiFrame.failed(
-                NATIVE_UI_FRAME_INVALID_STYLE,
-                self.sheetValue.issue().message(),
-                self.sheetValue.issue(),
-                width, height, self.scrollXValue, self.scrollYValue
-            );
-            return self.frameValue;
-        }
-        NativeUiBuildContext context = NativeUiBuildContext(self.sheetValue);
-        NativeUiMeasuredNode? optionalMeasured = NativeUiLayout.measure(
-            root, width, 0, context);
-        if (optionalMeasured == null) {
-            self.frameValue = NativeUiFrame.failed(
-                context.status,
-                context.error,
-                context.styleIssue,
-                width, height, self.scrollXValue, self.scrollYValue
-            );
-            return self.frameValue;
-        }
-        NativeUiMeasuredNode measured = optionalMeasured;
-        int maximumScrollY = measured.height > height
-            ? measured.height - height
-            : 0;
-        if (self.scrollYValue < 0) { self.scrollYValue = 0; }
-        if (self.scrollYValue > maximumScrollY) {
-            self.scrollYValue = maximumScrollY;
-        }
-        self.scrollXValue = 0;
-        Vector<NativeUiLayoutBox> boxes = [];
-        NativeUiLayout.place(measured, 0, 0, width, 0, boxes);
-        if (synchronizeInput) { self.synchronizeFocus(boxes); }
-        Image image = proofRaster ? Image(width, height) : Image.empty();
-        if (proofRaster) {
-            NativeUiRaster.frame(
-                image,
-                boxes,
-                self.themeValue,
-                self.hoveredIdentity,
-                self.focusedIdentity,
-                self.focusedInputValue,
-                self.focusedCaretByteOffset,
-                self.scrollXValue,
-                self.scrollYValue
-            );
-        }
-        NativeUiViewportMetrics viewport = NativeUiViewportMetrics(
-            width,
-            height,
-            self.scrollXValue,
-            self.scrollYValue
-        );
-        Vector<NativeUiVirtualGridViewport> virtualGrids =
-            NativeUiLayout.virtualGridViewports(boxes, viewport);
-        self.frameValue = NativeUiFrame(
-            NATIVE_UI_FRAME_READY,
-            "",
-            NativeUiStyleError.valid(),
-            image,
-            viewport,
-            boxes,
-            virtualGrids,
-            measured.width,
-            measured.height
-        );
-        return self.frameValue;
-    }
+	public int focusedCaret() { return self.focusedCaretByteOffset; }
 
-    /* Deterministic software evidence. Production presenters use layout(). */
-    public NativeUiFrame render(
-        NativeUiElement root,
-        int width,
-        int height
-    ) {
-        return self.buildFrame(root, width, height, true, true);
-    }
+	public string displayValue(NativeUiElement element) {
+		if (element.kind() == NATIVE_UI_TEXT_INPUT && element.id().equals(self.focusedIdentity)) {
+			return self.focusedInputValue;
+		}
+		return element.contentText();
+	}
 
-    /* Validate and publish boxes/styles without allocating an RGBA frame. */
-    public NativeUiFrame layout(
-        NativeUiElement root,
-        int width,
-        int height
-    ) {
-        return self.buildFrame(root, width, height, false, true);
-    }
+	private void clearFocus() {
+		self.focusedIdentity = "";
+		self.focusedInputValue = "";
+		self.focusedCaretByteOffset = 0;
+		self.focusedMaxBytes = 0;
+	}
 
-    private NativeUiFrame rerender() {
-        NativeUiElement? optionalRoot = self.rootValue;
-        if (optionalRoot == null) { return self.frameValue; }
-        return self.buildFrame(
-            optionalRoot,
-            self.widthValue,
-            self.heightValue,
-            self.proofRasterValue,
-            false
-        );
-    }
+	private void focus(NativeUiLayoutBox box) {
+		if (!box.focusable()) {
+			self.clearFocus();
+			return;
+		}
+		if (!box.id().equals(self.focusedIdentity)) {
+			self.focusedIdentity = box.id();
+			self.focusedInputValue = box.element.contentText();
+			self.focusedCaretByteOffset = self.focusedInputValue.len();
+		}
+		self.focusedMaxBytes = box.element.textInputMaxBytes();
+	}
 
-    private void hoverEvents(Vector<NativeUiEvent> events) {
-        string next = self.frameValue.ok()
-            ? self.frameValue.hitId(
-                self.pointerXValue, self.pointerYValue, true)
-            : "";
-        if (next.equals(self.hoveredIdentity)) { return; }
-        if (!self.hoveredIdentity.isEmpty()) {
-            events.push(NativeUiEvent.hoverLeft(self.hoveredIdentity));
-        }
-        self.hoveredIdentity = next;
-        if (!self.hoveredIdentity.isEmpty()) {
-            events.push(NativeUiEvent.hoverEntered(self.hoveredIdentity));
-        }
-        self.rerender();
-    }
+	private void synchronizeFocus(Vector<NativeUiLayoutBox> boxes) {
+		if (self.focusedIdentity.isEmpty()) { return; }
+		for box in boxes {
+			if (box.focusable() && box.id().equals(self.focusedIdentity)) {
+				self.focusedMaxBytes = box.element.textInputMaxBytes();
+				if (!box.element.contentText().equals(self.focusedInputValue)) {
+					self.focusedInputValue = box.element.contentText();
+					self.focusedCaretByteOffset = self.focusedInputValue.len();
+				}
+				return;
+			}
+		}
+		self.clearFocus();
+	}
 
-    public NativeUiEventBatch pointerMoved(int x, int y) {
-        self.pointerXValue = x;
-        self.pointerYValue = y;
-        Vector<NativeUiEvent> events = [];
-        self.hoverEvents(events);
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	private NativeUiFrame buildFrame(NativeUiElement root, int width, int height, bool proofRaster, bool synchronizeInput) {
+		self.proofRasterValue = proofRaster;
+		self.rootValue = root;
+		self.widthValue = width;
+		self.heightValue = height;
+		if (width <= 0 || height <= 0 || width > 4096 || height > 4096 || (long long)width * (long long)height > 16777216LL) {
+			self.frameValue = NativeUiFrame.failed(NATIVE_UI_FRAME_INVALID_VIEWPORT, "native UI viewport must be positive and at most 16M pixels", NativeUiStyleError.valid(), width, height, self.scrollXValue, self.scrollYValue);
+			return self.frameValue;
+		}
+		if (!self.sheetValue.ok()) {
+			self.frameValue = NativeUiFrame.failed(NATIVE_UI_FRAME_INVALID_STYLE, self.sheetValue.issue().message(), self.sheetValue.issue(), width, height, self.scrollXValue, self.scrollYValue);
+			return self.frameValue;
+		}
+		NativeUiBuildContext context = NativeUiBuildContext(self.sheetValue);
+		NativeUiMeasuredNode? optionalMeasured = NativeUiLayout.measure(root, width, 0, context);
+		if (optionalMeasured == null) {
+			self.frameValue = NativeUiFrame.failed(context.status, context.error, context.styleIssue, width, height, self.scrollXValue, self.scrollYValue);
+			return self.frameValue;
+		}
+		NativeUiMeasuredNode measured = optionalMeasured;
+		int maximumScrollY = measured.height > height ? measured.height - height : 0;
+		if (self.scrollYValue < 0) { self.scrollYValue = 0; }
+		if (self.scrollYValue > maximumScrollY) {
+			self.scrollYValue = maximumScrollY;
+		}
+		self.scrollXValue = 0;
+		Vector<NativeUiLayoutBox> boxes = [];
+		NativeUiLayout.place(measured, 0, 0, width, 0, boxes);
+		if (synchronizeInput) { self.synchronizeFocus(boxes); }
+		Image image = proofRaster ? Image(width, height) : Image.empty();
+		if (proofRaster) {
+			NativeUiRaster.frame(image, boxes, self.themeValue, self.hoveredIdentity, self.focusedIdentity, self.focusedInputValue, self.focusedCaretByteOffset, self.scrollXValue, self.scrollYValue);
+		}
+		NativeUiViewportMetrics viewport = NativeUiViewportMetrics(width, height, self.scrollXValue, self.scrollYValue);
+		Vector<NativeUiVirtualGridViewport> virtualGrids = NativeUiLayout.virtualGridViewports(boxes, viewport);
+		self.frameValue = NativeUiFrame(NATIVE_UI_FRAME_READY, "", NativeUiStyleError.valid(), image, viewport, boxes, virtualGrids, measured.width, measured.height);
+		return self.frameValue;
+	}
 
-    public NativeUiEventBatch pointerPressed(int x, int y) {
-        self.pointerXValue = x;
-        self.pointerYValue = y;
-        Vector<NativeUiEvent> events = [];
-        self.hoverEvents(events);
-        NativeUiLayoutBox? optionalTarget = self.frameValue.ok()
-            ? self.frameValue.hitBox(x, y, true)
-            : null;
-        if (optionalTarget != null && optionalTarget.focusable()) {
-            NativeUiLayoutBox target = optionalTarget;
-            self.focus(target);
-            self.pressedIdentity = "";
-        } else {
-            self.clearFocus();
-            self.pressedIdentity = self.frameValue.ok()
-                ? self.frameValue.clickableId(x, y)
-                : "";
-        }
-        self.rerender();
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	/* Deterministic software evidence. Production presenters use layout(). */
+	public NativeUiFrame render(NativeUiElement root, int width, int height) { return self.buildFrame(root, width, height, true, true); }
 
-    public NativeUiEventBatch pointerReleased(int x, int y) {
-        self.pointerXValue = x;
-        self.pointerYValue = y;
-        Vector<NativeUiEvent> events = [];
-        self.hoverEvents(events);
-        string target = self.frameValue.ok()
-            ? self.frameValue.clickableId(x, y)
-            : "";
-        if (!self.pressedIdentity.isEmpty()
-                && target.equals(self.pressedIdentity)) {
-            events.push(NativeUiEvent.clicked(target));
-        }
-        self.pressedIdentity = "";
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	/* Validate and publish boxes/styles without allocating an RGBA frame. */
+	public NativeUiFrame layout(NativeUiElement root, int width, int height) { return self.buildFrame(root, width, height, false, true); }
 
-    public NativeUiEventBatch pointerCancelled() {
-        self.pressedIdentity = "";
-        Vector<NativeUiEvent> events = [];
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	private NativeUiFrame rerender() {
+		NativeUiElement? optionalRoot = self.rootValue;
+		if (optionalRoot == null) { return self.frameValue; }
+		return self.buildFrame(optionalRoot, self.widthValue, self.heightValue, self.proofRasterValue, false);
+	}
 
-    private NativeUiEventBatch inputBatch(
-        Vector<NativeUiEvent> events
-    ) {
-        self.rerender();
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	private void hoverEvents(Vector<NativeUiEvent> events) {
+		string next = self.frameValue.ok() ? self.frameValue.hitId(self.pointerXValue, self.pointerYValue, true) : "";
+		if (next.equals(self.hoveredIdentity)) { return; }
+		if (!self.hoveredIdentity.isEmpty()) {
+			events.push(NativeUiEvent.hoverLeft(self.hoveredIdentity));
+		}
+		self.hoveredIdentity = next;
+		if (!self.hoveredIdentity.isEmpty()) {
+			events.push(NativeUiEvent.hoverEntered(self.hoveredIdentity));
+		}
+		self.rerender();
+	}
 
-    public NativeUiEventBatch textEntered(string text) {
-        Vector<NativeUiEvent> events = [];
-        if (self.focusedIdentity.isEmpty() || text == null || text.isEmpty()
-                || !NativeUiTextInput.validUtf8(text)
-                || (long long)self.focusedInputValue.len()
-                    + (long long)text.len()
-                    > (long long)self.focusedMaxBytes) {
-            return NativeUiEventBatch(self.frameValue, events);
-        }
-        string prefix = self.focusedInputValue.substring(
-            0, self.focusedCaretByteOffset);
-        string suffix = self.focusedInputValue.substring(
-            self.focusedCaretByteOffset,
-            self.focusedInputValue.len() - self.focusedCaretByteOffset);
-        self.focusedInputValue = prefix + text + suffix;
-        self.focusedCaretByteOffset += text.len();
-        events.push(NativeUiEvent.valueChanged(
-            self.focusedIdentity, self.focusedInputValue));
-        return self.inputBatch(events);
-    }
+	public NativeUiEventBatch pointerMoved(int x, int y) {
+		self.pointerXValue = x;
+		self.pointerYValue = y;
+		Vector<NativeUiEvent> events = [];
+		self.hoverEvents(events);
+		return NativeUiEventBatch(self.frameValue, events);
+	}
 
-    public NativeUiEventBatch backspace() {
-        Vector<NativeUiEvent> events = [];
-        if (self.focusedIdentity.isEmpty()
-                || self.focusedCaretByteOffset <= 0) {
-            return NativeUiEventBatch(self.frameValue, events);
-        }
-        int previous = NativeUiTextInput.previousBoundary(
-            self.focusedInputValue, self.focusedCaretByteOffset);
-        string prefix = self.focusedInputValue.substring(0, previous);
-        string suffix = self.focusedInputValue.substring(
-            self.focusedCaretByteOffset,
-            self.focusedInputValue.len() - self.focusedCaretByteOffset);
-        self.focusedInputValue = prefix + suffix;
-        self.focusedCaretByteOffset = previous;
-        events.push(NativeUiEvent.valueChanged(
-            self.focusedIdentity, self.focusedInputValue));
-        return self.inputBatch(events);
-    }
+	public NativeUiEventBatch pointerPressed(int x, int y) {
+		self.pointerXValue = x;
+		self.pointerYValue = y;
+		Vector<NativeUiEvent> events = [];
+		self.hoverEvents(events);
+		NativeUiLayoutBox? optionalTarget = self.frameValue.ok() ? self.frameValue.hitBox(x, y, true) : null;
+		if (optionalTarget != null && optionalTarget.focusable()) {
+			NativeUiLayoutBox target = optionalTarget;
+			self.focus(target);
+			self.pressedIdentity = "";
+		} else {
+			self.clearFocus();
+			self.pressedIdentity = self.frameValue.ok() ? self.frameValue.clickableId(x, y) : "";
+		}
+		self.rerender();
+		return NativeUiEventBatch(self.frameValue, events);
+	}
 
-    public NativeUiEventBatch moveCaretLeft() {
-        Vector<NativeUiEvent> events = [];
-        if (!self.focusedIdentity.isEmpty()) {
-            self.focusedCaretByteOffset =
-                NativeUiTextInput.previousBoundary(
-                    self.focusedInputValue,
-                    self.focusedCaretByteOffset);
-            self.rerender();
-        }
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	public NativeUiEventBatch pointerReleased(int x, int y) {
+		self.pointerXValue = x;
+		self.pointerYValue = y;
+		Vector<NativeUiEvent> events = [];
+		self.hoverEvents(events);
+		string target = self.frameValue.ok() ? self.frameValue.clickableId(x, y) : "";
+		if (!self.pressedIdentity.isEmpty() && target.equals(self.pressedIdentity)) {
+			events.push(NativeUiEvent.clicked(target));
+		}
+		self.pressedIdentity = "";
+		return NativeUiEventBatch(self.frameValue, events);
+	}
 
-    public NativeUiEventBatch moveCaretRight() {
-        Vector<NativeUiEvent> events = [];
-        if (!self.focusedIdentity.isEmpty()) {
-            self.focusedCaretByteOffset = NativeUiTextInput.nextBoundary(
-                self.focusedInputValue,
-                self.focusedCaretByteOffset);
-            self.rerender();
-        }
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	public NativeUiEventBatch pointerCancelled() {
+		self.pressedIdentity = "";
+		Vector<NativeUiEvent> events = [];
+		return NativeUiEventBatch(self.frameValue, events);
+	}
 
-    public NativeUiEventBatch focusNext(bool reverse = false) {
-        Vector<NativeUiEvent> events = [];
-        Vector<NativeUiLayoutBox> fields = [];
-        for box in self.frameValue.boxes {
-            if (box.focusable()) { fields.push(box); }
-        }
-        if (fields.len == 0) {
-            self.clearFocus();
-            return self.inputBatch(events);
-        }
-        int current = -1;
-        for (int index = 0; index < fields.len; index++) {
-            if (fields.get(index).id().equals(self.focusedIdentity)) {
-                current = index;
-                break;
-            }
-        }
-        int next = reverse
-            ? (current <= 0 ? fields.len - 1 : current - 1)
-            : (current < 0 || current + 1 >= fields.len
-                ? 0 : current + 1);
-        self.focus(fields.get(next));
-        return self.inputBatch(events);
-    }
+	private NativeUiEventBatch inputBatch(Vector<NativeUiEvent> events) {
+		self.rerender();
+		return NativeUiEventBatch(self.frameValue, events);
+	}
 
-    public NativeUiEventBatch blur() {
-        Vector<NativeUiEvent> events = [];
-        self.clearFocus();
-        return self.inputBatch(events);
-    }
+	public NativeUiEventBatch textEntered(string text) {
+		Vector<NativeUiEvent> events = [];
+		if (self.focusedIdentity.isEmpty() || text == null || text.isEmpty() || !NativeUiTextInput.validUtf8(text) || (long long)self.focusedInputValue.len() + (long long)text.len() > (long long)self.focusedMaxBytes) {
+			return NativeUiEventBatch(self.frameValue, events);
+		}
+		string prefix = self.focusedInputValue.substring(0, self.focusedCaretByteOffset);
+		string suffix = self.focusedInputValue.substring(self.focusedCaretByteOffset, self.focusedInputValue.len() - self.focusedCaretByteOffset);
+		self.focusedInputValue = prefix + text + suffix;
+		self.focusedCaretByteOffset += text.len();
+		events.push(NativeUiEvent.valueChanged(self.focusedIdentity, self.focusedInputValue));
+		return self.inputBatch(events);
+	}
 
-    public NativeUiEventBatch scrollBy(int x, int y) {
-        Vector<NativeUiEvent> events = [];
-        if (!self.frameValue.ok()) {
-            return NativeUiEventBatch(self.frameValue, events);
-        }
-        string target = self.frameValue.scrollOwnerId(
-            self.pointerXValue, self.pointerYValue);
-        if (target.isEmpty() && self.rootValue != null) {
-            target = self.rootValue.id();
-        }
-        int previousX = self.scrollXValue;
-        int previousY = self.scrollYValue;
-        self.scrollXValue += x;
-        self.scrollYValue += y;
-        self.rerender();
-        int actualX = self.scrollXValue - previousX;
-        int actualY = self.scrollYValue - previousY;
-        NativeUiVirtualGridViewport? virtualGridViewport =
-            self.frameValue.virtualGridFor(target);
-        events.push(NativeUiEvent.scrolled(
-            target,
-            self.frameValue.viewport,
-            NativeUiScrollDelta(actualX, actualY),
-            virtualGridViewport
-        ));
-        self.hoverEvents(events);
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	public NativeUiEventBatch backspace() {
+		Vector<NativeUiEvent> events = [];
+		if (self.focusedIdentity.isEmpty() || self.focusedCaretByteOffset <= 0) {
+			return NativeUiEventBatch(self.frameValue, events);
+		}
+		int previous = NativeUiTextInput.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset);
+		string prefix = self.focusedInputValue.substring(0, previous);
+		string suffix = self.focusedInputValue.substring(self.focusedCaretByteOffset, self.focusedInputValue.len() - self.focusedCaretByteOffset);
+		self.focusedInputValue = prefix + suffix;
+		self.focusedCaretByteOffset = previous;
+		events.push(NativeUiEvent.valueChanged(self.focusedIdentity, self.focusedInputValue));
+		return self.inputBatch(events);
+	}
 
-    public NativeUiEventBatch viewportChanged(int width, int height) {
-        Vector<NativeUiEvent> events = [];
-        NativeUiElement? optionalRoot = self.rootValue;
-        if (optionalRoot == null) {
-            return NativeUiEventBatch(self.frameValue, events);
-        }
-        self.buildFrame(
-            optionalRoot, width, height, self.proofRasterValue, false);
-        if (self.frameValue.virtualGridCount() == 0) {
-            events.push(NativeUiEvent.viewportChanged(
-                optionalRoot.id(), self.frameValue.viewport));
-        } else {
-            for (int index = 0;
-                    index < self.frameValue.virtualGridCount(); index++) {
-                NativeUiVirtualGridViewport geometry =
-                    self.frameValue.virtualGridAt(index);
-                events.push(NativeUiEvent.viewportChanged(
-                    geometry.gridId(), self.frameValue.viewport, geometry));
-            }
-        }
-        self.hoverEvents(events);
-        return NativeUiEventBatch(self.frameValue, events);
-    }
+	public NativeUiEventBatch moveCaretLeft() {
+		Vector<NativeUiEvent> events = [];
+		if (!self.focusedIdentity.isEmpty()) {
+			self.focusedCaretByteOffset = NativeUiTextInput.previousBoundary(self.focusedInputValue, self.focusedCaretByteOffset);
+			self.rerender();
+		}
+		return NativeUiEventBatch(self.frameValue, events);
+	}
+
+	public NativeUiEventBatch moveCaretRight() {
+		Vector<NativeUiEvent> events = [];
+		if (!self.focusedIdentity.isEmpty()) {
+			self.focusedCaretByteOffset = NativeUiTextInput.nextBoundary(self.focusedInputValue, self.focusedCaretByteOffset);
+			self.rerender();
+		}
+		return NativeUiEventBatch(self.frameValue, events);
+	}
+
+	public NativeUiEventBatch focusNext(bool reverse = false) {
+		Vector<NativeUiEvent> events = [];
+		Vector<NativeUiLayoutBox> fields = [];
+		for box in self.frameValue.boxes {
+			if (box.focusable()) { fields.push(box); }
+		}
+		if (fields.len == 0) {
+			self.clearFocus();
+			return self.inputBatch(events);
+		}
+		int current = -1;
+		for (int index = 0; index < fields.len; index++) {
+			if (fields.get(index).id().equals(self.focusedIdentity)) {
+				current = index;
+				break;
+			}
+		}
+		int next = reverse ? (current <= 0 ? fields.len - 1 : current - 1) : (current < 0 || current + 1 >= fields.len ? 0 : current + 1);
+		self.focus(fields.get(next));
+		return self.inputBatch(events);
+	}
+
+	public NativeUiEventBatch blur() {
+		Vector<NativeUiEvent> events = [];
+		self.clearFocus();
+		return self.inputBatch(events);
+	}
+
+	public NativeUiEventBatch scrollBy(int x, int y) {
+		Vector<NativeUiEvent> events = [];
+		if (!self.frameValue.ok()) {
+			return NativeUiEventBatch(self.frameValue, events);
+		}
+		string target = self.frameValue.scrollOwnerId(self.pointerXValue, self.pointerYValue);
+		if (target.isEmpty() && self.rootValue != null) {
+			target = self.rootValue.id();
+		}
+		int previousX = self.scrollXValue;
+		int previousY = self.scrollYValue;
+		self.scrollXValue += x;
+		self.scrollYValue += y;
+		self.rerender();
+		int actualX = self.scrollXValue - previousX;
+		int actualY = self.scrollYValue - previousY;
+		NativeUiVirtualGridViewport? virtualGridViewport = self.frameValue.virtualGridFor(target);
+		events.push(NativeUiEvent.scrolled(target, self.frameValue.viewport, NativeUiScrollDelta(actualX, actualY), virtualGridViewport));
+		self.hoverEvents(events);
+		return NativeUiEventBatch(self.frameValue, events);
+	}
+
+	public NativeUiEventBatch viewportChanged(int width, int height) {
+		Vector<NativeUiEvent> events = [];
+		NativeUiElement? optionalRoot = self.rootValue;
+		if (optionalRoot == null) {
+			return NativeUiEventBatch(self.frameValue, events);
+		}
+		self.buildFrame(optionalRoot, width, height, self.proofRasterValue, false);
+		if (self.frameValue.virtualGridCount() == 0) {
+			events.push(NativeUiEvent.viewportChanged(optionalRoot.id(), self.frameValue.viewport));
+		} else {
+			for (int index = 0; index < self.frameValue.virtualGridCount(); index++) {
+				NativeUiVirtualGridViewport geometry = self.frameValue.virtualGridAt(index);
+				events.push(NativeUiEvent.viewportChanged(geometry.gridId(), self.frameValue.viewport, geometry));
+			}
+		}
+		self.hoverEvents(events);
+		return NativeUiEventBatch(self.frameValue, events);
+	}
 }

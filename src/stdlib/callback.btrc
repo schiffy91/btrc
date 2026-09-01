@@ -18,25 +18,21 @@
  * drained. Native/package seams may extract the exact pair; product interfaces
  * should pass this object without unpacking and repacking it. */
 class BorrowedClosure<Invoke> {
-    private Invoke _invoke;
-    private void* _context;
+	private Invoke _invoke;
+	private void* _context;
 
-    public BorrowedClosure(Invoke invoke, void* context) {
-        if (invoke == (Invoke)null) {
-            fprintf(stderr, "BorrowedClosure requires a nonnull invoke callback\n");
-            abort();
-        }
-        self._invoke = invoke;
-        self._context = context;
-    }
+	public BorrowedClosure(Invoke invoke, void* context) {
+		if (invoke == (Invoke)null) {
+			fprintf(stderr, "BorrowedClosure requires a nonnull invoke callback\n");
+			abort();
+		}
+		self._invoke = invoke;
+		self._context = context;
+	}
 
-    public Invoke invokePointer() {
-        return self._invoke;
-    }
+	public Invoke invokePointer() { return self._invoke; }
 
-    public void* context() {
-        return self._context;
-    }
+	public void* context() { return self._context; }
 }
 
 /* The low bit closes admission; every admitted callback owns two units. A
@@ -45,129 +41,108 @@ class BorrowedClosure<Invoke> {
  * Contention exhaustion may conservatively drop one callback. These two
  * operations are the only gate surface used by a stored callback trampoline. */
 @realtime bool callbackGateTryEnter(Atomic<uint>* state) {
-    if (state == null) { return false; }
-    uint observed = state->load(MemoryOrder.ACQUIRE);
-    for (uint attempt = 0u; attempt < 64u; attempt++) {
-        if ((observed & 1u) != 0u || observed >= 4294967294u) {
-            return false;
-        }
-        uint desired = observed + 2u;
-        if (state->compareExchangeStrong(
-                &observed, desired,
-                MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
-            return true;
-        }
-    }
-    return false;
+	if (state == null) { return false; }
+	uint observed = state->load(MemoryOrder.ACQUIRE);
+	for (uint attempt = 0u; attempt < 64u; attempt++) {
+		if ((observed & 1u) != 0u || observed >= 4294967294u) {
+			return false;
+		}
+		uint desired = observed + 2u;
+		if (state->compareExchangeStrong(&observed, desired, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
+			return true;
+		}
+	}
+	return false;
 }
 
 @realtime void callbackGateLeave(Atomic<uint>* state) {
-    if (state == null) { return; }
-    state->fetchSub(2u, MemoryOrder.RELEASE);
+	if (state == null) { return; }
+	state->fetchSub(2u, MemoryOrder.RELEASE);
 }
 
-void callbackGateCloseAdmission(Atomic<uint>* state) {
-    state->fetchOr(1u, MemoryOrder.ACQ_REL);
-}
+void callbackGateCloseAdmission(Atomic<uint>* state) { state->fetchOr(1u, MemoryOrder.ACQ_REL); }
 
 void callbackGateDrain(Atomic<uint>* state) {
-    while (state->load(MemoryOrder.ACQUIRE) != 1u) {}
+	while (state->load(MemoryOrder.ACQUIRE) != 1u) {}
 }
 
 class OwnedClosure<Invoke> {
-    private Invoke _invoke;
-    private void* _context;
-    private CFunction<void, void*> _destroy;
-    private Atomic<uint> _state;
-    private Atomic<bool> _closingThreadReady;
-    private pthread_t _closingThread;
+	private Invoke _invoke;
+	private void* _context;
+	private CFunction<void, void*> _destroy;
+	private Atomic<uint> _state;
+	private Atomic<bool> _closingThreadReady;
+	private pthread_t _closingThread;
 
-    public OwnedClosure(Invoke invoke, void* context,
-            CFunction<void, void*> destroy) {
-        if (invoke == (Invoke)null) {
-            fprintf(stderr, "OwnedClosure requires a nonnull invoke callback\n");
-            abort();
-        }
-        if (destroy == null) {
-            fprintf(stderr, "OwnedClosure requires a destroy callback\n");
-            abort();
-        }
-        self._invoke = invoke;
-        self._context = context;
-        self._destroy = destroy;
-        self._state.init(0u);
-        self._closingThreadReady.init(false);
-    }
+	public OwnedClosure(Invoke invoke, void* context, CFunction<void, void*> destroy) {
+		if (invoke == (Invoke)null) {
+			fprintf(stderr, "OwnedClosure requires a nonnull invoke callback\n");
+			abort();
+		}
+		if (destroy == null) {
+			fprintf(stderr, "OwnedClosure requires a destroy callback\n");
+			abort();
+		}
+		self._invoke = invoke;
+		self._context = context;
+		self._destroy = destroy;
+		self._state.init(0u);
+		self._closingThreadReady.init(false);
+	}
 
-    public Invoke invokePointer() {
-        return self._invoke;
-    }
+	public Invoke invokePointer() { return self._invoke; }
 
-    public void* context() {
-        return self._context;
-    }
+	public void* context() { return self._context; }
 
-    public bool isOpen() {
-        return self._state.load(MemoryOrder.ACQUIRE) == 0u;
-    }
+	public bool isOpen() { return self._state.load(MemoryOrder.ACQUIRE) == 0u; }
 
-    private uint beginClose() {
-        uint expected = 0u;
-        if (self._state.compareExchangeStrong(
-                &expected, 1u,
-                MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
-            return 0u;
-        }
-        return expected;
-    }
+	private uint beginClose() {
+		uint expected = 0u;
+		if (self._state.compareExchangeStrong(&expected, 1u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE)) {
+			return 0u;
+		}
+		return expected;
+	}
 
-    public bool close() {
-        uint observed = self.beginClose();
-        if (observed != 0u) {
-            if (observed == 1u) {
-                while (!self._closingThreadReady.load(
-                        MemoryOrder.ACQUIRE)) {
-                    if (self._state.load(MemoryOrder.ACQUIRE)
-                            != 1u) {
-                        return self._state.load(MemoryOrder.ACQUIRE)
-                            == 2u;
-                    }
-                }
-                if (pthread_equal(self._closingThread, pthread_self()) != 0) {
-                    fprintf(stderr,
-                        "OwnedClosure.close cannot re-enter its destroy callback\n");
-                    abort();
-                }
-                while (self._state.load(MemoryOrder.ACQUIRE)
-                        == 1u) {}
-            }
-            return self._state.load(MemoryOrder.ACQUIRE)
-                == 2u;
-        }
+	public bool close() {
+		uint observed = self.beginClose();
+		if (observed != 0u) {
+			if (observed == 1u) {
+				while (!self._closingThreadReady.load(MemoryOrder.ACQUIRE)) {
+					if (self._state.load(MemoryOrder.ACQUIRE) != 1u) {
+						return self._state.load(MemoryOrder.ACQUIRE) == 2u;
+					}
+				}
+				if (pthread_equal(self._closingThread, pthread_self()) != 0) {
+					fprintf(stderr, "OwnedClosure.close cannot re-enter its destroy callback\n");
+					abort();
+				}
+				while (self._state.load(MemoryOrder.ACQUIRE) == 1u) {}
+			}
+			return self._state.load(MemoryOrder.ACQUIRE) == 2u;
+		}
 
-        self._closingThread = pthread_self();
-        self._closingThreadReady.store(true, MemoryOrder.RELEASE);
-        void* context = self._context;
-        self._context = null;
-        bool destroyed = false;
-        try {
-            self._destroy(context);
-            destroyed = true;
-        } finally {
-            self._state.store(
-                destroyed ? 2u : 4u,
-                MemoryOrder.RELEASE);
-            self._closingThreadReady.store(false, MemoryOrder.RELEASE);
-        }
-        return destroyed;
-    }
+		self._closingThread = pthread_self();
+		self._closingThreadReady.store(true, MemoryOrder.RELEASE);
+		void* context = self._context;
+		self._context = null;
+		bool destroyed = false;
+		try {
+			self._destroy(context);
+			destroyed = true;
+		} finally {
+			self._state.store(destroyed ? 2u : 4u, MemoryOrder.RELEASE);
+			self._closingThreadReady.store(false, MemoryOrder.RELEASE);
+		}
+		return destroyed;
+	}
 
-    public void __del__() {
-        if (!self.close()) {
-            fprintf(stderr, "OwnedClosure destroy did not complete\n");
-            abort();
-        }
-    }
+	public void __del__() {
+		if (!self.close()) {
+			fprintf(stderr, "OwnedClosure destroy did not complete\n");
+			abort();
+		}
+	}
 }
 
 /* Owns one stored callback registration. `unregister` must provide an entry
@@ -183,147 +158,122 @@ class OwnedClosure<Invoke> {
  * nothing was published. Raw registration parts are never exposed afterward.
  */
 class CallbackRegistration<Invoke> {
-    private OwnedClosure<Invoke> _closure;
-    private CFunction<bool, void*> _unregister;
-    private void* _unregisterContext;
-    private Atomic<uint>* _gateState;
-    private Atomic<uint> _state;
-    private Atomic<bool> _closingThreadReady;
-    private pthread_t _closingThread;
+	private OwnedClosure<Invoke> _closure;
+	private CFunction<bool, void*> _unregister;
+	private void* _unregisterContext;
+	private Atomic<uint>* _gateState;
+	private Atomic<uint> _state;
+	private Atomic<bool> _closingThreadReady;
+	private pthread_t _closingThread;
 
-    private void rollbackActivation() {
-        bool destroyed = false;
-        try {
-            destroyed = self._closure.close();
-        } finally {
-            free(self._gateState);
-            self._gateState = null;
-            self._state.store(
-                destroyed ? 2u : 4u,
-                MemoryOrder.RELEASE);
-        }
-    }
+	private void rollbackActivation() {
+		bool destroyed = false;
+		try {
+			destroyed = self._closure.close();
+		} finally {
+			free(self._gateState);
+			self._gateState = null;
+			self._state.store(destroyed ? 2u : 4u, MemoryOrder.RELEASE);
+		}
+	}
 
-    public CallbackRegistration(
-            Invoke invoke,
-            void* context,
-            CFunction<void, void*> destroy,
-            CFunction<bool, Invoke, void*, Atomic<uint>*, void*> activate,
-            void* activationContext,
-            CFunction<bool, void*> unregister,
-            void* unregisterContext) {
-        if (activate == null) {
-            fprintf(stderr, "CallbackRegistration requires activate\n");
-            abort();
-        }
-        if (unregister == null) {
-            fprintf(stderr, "CallbackRegistration requires unregister\n");
-            abort();
-        }
-        self._closure = new OwnedClosure<Invoke>(invoke, context, destroy);
-        self._unregister = unregister;
-        self._unregisterContext = unregisterContext;
-        self._gateState = (Atomic<uint>*)malloc(sizeof(Atomic<uint>));
-        if (self._gateState == null) {
-            fprintf(stderr, "CallbackRegistration cannot allocate its gate\n");
-            abort();
-        }
-        self._gateState->init(0u);
-        self._state.init(0u);
-        self._closingThreadReady.init(false);
-        bool activated = false;
-        try {
-            activated = activate(
-                self._closure.invokePointer(), self._closure.context(),
-                self._gateState, activationContext);
-        } finally {
-            if (!activated) { self.rollbackActivation(); }
-        }
-        if (!activated) {
-            fprintf(stderr,
-                "CallbackRegistration activation failed before publication\n");
-            abort();
-        }
-    }
+	public CallbackRegistration(Invoke invoke, void* context, CFunction<void, void*> destroy, CFunction<bool, Invoke, void*, Atomic<uint>*, void*> activate, void* activationContext, CFunction<bool, void*> unregister, void* unregisterContext) {
+		if (activate == null) {
+			fprintf(stderr, "CallbackRegistration requires activate\n");
+			abort();
+		}
+		if (unregister == null) {
+			fprintf(stderr, "CallbackRegistration requires unregister\n");
+			abort();
+		}
+		self._closure = new OwnedClosure<Invoke>(invoke, context, destroy);
+		self._unregister = unregister;
+		self._unregisterContext = unregisterContext;
+		self._gateState = (Atomic<uint>*)malloc(sizeof(Atomic<uint>));
+		if (self._gateState == null) {
+			fprintf(stderr, "CallbackRegistration cannot allocate its gate\n");
+			abort();
+		}
+		self._gateState->init(0u);
+		self._state.init(0u);
+		self._closingThreadReady.init(false);
+		bool activated = false;
+		try {
+			activated = activate(self._closure.invokePointer(), self._closure.context(), self._gateState, activationContext);
+		} finally {
+			if (!activated) { self.rollbackActivation(); }
+		}
+		if (!activated) {
+			fprintf(stderr, "CallbackRegistration activation failed before publication\n");
+			abort();
+		}
+	}
 
-    public bool isOpen() {
-        return self._state.load(MemoryOrder.ACQUIRE) == 0u;
-    }
+	public bool isOpen() { return self._state.load(MemoryOrder.ACQUIRE) == 0u; }
 
-    private bool beginClose(uint observed) {
-        uint expected = observed;
-        return self._state.compareExchangeStrong(
-            &expected, 1u,
-            MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE);
-    }
+	private bool beginClose(uint observed) {
+		uint expected = observed;
+		return self._state.compareExchangeStrong(&expected, 1u, MemoryOrder.ACQ_REL, MemoryOrder.ACQUIRE);
+	}
 
-    public bool close() {
-        while (true) {
-            uint observed = self._state.load(MemoryOrder.ACQUIRE);
-            if (observed == 2u) { return true; }
-            if (observed == 4u) { return false; }
-            if (observed == 1u) {
-                while (!self._closingThreadReady.load(
-                        MemoryOrder.ACQUIRE)) {
-                    if (self._state.load(MemoryOrder.ACQUIRE)
-                            != 1u) {
-                        break;
-                    }
-                }
-                if (self._state.load(MemoryOrder.ACQUIRE) != 1u) {
-                    continue;
-                }
-                if (pthread_equal(self._closingThread, pthread_self()) != 0) {
-                    fprintf(stderr,
-                        "CallbackRegistration.close cannot re-enter unregister or destroy\n");
-                    abort();
-                }
-                while (self._state.load(MemoryOrder.ACQUIRE)
-                        == 1u) {}
-                continue;
-            }
+	public bool close() {
+		while (true) {
+			uint observed = self._state.load(MemoryOrder.ACQUIRE);
+			if (observed == 2u) { return true; }
+			if (observed == 4u) { return false; }
+			if (observed == 1u) {
+				while (!self._closingThreadReady.load(MemoryOrder.ACQUIRE)) {
+					if (self._state.load(MemoryOrder.ACQUIRE) != 1u) {
+						break;
+					}
+				}
+				if (self._state.load(MemoryOrder.ACQUIRE) != 1u) {
+					continue;
+				}
+				if (pthread_equal(self._closingThread, pthread_self()) != 0) {
+					fprintf(stderr, "CallbackRegistration.close cannot re-enter unregister or destroy\n");
+					abort();
+				}
+				while (self._state.load(MemoryOrder.ACQUIRE) == 1u) {}
+				continue;
+			}
 
-            if ((observed == 0u || observed == 3u)
-                    && self.beginClose(observed)) {
-                break;
-            }
-        }
+			if ((observed == 0u || observed == 3u) && self.beginClose(observed)) {
+				break;
+			}
+		}
 
-        self._closingThread = pthread_self();
-        self._closingThreadReady.store(true, MemoryOrder.RELEASE);
-        callbackGateCloseAdmission(self._gateState);
-        bool barrier = false;
-        try {
-            barrier = self._unregister(self._unregisterContext);
-        } finally {
-            if (!barrier) {
-                self._state.store(
-                    3u, MemoryOrder.RELEASE);
-                self._closingThreadReady.store(false, MemoryOrder.RELEASE);
-            }
-        }
-        if (!barrier) { return false; }
+		self._closingThread = pthread_self();
+		self._closingThreadReady.store(true, MemoryOrder.RELEASE);
+		callbackGateCloseAdmission(self._gateState);
+		bool barrier = false;
+		try {
+			barrier = self._unregister(self._unregisterContext);
+		} finally {
+			if (!barrier) {
+				self._state.store(3u, MemoryOrder.RELEASE);
+				self._closingThreadReady.store(false, MemoryOrder.RELEASE);
+			}
+		}
+		if (!barrier) { return false; }
 
-        callbackGateDrain(self._gateState);
-        bool destroyed = false;
-        try {
-            destroyed = self._closure.close();
-        } finally {
-            self._state.store(
-                destroyed ? 2u : 4u,
-                MemoryOrder.RELEASE);
-            self._closingThreadReady.store(false, MemoryOrder.RELEASE);
-        }
-        return destroyed;
-    }
+		callbackGateDrain(self._gateState);
+		bool destroyed = false;
+		try {
+			destroyed = self._closure.close();
+		} finally {
+			self._state.store(destroyed ? 2u : 4u, MemoryOrder.RELEASE);
+			self._closingThreadReady.store(false, MemoryOrder.RELEASE);
+		}
+		return destroyed;
+	}
 
-    public void __del__() {
-        if (!self.close()) {
-            fprintf(stderr,
-                "CallbackRegistration destruction did not complete\n");
-            abort();
-        }
-        free(self._gateState);
-        self._gateState = null;
-    }
+	public void __del__() {
+		if (!self.close()) {
+			fprintf(stderr, "CallbackRegistration destruction did not complete\n");
+			abort();
+		}
+		free(self._gateState);
+		self._gateState = null;
+	}
 }

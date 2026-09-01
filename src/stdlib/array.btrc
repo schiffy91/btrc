@@ -7,99 +7,89 @@
 import std.iterable;
 
 class Array<T> implements Iterable {
-    public T* data;
-    public int len;
+	public T* data;
+	public int len;
 
-    public Array(int size) {
-        if (size < 0) {
-            fprintf(stderr, "Array size must be non-negative\n");
-            exit(1);
-        }
-        if ((size_t)size > (size_t)(-1) / sizeof(T)) {
-            fprintf(stderr, "Array allocation size overflow\n");
-            exit(1);
-        }
-        self.len = size;
-        self.data = (T*)__btrc_safe_calloc((size_t)size, sizeof(T));
-    }
+	public Array(int size) {
+		if (size < 0) {
+			fprintf(stderr, "Array size must be non-negative\n");
+			exit(1);
+		}
+		if ((size_t)size > (size_t)(-1) / sizeof(T)) {
+			fprintf(stderr, "Array allocation size overflow\n");
+			exit(1);
+		}
+		self.len = size;
+		self.data = (T*)__btrc_safe_calloc((size_t)size, sizeof(T));
+	}
 
-    public T get(int i) {
-        if (i < 0 || i >= self.len) { fprintf(stderr, "Array index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
-        return self.data[i];
-    }
+	public T get(int i) {
+		if (i < 0 || i >= self.len) { fprintf(stderr, "Array index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
+		return self.data[i];
+	}
 
-    public void set(int i, T val) {
-        if (i < 0 || i >= self.len) { fprintf(stderr, "Array index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
-        keep val;
-        release self.data[i];
-        self.data[i] = val;
-    }
+	public void set(int i, T val) {
+		if (i < 0 || i >= self.len) { fprintf(stderr, "Array index out of bounds: %d (len=%d)\n", i, self.len); exit(1); }
+		keep val;
+		release self.data[i];
+		self.data[i] = val;
+	}
 
-    public void fill(T val) {
-        for (int i = 0; i < self.len; i++) {
-            keep val;
-            release self.data[i];
-            self.data[i] = val;
-        }
-    }
+	public void fill(T val) {
+		for (int i = 0; i < self.len; i++) {
+			keep val;
+			release self.data[i];
+			self.data[i] = val;
+		}
+	}
 
-    public bool contains(T val) {
-        for (int i = 0; i < self.len; i++) {
-            if (self.data[i] == val) { return true; }
-        }
-        return false;
-    }
+	public bool contains(T val) {
+		for (int i = 0; i < self.len; i++) {
+			if (self.data[i] == val) { return true; }
+		}
+		return false;
+	}
 
-    public int indexOf(T val) {
-        for (int i = 0; i < self.len; i++) {
-            if (self.data[i] == val) { return i; }
-        }
-        return -1;
-    }
+	public int indexOf(T val) {
+		for (int i = 0; i < self.len; i++) {
+			if (self.data[i] == val) { return i; }
+		}
+		return -1;
+	}
 
-    public void swap(int i, int j) {
-        if (i < 0 || i >= self.len || j < 0 || j >= self.len) { fprintf(stderr, "Array swap index out of bounds\n"); exit(1); }
-        T tmp = self.data[i];
-        self.data[i] = self.data[j];
-        self.data[j] = tmp;
-    }
+	public void swap(int i, int j) {
+		if (i < 0 || i >= self.len || j < 0 || j >= self.len) { fprintf(stderr, "Array swap index out of bounds\n"); exit(1); }
+		T tmp = self.data[i];
+		self.data[i] = self.data[j];
+		self.data[j] = tmp;
+	}
 
-    public void reverse() {
-        for (int i = 0; i < self.len / 2; i++) {
-            T tmp = self.data[i];
-            self.data[i] = self.data[self.len - 1 - i];
-            self.data[self.len - 1 - i] = tmp;
-        }
-    }
+	public void reverse() {
+		for (int i = 0; i < self.len / 2; i++) {
+			T tmp = self.data[i];
+			self.data[i] = self.data[self.len - 1 - i];
+			self.data[self.len - 1 - i] = tmp;
+		}
+	}
 
-    public int size() {
-        return self.len;
-    }
+	public int size() { return self.len; }
 
-    public bool isEmpty() {
-        return self.len == 0;
-    }
+	public bool isEmpty() { return self.len == 0; }
 
-    public void free() {
-        for (int i = 0; i < self.len; i++) {
-            release self.data[i];
-        }
-        free(self.data);
-        self.data = null;
-        self.len = 0;
-    }
+	public void free() {
+		for (int i = 0; i < self.len; i++) {
+			release self.data[i];
+		}
+		free(self.data);
+		self.data = null;
+		self.len = 0;
+	}
 
-    public void __del__() {
-        self.free();
-    }
+	public void __del__() { self.free(); }
 
-    /* Iterable<T> protocol */
+	/* Iterable<T> protocol */
 
-    public int iterLen() {
-        return self.len;
-    }
+	public int iterLen() { return self.len; }
 
-    public T iterGet(int i) {
-        return self.data[i];
-    }
+	public T iterGet(int i) { return self.data[i]; }
 }

@@ -9,480 +9,375 @@ import std.strings;
 import std.vector;
 
 class Html {
-    class string escape(string raw) {
-        string text = Strings.replace(raw, "&", "&amp;");
-        text = Strings.replace(text, "\"", "&quot;");
-        text = Strings.replace(text, "'", "&#39;");
-        text = Strings.replace(text, "<", "&lt;");
-        text = Strings.replace(text, ">", "&gt;");
-        return text;
-    }
+	class string escape(string raw) {
+		string text = Strings.replace(raw, "&", "&amp;");
+		text = Strings.replace(text, "\"", "&quot;");
+		text = Strings.replace(text, "'", "&#39;");
+		text = Strings.replace(text, "<", "&lt;");
+		text = Strings.replace(text, ">", "&gt;");
+		return text;
+	}
 }
 
 class UiNode {
-    public string tag;
-    public string textContent;
-    public bool rawText;
-    public Vector<string> attributes;
-    public Vector<UiNode> children;
+	public string tag;
+	public string textContent;
+	public bool rawText;
+	public Vector<string> attributes;
+	public Vector<UiNode> children;
 
-    public UiNode(string tag) {
-        self.tag = tag;
-        self.textContent = "";
-        self.rawText = false;
-        self.attributes = [];
-        self.children = [];
-    }
+	public UiNode(string tag) {
+		self.tag = tag;
+		self.textContent = "";
+		self.rawText = false;
+		self.attributes = [];
+		self.children = [];
+	}
 
-    public UiNode text(string value) {
-        self.textContent = value;
-        self.rawText = false;
-        return self;
-    }
+	public UiNode text(string value) {
+		self.textContent = value;
+		self.rawText = false;
+		return self;
+	}
 
-    public UiNode raw(string value) {
-        self.textContent = value;
-        self.rawText = true;
-        return self;
-    }
+	public UiNode raw(string value) {
+		self.textContent = value;
+		self.rawText = true;
+		return self;
+	}
 
-    public UiNode attr(string name, string value) {
-        self.attributes.push(f"{name}=\"{Html.escape(value)}\"");
-        return self;
-    }
+	public UiNode attr(string name, string value) {
+		self.attributes.push(f"{name}=\"{Html.escape(value)}\"");
+		return self;
+	}
 
-    public UiNode id(string value) {
-        return self.attr("id", value);
-    }
+	public UiNode id(string value) { return self.attr("id", value); }
 
-    public UiNode className(string value) {
-        return self.attr("class", value);
-    }
+	public UiNode className(string value) { return self.attr("class", value); }
 
-    public UiNode style(string value) {
-        return self.attr("style", value);
-    }
+	public UiNode style(string value) { return self.attr("style", value); }
 
-    public UiNode child(UiNode node) {
-        self.children.push(node);
-        return self;
-    }
+	public UiNode child(UiNode node) {
+		self.children.push(node);
+		return self;
+	}
 
-    public UiNode childrenFrom(Vector<UiNode> nodes) {
-        for node in nodes {
-            self.children.push(node);
-        }
-        return self;
-    }
+	public UiNode childrenFrom(Vector<UiNode> nodes) {
+		for node in nodes {
+			self.children.push(node);
+		}
+		return self;
+	}
 
-    public string renderAttributes() {
-        if (self.attributes.len == 0) { return ""; }
-        return " " + self.attributes.join(" ");
-    }
+	public string renderAttributes() {
+		if (self.attributes.len == 0) { return ""; }
+		return " " + self.attributes.join(" ");
+	}
 
-    public bool isVoidElement() {
-        return self.tag.equals("br") ||
-            self.tag.equals("hr") ||
-            self.tag.equals("img") ||
-            self.tag.equals("input") ||
-            self.tag.equals("link") ||
-            self.tag.equals("meta");
-    }
+	public bool isVoidElement() { return self.tag.equals("br") || self.tag.equals("hr") || self.tag.equals("img") || self.tag.equals("input") || self.tag.equals("link") || self.tag.equals("meta"); }
 
-    public string renderHtml() {
-        string attrs = self.renderAttributes();
-        if (self.isVoidElement()) {
-            return f"<{self.tag}{attrs}>";
-        }
+	public string renderHtml() {
+		string attrs = self.renderAttributes();
+		if (self.isVoidElement()) {
+			return f"<{self.tag}{attrs}>";
+		}
 
-        string body = "";
-        if (!self.textContent.isEmpty()) {
-            body = self.rawText ? self.textContent : Html.escape(self.textContent);
-        }
-        for node in self.children {
-            body = f"{body}{node.renderHtml()}";
-        }
-        return f"<{self.tag}{attrs}>{body}</{self.tag}>";
-    }
+		string body = "";
+		if (!self.textContent.isEmpty()) {
+			body = self.rawText ? self.textContent : Html.escape(self.textContent);
+		}
+		for node in self.children {
+			body = f"{body}{node.renderHtml()}";
+		}
+		return f"<{self.tag}{attrs}>{body}</{self.tag}>";
+	}
 }
 
 class UiDocument {
-    public string title;
-    public string css;
-    public UiNode body;
+	public string title;
+	public string css;
+	public UiNode body;
 
-    public UiDocument(string title, UiNode body) {
-        self.title = title;
-        self.css = "";
-        self.body = body;
-    }
+	public UiDocument(string title, UiNode body) {
+		self.title = title;
+		self.css = "";
+		self.body = body;
+	}
 
-    public UiDocument style(string css) {
-        self.css = css;
-        return self;
-    }
+	public UiDocument style(string css) {
+		self.css = css;
+		return self;
+	}
 
-    public string renderHtml() {
-        string cssBlock = self.css.isEmpty() ? "" : f"<style>{self.css}</style>";
-        return f"<!doctype html><html><head><meta charset=\"utf-8\"><title>{Html.escape(self.title)}</title>{cssBlock}</head><body>{self.body.renderHtml()}</body></html>";
-    }
+	public string renderHtml() {
+		string cssBlock = self.css.isEmpty() ? "" : f"<style>{self.css}</style>";
+		return f"<!doctype html><html><head><meta charset=\"utf-8\"><title>{Html.escape(self.title)}</title>{cssBlock}</head><body>{self.body.renderHtml()}</body></html>";
+	}
 
-    public void writeHtml(string path) {
-        FileSystem.writeText(path, self.renderHtml());
-    }
+	public void writeHtml(string path) { FileSystem.writeText(path, self.renderHtml()); }
 }
 
 class HtmlView {
-    public UiDocument document;
+	public UiDocument document;
 
-    public HtmlView(UiDocument document) {
-        self.document = document;
-    }
+	public HtmlView(UiDocument document) { self.document = document; }
 
-    public string render() {
-        return self.document.renderHtml();
-    }
+	public string render() { return self.document.renderHtml(); }
 
-    public void write(string path) {
-        self.document.writeHtml(path);
-    }
+	public void write(string path) { self.document.writeHtml(path); }
 }
 
 class NativeView {
-    public UiNode root;
+	public UiNode root;
 
-    public NativeView(UiNode root) {
-        self.root = root;
-    }
+	public NativeView(UiNode root) { self.root = root; }
 }
 
 class Window {
-    public string title;
-    public int width;
-    public int height;
-    public HtmlView html;
+	public string title;
+	public int width;
+	public int height;
+	public HtmlView html;
 
-    public Window(string title, int width, int height, HtmlView html) {
-        self.title = title;
-        self.width = width;
-        self.height = height;
-        self.html = html;
-    }
+	public Window(string title, int width, int height, HtmlView html) {
+		self.title = title;
+		self.width = width;
+		self.height = height;
+		self.html = html;
+	}
 }
 
 class TrayItem {
-    public string label;
-    public string command;
-    public bool enabled;
-    public string stateCommand;  /* non-empty: exit 0 renders a checkmark */
+	public string label;
+	public string command;
+	public bool enabled;
+	public string stateCommand;  /* non-empty: exit 0 renders a checkmark */
 
-    public TrayItem(string label, string command) {
-        self.label = label;
-        self.command = command;
-        self.enabled = true;
-        self.stateCommand = "";
-    }
+	public TrayItem(string label, string command) {
+		self.label = label;
+		self.command = command;
+		self.enabled = true;
+		self.stateCommand = "";
+	}
 
-    public TrayItem disabled() {
-        self.enabled = false;
-        return self;
-    }
+	public TrayItem disabled() {
+		self.enabled = false;
+		return self;
+	}
 
-    public string renderLabel() {
-        return self.enabled ? self.label : f"{self.label} (disabled)";
-    }
+	public string renderLabel() { return self.enabled ? self.label : f"{self.label} (disabled)"; }
 }
 
 class Tray {
-    public string title;
-    public string tooltip;
-    public string iconPath;
-    public Vector<TrayItem> items;
+	public string title;
+	public string tooltip;
+	public string iconPath;
+	public Vector<TrayItem> items;
 
-    public Tray(string title) {
-        self.title = title;
-        self.tooltip = title;
-        self.iconPath = "";
-        self.items = [];
-    }
+	public Tray(string title) {
+		self.title = title;
+		self.tooltip = title;
+		self.iconPath = "";
+		self.items = [];
+	}
 
-    public Tray icon(string path) {
-        self.iconPath = path;
-        return self;
-    }
+	public Tray icon(string path) {
+		self.iconPath = path;
+		return self;
+	}
 
-    public Tray tip(string text) {
-        self.tooltip = text;
-        return self;
-    }
+	public Tray tip(string text) {
+		self.tooltip = text;
+		return self;
+	}
 
-    public Tray item(string label, string command) {
-        self.items.push(TrayItem(label, command));
-        return self;
-    }
+	public Tray item(string label, string command) {
+		self.items.push(TrayItem(label, command));
+		return self;
+	}
 
-    /* A checkable item: the mark mirrors stateCommand's exit status (0 = on),
+	/* A checkable item: the mark mirrors stateCommand's exit status (0 = on),
      * probed when the menu is realized and again after each activation. */
-    public Tray checkItem(string label, string command, string stateCommand) {
-        TrayItem entry = TrayItem(label, command);
-        entry.stateCommand = stateCommand;
-        self.items.push(entry);
-        return self;
-    }
+	public Tray checkItem(string label, string command, string stateCommand) {
+		TrayItem entry = TrayItem(label, command);
+		entry.stateCommand = stateCommand;
+		self.items.push(entry);
+		return self;
+	}
 
-    public Tray add(TrayItem item) {
-        self.items.push(item);
-        return self;
-    }
+	public Tray add(TrayItem item) {
+		self.items.push(item);
+		return self;
+	}
 }
 
 class HtmlUiBackend {
-    public string opener;
+	public string opener;
 
-    public HtmlUiBackend(string opener) {
-        self.opener = opener;
-    }
+	public HtmlUiBackend(string opener) { self.opener = opener; }
 
-    public Command openCommand(string path) {
-        return Command(self.opener)
-            .arg(path);
-    }
+	public Command openCommand(string path) { return Command(self.opener).arg(path); }
 
-    public ExecResult openFile(string path) {
-        var shell = UnixShell();
-        return shell.run(self.openCommand(path),
-            stdout=CommandOutput.stream(),
-            stderr=CommandOutput.stream(),
-            logFailure=false);
-    }
+	public ExecResult openFile(string path) {
+		var shell = UnixShell();
+		return shell.run(self.openCommand(path), stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false);
+	}
 
-    public ExecResult openWindow(Window window, string path) {
-        window.html.write(path);
-        return self.openFile(path);
-    }
+	public ExecResult openWindow(Window window, string path) {
+		window.html.write(path);
+		return self.openFile(path);
+	}
 }
 
 class NativeUiBackend {
-    public string name;
-    public HtmlUiBackend htmlBackend;
+	public string name;
+	public HtmlUiBackend htmlBackend;
 
-    public NativeUiBackend(string name, HtmlUiBackend htmlBackend) {
-        self.name = name;
-        self.htmlBackend = htmlBackend;
-    }
+	public NativeUiBackend(string name, HtmlUiBackend htmlBackend) {
+		self.name = name;
+		self.htmlBackend = htmlBackend;
+	}
 
-    public bool isMac() {
-        return self.name.equals("macos");
-    }
+	public bool isMac() { return self.name.equals("macos"); }
 
-    public bool isLinux() {
-        return self.name.equals("linux");
-    }
+	public bool isLinux() { return self.name.equals("linux"); }
 
-    public bool isWindows() {
-        return self.name.equals("windows");
-    }
+	public bool isWindows() { return self.name.equals("windows"); }
 
-    public Command unsupportedWindowsCommand(string feature) {
-        return Command("powershell -NoProfile -Command")
-            .arg(f"Write-Error 'Native {feature} are not implemented for Windows'");
-    }
+	public Command unsupportedWindowsCommand(string feature) { return Command("powershell -NoProfile -Command").arg(f"Write-Error 'Native {feature} are not implemented for Windows'"); }
 
-    public Command notifyCommand(string title, string body) {
-        if (self.isMac()) {
-            string script = "display notification " + NativeUi.applescriptString(body)
-                + " with title " + NativeUi.applescriptString(title);
-            return Command("osascript -e")
-                .arg(script);
-        }
-        if (self.isLinux()) {
-            return Command("notify-send")
-                .arg(title)
-                .arg(body);
-        }
-        return self.unsupportedWindowsCommand("notifications");
-    }
+	public Command notifyCommand(string title, string body) {
+		if (self.isMac()) {
+			string script = "display notification " + NativeUi.applescriptString(body) + " with title " + NativeUi.applescriptString(title);
+			return Command("osascript -e").arg(script);
+		}
+		if (self.isLinux()) {
+			return Command("notify-send").arg(title).arg(body);
+		}
+		return self.unsupportedWindowsCommand("notifications");
+	}
 
-    public Command alertCommand(string title, string body) {
-        if (self.isMac()) {
-            string script = "display dialog " + NativeUi.applescriptString(body)
-                + " with title " + NativeUi.applescriptString(title)
-                + " buttons {\"OK\"} default button \"OK\"";
-            return Command("osascript -e")
-                .arg(script);
-        }
-        if (self.isLinux()) {
-            return Command("zenity --info")
-                .flag("--title", title)
-                .flag("--text", body);
-        }
-        return self.unsupportedWindowsCommand("dialogs");
-    }
+	public Command alertCommand(string title, string body) {
+		if (self.isMac()) {
+			string script = "display dialog " + NativeUi.applescriptString(body) + " with title " + NativeUi.applescriptString(title) + " buttons {\"OK\"} default button \"OK\"";
+			return Command("osascript -e").arg(script);
+		}
+		if (self.isLinux()) {
+			return Command("zenity --info").flag("--title", title).flag("--text", body);
+		}
+		return self.unsupportedWindowsCommand("dialogs");
+	}
 
-    public ExecResult notify(string title, string body) {
-        return UnixShell().run(self.notifyCommand(title, body),
-            stdout=CommandOutput.stream(),
-            stderr=CommandOutput.stream(),
-            logFailure=false);
-    }
+	public ExecResult notify(string title, string body) { return UnixShell().run(self.notifyCommand(title, body), stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false); }
 
-    public ExecResult alert(string title, string body) {
-        return UnixShell().run(self.alertCommand(title, body),
-            stdout=CommandOutput.stream(),
-            stderr=CommandOutput.stream(),
-            logFailure=false);
-    }
+	public ExecResult alert(string title, string body) { return UnixShell().run(self.alertCommand(title, body), stdout=CommandOutput.stream(), stderr=CommandOutput.stream(), logFailure=false); }
 
-    public ExecResult openFile(string path) {
-        return self.htmlBackend.openFile(path);
-    }
+	public ExecResult openFile(string path) { return self.htmlBackend.openFile(path); }
 
-    public ExecResult openWindow(Window window, string path) {
-        return self.htmlBackend.openWindow(window, path);
-    }
+	public ExecResult openWindow(Window window, string path) { return self.htmlBackend.openWindow(window, path); }
 }
 
 class LinuxUiBuilder {
-    class HtmlUiBackend html() {
-        return HtmlUiBackend("xdg-open");
-    }
+	class HtmlUiBackend html() { return HtmlUiBackend("xdg-open"); }
 
-    class NativeUiBackend native() {
-        return NativeUiBackend("linux", LinuxUiBuilder.html());
-    }
+	class NativeUiBackend native() { return NativeUiBackend("linux", LinuxUiBuilder.html()); }
 }
 
 class MacUiBuilder {
-    class HtmlUiBackend html() {
-        return HtmlUiBackend("open");
-    }
+	class HtmlUiBackend html() { return HtmlUiBackend("open"); }
 
-    class NativeUiBackend native() {
-        return NativeUiBackend("macos", MacUiBuilder.html());
-    }
+	class NativeUiBackend native() { return NativeUiBackend("macos", MacUiBuilder.html()); }
 }
 
 class WindowsUiBuilder {
-    class HtmlUiBackend html() {
-        return HtmlUiBackend("powershell");
-    }
+	class HtmlUiBackend html() { return HtmlUiBackend("powershell"); }
 
-    class NativeUiBackend native() {
-        return NativeUiBackend("windows", WindowsUiBuilder.html());
-    }
+	class NativeUiBackend native() { return NativeUiBackend("windows", WindowsUiBuilder.html()); }
 }
 
 class Ui {
-    class UiNode node(string tag) {
-        return UiNode(tag);
-    }
+	class UiNode node(string tag) { return UiNode(tag); }
 
-    class UiNode text(string value) {
-        return UiNode("span").text(value);
-    }
+	class UiNode text(string value) { return UiNode("span").text(value); }
 
-    class UiNode rawHtml(string value) {
-        return UiNode("div").raw(value);
-    }
+	class UiNode rawHtml(string value) { return UiNode("div").raw(value); }
 
-    class UiNode div() {
-        return UiNode("div");
-    }
+	class UiNode div() { return UiNode("div"); }
 
-    class UiNode button(string label) {
-        return UiNode("button").text(label);
-    }
+	class UiNode button(string label) { return UiNode("button").text(label); }
 
-    class UiNode input(string name, string value) {
-        return UiNode("input")
-            .attr("name", name)
-            .attr("value", value);
-    }
+	class UiNode input(string name, string value) { return UiNode("input").attr("name", name).attr("value", value); }
 
-    class UiDocument document(string title, UiNode body) {
-        return UiDocument(title, body);
-    }
+	class UiDocument document(string title, UiNode body) { return UiDocument(title, body); }
 }
 
 class NativeUi {
-    class string applescriptString(string raw) {
-        string escaped = Strings.replace(raw, "\\", "\\\\");
-        escaped = Strings.replace(escaped, "\"", "\\\"");
-        return "\"" + escaped + "\"";
-    }
+	class string applescriptString(string raw) {
+		string escaped = Strings.replace(raw, "\\", "\\\\");
+		escaped = Strings.replace(escaped, "\"", "\\\"");
+		return "\"" + escaped + "\"";
+	}
 
-    class NativeUiBackend detect() {
-        var result = UnixShell().run("uname -s", logFailure=false);
-        string kernel = result.stdout().trim();
-        if (kernel.equals("Darwin")) { return MacUiBuilder.native(); }
-        if (kernel.contains("MINGW") || kernel.contains("MSYS") || kernel.contains("CYGWIN")) {
-            return WindowsUiBuilder.native();
-        }
-        return LinuxUiBuilder.native();
-    }
+	class NativeUiBackend detect() {
+		var result = UnixShell().run("uname -s", logFailure=false);
+		string kernel = result.stdout().trim();
+		if (kernel.equals("Darwin")) { return MacUiBuilder.native(); }
+		if (kernel.contains("MINGW") || kernel.contains("MSYS") || kernel.contains("CYGWIN")) {
+			return WindowsUiBuilder.native();
+		}
+		return LinuxUiBuilder.native();
+	}
 }
 
 class UiRuntime {
-    class Thread<int> runCommandAsync(Command command) {
-        return spawn(() => {
-            var result = UnixShell().run(command);
-            return result.code;
-        });
-    }
+	class Thread<int> runCommandAsync(Command command) {
+		return spawn(() => {
+				var result = UnixShell().run(command);
+				return result.code;
+			});
+	}
 
-    class Thread<int> notifyAsync(NativeUiBackend backend, string title, string body) {
-        return spawn(() => {
-            ExecResult result = backend.notify(title, body);
-            return result.code;
-        });
-    }
+	class Thread<int> notifyAsync(NativeUiBackend backend, string title, string body) {
+		return spawn(() => {
+				ExecResult result = backend.notify(title, body);
+				return result.code;
+			});
+	}
 }
 
 class State<T> {
-    public T value;
-    public int version;
+	public T value;
+	public int version;
 
-    public State(T value) {
-        self.value = value;
-        self.version = 0;
-    }
+	public State(T value) {
+		self.value = value;
+		self.version = 0;
+	}
 
-    public T get() {
-        return self.value;
-    }
+	public T get() { return self.value; }
 
-    public State<T> set(T value) {
-        self.value = value;
-        self.version++;
-        return self;
-    }
+	public State<T> set(T value) {
+		self.value = value;
+		self.version++;
+		return self;
+	}
 
-    public bool changedSince(int seenVersion) {
-        return self.version != seenVersion;
-    }
+	public bool changedSince(int seenVersion) { return self.version != seenVersion; }
 }
 
 class Signal {
-    public Vector<string> events;
+	public Vector<string> events;
 
-    public Signal() {
-        self.events = [];
-    }
+	public Signal() { self.events = []; }
 
-    public Signal emit(string value) {
-        self.events.push(value);
-        return self;
-    }
+	public Signal emit(string value) {
+		self.events.push(value);
+		return self;
+	}
 
-    public bool hasEvents() {
-        return self.events.len > 0;
-    }
+	public bool hasEvents() { return self.events.len > 0; }
 
-    public string latest() {
-        return self.events.last();
-    }
+	public string latest() { return self.events.last(); }
 
-    public void clear() {
-        self.events.clear();
-    }
+	public void clear() { self.events.clear(); }
 }

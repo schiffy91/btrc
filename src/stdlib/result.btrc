@@ -14,26 +14,27 @@
  */
 
 class Result<T, E> {
-    private bool _ok;
-    private T _value;
-    private E _error;
+	private bool _ok;
+	private T _value;
+	private E _error;
 
-    public Result(bool ok, T value, E error) {
-        self._ok = ok;
-        self._value = value;
-        self._error = error;
-    }
+	public Result(bool ok, T value, E error) {
+		self._ok = ok;
+		self._value = value;
+		self._error = error;
+	}
 
-    public bool isOk() { return self._ok; }
-    public bool isErr() { return !self._ok; }
+	public bool isOk() { return self._ok; }
 
-    public T unwrap() {
-        if (!self._ok) { throw "called Result.unwrap() on an error"; }
-        return self._value;
-    }
+	public bool isErr() { return !self._ok; }
 
-    public E unwrapErr() {
-        if (self._ok) { throw "called Result.unwrapErr() on a value"; }
-        return self._error;
-    }
+	public T unwrap() {
+		if (!self._ok) { throw "called Result.unwrap() on an error"; }
+		return self._value;
+	}
+
+	public E unwrapErr() {
+		if (self._ok) { throw "called Result.unwrapErr() on a value"; }
+		return self._error;
+	}
 }

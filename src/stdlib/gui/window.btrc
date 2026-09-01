@@ -21,59 +21,52 @@
 #include <btrc_gui_window.h>
 
 void* btrc_gui_window_open(string title, int width, int height);
-bool  btrc_gui_window_should_close(void* win);
-void  btrc_gui_window_poll(void* win);
-int   btrc_gui_window_mouse_x(void* win);
-int   btrc_gui_window_mouse_y(void* win);
-bool  btrc_gui_window_mouse_down(void* win);
-int   btrc_gui_window_fb_width(void* win);
-int   btrc_gui_window_fb_height(void* win);
-void  btrc_gui_window_present(void* win, void* surface);
-void  btrc_gui_window_close(void* win);
+bool btrc_gui_window_should_close(void* win);
+void btrc_gui_window_poll(void* win);
+int btrc_gui_window_mouse_x(void* win);
+int btrc_gui_window_mouse_y(void* win);
+bool btrc_gui_window_mouse_down(void* win);
+int btrc_gui_window_fb_width(void* win);
+int btrc_gui_window_fb_height(void* win);
+void btrc_gui_window_present(void* win, void* surface);
+void btrc_gui_window_close(void* win);
 
 class GuiWindow {
-    public void* handle;
+	public void* handle;
 
-    public GuiWindow(string title, int width, int height) {
-        self.handle = btrc_gui_window_open(title, width, height);
-    }
+	public GuiWindow(string title, int width, int height) { self.handle = btrc_gui_window_open(title, width, height); }
 
-    public bool isOpen() {
-        if (self.handle == null) { return false; }
-        return !btrc_gui_window_should_close(self.handle);
-    }
+	public bool isOpen() {
+		if (self.handle == null) { return false; }
+		return !btrc_gui_window_should_close(self.handle);
+	}
 
-    /* Pump OS events and update `input` (computing the pressed rising edge). */
-    public void poll(GuiInput input) {
-        btrc_gui_window_poll(self.handle);
-        bool wasDown = input.mouseDown;
-        input.mouseX = btrc_gui_window_mouse_x(self.handle);
-        input.mouseY = btrc_gui_window_mouse_y(self.handle);
-        input.mouseDown = btrc_gui_window_mouse_down(self.handle);
-        input.mousePressed = input.mouseDown && !wasDown;
-    }
+	/* Pump OS events and update `input` (computing the pressed rising edge). */
+	public void poll(GuiInput input) {
+		btrc_gui_window_poll(self.handle);
+		bool wasDown = input.mouseDown;
+		input.mouseX = btrc_gui_window_mouse_x(self.handle);
+		input.mouseY = btrc_gui_window_mouse_y(self.handle);
+		input.mouseDown = btrc_gui_window_mouse_down(self.handle);
+		input.mousePressed = input.mouseDown && !wasDown;
+	}
 
-    public int width() { return btrc_gui_window_fb_width(self.handle); }
-    public int height() { return btrc_gui_window_fb_height(self.handle); }
+	public int width() { return btrc_gui_window_fb_width(self.handle); }
 
-    /* Resize a surface to match the window's framebuffer. Call each frame for
+	public int height() { return btrc_gui_window_fb_height(self.handle); }
+
+	/* Resize a surface to match the window's framebuffer. Call each frame for
      * responsive resizing — the declarative layout reflows to the new size. */
-    public void fit(Surface s) {
-        s.resize(self.width(), self.height());
-    }
+	public void fit(Surface s) { s.resize(self.width(), self.height()); }
 
-    public void present(Surface s) {
-        btrc_gui_window_present(self.handle, s.handle);
-    }
+	public void present(Surface s) { btrc_gui_window_present(self.handle, s.handle); }
 
-    public void close() {
-        if (self.handle != null) {
-            btrc_gui_window_close(self.handle);
-            self.handle = null;
-        }
-    }
+	public void close() {
+		if (self.handle != null) {
+			btrc_gui_window_close(self.handle);
+			self.handle = null;
+		}
+	}
 
-    public void __del__() {
-        self.close();
-    }
+	public void __del__() { self.close(); }
 }

@@ -14,29 +14,27 @@
 #include <btrc_gui_font.h>
 
 void* btrc_gui_font_load(string path, int pixelSize);
-void  btrc_gui_font_destroy(void* font);
-void  btrc_gui_set_font(void* font);
+void btrc_gui_font_destroy(void* font);
+void btrc_gui_set_font(void* font);
 
 class Font {
-    public void* handle;
+	public void* handle;
 
-    /* Load a TTF/OTF face at a pixel size. Check ok() before use(). */
-    public Font(string path, int pixelSize) {
-        self.handle = btrc_gui_font_load(path, pixelSize);
-    }
+	/* Load a TTF/OTF face at a pixel size. Check ok() before use(). */
+	public Font(string path, int pixelSize) { self.handle = btrc_gui_font_load(path, pixelSize); }
 
-    public bool ok() { return self.handle != null; }
+	public bool ok() { return self.handle != null; }
 
-    /* Make this font active for all subsequent text rendering and metrics. */
-    public void use() { btrc_gui_set_font(self.handle); }
+	/* Make this font active for all subsequent text rendering and metrics. */
+	public void use() { btrc_gui_set_font(self.handle); }
 
-    /* Restore the built-in bitmap font for all text. */
-    class void useBitmap() { btrc_gui_set_font(null); }
+	/* Restore the built-in bitmap font for all text. */
+	class void useBitmap() { btrc_gui_set_font(null); }
 
-    public void __del__() {
-        if (self.handle != null) {
-            btrc_gui_font_destroy(self.handle);
-            self.handle = null;
-        }
-    }
+	public void __del__() {
+		if (self.handle != null) {
+			btrc_gui_font_destroy(self.handle);
+			self.handle = null;
+		}
+	}
 }

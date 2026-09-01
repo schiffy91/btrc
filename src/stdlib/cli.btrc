@@ -6,298 +6,269 @@ import std.strings;
 import std.vector;
 
 class CliArgs {
-    public string program;
-    public Vector<string> values;
+	public string program;
+	public Vector<string> values;
 
-    public CliArgs(int argc, char** argv) {
-        int count = argc > 0 && argv != null ? argc : 0;
-        self.program = count > 0 ? Strings.copy(argv[0]) : "";
-        self.values = [];
-        for (int i = 1; i < count; i++) {
-            self.values.push(Strings.copy(argv[i]));
-        }
-    }
+	public CliArgs(int argc, char** argv) {
+		int count = argc > 0 && argv != null ? argc : 0;
+		self.program = count > 0 ? Strings.copy(argv[0]) : "";
+		self.values = [];
+		for (int i = 1; i < count; i++) {
+			self.values.push(Strings.copy(argv[i]));
+		}
+	}
 
-    public int count() {
-        return self.values.len;
-    }
+	public int count() { return self.values.len; }
 
-    public string get(int index) {
-        return self.values.get(index);
-    }
+	public string get(int index) { return self.values.get(index); }
 
-    public string require(int index, string message) {
-        if (index < 0 || index >= self.values.len) {
-            throw message == null ? "required CLI argument is missing" : message;
-        }
-        return self.values.get(index);
-    }
+	public string require(int index, string message) {
+		if (index < 0 || index >= self.values.len) {
+			throw message == null ? "required CLI argument is missing" : message;
+		}
+		return self.values.get(index);
+	}
 
-    public string command() {
-        if (self.values.len == 0) { return ""; }
-        return self.values.get(0);
-    }
+	public string command() {
+		if (self.values.len == 0) { return ""; }
+		return self.values.get(0);
+	}
 
-    public bool has(string flag) {
-        for value in self.values {
-            if (value.equals(flag)) { return true; }
-        }
-        return false;
-    }
+	public bool has(string flag) {
+		for value in self.values {
+			if (value.equals(flag)) { return true; }
+		}
+		return false;
+	}
 
-    public string valueAfter(string flag, string fallback) {
-        for (int i = 0; i < self.values.len - 1; i++) {
-            if (self.values.get(i).equals(flag)) {
-                return self.values.get(i + 1);
-            }
-        }
-        return fallback;
-    }
+	public string valueAfter(string flag, string fallback) {
+		for (int i = 0; i < self.values.len - 1; i++) {
+			if (self.values.get(i).equals(flag)) {
+				return self.values.get(i + 1);
+			}
+		}
+		return fallback;
+	}
 
-    public bool commandIs(string name) {
-        return self.command().equals(name);
-    }
+	public bool commandIs(string name) { return self.command().equals(name); }
 
-    public string valueAfterPrefix(string prefix, string fallback) {
-        for value in self.values {
-            if (value.startsWith(prefix)) {
-                return value.substring(prefix.len(), value.len() - prefix.len());
-            }
-        }
-        return fallback;
-    }
+	public string valueAfterPrefix(string prefix, string fallback) {
+		for value in self.values {
+			if (value.startsWith(prefix)) {
+				return value.substring(prefix.len(), value.len() - prefix.len());
+			}
+		}
+		return fallback;
+	}
 }
 
 class CliCommand {
-    public string name;
-    public Vector<string> aliases;
+	public string name;
+	public Vector<string> aliases;
 
-    public CliCommand(string name) {
-        self.name = name;
-        self.aliases = [];
-    }
+	public CliCommand(string name) {
+		self.name = name;
+		self.aliases = [];
+	}
 
-    public void alias(string name) {
-        self.aliases.push(name);
-    }
+	public void alias(string name) { self.aliases.push(name); }
 
-    public bool matches(string value) {
-        if (self.name.equals(value)) { return true; }
-        for alias in self.aliases {
-            if (alias.equals(value)) { return true; }
-        }
-        return false;
-    }
+	public bool matches(string value) {
+		if (self.name.equals(value)) { return true; }
+		for alias in self.aliases {
+			if (alias.equals(value)) { return true; }
+		}
+		return false;
+	}
 }
 
 class CliCommandLine {
-    public Vector<string> operands;
-    public Map<string, string> options;
-    public Vector<string> optionNames;
-    public Vector<string> optionValues;
-    public Vector<string> errors;
+	public Vector<string> operands;
+	public Map<string, string> options;
+	public Vector<string> optionNames;
+	public Vector<string> optionValues;
+	public Vector<string> errors;
 
-    public CliCommandLine() {
-        self.operands = [];
-        self.options = {};
-        self.optionNames = [];
-        self.optionValues = [];
-        self.errors = [];
-    }
+	public CliCommandLine() {
+		self.operands = [];
+		self.options = {};
+		self.optionNames = [];
+		self.optionValues = [];
+		self.errors = [];
+	}
 
-    class CliCommandLine parse(CliArgs args) {
-        return CliCommandLine.parseFrom(args, 0);
-    }
+	class CliCommandLine parse(CliArgs args) { return CliCommandLine.parseFrom(args, 0); }
 
-    class CliCommandLine parseFrom(CliArgs args, int startIndex) {
-        var parsed = CliCommandLine();
-        if (args == null) {
-            parsed.errors.push("CLI arguments are null");
-            return parsed;
-        }
-        var operandsOnly = false;
-        var index = startIndex < 0 ? 0 : startIndex;
-        while (index < args.count()) {
-            var value = args.get(index);
-            if (operandsOnly) {
-                parsed.operands.push(value);
-                index++;
-                continue;
-            }
-            if (value.equals("--")) {
-                operandsOnly = true;
-                index++;
-                continue;
-            }
-            if (value.startsWith("--")) {
-                var split = Strings.find(value, "=", 0);
-                if (split >= 0) {
-                    var name = value.substring(0, split);
-                    var optionValue = value.substring(split + 1, value.len() - split - 1);
-                    if (name.equals("--")) {
-                        parsed.errors.push(f"invalid option: {value}");
-                        index++;
-                        continue;
-                    }
-                    parsed.addOption(name, optionValue);
-                    index++;
-                    continue;
-                }
-                if (index + 1 < args.count() && CliCommandLine.isOptionValue(args.get(index + 1))) {
-                    parsed.addOption(value, args.get(index + 1));
-                    index = index + 2;
-                    continue;
-                }
-                parsed.addOption(value, "true");
-                index++;
-                continue;
-            }
-            parsed.operands.push(value);
-            index++;
-        }
-        return parsed;
-    }
+	class CliCommandLine parseFrom(CliArgs args, int startIndex) {
+		var parsed = CliCommandLine();
+		if (args == null) {
+			parsed.errors.push("CLI arguments are null");
+			return parsed;
+		}
+		var operandsOnly = false;
+		var index = startIndex < 0 ? 0 : startIndex;
+		while (index < args.count()) {
+			var value = args.get(index);
+			if (operandsOnly) {
+				parsed.operands.push(value);
+				index++;
+				continue;
+			}
+			if (value.equals("--")) {
+				operandsOnly = true;
+				index++;
+				continue;
+			}
+			if (value.startsWith("--")) {
+				var split = Strings.find(value, "=", 0);
+				if (split >= 0) {
+					var name = value.substring(0, split);
+					var optionValue = value.substring(split + 1, value.len() - split - 1);
+					if (name.equals("--")) {
+						parsed.errors.push(f"invalid option: {value}");
+						index++;
+						continue;
+					}
+					parsed.addOption(name, optionValue);
+					index++;
+					continue;
+				}
+				if (index + 1 < args.count() && CliCommandLine.isOptionValue(args.get(index + 1))) {
+					parsed.addOption(value, args.get(index + 1));
+					index = index + 2;
+					continue;
+				}
+				parsed.addOption(value, "true");
+				index++;
+				continue;
+			}
+			parsed.operands.push(value);
+			index++;
+		}
+		return parsed;
+	}
 
-    class bool isOptionValue(string value) {
-        return !value.startsWith("-") || CliCommandLine.isNegativeNumber(value);
-    }
+	class bool isOptionValue(string value) { return !value.startsWith("-") || CliCommandLine.isNegativeNumber(value); }
 
-    class bool isNegativeNumber(string value) {
-        if (value == null || value.len() < 2 || value[0] != '-') { return false; }
-        int index = 1;
-        bool digits = false;
-        bool decimal = false;
-        while (index < value.len()) {
-            char ch = value[index];
-            if (Strings.isDigit(ch)) {
-                digits = true;
-                index++;
-                continue;
-            }
-            if (ch == '.' && !decimal) {
-                decimal = true;
-                index++;
-                continue;
-            }
-            break;
-        }
-        if (!digits) { return false; }
-        if (index < value.len() && (value[index] == 'e' || value[index] == 'E')) {
-            index++;
-            if (index < value.len()
-                    && (value[index] == '+' || value[index] == '-')) {
-                index++;
-            }
-            int exponentStart = index;
-            while (index < value.len() && Strings.isDigit(value[index])) { index++; }
-            if (index == exponentStart) { return false; }
-        }
-        return index == value.len();
-    }
+	class bool isNegativeNumber(string value) {
+		if (value == null || value.len() < 2 || value[0] != '-') { return false; }
+		int index = 1;
+		bool digits = false;
+		bool decimal = false;
+		while (index < value.len()) {
+			char ch = value[index];
+			if (Strings.isDigit(ch)) {
+				digits = true;
+				index++;
+				continue;
+			}
+			if (ch == '.' && !decimal) {
+				decimal = true;
+				index++;
+				continue;
+			}
+			break;
+		}
+		if (!digits) { return false; }
+		if (index < value.len() && (value[index] == 'e' || value[index] == 'E')) {
+			index++;
+			if (index < value.len() && (value[index] == '+' || value[index] == '-')) {
+				index++;
+			}
+			int exponentStart = index;
+			while (index < value.len() && Strings.isDigit(value[index])) { index++; }
+			if (index == exponentStart) { return false; }
+		}
+		return index == value.len();
+	}
 
-    public void addOption(string name, string value) {
-        self.options.put(name, value);
-        self.optionNames.push(name);
-        self.optionValues.push(value);
-    }
+	public void addOption(string name, string value) {
+		self.options.put(name, value);
+		self.optionNames.push(name);
+		self.optionValues.push(value);
+	}
 
-    public bool ok() {
-        return self.errors.len == 0;
-    }
+	public bool ok() { return self.errors.len == 0; }
 
-    public int operandCount() {
-        return self.operands.len;
-    }
+	public int operandCount() { return self.operands.len; }
 
-    public string operand(int index, string fallback = "") {
-        if (index < 0 || index >= self.operands.len) { return fallback; }
-        return self.operands.get(index);
-    }
+	public string operand(int index, string fallback = "") {
+		if (index < 0 || index >= self.operands.len) { return fallback; }
+		return self.operands.get(index);
+	}
 
-    public bool has(string name) {
-        return self.options.has(name);
-    }
+	public bool has(string name) { return self.options.has(name); }
 
-    public string option(string name, string fallback = "") {
-        return self.options.getOrDefault(name, fallback);
-    }
+	public string option(string name, string fallback = "") { return self.options.getOrDefault(name, fallback); }
 
-    public bool flag(string name) {
-        return self.options.getOrDefault(name, "false").equals("true");
-    }
+	public bool flag(string name) { return self.options.getOrDefault(name, "false").equals("true"); }
 
-    public Vector<string> values(string name) {
-        Vector<string> result = [];
-        for (int i = 0; i < self.optionNames.len; i++) {
-            if (self.optionNames.get(i).equals(name)) {
-                result.push(self.optionValues.get(i));
-            }
-        }
-        return result;
-    }
+	public Vector<string> values(string name) {
+		Vector<string> result = [];
+		for (int i = 0; i < self.optionNames.len; i++) {
+			if (self.optionNames.get(i).equals(name)) {
+				result.push(self.optionValues.get(i));
+			}
+		}
+		return result;
+	}
 }
 
 class CliHelp {
-    public int width;
-    public Vector<string> lines;
+	public int width;
+	public Vector<string> lines;
 
-    public CliHelp() {
-        self.width = 30;
-        self.lines = [];
-    }
+	public CliHelp() {
+		self.width = 30;
+		self.lines = [];
+	}
 
-    public CliHelp withWidth(int width) {
-        if (width < 1) { self.width = 1; }
-        else if (width > 4096) { self.width = 4096; }
-        else { self.width = width; }
-        return self;
-    }
+	public CliHelp withWidth(int width) {
+		if (width < 1) { self.width = 1; }
+		else if (width > 4096) { self.width = 4096; }
+		else { self.width = width; }
+		return self;
+	}
 
-    public string padding() {
-        return Strings.repeat(" ", self.width);
-    }
+	public string padding() { return Strings.repeat(" ", self.width); }
 
-    public CliHelp line(string text) {
-        self.lines.push(text);
-        return self;
-    }
+	public CliHelp line(string text) {
+		self.lines.push(text);
+		return self;
+	}
 
-    public CliHelp blank() {
-        self.lines.push("");
-        return self;
-    }
+	public CliHelp blank() {
+		self.lines.push("");
+		return self;
+	}
 
-    public CliHelp section(string title) {
-        self.blank();
-        self.line(f"{title}:");
-        return self;
-    }
+	public CliHelp section(string title) {
+		self.blank();
+		self.line(f"{title}:");
+		return self;
+	}
 
-    public CliHelp item(string signature, string description) {
-        if (signature.len() >= self.width) {
-            self.line(f"  {signature}");
-            if (!description.isEmpty()) {
-                var indent = self.padding();
-                self.line(f"{indent}{description}");
-            }
-            return self;
-        }
-        var padded = Strings.padRight(signature, self.width, ' ');
-        self.line(f"  {padded}{description}");
-        return self;
-    }
+	public CliHelp item(string signature, string description) {
+		if (signature.len() >= self.width) {
+			self.line(f"  {signature}");
+			if (!description.isEmpty()) {
+				var indent = self.padding();
+				self.line(f"{indent}{description}");
+			}
+			return self;
+		}
+		var padded = Strings.padRight(signature, self.width, ' ');
+		self.line(f"  {padded}{description}");
+		return self;
+	}
 
-    public CliHelp continuation(string text) {
-        var indent = self.padding();
-        self.line(f"{indent}{text}");
-        return self;
-    }
+	public CliHelp continuation(string text) {
+		var indent = self.padding();
+		self.line(f"{indent}{text}");
+		return self;
+	}
 
-    public string render() {
-        return self.lines.join("\n");
-    }
+	public string render() { return self.lines.join("\n"); }
 
-    public void print() {
-        Console.log(self.render());
-    }
+	public void print() { Console.log(self.render()); }
 }

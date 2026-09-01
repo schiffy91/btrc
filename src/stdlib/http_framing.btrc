@@ -9,226 +9,216 @@ import std.strings;
 import std.vector;
 
 class HttpFraming {
-    class int hexVal(char ch) {
-        if (ch >= '0' && ch <= '9') { return (int)(ch - '0'); }
-        if (ch >= 'a' && ch <= 'f') { return (int)(ch - 'a') + 10; }
-        if (ch >= 'A' && ch <= 'F') { return (int)(ch - 'A') + 10; }
-        return -1;
-    }
+	class int hexVal(char ch) {
+		if (ch >= '0' && ch <= '9') { return (int)(ch - '0'); }
+		if (ch >= 'a' && ch <= 'f') { return (int)(ch - 'a') + 10; }
+		if (ch >= 'A' && ch <= 'F') { return (int)(ch - 'A') + 10; }
+		return -1;
+	}
 
-    class bool tokenChar(char ch) {
-        if (ch >= 'a' && ch <= 'z') { return true; }
-        if (ch >= 'A' && ch <= 'Z') { return true; }
-        if (ch >= '0' && ch <= '9') { return true; }
-        return ch == '!' || ch == '#' || ch == '$' || ch == '%'
-            || ch == '&' || ch == '\'' || ch == '*' || ch == '+'
-            || ch == '-' || ch == '.' || ch == '^' || ch == '_'
-            || ch == '`' || ch == '|' || ch == '~';
-    }
+	class bool tokenChar(char ch) {
+		if (ch >= 'a' && ch <= 'z') { return true; }
+		if (ch >= 'A' && ch <= 'Z') { return true; }
+		if (ch >= '0' && ch <= '9') { return true; }
+		return ch == '!' || ch == '#' || ch == '$' || ch == '%' || ch == '&' || ch == '\'' || ch == '*' || ch == '+' || ch == '-' || ch == '.' || ch == '^' || ch == '_' || ch == '`' || ch == '|' || ch == '~';
+	}
 
-    class bool token(string value) {
-        if (value == null || value.isEmpty()) { return false; }
-        for ch in value {
-            if (!HttpFraming.tokenChar(ch)) { return false; }
-        }
-        return true;
-    }
+	class bool token(string value) {
+		if (value == null || value.isEmpty()) { return false; }
+		for ch in value {
+			if (!HttpFraming.tokenChar(ch)) { return false; }
+		}
+		return true;
+	}
 
-    class bool fieldValue(string value) {
-        if (value == null) { return false; }
-        for ch in value {
-            int code = (int)((unsigned char)ch);
-            if (code == 9) { continue; }
-            if (code < 32 || code == 127) { return false; }
-        }
-        return true;
-    }
+	class bool fieldValue(string value) {
+		if (value == null) { return false; }
+		for ch in value {
+			int code = (int)((unsigned char)ch);
+			if (code == 9) { continue; }
+			if (code < 32 || code == 127) { return false; }
+		}
+		return true;
+	}
 
-    class bool requestTarget(string value) {
-        if (value == null || value.isEmpty()) { return false; }
-        for ch in value {
-            int code = (int)((unsigned char)ch);
-            if (code <= 32 || code == 127) { return false; }
-        }
-        return true;
-    }
+	class bool requestTarget(string value) {
+		if (value == null || value.isEmpty()) { return false; }
+		for ch in value {
+			int code = (int)((unsigned char)ch);
+			if (code <= 32 || code == 127) { return false; }
+		}
+		return true;
+	}
 
-    class bool headerLine(string line) {
-        if (line == null) { return false; }
-        int colon = Strings.find(line, ":", 0);
-        if (colon <= 0) { return false; }
-        string name = line.substring(0, colon);
-        string value = line.substring(colon + 1, line.len() - colon - 1);
-        return HttpFraming.token(name) && HttpFraming.fieldValue(value);
-    }
+	class bool headerLine(string line) {
+		if (line == null) { return false; }
+		int colon = Strings.find(line, ":", 0);
+		if (colon <= 0) { return false; }
+		string name = line.substring(0, colon);
+		string value = line.substring(colon + 1, line.len() - colon - 1);
+		return HttpFraming.token(name) && HttpFraming.fieldValue(value);
+	}
 
-    /* Find CRLF CRLF without converting binary data to a C string. */
-    class int headerEnd(Bytes raw) {
-        if (raw == null) { return -1; }
-        for (int i = 0; i < raw.len; i++) {
-            if (raw.data[i] == '\0') { return -2; }
-            if (raw.len - i >= 4
-                    && raw.data[i] == '\r' && raw.data[i + 1] == '\n'
-                    && raw.data[i + 2] == '\r' && raw.data[i + 3] == '\n') {
-                return i;
-            }
-        }
-        return -1;
-    }
+	/* Find CRLF CRLF without converting binary data to a C string. */
+	class int headerEnd(Bytes raw) {
+		if (raw == null) { return -1; }
+		for (int i = 0; i < raw.len; i++) {
+			if (raw.data[i] == '\0') { return -2; }
+			if (raw.len - i >= 4 && raw.data[i] == '\r' && raw.data[i + 1] == '\n' && raw.data[i + 2] == '\r' && raw.data[i + 3] == '\n') {
+				return i;
+			}
+		}
+		return -1;
+	}
 
-    /* Missing -> -1, malformed/conflicting/overflowing -> -2, valid -> value. */
-    class int contentLength(string head) {
-        Vector<string> lines = Strings.split(head, "\r\n");
-        int result = -1;
-        for (int lineIndex = 1; lineIndex < lines.len; lineIndex++) {
-            string line = lines.get(lineIndex);
-            int colon = Strings.find(line, ":", 0);
-            if (colon <= 0) { continue; }
-            string name = line.substring(0, colon).trim().toLower();
-            if (!name.equals("content-length")) { continue; }
-            string rawValue = line.substring(colon + 1, line.len() - colon - 1);
-            string normalized = rawValue.trim();
-            if (normalized.isEmpty() || normalized.endsWith(",")) { return -2; }
-            Vector<string> values = Strings.split(rawValue, ",");
-            if (values.len == 0) { return -2; }
-            for item in values {
-                string value = item.trim();
-                if (value.isEmpty()) { return -2; }
-                int parsed = 0;
-                for ch in value {
-                    if (ch < '0' || ch > '9') { return -2; }
-                    int digit = (int)(ch - '0');
-                    if (parsed > (2147483647 - digit) / 10) { return -2; }
-                    parsed = parsed * 10 + digit;
-                }
-                if (result >= 0 && result != parsed) { return -2; }
-                result = parsed;
-            }
-        }
-        return result;
-    }
+	/* Missing -> -1, malformed/conflicting/overflowing -> -2, valid -> value. */
+	class int contentLength(string head) {
+		Vector<string> lines = Strings.split(head, "\r\n");
+		int result = -1;
+		for (int lineIndex = 1; lineIndex < lines.len; lineIndex++) {
+			string line = lines.get(lineIndex);
+			int colon = Strings.find(line, ":", 0);
+			if (colon <= 0) { continue; }
+			string name = line.substring(0, colon).trim().toLower();
+			if (!name.equals("content-length")) { continue; }
+			string rawValue = line.substring(colon + 1, line.len() - colon - 1);
+			string normalized = rawValue.trim();
+			if (normalized.isEmpty() || normalized.endsWith(",")) { return -2; }
+			Vector<string> values = Strings.split(rawValue, ",");
+			if (values.len == 0) { return -2; }
+			for item in values {
+				string value = item.trim();
+				if (value.isEmpty()) { return -2; }
+				int parsed = 0;
+				for ch in value {
+					if (ch < '0' || ch > '9') { return -2; }
+					int digit = (int)(ch - '0');
+					if (parsed > (2147483647 - digit) / 10) { return -2; }
+					parsed = parsed * 10 + digit;
+				}
+				if (result >= 0 && result != parsed) { return -2; }
+				result = parsed;
+			}
+		}
+		return result;
+	}
 
-    /* Only the coding this stack can actually decode is accepted. */
-    class int transferEncoding(string head) {
-        Vector<string> lines = Strings.split(head, "\r\n");
-        bool found = false;
-        for (int lineIndex = 1; lineIndex < lines.len; lineIndex++) {
-            string line = lines.get(lineIndex);
-            int colon = Strings.find(line, ":", 0);
-            if (colon <= 0) { continue; }
-            string name = line.substring(0, colon).trim().toLower();
-            if (!name.equals("transfer-encoding")) { continue; }
-            if (found) { return -2; }
-            found = true;
-            string value = line.substring(colon + 1, line.len() - colon - 1).trim().toLower();
-            if (!value.equals("chunked")) { return -2; }
-        }
-        return found ? 1 : -1;
-    }
+	/* Only the coding this stack can actually decode is accepted. */
+	class int transferEncoding(string head) {
+		Vector<string> lines = Strings.split(head, "\r\n");
+		bool found = false;
+		for (int lineIndex = 1; lineIndex < lines.len; lineIndex++) {
+			string line = lines.get(lineIndex);
+			int colon = Strings.find(line, ":", 0);
+			if (colon <= 0) { continue; }
+			string name = line.substring(0, colon).trim().toLower();
+			if (!name.equals("transfer-encoding")) { continue; }
+			if (found) { return -2; }
+			found = true;
+			string value = line.substring(colon + 1, line.len() - colon - 1).trim().toLower();
+			if (!value.equals("chunked")) { return -2; }
+		}
+		return found ? 1 : -1;
+	}
 
-    class bool trailerLine(Bytes raw, int start, int end) {
-        int colon = -1;
-        for (int i = start; i < end; i++) {
-            char ch = raw.data[i];
-            if (ch == ':' && colon < 0) { colon = i; continue; }
-            if (colon < 0) {
-                if (!HttpFraming.tokenChar(ch)) { return false; }
-            } else {
-                int code = (int)((unsigned char)ch);
-                if (code != 9 && (code < 32 || code == 127)) { return false; }
-            }
-        }
-        if (colon <= start) { return false; }
-        Bytes nameBytes = raw.slice(start, colon);
-        string name = nameBytes.toStringLossy().toLower();
-        return !name.equals("content-length")
-            && !name.equals("transfer-encoding")
-            && !name.equals("host") && !name.equals("connection");
-    }
+	class bool trailerLine(Bytes raw, int start, int end) {
+		int colon = -1;
+		for (int i = start; i < end; i++) {
+			char ch = raw.data[i];
+			if (ch == ':' && colon < 0) { colon = i; continue; }
+			if (colon < 0) {
+				if (!HttpFraming.tokenChar(ch)) { return false; }
+			} else {
+				int code = (int)((unsigned char)ch);
+				if (code != 9 && (code < 32 || code == 127)) { return false; }
+			}
+		}
+		if (colon <= start) { return false; }
+		Bytes nameBytes = raw.slice(start, colon);
+		string name = nameBytes.toStringLossy().toLower();
+		return !name.equals("content-length") && !name.equals("transfer-encoding") && !name.equals("host") && !name.equals("connection");
+	}
 
-    /* Complete -> byte offset just past trailers; incomplete -> -1; bad -> -2. */
-    class int chunkedEnd(Bytes raw, int bodyStart, int maxBodyBytes,
-                         int maxTrailerBytes) {
-        if (raw == null || bodyStart < 0 || bodyStart > raw.len
-                || maxBodyBytes < 0 || maxTrailerBytes < 0) { return -2; }
-        int pos = bodyStart;
-        int decoded = 0;
-        while (true) {
-            int lineStart = pos;
-            int size = 0;
-            int digits = 0;
-            bool extension = false;
-            while (pos < raw.len && raw.data[pos] != '\r') {
-                char ch = raw.data[pos];
-                if (ch == '\n' || pos - lineStart > 8192) { return -2; }
-                if (!extension) {
-                    int value = HttpFraming.hexVal(ch);
-                    if (value >= 0) {
-                        if (value > maxBodyBytes
-                                || size > (maxBodyBytes - value) / 16) { return -2; }
-                        size = size * 16 + value;
-                        digits++;
-                    } else if (ch == ';' && digits > 0) {
-                        extension = true;
-                    } else {
-                        return -2;
-                    }
-                } else {
-                    int code = (int)((unsigned char)ch);
-                    if (code != 9 && (code < 32 || code == 127)) { return -2; }
-                }
-                pos++;
-            }
-            if (pos >= raw.len || pos + 1 >= raw.len) { return -1; }
-            if (raw.data[pos + 1] != '\n' || digits == 0) { return -2; }
-            pos = pos + 2;
+	/* Complete -> byte offset just past trailers; incomplete -> -1; bad -> -2. */
+	class int chunkedEnd(Bytes raw, int bodyStart, int maxBodyBytes, int maxTrailerBytes) {
+		if (raw == null || bodyStart < 0 || bodyStart > raw.len || maxBodyBytes < 0 || maxTrailerBytes < 0) { return -2; }
+		int pos = bodyStart;
+		int decoded = 0;
+		while (true) {
+			int lineStart = pos;
+			int size = 0;
+			int digits = 0;
+			bool extension = false;
+			while (pos < raw.len && raw.data[pos] != '\r') {
+				char ch = raw.data[pos];
+				if (ch == '\n' || pos - lineStart > 8192) { return -2; }
+				if (!extension) {
+					int value = HttpFraming.hexVal(ch);
+					if (value >= 0) {
+						if (value > maxBodyBytes || size > (maxBodyBytes - value) / 16) { return -2; }
+						size = size * 16 + value;
+						digits++;
+					} else if (ch == ';' && digits > 0) {
+						extension = true;
+					} else {
+						return -2;
+					}
+				} else {
+					int code = (int)((unsigned char)ch);
+					if (code != 9 && (code < 32 || code == 127)) { return -2; }
+				}
+				pos++;
+			}
+			if (pos >= raw.len || pos + 1 >= raw.len) { return -1; }
+			if (raw.data[pos + 1] != '\n' || digits == 0) { return -2; }
+			pos = pos + 2;
 
-            if (size == 0) {
-                int trailerStart = pos;
-                while (true) {
-                    int start = pos;
-                    while (pos < raw.len && raw.data[pos] != '\r') {
-                        if (raw.data[pos] == '\n' || pos - trailerStart > maxTrailerBytes) {
-                            return -2;
-                        }
-                        pos++;
-                    }
-                    if (pos >= raw.len || pos + 1 >= raw.len) { return -1; }
-                    if (raw.data[pos + 1] != '\n') { return -2; }
-                    if (pos == start) { return pos + 2; }
-                    if (!HttpFraming.trailerLine(raw, start, pos)) { return -2; }
-                    pos = pos + 2;
-                }
-            }
+			if (size == 0) {
+				int trailerStart = pos;
+				while (true) {
+					int start = pos;
+					while (pos < raw.len && raw.data[pos] != '\r') {
+						if (raw.data[pos] == '\n' || pos - trailerStart > maxTrailerBytes) {
+							return -2;
+						}
+						pos++;
+					}
+					if (pos >= raw.len || pos + 1 >= raw.len) { return -1; }
+					if (raw.data[pos + 1] != '\n') { return -2; }
+					if (pos == start) { return pos + 2; }
+					if (!HttpFraming.trailerLine(raw, start, pos)) { return -2; }
+					pos = pos + 2;
+				}
+			}
 
-            if (size > maxBodyBytes - decoded) { return -2; }
-            if (size > raw.len - pos) { return -1; }
-            pos = pos + size;
-            decoded = decoded + size;
-            if (raw.len - pos < 2) { return -1; }
-            if (raw.data[pos] != '\r' || raw.data[pos + 1] != '\n') { return -2; }
-            pos = pos + 2;
-        }
-        return -2;
-    }
+			if (size > maxBodyBytes - decoded) { return -2; }
+			if (size > raw.len - pos) { return -1; }
+			pos = pos + size;
+			decoded = decoded + size;
+			if (raw.len - pos < 2) { return -1; }
+			if (raw.data[pos] != '\r' || raw.data[pos + 1] != '\n') { return -2; }
+			pos = pos + 2;
+		}
+		return -2;
+	}
 
-    class Bytes decodeChunked(Bytes body, int maxBodyBytes, int maxTrailerBytes) {
-        Bytes result = Bytes();
-        int end = HttpFraming.chunkedEnd(body, 0, maxBodyBytes, maxTrailerBytes);
-        if (end < 0) { return result; }
-        int pos = 0;
-        while (pos < end) {
-            int size = 0;
-            while (HttpFraming.hexVal(body.data[pos]) >= 0) {
-                size = size * 16 + HttpFraming.hexVal(body.data[pos]);
-                pos++;
-            }
-            while (body.data[pos] != '\r') { pos++; }
-            pos = pos + 2;
-            if (size == 0) { break; }
-            result.appendRaw(body.data + pos, size);
-            pos = pos + size + 2;
-        }
-        return result;
-    }
+	class Bytes decodeChunked(Bytes body, int maxBodyBytes, int maxTrailerBytes) {
+		Bytes result = Bytes();
+		int end = HttpFraming.chunkedEnd(body, 0, maxBodyBytes, maxTrailerBytes);
+		if (end < 0) { return result; }
+		int pos = 0;
+		while (pos < end) {
+			int size = 0;
+			while (HttpFraming.hexVal(body.data[pos]) >= 0) {
+				size = size * 16 + HttpFraming.hexVal(body.data[pos]);
+				pos++;
+			}
+			while (body.data[pos] != '\r') { pos++; }
+			pos = pos + 2;
+			if (size == 0) { break; }
+			result.appendRaw(body.data + pos, size);
+			pos = pos + size + 2;
+		}
+		return result;
+	}
 }

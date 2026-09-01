@@ -1,46 +1,46 @@
 /* Owned C string arrays for the immediate fork/exec boundary. */
 
+import std.vector;
+
 #include <stdlib.h>
 #include <string.h>
 
-import std.vector;
-
 class UnixPamCStringArray {
-    class char* copyEntry(string value) {
-        if (value == null) { return NULL; }
-        size_t length = strlen(value);
-        if (length == (size_t)(-1)) { return NULL; }
-        char* result = (char*)malloc(length + (size_t)1);
-        if (result == NULL) { return NULL; }
-        memcpy(result, value, length + (size_t)1);
-        return result;
-    }
+	class char* copyEntry(string value) {
+		if (value == null) { return NULL; }
+		size_t length = strlen(value);
+		if (length == (size_t)(-1)) { return NULL; }
+		char* result = (char*)malloc(length + (size_t)1);
+		if (result == NULL) { return NULL; }
+		memcpy(result, value, length + (size_t)1);
+		return result;
+	}
 
-    class void freeEntries(char** values) {
-        if (values == NULL) { return; }
-        int index = 0;
-        while (values[index] != NULL) {
-            free(values[index]);
-            index++;
-        }
-        free(values);
-    }
+	class void freeEntries(char** values) {
+		if (values == NULL) { return; }
+		int index = 0;
+		while (values[index] != NULL) {
+			free(values[index]);
+			index++;
+		}
+		free(values);
+	}
 
-    class char** copyAll(Vector<string> values) {
-        if (values == null || values.len < 0) { return NULL; }
-        size_t length = (size_t)values.len;
-        if (length >= (size_t)(-1) / sizeof(char*)) { return NULL; }
-        size_t count = length + (size_t)1;
-        char** result = (char**)calloc(count, sizeof(char*));
-        if (result == NULL) { return NULL; }
-        for (int index = 0; index < values.len; index++) {
-            result[index] = UnixPamCStringArray.copyEntry(values.get(index));
-            if (result[index] == NULL) {
-                UnixPamCStringArray.freeEntries(result);
-                return NULL;
-            }
-        }
-        result[values.len] = NULL;
-        return result;
-    }
+	class char** copyAll(Vector<string> values) {
+		if (values == null || values.len < 0) { return NULL; }
+		size_t length = (size_t)values.len;
+		if (length >= (size_t)(-1) / sizeof(char*)) { return NULL; }
+		size_t count = length + (size_t)1;
+		char** result = (char**)calloc(count, sizeof(char*));
+		if (result == NULL) { return NULL; }
+		for (int index = 0; index < values.len; index++) {
+			result[index] = UnixPamCStringArray.copyEntry(values.get(index));
+			if (result[index] == NULL) {
+				UnixPamCStringArray.freeEntries(result);
+				return NULL;
+			}
+		}
+		result[values.len] = NULL;
+		return result;
+	}
 }

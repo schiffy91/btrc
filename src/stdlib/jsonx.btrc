@@ -14,44 +14,38 @@ import std.json;
 import std.strings;
 
 class Json {
-    class string esc(string s) {
-        return JsonObject.escape(s);
-    }
+	class string esc(string s) { return JsonObject.escape(s); }
 
-    class string str(string s) {
-        return "\"" + Json.esc(s) + "\"";
-    }
+	class string str(string s) { return "\"" + Json.esc(s) + "\""; }
 
-    class string getString(string json, string key) {
-        return Json.getStringFrom(json, key, 0);
-    }
+	class string getString(string json, string key) { return Json.getStringFrom(json, key, 0); }
 
-    class string getStringAfter(string json, string anchor, string key) {
-        if (json == null || anchor == null || key == null) { return ""; }
-        var anchorPosition = Strings.find(json, anchor, 0);
-        if (anchorPosition < 0) { return ""; }
-        return Json.getStringFrom(json, key, anchorPosition + anchor.len());
-    }
+	class string getStringAfter(string json, string anchor, string key) {
+		if (json == null || anchor == null || key == null) { return ""; }
+		var anchorPosition = Strings.find(json, anchor, 0);
+		if (anchorPosition < 0) { return ""; }
+		return Json.getStringFrom(json, key, anchorPosition + anchor.len());
+	}
 
-    class string getStringFrom(string json, string key, int from) {
-        if (json == null || key == null) { return ""; }
-        var needle = "\"" + JsonObject.escape(key) + "\"";
-        var searchFrom = from;
-        while (true) {
-            var keyPosition = Strings.find(json, needle, searchFrom);
-            if (keyPosition < 0) { return ""; }
-            var i = JsonText.skipSpaces(json, keyPosition + needle.len());
-            if (i >= json.len() || json[i] != ':') {
-                searchFrom = keyPosition + needle.len();
-                continue;
-            }
-            i = JsonText.skipSpaces(json, i + 1);
-            if (i >= json.len() || json[i] != (char)34) { return ""; }
-            i++;
-            var end = JsonText.stringEnd(json, i);
-            if (end >= json.len()) { return ""; }
-            return JsonText.unescape(JsonText.slice(json, i, end));
-        }
-        return "";
-    }
+	class string getStringFrom(string json, string key, int from) {
+		if (json == null || key == null) { return ""; }
+		var needle = "\"" + JsonObject.escape(key) + "\"";
+		var searchFrom = from;
+		while (true) {
+			var keyPosition = Strings.find(json, needle, searchFrom);
+			if (keyPosition < 0) { return ""; }
+			var i = JsonText.skipSpaces(json, keyPosition + needle.len());
+			if (i >= json.len() || json[i] != ':') {
+				searchFrom = keyPosition + needle.len();
+				continue;
+			}
+			i = JsonText.skipSpaces(json, i + 1);
+			if (i >= json.len() || json[i] != (char)34) { return ""; }
+			i++;
+			var end = JsonText.stringEnd(json, i);
+			if (end >= json.len()) { return ""; }
+			return JsonText.unescape(JsonText.slice(json, i, end));
+		}
+		return "";
+	}
 }

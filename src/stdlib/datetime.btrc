@@ -15,125 +15,100 @@ import std.strings;
 #include <time.h>
 
 class DateTime {
-    public int year;
-    public int month;
-    public int day;
-    public int hour;
-    public int minute;
-    public int second;
+	public int year;
+	public int month;
+	public int day;
+	public int hour;
+	public int minute;
+	public int second;
 
-    public DateTime(int year, int month, int day, int hour = 0, int minute = 0, int second = 0) {
-        self.year = year;
-        self.month = month;
-        self.day = day;
-        self.hour = hour;
-        self.minute = minute;
-        self.second = second;
-    }
+	public DateTime(int year, int month, int day, int hour = 0, int minute = 0, int second = 0) {
+		self.year = year;
+		self.month = month;
+		self.day = day;
+		self.hour = hour;
+		self.minute = minute;
+		self.second = second;
+	}
 
-    class DateTime now() {
-        time_t t = time(NULL);
-        struct tm local;
-        struct tm* tm = localtime_r(&t, &local);
-        if (tm == NULL) {
-            throw "failed to read local time";
-        }
-        return DateTime(
-            tm->tm_year + 1900,
-            tm->tm_mon + 1,
-            tm->tm_mday,
-            tm->tm_hour,
-            tm->tm_min,
-            tm->tm_sec
-        );
-    }
+	class DateTime now() {
+		time_t t = time(NULL);
+		struct tm local;
+		struct tm* tm = localtime_r(&t, &local);
+		if (tm == NULL) {
+			throw "failed to read local time";
+		}
+		return DateTime(tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, tm->tm_sec);
+	}
 
-    /* Seconds since the Unix epoch (1970-01-01 00:00:00), interpreting this
+	/* Seconds since the Unix epoch (1970-01-01 00:00:00), interpreting this
      * DateTime's fields as UTC. Computed with a portable civil-from-days
      * algorithm (Howard Hinnant's) — no dependence on the non-portable
      * timegm(), so it builds identically under strict C11 on macOS and Linux. */
-    public long long toUnix() {
-        long long y = (long long)self.year;
-        long long m = (long long)self.month;
-        if (m <= 2) {
-            y = y - 1LL;
-        }
-        long long era = (y >= 0LL ? y : y - 399LL) / 400LL;
-        long long yoe = y - era * 400LL;
-        long long mp = (m + 9LL) % 12LL;
-        long long doy = (153LL * mp + 2LL) / 5LL
-            + (long long)self.day - 1LL;
-        long long doe = yoe * 365LL + yoe / 4LL - yoe / 100LL + doy;
-        long long days = era * 146097LL + doe - 719468LL;
-        return days * 86400LL
-            + (long long)self.hour * 3600LL
-            + (long long)self.minute * 60LL
-            + (long long)self.second;
-    }
+	public long long toUnix() {
+		long long y = (long long)self.year;
+		long long m = (long long)self.month;
+		if (m <= 2) {
+			y = y - 1LL;
+		}
+		long long era = (y >= 0LL ? y : y - 399LL) / 400LL;
+		long long yoe = y - era * 400LL;
+		long long mp = (m + 9LL) % 12LL;
+		long long doy = (153LL * mp + 2LL) / 5LL + (long long)self.day - 1LL;
+		long long doe = yoe * 365LL + yoe / 4LL - yoe / 100LL + doy;
+		long long days = era * 146097LL + doe - 719468LL;
+		return days * 86400LL + (long long)self.hour * 3600LL + (long long)self.minute * 60LL + (long long)self.second;
+	}
 
-    /* Construct a DateTime from seconds since the Unix epoch, interpreted as
+	/* Construct a DateTime from seconds since the Unix epoch, interpreted as
      * UTC.  The inverse civil-from-days calculation avoids time_t width and
      * platform-specific gmtime variants, including the 32-bit 2038 boundary. */
-    class DateTime fromUnix(long long seconds) {
-        long long days = seconds / 86400LL;
-        long long remaining = seconds % 86400LL;
-        if (remaining < 0LL) {
-            remaining = remaining + 86400LL;
-            days = days - 1LL;
-        }
+	class DateTime fromUnix(long long seconds) {
+		long long days = seconds / 86400LL;
+		long long remaining = seconds % 86400LL;
+		if (remaining < 0LL) {
+			remaining = remaining + 86400LL;
+			days = days - 1LL;
+		}
 
-        long long z = days + 719468LL;
-        long long era = (z >= 0LL ? z : z - 146096LL) / 146097LL;
-        long long doe = z - era * 146097LL;
-        long long yoe = (doe - doe / 1460LL + doe / 36524LL
-            - doe / 146096LL) / 365LL;
-        long long year = yoe + era * 400LL;
-        long long doy = doe - (365LL * yoe + yoe / 4LL - yoe / 100LL);
-        long long mp = (5LL * doy + 2LL) / 153LL;
-        long long day = doy - (153LL * mp + 2LL) / 5LL + 1LL;
-        long long month = mp + (mp < 10LL ? 3LL : -9LL);
-        if (month <= 2LL) {
-            year = year + 1LL;
-        }
-        if (year < (long long)INT_MIN || year > (long long)INT_MAX) {
-            throw "Unix timestamp is outside DateTime's supported year range";
-        }
+		long long z = days + 719468LL;
+		long long era = (z >= 0LL ? z : z - 146096LL) / 146097LL;
+		long long doe = z - era * 146097LL;
+		long long yoe = (doe - doe / 1460LL + doe / 36524LL - doe / 146096LL) / 365LL;
+		long long year = yoe + era * 400LL;
+		long long doy = doe - (365LL * yoe + yoe / 4LL - yoe / 100LL);
+		long long mp = (5LL * doy + 2LL) / 153LL;
+		long long day = doy - (153LL * mp + 2LL) / 5LL + 1LL;
+		long long month = mp + (mp < 10LL ? 3LL : -9LL);
+		if (month <= 2LL) {
+			year = year + 1LL;
+		}
+		if (year < (long long)INT_MIN || year > (long long)INT_MAX) {
+			throw "Unix timestamp is outside DateTime's supported year range";
+		}
 
-        return DateTime(
-            (int)year,
-            (int)month,
-            (int)day,
-            (int)(remaining / 3600LL),
-            (int)((remaining % 3600LL) / 60LL),
-            (int)(remaining % 60LL)
-        );
-    }
+		return DateTime((int)year, (int)month, (int)day, (int)(remaining / 3600LL), (int)((remaining % 3600LL) / 60LL), (int)(remaining % 60LL));
+	}
 
-    public void display() {
-        printf("%04d-%02d-%02d %02d:%02d:%02d",
-            self.year, self.month, self.day,
-            self.hour, self.minute, self.second);
-    }
+	public void display() { printf("%04d-%02d-%02d %02d:%02d:%02d", self.year, self.month, self.day, self.hour, self.minute, self.second); }
 
-    public string format() {
-        char buf[64];
-        snprintf(buf, 64, "%04d-%02d-%02d %02d:%02d:%02d",
-            self.year, self.month, self.day,
-            self.hour, self.minute, self.second);
-        return Strings.copy(buf);
-    }
+	public string format() {
+		char buf[64];
+		snprintf(buf, 64, "%04d-%02d-%02d %02d:%02d:%02d", self.year, self.month, self.day, self.hour, self.minute, self.second);
+		return Strings.copy(buf);
+	}
 
-    public string dateString() {
-        char buf[32];
-        snprintf(buf, 32, "%04d-%02d-%02d", self.year, self.month, self.day);
-        return Strings.copy(buf);
-    }
+	public string dateString() {
+		char buf[32];
+		snprintf(buf, 32, "%04d-%02d-%02d", self.year, self.month, self.day);
+		return Strings.copy(buf);
+	}
 
-    public string timeString() {
-        char buf[32];
-        snprintf(buf, 32, "%02d:%02d:%02d", self.hour, self.minute, self.second);
-        return Strings.copy(buf);
-    }
+	public string timeString() {
+		char buf[32];
+		snprintf(buf, 32, "%02d:%02d:%02d", self.hour, self.minute, self.second);
+		return Strings.copy(buf);
+	}
 }
 
 /* A monotonic wall-clock stopwatch.
@@ -143,104 +118,103 @@ class DateTime {
  * start/end are stored as monotonic nanoseconds in a fixed-width-capable
  * `long long`; C `long` is only 32 bits on LLP64 and many 32-bit targets. */
 class Timer {
-    private long long start_time;
-    private long long end_time;
-    private bool running;
+	private long long start_time;
+	private long long end_time;
+	private bool running;
 
-    public Timer() {
-        self.start_time = 0;
-        self.end_time = 0;
-        self.running = false;
-    }
+	public Timer() {
+		self.start_time = 0;
+		self.end_time = 0;
+		self.running = false;
+	}
 
-    /* Current monotonic clock value, in nanoseconds. */
-    private long long monoNanos() {
-        struct timespec ts;
-        if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
-            throw "failed to read monotonic clock";
-        }
-        if (ts.tv_sec < (time_t)0) {
-            throw "monotonic clock returned a negative value";
-        }
-        uintmax_t seconds = (uintmax_t)ts.tv_sec;
-        if (seconds > (uintmax_t)(LLONG_MAX / 1000000000LL)) {
-            throw "monotonic clock is outside Timer's supported range";
-        }
-        if (ts.tv_nsec < 0L || ts.tv_nsec >= 1000000000L) {
-            throw "monotonic clock returned an invalid nanosecond value";
-        }
-        long long nanoseconds = (long long)seconds * 1000000000LL;
-        if (nanoseconds > (long long)LLONG_MAX - (long long)ts.tv_nsec) {
-            throw "monotonic clock is outside Timer's supported range";
-        }
-        return nanoseconds + (long long)ts.tv_nsec;
-    }
+	/* Current monotonic clock value, in nanoseconds. */
+	private long long monoNanos() {
+		struct timespec ts;
+		if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0) {
+			throw "failed to read monotonic clock";
+		}
+		if (ts.tv_sec < (time_t)0) {
+			throw "monotonic clock returned a negative value";
+		}
+		uintmax_t seconds = (uintmax_t)ts.tv_sec;
+		if (seconds > (uintmax_t)(LLONG_MAX / 1000000000LL)) {
+			throw "monotonic clock is outside Timer's supported range";
+		}
+		if (ts.tv_nsec < 0L || ts.tv_nsec >= 1000000000L) {
+			throw "monotonic clock returned an invalid nanosecond value";
+		}
+		long long nanoseconds = (long long)seconds * 1000000000LL;
+		if (nanoseconds > (long long)LLONG_MAX - (long long)ts.tv_nsec) {
+			throw "monotonic clock is outside Timer's supported range";
+		}
+		return nanoseconds + (long long)ts.tv_nsec;
+	}
 
-    public void start() {
-        self.start_time = self.monoNanos();
-        self.running = true;
-    }
+	public void start() {
+		self.start_time = self.monoNanos();
+		self.running = true;
+	}
 
-    public void stop() {
-        self.end_time = self.monoNanos();
-        self.running = false;
-    }
+	public void stop() {
+		self.end_time = self.monoNanos();
+		self.running = false;
+	}
 
-    /* Elapsed wall time in seconds. */
-    public float elapsed() {
-        long long end = self.running ? self.monoNanos() : self.end_time;
-        if (end < self.start_time) {
-            throw "monotonic clock moved backwards";
-        }
-        return (float)(end - self.start_time) / 1000000000.0f;
-    }
+	/* Elapsed wall time in seconds. */
+	public float elapsed() {
+		long long end = self.running ? self.monoNanos() : self.end_time;
+		if (end < self.start_time) {
+			throw "monotonic clock moved backwards";
+		}
+		return (float)(end - self.start_time) / 1000000000.0f;
+	}
 
-    /* Elapsed wall time in milliseconds. */
-    public float elapsedMillis() {
-        long long end = self.running ? self.monoNanos() : self.end_time;
-        if (end < self.start_time) {
-            throw "monotonic clock moved backwards";
-        }
-        return (float)(end - self.start_time) / 1000000.0f;
-    }
+	/* Elapsed wall time in milliseconds. */
+	public float elapsedMillis() {
+		long long end = self.running ? self.monoNanos() : self.end_time;
+		if (end < self.start_time) {
+			throw "monotonic clock moved backwards";
+		}
+		return (float)(end - self.start_time) / 1000000.0f;
+	}
 
-    public void reset() {
-        self.start_time = 0;
-        self.end_time = 0;
-        self.running = false;
-    }
+	public void reset() {
+		self.start_time = 0;
+		self.end_time = 0;
+		self.running = false;
+	}
 
-    /* Suspend the calling thread for the given number of seconds (fractional
+	/* Suspend the calling thread for the given number of seconds (fractional
      * seconds allowed), using nanosleep (POSIX). */
-    class void sleep(double seconds) {
-        /* Converting NaN/infinity or an out-of-range floating value to time_t
+	class void sleep(double seconds) {
+		/* Converting NaN/infinity or an out-of-range floating value to time_t
          * is undefined in C.  Keep the established non-positive no-op contract
          * and fail closed for values that are not portable to signed 32-bit
          * time_t implementations. */
-        if (!Math.isFinite(seconds) || seconds <= 0.0
-                || seconds >= 2147483647.0) {
-            return;
-        }
-        struct timespec req;
-        req.tv_sec = (time_t)seconds;
-        double frac = seconds - (double)((time_t)seconds);
-        req.tv_nsec = (long)(frac * 1000000000.0);
-        if (req.tv_nsec < 0L || req.tv_nsec >= 1000000000L) {
-            return;
-        }
-        while (nanosleep(&req, &req) == -1 && errno == EINTR) {
-        }
-    }
+		if (!Math.isFinite(seconds) || seconds <= 0.0 || seconds >= 2147483647.0) {
+			return;
+		}
+		struct timespec req;
+		req.tv_sec = (time_t)seconds;
+		double frac = seconds - (double)((time_t)seconds);
+		req.tv_nsec = (long)(frac * 1000000000.0);
+		if (req.tv_nsec < 0L || req.tv_nsec >= 1000000000L) {
+			return;
+		}
+		while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+		}
+	}
 
-    /* Suspend the calling thread for the given number of milliseconds. */
-    class void sleepMillis(int ms) {
-        if (ms <= 0) {
-            return;
-        }
-        struct timespec req;
-        req.tv_sec = ms / 1000;
-        req.tv_nsec = (long)(ms % 1000) * 1000000L;
-        while (nanosleep(&req, &req) == -1 && errno == EINTR) {
-        }
-    }
+	/* Suspend the calling thread for the given number of milliseconds. */
+	class void sleepMillis(int ms) {
+		if (ms <= 0) {
+			return;
+		}
+		struct timespec req;
+		req.tv_sec = ms / 1000;
+		req.tv_nsec = (long)(ms % 1000) * 1000000L;
+		while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+		}
+	}
 }

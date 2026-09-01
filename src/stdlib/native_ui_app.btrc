@@ -12,668 +12,357 @@ import std.vector;
 
 #include <btrc_gpu.h>
 
-int std_gpu_native_ui_create(
-    unsigned long long gpu,
-    unsigned long long* compositorOut,
-    unsigned long long* ownerReceiptOut);
-int std_gpu_native_ui_begin(
-    unsigned long long compositor, int logicalWidth, int logicalHeight);
-int std_gpu_native_ui_add_rect(
-    unsigned long long compositor,
-    float x, float y, float width, float height,
-    float red, float green, float blue, float alpha, float radius);
-int std_gpu_native_ui_add_glyph(
-    unsigned long long compositor,
-    float x, float y, float width, float height,
-    float red, float green, float blue, float alpha,
-    unsigned long long glyphBits);
-int std_gpu_native_ui_add_image(
-    unsigned long long compositor,
-    string identity,
-    unsigned char* rgba,
-    int sourceWidth,
-    int sourceHeight,
-    unsigned long long sourceRevision,
-    float x,
-    float y,
-    float width,
-    float height);
-int std_gpu_native_ui_draw(
-    unsigned long long gpu, unsigned long long compositor);
-int std_gpu_native_ui_destroy(
-    unsigned long long compositor, unsigned long long ownerReceipt);
-void std_gpu_native_ui_finalize(
-    unsigned long long compositor, unsigned long long ownerReceipt);
+int std_gpu_native_ui_create(unsigned long long gpu, unsigned long long* compositorOut, unsigned long long* ownerReceiptOut);
+int std_gpu_native_ui_begin(unsigned long long compositor, int logicalWidth, int logicalHeight);
+int std_gpu_native_ui_add_rect(unsigned long long compositor, float x, float y, float width, float height, float red, float green, float blue, float alpha, float radius);
+int std_gpu_native_ui_add_glyph(unsigned long long compositor, float x, float y, float width, float height, float red, float green, float blue, float alpha, unsigned long long glyphBits);
+int std_gpu_native_ui_add_image(unsigned long long compositor, string identity, unsigned char* rgba, int sourceWidth, int sourceHeight, unsigned long long sourceRevision, float x, float y, float width, float height);
+int std_gpu_native_ui_draw(unsigned long long gpu, unsigned long long compositor);
+int std_gpu_native_ui_destroy(unsigned long long compositor, unsigned long long ownerReceipt);
+void std_gpu_native_ui_finalize(unsigned long long compositor, unsigned long long ownerReceipt);
 int std_gpu_native_ui_command_count(unsigned long long compositor);
 int std_gpu_native_ui_image_count(unsigned long long compositor);
 
 enum NativeUiAppAttachKind {
-    NATIVE_UI_APP_ATTACHED = 0,
-    NATIVE_UI_APP_ATTACH_REJECTED = 1
+	NATIVE_UI_APP_ATTACHED = 0,
+	NATIVE_UI_APP_ATTACH_REJECTED = 1
 };
 
 enum NativeUiPrepareKind {
-    NATIVE_UI_PREPARED = 0,
-    NATIVE_UI_PREPARE_LAYOUT_REJECTED = 1,
-    NATIVE_UI_PREPARE_DISPLAY_LIST_REJECTED = 2,
-    NATIVE_UI_PREPARE_CLOSED = 3
+	NATIVE_UI_PREPARED = 0,
+	NATIVE_UI_PREPARE_LAYOUT_REJECTED = 1,
+	NATIVE_UI_PREPARE_DISPLAY_LIST_REJECTED = 2,
+	NATIVE_UI_PREPARE_CLOSED = 3
 };
 
 enum NativeUiPresentKind {
-    NATIVE_UI_PRESENTED = 0,
-    NATIVE_UI_PRESENT_DEFERRED = 1,
-    NATIVE_UI_PRESENT_PREPARE_REJECTED = 2,
-    NATIVE_UI_PRESENT_GPU_REJECTED = 3,
-    NATIVE_UI_PRESENT_CLOSED = 4
+	NATIVE_UI_PRESENTED = 0,
+	NATIVE_UI_PRESENT_DEFERRED = 1,
+	NATIVE_UI_PRESENT_PREPARE_REJECTED = 2,
+	NATIVE_UI_PRESENT_GPU_REJECTED = 3,
+	NATIVE_UI_PRESENT_CLOSED = 4
 };
 
 class NativeUiAppAttachOutcome {
-    public NativeUiAppAttachKind kind;
-    public NativeUiAppSession? session;
-    public string error;
+	public NativeUiAppAttachKind kind;
+	public NativeUiAppSession? session;
+	public string error;
 
-    public NativeUiAppAttachOutcome(
-        NativeUiAppAttachKind kind,
-        NativeUiAppSession? session,
-        string error
-    ) {
-        self.kind = kind;
-        self.session = session;
-        self.error = error;
-    }
+	public NativeUiAppAttachOutcome(NativeUiAppAttachKind kind, NativeUiAppSession? session, string error) {
+		self.kind = kind;
+		self.session = session;
+		self.error = error;
+	}
 }
 
 class NativeUiPrepareOutcome {
-    public NativeUiPrepareKind kind;
-    public NativeUiFrame frame;
-    public string error;
+	public NativeUiPrepareKind kind;
+	public NativeUiFrame frame;
+	public string error;
 
-    public NativeUiPrepareOutcome(
-        NativeUiPrepareKind kind,
-        NativeUiFrame frame,
-        string error
-    ) {
-        self.kind = kind;
-        self.frame = frame;
-        self.error = error;
-    }
+	public NativeUiPrepareOutcome(NativeUiPrepareKind kind, NativeUiFrame frame, string error) {
+		self.kind = kind;
+		self.frame = frame;
+		self.error = error;
+	}
 }
 
 class NativeUiPresentOutcome {
-    public NativeUiPresentKind kind;
-    public NativeUiFrame frame;
-    public GPUFrameKind gpuFrame;
-    public string error;
+	public NativeUiPresentKind kind;
+	public NativeUiFrame frame;
+	public GPUFrameKind gpuFrame;
+	public string error;
 
-    public NativeUiPresentOutcome(
-        NativeUiPresentKind kind,
-        NativeUiFrame frame,
-        GPUFrameKind gpuFrame,
-        string error
-    ) {
-        self.kind = kind;
-        self.frame = frame;
-        self.gpuFrame = gpuFrame;
-        self.error = error;
-    }
+	public NativeUiPresentOutcome(NativeUiPresentKind kind, NativeUiFrame frame, GPUFrameKind gpuFrame, string error) {
+		self.kind = kind;
+		self.frame = frame;
+		self.gpuFrame = gpuFrame;
+		self.error = error;
+	}
 }
 
 class NativeUiAppSession {
-    private ApplicationWindow window;
-    private GPU gpu;
-    private NativeUiRenderer renderer;
-    private NativeUiTheme theme;
-    private unsigned long long compositorIdentity;
-    private unsigned long long ownerReceipt;
-    private bool prepared;
+	private ApplicationWindow window;
+	private GPU gpu;
+	private NativeUiRenderer renderer;
+	private NativeUiTheme theme;
+	private unsigned long long compositorIdentity;
+	private unsigned long long ownerReceipt;
+	private bool prepared;
 
-    private NativeUiAppSession(
-        ApplicationWindow window,
-        GPU gpu,
-        NativeUiStyleSheet styleSheet,
-        NativeUiTheme theme,
-        unsigned long long compositorIdentity,
-        unsigned long long ownerReceipt
-    ) {
-        self.window = window;
-        self.gpu = gpu;
-        self.renderer = NativeUiRenderer(theme, styleSheet);
-        self.theme = theme;
-        self.compositorIdentity = compositorIdentity;
-        self.ownerReceipt = ownerReceipt;
-        self.prepared = false;
-    }
+	private NativeUiAppSession(ApplicationWindow window, GPU gpu, NativeUiStyleSheet styleSheet, NativeUiTheme theme, unsigned long long compositorIdentity, unsigned long long ownerReceipt) {
+		self.window = window;
+		self.gpu = gpu;
+		self.renderer = NativeUiRenderer(theme, styleSheet);
+		self.theme = theme;
+		self.compositorIdentity = compositorIdentity;
+		self.ownerReceipt = ownerReceipt;
+		self.prepared = false;
+	}
 
-    class NativeUiAppAttachOutcome attach(
-        ApplicationWindow window,
-        GPU gpu,
-        NativeUiStyleSheet? styleSheet = null,
-        NativeUiTheme? theme = null
-    ) {
-        if (window == null || gpu == null
-                || !window.isOpen() || !gpu.isOpen()) {
-            return NativeUiAppAttachOutcome(
-                NATIVE_UI_APP_ATTACH_REJECTED,
-                null,
-                "native UI requires an open std.app window and std.gpu"
-            );
-        }
-        NativeUiStyleSheet resolvedSheet = styleSheet == null
-            ? NativeUiStyleSheet()
-            : styleSheet;
-        NativeUiTheme resolvedTheme = theme == null
-            ? NativeUiTheme.nativeDefault()
-            : theme;
-        if (!resolvedSheet.ok()) {
-            return NativeUiAppAttachOutcome(
-                NATIVE_UI_APP_ATTACH_REJECTED,
-                null,
-                resolvedSheet.issue().message()
-            );
-        }
-        unsigned long long compositor = 0ULL;
-        unsigned long long receipt = 0ULL;
-        int status = std_gpu_native_ui_create(
-            gpu.gpuIdentity(), &compositor, &receipt);
-        if (status != GPU_RESOURCE_READY
-                || compositor == 0ULL || receipt == 0ULL) {
-            if (compositor != 0ULL && receipt != 0ULL) {
-                std_gpu_native_ui_destroy(compositor, receipt);
-            }
-            return NativeUiAppAttachOutcome(
-                NATIVE_UI_APP_ATTACH_REJECTED,
-                null,
-                std_gpu_status_message(status)
-            );
-        }
-        return NativeUiAppAttachOutcome(
-            NATIVE_UI_APP_ATTACHED,
-            NativeUiAppSession(
-                window,
-                gpu,
-                resolvedSheet,
-                resolvedTheme,
-                compositor,
-                receipt
-            ),
-            ""
-        );
-    }
+	class NativeUiAppAttachOutcome attach(ApplicationWindow window, GPU gpu, NativeUiStyleSheet? styleSheet = null, NativeUiTheme? theme = null) {
+		if (window == null || gpu == null || !window.isOpen() || !gpu.isOpen()) {
+			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, "native UI requires an open std.app window and std.gpu");
+		}
+		NativeUiStyleSheet resolvedSheet = styleSheet == null ? NativeUiStyleSheet() : styleSheet;
+		NativeUiTheme resolvedTheme = theme == null ? NativeUiTheme.nativeDefault() : theme;
+		if (!resolvedSheet.ok()) {
+			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, resolvedSheet.issue().message());
+		}
+		unsigned long long compositor = 0ULL;
+		unsigned long long receipt = 0ULL;
+		int status = std_gpu_native_ui_create(gpu.gpuIdentity(), &compositor, &receipt);
+		if (status != GPU_RESOURCE_READY || compositor == 0ULL || receipt == 0ULL) {
+			if (compositor != 0ULL && receipt != 0ULL) {
+				std_gpu_native_ui_destroy(compositor, receipt);
+			}
+			return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACH_REJECTED, null, std_gpu_status_message(status));
+		}
+		return NativeUiAppAttachOutcome(NATIVE_UI_APP_ATTACHED, NativeUiAppSession(window, gpu, resolvedSheet, resolvedTheme, compositor, receipt), "");
+	}
 
-    public bool isOpen() {
-        return self.compositorIdentity != 0ULL
-            && self.ownerReceipt != 0ULL
-            && self.window.isOpen()
-            && self.gpu.isOpen();
-    }
+	public bool isOpen() { return self.compositorIdentity != 0ULL && self.ownerReceipt != 0ULL && self.window.isOpen() && self.gpu.isOpen(); }
 
-    public NativeUiRenderer input() { return self.renderer; }
-    public int commandCount() {
-        return self.isOpen()
-            ? std_gpu_native_ui_command_count(self.compositorIdentity)
-            : 0;
-    }
-    public int cachedImageCount() {
-        return self.isOpen()
-            ? std_gpu_native_ui_image_count(self.compositorIdentity)
-            : 0;
-    }
+	public NativeUiRenderer input() { return self.renderer; }
 
-    private float channel(int value) {
-        return (float)value / 255.0f;
-    }
+	public int commandCount() { return self.isOpen() ? std_gpu_native_ui_command_count(self.compositorIdentity) : 0; }
 
-    private GPUResourceOutcome addRect(
-        float x,
-        float y,
-        float width,
-        float height,
-        NativeUiColor color,
-        float radius
-    ) {
-        int status = std_gpu_native_ui_add_rect(
-            self.compositorIdentity,
-            x, y, width, height,
-            self.channel(color.red),
-            self.channel(color.green),
-            self.channel(color.blue),
-            self.channel(color.alpha),
-            radius
-        );
-        GPUResourceKind kind = status >= GPU_RESOURCE_READY
-                && status <= GPU_RESOURCE_INTERNAL_ERROR
-            ? (GPUResourceKind)status
-            : GPU_RESOURCE_INTERNAL_ERROR;
-        return GPUResourceOutcome(
-            kind,
-            kind == GPU_RESOURCE_READY
-                ? "" : std_gpu_status_message(status)
-        );
-    }
+	public int cachedImageCount() { return self.isOpen() ? std_gpu_native_ui_image_count(self.compositorIdentity) : 0; }
 
-    private GPUResourceOutcome addText(
-        string text,
-        float x,
-        float y,
-        NativeUiColor color,
-        int viewportWidth
-    ) {
-        float cursor = x;
-        int index = 0;
-        while (index < text.len()) {
-            if (cursor >= (float)viewportWidth) { break; }
-            unsigned long long glyph = NativeUiRaster.glyph(text[index]);
-            if (glyph != 0ULL) {
-                int status = std_gpu_native_ui_add_glyph(
-                    self.compositorIdentity,
-                    cursor, y, 10.0f, 14.0f,
-                    self.channel(color.red),
-                    self.channel(color.green),
-                    self.channel(color.blue),
-                    self.channel(color.alpha),
-                    glyph
-                );
-                if (status != GPU_RESOURCE_READY) {
-                    return GPUResourceOutcome(
-                        (GPUResourceKind)status,
-                        std_gpu_status_message(status)
-                    );
-                }
-            }
-            index = NativeUiTextInput.nextBoundary(text, index);
-            cursor += 12.0f;
-        }
-        return GPUResourceOutcome(GPU_RESOURCE_READY, "");
-    }
+	private float channel(int value) { return (float)value / 255.0f; }
 
-    private bool visible(
-        NativeUiLayoutBox box,
-        NativeUiViewportMetrics viewport
-    ) {
-        int screenX = box.bounds.x - viewport.scrollX();
-        int screenY = box.bounds.y - viewport.scrollY();
-        return screenX < viewport.width()
-            && screenY < viewport.height()
-            && screenX + box.bounds.width > 0
-            && screenY + box.bounds.height > 0;
-    }
+	private GPUResourceOutcome addRect(float x, float y, float width, float height, NativeUiColor color, float radius) {
+		int status = std_gpu_native_ui_add_rect(self.compositorIdentity, x, y, width, height, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha), radius);
+		GPUResourceKind kind = status >= GPU_RESOURCE_READY && status <= GPU_RESOURCE_INTERNAL_ERROR ? (GPUResourceKind)status : GPU_RESOURCE_INTERNAL_ERROR;
+		return GPUResourceOutcome(kind, kind == GPU_RESOURCE_READY ? "" : std_gpu_status_message(status));
+	}
 
-    private GPUResourceOutcome buildDisplayList(NativeUiFrame frame) {
-        int status = std_gpu_native_ui_begin(
-            self.compositorIdentity,
-            frame.viewport.width(),
-            frame.viewport.height()
-        );
-        if (status != GPU_RESOURCE_READY) {
-            return GPUResourceOutcome(
-                (GPUResourceKind)status,
-                std_gpu_status_message(status)
-            );
-        }
-        string hovered = self.renderer.hoveredId();
-        string pressed = self.renderer.pressedId();
-        string focused = self.renderer.focusedId();
-        for box in frame.boxes {
-            if (!self.visible(box, frame.viewport)) { continue; }
-            int x = box.bounds.x - frame.viewport.scrollX();
-            int y = box.bounds.y - frame.viewport.scrollY();
-            NativeUiResolvedStyle style = box.style;
-            bool highlighted = box.id().equals(hovered)
-                || box.id().equals(pressed);
-            if (box.kind() == NATIVE_UI_TEXT_INPUT) {
-                bool hasFocus = box.id().equals(focused);
-                GPUResourceOutcome border = self.addRect(
-                    (float)x,
-                    (float)y,
-                    (float)box.bounds.width,
-                    (float)box.bounds.height,
-                    hasFocus ? self.theme.accent : self.theme.border,
-                    (float)style.radius
-                );
-                if (border.kind != GPU_RESOURCE_READY) { return border; }
-                if (box.bounds.width > 2 && box.bounds.height > 2) {
-                    GPUResourceOutcome field = self.addRect(
-                        (float)(x + 1),
-                        (float)(y + 1),
-                        (float)(box.bounds.width - 2),
-                        (float)(box.bounds.height - 2),
-                        style.hasBackground
-                            ? style.background : self.theme.panel,
-                        (float)(style.radius > 0 ? style.radius - 1 : 0)
-                    );
-                    if (field.kind != GPU_RESOURCE_READY) { return field; }
-                }
-                string value = self.renderer.displayValue(box.element);
-                bool placeholder = value.isEmpty();
-                string visibleValue = placeholder
-                    ? box.element.placeholderText() : value;
-                GPUResourceOutcome text = self.addText(
-                    visibleValue,
-                    (float)(x + style.padding),
-                    (float)(y + (box.bounds.height - 14) / 2),
-                    placeholder
-                        ? self.theme.mutedText
-                        : (style.hasForeground
-                            ? style.foreground : self.theme.text),
-                    frame.viewport.width()
-                );
-                if (text.kind != GPU_RESOURCE_READY) { return text; }
-                if (hasFocus) {
-                    int caretX = x + style.padding
-                        + NativeUiTextInput.scalarCount(
-                            value, self.renderer.focusedCaret()) * 12;
-                    if (caretX >= x + style.padding
-                            && caretX < x + box.bounds.width
-                                - style.padding + 1) {
-                        GPUResourceOutcome caret = self.addRect(
-                            (float)caretX,
-                            (float)(y + (box.bounds.height - 16) / 2),
-                            2.0f,
-                            16.0f,
-                            style.hasForeground
-                                ? style.foreground : self.theme.text,
-                            0.0f
-                        );
-                        if (caret.kind != GPU_RESOURCE_READY) {
-                            return caret;
-                        }
-                    }
-                }
-            } else if (box.kind() == NATIVE_UI_BUTTON) {
-                NativeUiColor fill = highlighted
-                    ? self.theme.accent : self.theme.panel;
-                GPUResourceOutcome rectangle = self.addRect(
-                    (float)x,
-                    (float)y,
-                    (float)box.bounds.width,
-                    (float)box.bounds.height,
-                    fill,
-                    (float)style.radius
-                );
-                if (rectangle.kind != GPU_RESOURCE_READY) {
-                    return rectangle;
-                }
-                NativeUiColor label = highlighted
-                    ? self.theme.accentText
-                    : (style.hasForeground
-                        ? style.foreground : self.theme.text);
-                GPUResourceOutcome text = self.addText(
-                    box.element.contentText(),
-                    (float)(x + style.padding),
-                    (float)(y + style.padding),
-                    label,
-                    frame.viewport.width()
-                );
-                if (text.kind != GPU_RESOURCE_READY) { return text; }
-            } else {
-                if (style.hasBackground) {
-                    GPUResourceOutcome background = self.addRect(
-                        (float)x,
-                        (float)y,
-                        (float)box.bounds.width,
-                        (float)box.bounds.height,
-                        style.background,
-                        (float)style.radius
-                    );
-                    if (background.kind != GPU_RESOURCE_READY) {
-                        return background;
-                    }
-                }
-                if (box.kind() == NATIVE_UI_TEXT) {
-                    GPUResourceOutcome text = self.addText(
-                        box.element.contentText(),
-                        (float)(x + style.padding),
-                        (float)(y + style.padding),
-                        style.hasForeground
-                            ? style.foreground : self.theme.text,
-                        frame.viewport.width()
-                    );
-                    if (text.kind != GPU_RESOURCE_READY) { return text; }
-                } else if (box.kind() == NATIVE_UI_IMAGE) {
-                    int imageWidth = box.bounds.width - style.padding * 2;
-                    int imageHeight = box.bounds.height - style.padding * 2;
-                    Image? optionalImage = box.element.contentImage();
-                    if (optionalImage != null && !optionalImage.isEmpty()
-                            && imageWidth > 0 && imageHeight > 0) {
-                        Image image = optionalImage;
-                        int imageStatus = std_gpu_native_ui_add_image(
-                            self.compositorIdentity,
-                            box.id(),
-                            image.data,
-                            image.width,
-                            image.height,
-                            box.element.contentImageRevision(),
-                            (float)(x + style.padding),
-                            (float)(y + style.padding),
-                            (float)imageWidth,
-                            (float)imageHeight
-                        );
-                        if (imageStatus != GPU_RESOURCE_READY) {
-                            return GPUResourceOutcome(
-                                (GPUResourceKind)imageStatus,
-                                std_gpu_status_message(imageStatus)
-                            );
-                        }
-                    } else {
-                        GPUResourceOutcome placeholder = self.addRect(
-                            (float)x,
-                            (float)y,
-                            (float)box.bounds.width,
-                            (float)box.bounds.height,
-                            self.theme.border,
-                            (float)style.radius
-                        );
-                        if (placeholder.kind != GPU_RESOURCE_READY) {
-                            return placeholder;
-                        }
-                    }
-                }
-            }
-        }
-        return GPUResourceOutcome(GPU_RESOURCE_READY, "");
-    }
+	private GPUResourceOutcome addText(string text, float x, float y, NativeUiColor color, int viewportWidth) {
+		float cursor = x;
+		int index = 0;
+		while (index < text.len()) {
+			if (cursor >= (float)viewportWidth) { break; }
+			unsigned long long glyph = NativeUiRaster.glyph(text[index]);
+			if (glyph != 0ULL) {
+				int status = std_gpu_native_ui_add_glyph(self.compositorIdentity, cursor, y, 10.0f, 14.0f, self.channel(color.red), self.channel(color.green), self.channel(color.blue), self.channel(color.alpha), glyph);
+				if (status != GPU_RESOURCE_READY) {
+					return GPUResourceOutcome((GPUResourceKind)status, std_gpu_status_message(status));
+				}
+			}
+			index = NativeUiTextInput.nextBoundary(text, index);
+			cursor += 12.0f;
+		}
+		return GPUResourceOutcome(GPU_RESOURCE_READY, "");
+	}
 
-    public NativeUiPrepareOutcome prepare(NativeUiElement root) {
-        self.prepared = false;
-        if (!self.isOpen()) {
-            return NativeUiPrepareOutcome(
-                NATIVE_UI_PREPARE_CLOSED,
-                self.renderer.currentFrame(),
-                "native UI application session is closed"
-            );
-        }
-        AppSurfaceMetrics metrics = self.window.metrics();
-        NativeUiFrame frame = self.renderer.layout(
-            root, metrics.logicalWidth, metrics.logicalHeight);
-        if (!frame.ok()) {
-            return NativeUiPrepareOutcome(
-                NATIVE_UI_PREPARE_LAYOUT_REJECTED,
-                frame,
-                frame.error
-            );
-        }
-        GPUResourceOutcome displayList = self.buildDisplayList(frame);
-        if (displayList.kind != GPU_RESOURCE_READY) {
-            return NativeUiPrepareOutcome(
-                NATIVE_UI_PREPARE_DISPLAY_LIST_REJECTED,
-                frame,
-                displayList.error
-            );
-        }
-        self.prepared = true;
-        return NativeUiPrepareOutcome(NATIVE_UI_PREPARED, frame, "");
-    }
+	private bool visible(NativeUiLayoutBox box, NativeUiViewportMetrics viewport) {
+		int screenX = box.bounds.x - viewport.scrollX();
+		int screenY = box.bounds.y - viewport.scrollY();
+		return screenX < viewport.width() && screenY < viewport.height() && screenX + box.bounds.width > 0 && screenY + box.bounds.height > 0;
+	}
 
-    /* Record into a frame begun by this app's existing GPU owner. */
-    public GPUDrawOutcome recordPrepared() {
-        if (!self.isOpen() || !self.prepared) {
-            return GPUDrawOutcome(
-                GPU_DRAW_INVALID_DESCRIPTOR,
-                "native UI has no prepared display list"
-            );
-        }
-        int status = std_gpu_native_ui_draw(
-            self.gpu.gpuIdentity(), self.compositorIdentity);
-        GPUDrawKind kind = status >= GPU_DRAW_RECORDED
-                && status <= GPU_DRAW_BACKEND_FAILURE
-            ? (GPUDrawKind)status
-            : GPU_DRAW_BACKEND_FAILURE;
-        return GPUDrawOutcome(
-            kind,
-            kind == GPU_DRAW_RECORDED
-                ? "" : std_gpu_status_message(status)
-        );
-    }
+	private GPUResourceOutcome buildDisplayList(NativeUiFrame frame) {
+		int status = std_gpu_native_ui_begin(self.compositorIdentity, frame.viewport.width(), frame.viewport.height());
+		if (status != GPU_RESOURCE_READY) {
+			return GPUResourceOutcome((GPUResourceKind)status, std_gpu_status_message(status));
+		}
+		string hovered = self.renderer.hoveredId();
+		string pressed = self.renderer.pressedId();
+		string focused = self.renderer.focusedId();
+		for box in frame.boxes {
+			if (!self.visible(box, frame.viewport)) { continue; }
+			int x = box.bounds.x - frame.viewport.scrollX();
+			int y = box.bounds.y - frame.viewport.scrollY();
+			NativeUiResolvedStyle style = box.style;
+			bool highlighted = box.id().equals(hovered) || box.id().equals(pressed);
+			if (box.kind() == NATIVE_UI_TEXT_INPUT) {
+				bool hasFocus = box.id().equals(focused);
+				GPUResourceOutcome border = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, hasFocus ? self.theme.accent : self.theme.border, (float)style.radius);
+				if (border.kind != GPU_RESOURCE_READY) { return border; }
+				if (box.bounds.width > 2 && box.bounds.height > 2) {
+					GPUResourceOutcome field = self.addRect((float)(x + 1), (float)(y + 1), (float)(box.bounds.width - 2), (float)(box.bounds.height - 2), style.hasBackground ? style.background : self.theme.panel, (float)(style.radius > 0 ? style.radius - 1 : 0));
+					if (field.kind != GPU_RESOURCE_READY) { return field; }
+				}
+				string value = self.renderer.displayValue(box.element);
+				bool placeholder = value.isEmpty();
+				string visibleValue = placeholder ? box.element.placeholderText() : value;
+				GPUResourceOutcome text = self.addText(visibleValue, (float)(x + style.padding), (float)(y + (box.bounds.height - 14) / 2), placeholder ? self.theme.mutedText : (style.hasForeground ? style.foreground : self.theme.text), frame.viewport.width());
+				if (text.kind != GPU_RESOURCE_READY) { return text; }
+				if (hasFocus) {
+					int caretX = x + style.padding + NativeUiTextInput.scalarCount(value, self.renderer.focusedCaret()) * 12;
+					if (caretX >= x + style.padding && caretX < x + box.bounds.width - style.padding + 1) {
+						GPUResourceOutcome caret = self.addRect((float)caretX, (float)(y + (box.bounds.height - 16) / 2), 2.0f, 16.0f, style.hasForeground ? style.foreground : self.theme.text, 0.0f);
+						if (caret.kind != GPU_RESOURCE_READY) {
+							return caret;
+						}
+					}
+				}
+			} else if (box.kind() == NATIVE_UI_BUTTON) {
+				NativeUiColor fill = highlighted ? self.theme.accent : self.theme.panel;
+				GPUResourceOutcome rectangle = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, fill, (float)style.radius);
+				if (rectangle.kind != GPU_RESOURCE_READY) {
+					return rectangle;
+				}
+				NativeUiColor label = highlighted ? self.theme.accentText : (style.hasForeground ? style.foreground : self.theme.text);
+				GPUResourceOutcome text = self.addText(box.element.contentText(), (float)(x + style.padding), (float)(y + style.padding), label, frame.viewport.width());
+				if (text.kind != GPU_RESOURCE_READY) { return text; }
+			} else {
+				if (style.hasBackground) {
+					GPUResourceOutcome background = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, style.background, (float)style.radius);
+					if (background.kind != GPU_RESOURCE_READY) {
+						return background;
+					}
+				}
+				if (box.kind() == NATIVE_UI_TEXT) {
+					GPUResourceOutcome text = self.addText(box.element.contentText(), (float)(x + style.padding), (float)(y + style.padding), style.hasForeground ? style.foreground : self.theme.text, frame.viewport.width());
+					if (text.kind != GPU_RESOURCE_READY) { return text; }
+				} else if (box.kind() == NATIVE_UI_IMAGE) {
+					int imageWidth = box.bounds.width - style.padding * 2;
+					int imageHeight = box.bounds.height - style.padding * 2;
+					Image? optionalImage = box.element.contentImage();
+					if (optionalImage != null && !optionalImage.isEmpty() && imageWidth > 0 && imageHeight > 0) {
+						Image image = optionalImage;
+						int imageStatus = std_gpu_native_ui_add_image(self.compositorIdentity, box.id(), image.data, image.width, image.height, box.element.contentImageRevision(), (float)(x + style.padding), (float)(y + style.padding), (float)imageWidth, (float)imageHeight);
+						if (imageStatus != GPU_RESOURCE_READY) {
+							return GPUResourceOutcome((GPUResourceKind)imageStatus, std_gpu_status_message(imageStatus));
+						}
+					} else {
+						GPUResourceOutcome placeholder = self.addRect((float)x, (float)y, (float)box.bounds.width, (float)box.bounds.height, self.theme.border, (float)style.radius);
+						if (placeholder.kind != GPU_RESOURCE_READY) {
+							return placeholder;
+						}
+					}
+				}
+			}
+		}
+		return GPUResourceOutcome(GPU_RESOURCE_READY, "");
+	}
 
-    public NativeUiPresentOutcome present(NativeUiElement root) {
-        NativeUiPrepareOutcome prepared = self.prepare(root);
-        if (prepared.kind != NATIVE_UI_PREPARED) {
-            return NativeUiPresentOutcome(
-                prepared.kind == NATIVE_UI_PREPARE_CLOSED
-                    ? NATIVE_UI_PRESENT_CLOSED
-                    : NATIVE_UI_PRESENT_PREPARE_REJECTED,
-                prepared.frame,
-                GPU_FRAME_REJECTED,
-                prepared.error
-            );
-        }
-        GPUFrameOutcome begun = self.gpu.beginFrame(
-            self.channel(self.theme.background.red),
-            self.channel(self.theme.background.green),
-            self.channel(self.theme.background.blue)
-        );
-        if (begun.kind == GPU_FRAME_TIMEOUT
-                || begun.kind == GPU_FRAME_OUTDATED) {
-            return NativeUiPresentOutcome(
-                NATIVE_UI_PRESENT_DEFERRED,
-                prepared.frame,
-                begun.kind,
-                begun.error
-            );
-        }
-        if (begun.kind != GPU_FRAME_READY) {
-            return NativeUiPresentOutcome(
-                NATIVE_UI_PRESENT_GPU_REJECTED,
-                prepared.frame,
-                begun.kind,
-                begun.error
-            );
-        }
-        GPUDrawOutcome drawn = self.recordPrepared();
-        GPUFrameOutcome ended = self.gpu.endFrame();
-        if (drawn.kind != GPU_DRAW_RECORDED) {
-            return NativeUiPresentOutcome(
-                NATIVE_UI_PRESENT_GPU_REJECTED,
-                prepared.frame,
-                ended.kind,
-                drawn.error
-            );
-        }
-        return NativeUiPresentOutcome(
-            ended.kind == GPU_FRAME_PRESENTED
-                ? NATIVE_UI_PRESENTED
-                : NATIVE_UI_PRESENT_GPU_REJECTED,
-            prepared.frame,
-            ended.kind,
-            ended.error
-        );
-    }
+	public NativeUiPrepareOutcome prepare(NativeUiElement root) {
+		self.prepared = false;
+		if (!self.isOpen()) {
+			return NativeUiPrepareOutcome(NATIVE_UI_PREPARE_CLOSED, self.renderer.currentFrame(), "native UI application session is closed");
+		}
+		AppSurfaceMetrics metrics = self.window.metrics();
+		NativeUiFrame frame = self.renderer.layout(root, metrics.logicalWidth, metrics.logicalHeight);
+		if (!frame.ok()) {
+			return NativeUiPrepareOutcome(NATIVE_UI_PREPARE_LAYOUT_REJECTED, frame, frame.error);
+		}
+		GPUResourceOutcome displayList = self.buildDisplayList(frame);
+		if (displayList.kind != GPU_RESOURCE_READY) {
+			return NativeUiPrepareOutcome(NATIVE_UI_PREPARE_DISPLAY_LIST_REJECTED, frame, displayList.error);
+		}
+		self.prepared = true;
+		return NativeUiPrepareOutcome(NATIVE_UI_PREPARED, frame, "");
+	}
 
-    private NativeUiEventBatch noEvents() {
-        Vector<NativeUiEvent> events = [];
-        return NativeUiEventBatch(self.renderer.currentFrame(), events);
-    }
+	/* Record into a frame begun by this app's existing GPU owner. */
+	public GPUDrawOutcome recordPrepared() {
+		if (!self.isOpen() || !self.prepared) {
+			return GPUDrawOutcome(GPU_DRAW_INVALID_DESCRIPTOR, "native UI has no prepared display list");
+		}
+		int status = std_gpu_native_ui_draw(self.gpu.gpuIdentity(), self.compositorIdentity);
+		GPUDrawKind kind = status >= GPU_DRAW_RECORDED && status <= GPU_DRAW_BACKEND_FAILURE ? (GPUDrawKind)status : GPU_DRAW_BACKEND_FAILURE;
+		return GPUDrawOutcome(kind, kind == GPU_DRAW_RECORDED ? "" : std_gpu_status_message(status));
+	}
 
-    public NativeUiEventBatch dispatch(AppWindowEvent event) {
-        if (event == null) { return self.noEvents(); }
-        if (event.kind == APP_EVENT_POINTER && event.pointer != null) {
-            AppPointerEvent pointer = event.pointer;
-            int x = (int)pointer.logicalX;
-            int y = (int)pointer.logicalY;
-            if (pointer.action == APP_POINTER_MOVED) {
-                return self.renderer.pointerMoved(x, y);
-            }
-            if (pointer.button == APP_POINTER_BUTTON_PRIMARY
-                    && pointer.action == APP_POINTER_PRESSED) {
-                return self.renderer.pointerPressed(x, y);
-            }
-            if (pointer.button == APP_POINTER_BUTTON_PRIMARY
-                    && pointer.action == APP_POINTER_RELEASED) {
-                return self.renderer.pointerReleased(x, y);
-            }
-            return self.noEvents();
-        }
-        if (event.kind == APP_EVENT_SCROLLED && event.scroll != null) {
-            AppScrollEvent scroll = event.scroll;
-            return self.renderer.scrollBy(
-                (int)(-scroll.deltaX * 40.0f),
-                (int)(-scroll.deltaY * 40.0f)
-            );
-        }
-        if (event.kind == APP_EVENT_TEXT) {
-            return self.renderer.textEntered(event.text);
-        }
-        if (event.kind == APP_EVENT_KEYBOARD && event.keyboard != null) {
-            AppKeyboardEvent keyboard = event.keyboard;
-            bool active = keyboard.action == APP_KEY_PRESSED
-                || keyboard.action == APP_KEY_REPEATED;
-            if (!active) { return self.noEvents(); }
-            if (keyboard.key == APP_KEY_BACKSPACE) {
-                return self.renderer.backspace();
-            }
-            if (keyboard.key == APP_KEY_LEFT) {
-                return self.renderer.moveCaretLeft();
-            }
-            if (keyboard.key == APP_KEY_RIGHT) {
-                return self.renderer.moveCaretRight();
-            }
-            if (keyboard.key == APP_KEY_TAB
-                    && keyboard.action == APP_KEY_PRESSED) {
-                return self.renderer.focusNext(keyboard.modifiers.shift);
-            }
-            if (keyboard.key == APP_KEY_ESCAPE
-                    && keyboard.action == APP_KEY_PRESSED) {
-                return self.renderer.blur();
-            }
-            return self.noEvents();
-        }
-        if ((event.kind == APP_EVENT_RESIZED
-                || event.kind == APP_EVENT_DPI_CHANGED)
-                && event.surface != null) {
-            AppSurfaceMetrics metrics = event.surface;
-            return self.renderer.viewportChanged(
-                metrics.logicalWidth, metrics.logicalHeight);
-        }
-        if (event.kind == APP_EVENT_CLOSE_REQUESTED
-                || event.kind == APP_EVENT_CLOSED
-                || event.kind == APP_EVENT_FAILED) {
-            return self.renderer.pointerCancelled();
-        }
-        return self.noEvents();
-    }
+	public NativeUiPresentOutcome present(NativeUiElement root) {
+		NativeUiPrepareOutcome prepared = self.prepare(root);
+		if (prepared.kind != NATIVE_UI_PREPARED) {
+			return NativeUiPresentOutcome(prepared.kind == NATIVE_UI_PREPARE_CLOSED ? NATIVE_UI_PRESENT_CLOSED : NATIVE_UI_PRESENT_PREPARE_REJECTED, prepared.frame, GPU_FRAME_REJECTED, prepared.error);
+		}
+		GPUFrameOutcome begun = self.gpu.beginFrame(self.channel(self.theme.background.red), self.channel(self.theme.background.green), self.channel(self.theme.background.blue));
+		if (begun.kind == GPU_FRAME_TIMEOUT || begun.kind == GPU_FRAME_OUTDATED) {
+			return NativeUiPresentOutcome(NATIVE_UI_PRESENT_DEFERRED, prepared.frame, begun.kind, begun.error);
+		}
+		if (begun.kind != GPU_FRAME_READY) {
+			return NativeUiPresentOutcome(NATIVE_UI_PRESENT_GPU_REJECTED, prepared.frame, begun.kind, begun.error);
+		}
+		GPUDrawOutcome drawn = self.recordPrepared();
+		GPUFrameOutcome ended = self.gpu.endFrame();
+		if (drawn.kind != GPU_DRAW_RECORDED) {
+			return NativeUiPresentOutcome(NATIVE_UI_PRESENT_GPU_REJECTED, prepared.frame, ended.kind, drawn.error);
+		}
+		return NativeUiPresentOutcome(ended.kind == GPU_FRAME_PRESENTED ? NATIVE_UI_PRESENTED : NATIVE_UI_PRESENT_GPU_REJECTED, prepared.frame, ended.kind, ended.error);
+	}
 
-    public GPUCloseOutcome close() {
-        self.prepared = false;
-        if (self.compositorIdentity == 0ULL) {
-            return GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
-        }
-        int status = std_gpu_native_ui_destroy(
-            self.compositorIdentity, self.ownerReceipt);
-        if (status != GPU_CLOSED) {
-            return GPUCloseOutcome(
-                GPU_CLOSE_REJECTED,
-                std_gpu_status_message(status)
-            );
-        }
-        self.compositorIdentity = 0ULL;
-        self.ownerReceipt = 0ULL;
-        return GPUCloseOutcome(GPU_CLOSED, "");
-    }
+	private NativeUiEventBatch noEvents() {
+		Vector<NativeUiEvent> events = [];
+		return NativeUiEventBatch(self.renderer.currentFrame(), events);
+	}
 
-    public void __del__() {
-        if (self.compositorIdentity != 0ULL && self.ownerReceipt != 0ULL) {
-            std_gpu_native_ui_finalize(
-                self.compositorIdentity, self.ownerReceipt);
-        }
-    }
+	public NativeUiEventBatch dispatch(AppWindowEvent event) {
+		if (event == null) { return self.noEvents(); }
+		if (event.kind == APP_EVENT_POINTER && event.pointer != null) {
+			AppPointerEvent pointer = event.pointer;
+			int x = (int)pointer.logicalX;
+			int y = (int)pointer.logicalY;
+			if (pointer.action == APP_POINTER_MOVED) {
+				return self.renderer.pointerMoved(x, y);
+			}
+			if (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.action == APP_POINTER_PRESSED) {
+				return self.renderer.pointerPressed(x, y);
+			}
+			if (pointer.button == APP_POINTER_BUTTON_PRIMARY && pointer.action == APP_POINTER_RELEASED) {
+				return self.renderer.pointerReleased(x, y);
+			}
+			return self.noEvents();
+		}
+		if (event.kind == APP_EVENT_SCROLLED && event.scroll != null) {
+			AppScrollEvent scroll = event.scroll;
+			return self.renderer.scrollBy((int)(-scroll.deltaX * 40.0f), (int)(-scroll.deltaY * 40.0f));
+		}
+		if (event.kind == APP_EVENT_TEXT) {
+			return self.renderer.textEntered(event.text);
+		}
+		if (event.kind == APP_EVENT_KEYBOARD && event.keyboard != null) {
+			AppKeyboardEvent keyboard = event.keyboard;
+			bool active = keyboard.action == APP_KEY_PRESSED || keyboard.action == APP_KEY_REPEATED;
+			if (!active) { return self.noEvents(); }
+			if (keyboard.key == APP_KEY_BACKSPACE) {
+				return self.renderer.backspace();
+			}
+			if (keyboard.key == APP_KEY_LEFT) {
+				return self.renderer.moveCaretLeft();
+			}
+			if (keyboard.key == APP_KEY_RIGHT) {
+				return self.renderer.moveCaretRight();
+			}
+			if (keyboard.key == APP_KEY_TAB && keyboard.action == APP_KEY_PRESSED) {
+				return self.renderer.focusNext(keyboard.modifiers.shift);
+			}
+			if (keyboard.key == APP_KEY_ESCAPE && keyboard.action == APP_KEY_PRESSED) {
+				return self.renderer.blur();
+			}
+			return self.noEvents();
+		}
+		if ((event.kind == APP_EVENT_RESIZED || event.kind == APP_EVENT_DPI_CHANGED) && event.surface != null) {
+			AppSurfaceMetrics metrics = event.surface;
+			return self.renderer.viewportChanged(metrics.logicalWidth, metrics.logicalHeight);
+		}
+		if (event.kind == APP_EVENT_CLOSE_REQUESTED || event.kind == APP_EVENT_CLOSED || event.kind == APP_EVENT_FAILED) {
+			return self.renderer.pointerCancelled();
+		}
+		return self.noEvents();
+	}
+
+	public GPUCloseOutcome close() {
+		self.prepared = false;
+		if (self.compositorIdentity == 0ULL) {
+			return GPUCloseOutcome(GPU_ALREADY_CLOSED, "");
+		}
+		int status = std_gpu_native_ui_destroy(self.compositorIdentity, self.ownerReceipt);
+		if (status != GPU_CLOSED) {
+			return GPUCloseOutcome(GPU_CLOSE_REJECTED, std_gpu_status_message(status));
+		}
+		self.compositorIdentity = 0ULL;
+		self.ownerReceipt = 0ULL;
+		return GPUCloseOutcome(GPU_CLOSED, "");
+	}
+
+	public void __del__() {
+		if (self.compositorIdentity != 0ULL && self.ownerReceipt != 0ULL) {
+			std_gpu_native_ui_finalize(self.compositorIdentity, self.ownerReceipt);
+		}
+	}
 }

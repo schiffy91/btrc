@@ -15,282 +15,272 @@ import std.set;
 import std.vector;
 
 class GraphNode {
-    public string id;
-    public string specPath;
-    public Vector<string> after;
-    public Map<string, string> args;
+	public string id;
+	public string specPath;
+	public Vector<string> after;
+	public Map<string, string> args;
 
-    public GraphNode() {
-        self.id = "";
-        self.specPath = "";
-        self.after = [];
-        self.args = {};
-    }
+	public GraphNode() {
+		self.id = "";
+		self.specPath = "";
+		self.after = [];
+		self.args = {};
+	}
 }
 
 class ExecutionGraph {
-    public string name;
-    public string path;
-    public string baseDir;
-    public string workspaceRoot;
-    public Vector<string> defaults;
-    public Vector<string> required;
-    public Vector<GraphNode> nodes;
+	public string name;
+	public string path;
+	public string baseDir;
+	public string workspaceRoot;
+	public Vector<string> defaults;
+	public Vector<string> required;
+	public Vector<GraphNode> nodes;
 
-    public ExecutionGraph() {
-        self.name = "graph";
-        self.path = "";
-        self.baseDir = ".";
-        self.workspaceRoot = ".";
-        self.defaults = [];
-        self.required = [];
-        self.nodes = [];
-    }
+	public ExecutionGraph() {
+		self.name = "graph";
+		self.path = "";
+		self.baseDir = ".";
+		self.workspaceRoot = ".";
+		self.defaults = [];
+		self.required = [];
+		self.nodes = [];
+	}
 
-    public string resolvePath(string base, string value) {
-        if (value.startsWith("/")) { return value; }
-        return PathTools.join(base, value);
-    }
+	public string resolvePath(string base, string value) {
+		if (value.startsWith("/")) { return value; }
+		return PathTools.join(base, value);
+	}
 
-    public string resolvedWorkspaceRoot() {
-        return self.resolvePath(self.baseDir, self.workspaceRoot);
-    }
+	public string resolvedWorkspaceRoot() { return self.resolvePath(self.baseDir, self.workspaceRoot); }
 
-    public string resolvedSpecPath(GraphNode node) {
-        return self.resolvePath(self.baseDir, node.specPath);
-    }
+	public string resolvedSpecPath(GraphNode node) { return self.resolvePath(self.baseDir, node.specPath); }
 
-    /* Looks up a node by id. Unknown ids are a DATA error (the graph came from
+	/* Looks up a node by id. Unknown ids are a DATA error (the graph came from
      * user JSON), so this throws a catchable message instead of aborting the
      * whole process. Wrap in try/catch, or pre-validate with valid() /
      * validationError() / GraphValidation.nodeIds(). */
-    public GraphNode node(string id) {
-        for item in self.nodes {
-            if (item.id.equals(id)) { return item; }
-        }
-        throw f"Unknown graph node: {id}";
-    }
+	public GraphNode node(string id) {
+		for item in self.nodes {
+			if (item.id.equals(id)) { return item; }
+		}
+		throw f"Unknown graph node: {id}";
+	}
 
-    public bool hasNode(string id) {
-        if (id == null) { return false; }
-        for item in self.nodes {
-            if (item.id.equals(id)) { return true; }
-        }
-        return false;
-    }
+	public bool hasNode(string id) {
+		if (id == null) { return false; }
+		for item in self.nodes {
+			if (item.id.equals(id)) { return true; }
+		}
+		return false;
+	}
 
-    public Vector<string> defaultTargets() {
-        if (!self.defaults.isEmpty()) { return self.defaults; }
-        Vector<string> result = [];
-        for item in self.nodes {
-            result.push(item.id);
-        }
-        return result;
-    }
+	public Vector<string> defaultTargets() {
+		if (!self.defaults.isEmpty()) { return self.defaults; }
+		Vector<string> result = [];
+		for item in self.nodes {
+			result.push(item.id);
+		}
+		return result;
+	}
 
-    public string validationError() {
-        return GraphValidation.error(self);
-    }
+	public string validationError() { return GraphValidation.error(self); }
 
-    public bool valid() {
-        return self.validationError().isEmpty();
-    }
+	public bool valid() { return self.validationError().isEmpty(); }
 }
 
 class GraphCli {
-    class Map<string, string> args(CliArgs args, int startIndex) {
-        Map<string, string> result = {};
-        CliCommandLine parsed = CliCommandLine.parseFrom(args, startIndex);
-        for value in parsed.values("--arg") {
-            JsonText.putArgPair(result, value);
-        }
-        return result;
-    }
+	class Map<string, string> args(CliArgs args, int startIndex) {
+		Map<string, string> result = {};
+		CliCommandLine parsed = CliCommandLine.parseFrom(args, startIndex);
+		for value in parsed.values("--arg") {
+			JsonText.putArgPair(result, value);
+		}
+		return result;
+	}
 
-    class Vector<string> targets(CliArgs args, int startIndex) {
-        CliCommandLine parsed = CliCommandLine.parseFrom(args, startIndex);
-        return parsed.operands;
-    }
+	class Vector<string> targets(CliArgs args, int startIndex) {
+		CliCommandLine parsed = CliCommandLine.parseFrom(args, startIndex);
+		return parsed.operands;
+	}
 }
 
 class GraphReport {
-    class void list(ExecutionGraph graph) {
-        for node in graph.nodes {
-            var parents = node.after.isEmpty() ? "root" : node.after.join(",");
-            Console.log(f"{node.id} <- {parents} :: {graph.resolvedSpecPath(node)}");
-        }
-    }
+	class void list(ExecutionGraph graph) {
+		for node in graph.nodes {
+			var parents = node.after.isEmpty() ? "root" : node.after.join(",");
+			Console.log(f"{node.id} <- {parents} :: {graph.resolvedSpecPath(node)}");
+		}
+	}
 }
 
 class GraphTraversal {
-    public ExecutionGraph graph;
-    public Vector<string> done;
-    public Vector<string> visiting;
-    public Vector<string> ordered;
-    public string error;
+	public ExecutionGraph graph;
+	public Vector<string> done;
+	public Vector<string> visiting;
+	public Vector<string> ordered;
+	public string error;
 
-    public GraphTraversal(ExecutionGraph graph) {
-        self.graph = graph;
-        self.done = [];
-        self.visiting = [];
-        self.ordered = [];
-        self.error = "";
-    }
+	public GraphTraversal(ExecutionGraph graph) {
+		self.graph = graph;
+		self.done = [];
+		self.visiting = [];
+		self.ordered = [];
+		self.error = "";
+	}
 
-    public int visit(string id) {
-        if (self.done.contains(id)) { return 0; }
-        if (!self.graph.hasNode(id)) {
-            self.error = "Unknown graph node: " + (id == null ? "" : id);
-            return 1;
-        }
+	public int visit(string id) {
+		if (self.done.contains(id)) { return 0; }
+		if (!self.graph.hasNode(id)) {
+			self.error = "Unknown graph node: " + (id == null ? "" : id);
+			return 1;
+		}
 
-        /* Explicit DFS frames avoid overflowing the C call stack on deep
+		/* Explicit DFS frames avoid overflowing the C call stack on deep
          * dependency chains. nextParent parallels stack and records which
          * dependency of each frame should be visited next. */
-        Vector<string> stack = [];
-        Vector<int> nextParent = [];
-        stack.push(id);
-        nextParent.push(0);
+		Vector<string> stack = [];
+		Vector<int> nextParent = [];
+		stack.push(id);
+		nextParent.push(0);
 
-        while (!stack.isEmpty()) {
-            int top = stack.len - 1;
-            string current = stack.get(top);
-            if (self.done.contains(current)) {
-                self.visiting.removeAll(current);
-                stack.pop();
-                nextParent.pop();
-                continue;
-            }
-            if (!self.visiting.contains(current)) {
-                self.visiting.push(current);
-            }
+		while (!stack.isEmpty()) {
+			int top = stack.len - 1;
+			string current = stack.get(top);
+			if (self.done.contains(current)) {
+				self.visiting.removeAll(current);
+				stack.pop();
+				nextParent.pop();
+				continue;
+			}
+			if (!self.visiting.contains(current)) {
+				self.visiting.push(current);
+			}
 
-            GraphNode node = self.graph.node(current);
-            int index = nextParent.get(top);
-            if (index < node.after.len) {
-                string parent = node.after.get(index);
-                nextParent.set(top, index + 1);
-                if (self.done.contains(parent)) { continue; }
-                if (!self.graph.hasNode(parent)) {
-                    self.error = "Unknown graph node: " + parent;
-                    return 1;
-                }
-                if (self.visiting.contains(parent)) {
-                    self.error = "Cycle in graph at " + parent;
-                    return 1;
-                }
-                stack.push(parent);
-                nextParent.push(0);
-                continue;
-            }
+			GraphNode node = self.graph.node(current);
+			int index = nextParent.get(top);
+			if (index < node.after.len) {
+				string parent = node.after.get(index);
+				nextParent.set(top, index + 1);
+				if (self.done.contains(parent)) { continue; }
+				if (!self.graph.hasNode(parent)) {
+					self.error = "Unknown graph node: " + parent;
+					return 1;
+				}
+				if (self.visiting.contains(parent)) {
+					self.error = "Cycle in graph at " + parent;
+					return 1;
+				}
+				stack.push(parent);
+				nextParent.push(0);
+				continue;
+			}
 
-            self.done.push(current);
-            self.ordered.push(current);
-            self.visiting.removeAll(current);
-            stack.pop();
-            nextParent.pop();
-        }
-        return 0;
-    }
+			self.done.push(current);
+			self.ordered.push(current);
+			self.visiting.removeAll(current);
+			stack.pop();
+			nextParent.pop();
+		}
+		return 0;
+	}
 
-    public Vector<string> order(Vector<string> targets) {
-        self.done = [];
-        self.visiting = [];
-        self.ordered = [];
-        self.error = "";
-        Vector<string> selected = targets.isEmpty() ? self.graph.defaultTargets() : targets;
-        for id in selected {
-            int result = self.visit(id);
-            if (result != 0) { return self.ordered; }
-        }
-        return self.ordered;
-    }
+	public Vector<string> order(Vector<string> targets) {
+		self.done = [];
+		self.visiting = [];
+		self.ordered = [];
+		self.error = "";
+		Vector<string> selected = targets.isEmpty() ? self.graph.defaultTargets() : targets;
+		for id in selected {
+			int result = self.visit(id);
+			if (result != 0) { return self.ordered; }
+		}
+		return self.ordered;
+	}
 
-    public bool ok() {
-        return self.error.isEmpty();
-    }
+	public bool ok() { return self.error.isEmpty(); }
 }
 
 class GraphValidation {
-    class Vector<string> nodeIds(ExecutionGraph graph) {
-        Vector<string> result = [];
-        for node in graph.nodes {
-            result.push(node.id);
-        }
-        return result;
-    }
+	class Vector<string> nodeIds(ExecutionGraph graph) {
+		Vector<string> result = [];
+		for node in graph.nodes {
+			result.push(node.id);
+		}
+		return result;
+	}
 
-    class string error(ExecutionGraph graph) {
-        if (graph.nodes.isEmpty()) {
-            return f"Graph has no nodes: {graph.path}";
-        }
-        Set<string> seen = {};
-        for node in graph.nodes {
-            if (node.id.isEmpty()) { return "Graph node is missing id"; }
-            if (node.specPath.isEmpty()) { return f"Graph node {node.id} is missing spec"; }
-            if (seen.contains(node.id)) { return f"Duplicate graph node id: {node.id}"; }
-            seen.add(node.id);
-        }
-        for node in graph.nodes {
-            for parent in node.after {
-                if (!seen.contains(parent)) {
-                    return f"Graph node {node.id} depends on missing node: {parent}";
-                }
-            }
-        }
-        for target in graph.defaults {
-            if (!seen.contains(target)) { return f"Graph default target is missing: {target}"; }
-        }
-        for target in graph.required {
-            if (!seen.contains(target)) { return f"Graph required target is missing: {target}"; }
-        }
+	class string error(ExecutionGraph graph) {
+		if (graph.nodes.isEmpty()) {
+			return f"Graph has no nodes: {graph.path}";
+		}
+		Set<string> seen = {};
+		for node in graph.nodes {
+			if (node.id.isEmpty()) { return "Graph node is missing id"; }
+			if (node.specPath.isEmpty()) { return f"Graph node {node.id} is missing spec"; }
+			if (seen.contains(node.id)) { return f"Duplicate graph node id: {node.id}"; }
+			seen.add(node.id);
+		}
+		for node in graph.nodes {
+			for parent in node.after {
+				if (!seen.contains(parent)) {
+					return f"Graph node {node.id} depends on missing node: {parent}";
+				}
+			}
+		}
+		for target in graph.defaults {
+			if (!seen.contains(target)) { return f"Graph default target is missing: {target}"; }
+		}
+		for target in graph.required {
+			if (!seen.contains(target)) { return f"Graph required target is missing: {target}"; }
+		}
 
-        var traversal = GraphTraversal(graph);
-        traversal.order(GraphValidation.nodeIds(graph));
-        if (!traversal.ok()) { return traversal.error; }
-        return "";
-    }
+		var traversal = GraphTraversal(graph);
+		traversal.order(GraphValidation.nodeIds(graph));
+		if (!traversal.ok()) { return traversal.error; }
+		return "";
+	}
 }
 
 class GraphParser {
-    class GraphNode node(string objectText) {
-        var node = GraphNode();
-        node.id = JsonText.field(objectText, "id", "");
-        node.specPath = JsonText.field(objectText, "spec", "");
-        node.after = JsonText.stringArray(objectText, "after");
-        node.args = JsonText.argsObject(objectText);
-        /* Missing id/spec is a DATA error in the source JSON, not an internal
+	class GraphNode node(string objectText) {
+		var node = GraphNode();
+		node.id = JsonText.field(objectText, "id", "");
+		node.specPath = JsonText.field(objectText, "spec", "");
+		node.after = JsonText.stringArray(objectText, "after");
+		node.args = JsonText.argsObject(objectText);
+		/* Missing id/spec is a DATA error in the source JSON, not an internal
          * invariant — throw a catchable message instead of aborting. (readFile
          * also surfaces these via the recoverable validationError() path.) */
-        if (node.id.isEmpty()) {
-            throw "Graph node is missing id";
-        }
-        if (node.specPath.isEmpty()) {
-            throw f"Graph node {node.id} is missing spec";
-        }
-        return node;
-    }
+		if (node.id.isEmpty()) {
+			throw "Graph node is missing id";
+		}
+		if (node.specPath.isEmpty()) {
+			throw f"Graph node {node.id} is missing spec";
+		}
+		return node;
+	}
 
-    class ExecutionGraph readFile(string path) {
-        var text = Path.readAll(path);
-        var graph = ExecutionGraph();
-        graph.path = path;
-        graph.baseDir = PathTools.dirname(path);
-        graph.name = JsonText.field(text, "name", graph.name);
-        graph.workspaceRoot = JsonText.field(text, "workspaceRoot", graph.workspaceRoot);
-        graph.defaults = JsonText.stringArray(text, "default");
-        graph.required = JsonText.stringArray(text, "required");
-        for objectText in JsonText.objectArray(text, "nodes") {
-            graph.nodes.push(GraphParser.node(objectText));
-        }
-        /* Validation failures are DATA errors (bad graph JSON), so throw a
+	class ExecutionGraph readFile(string path) {
+		var text = Path.readAll(path);
+		var graph = ExecutionGraph();
+		graph.path = path;
+		graph.baseDir = PathTools.dirname(path);
+		graph.name = JsonText.field(text, "name", graph.name);
+		graph.workspaceRoot = JsonText.field(text, "workspaceRoot", graph.workspaceRoot);
+		graph.defaults = JsonText.stringArray(text, "default");
+		graph.required = JsonText.stringArray(text, "required");
+		for objectText in JsonText.objectArray(text, "nodes") {
+			graph.nodes.push(GraphParser.node(objectText));
+		}
+		/* Validation failures are DATA errors (bad graph JSON), so throw a
          * catchable message rather than aborting the process. Callers that want
          * to inspect without throwing can build the graph and call
          * validationError() / valid() directly. */
-        var error = graph.validationError();
-        if (!error.isEmpty()) {
-            throw error;
-        }
-        return graph;
-    }
+		var error = graph.validationError();
+		if (!error.isEmpty()) {
+			throw error;
+		}
+		return graph;
+	}
 }

@@ -15,323 +15,188 @@
  */
 
 enum OwnedBufferOpenKind {
-    OWNED_BUFFER_OPENED = 0,
-    OWNED_BUFFER_INVALID_ARGUMENT = 1,
-    OWNED_BUFFER_COUNT_OUT_OF_RANGE = 2,
-    OWNED_BUFFER_SIZE_OVERFLOW = 3,
-    OWNED_BUFFER_OUT_OF_MEMORY = 4
+	OWNED_BUFFER_OPENED = 0,
+	OWNED_BUFFER_INVALID_ARGUMENT = 1,
+	OWNED_BUFFER_COUNT_OUT_OF_RANGE = 2,
+	OWNED_BUFFER_SIZE_OVERFLOW = 3,
+	OWNED_BUFFER_OUT_OF_MEMORY = 4
 };
 
 struct OwnedBufferStorage {
-    unsigned char* values;
-    size_t count;
-    size_t valueSize;
+	unsigned char* values;
+	size_t count;
+	size_t valueSize;
 };
 
 class OwnedBuffers {
-    class OwnedBufferOpenKind tryOpen(
-        size_t count,
-        size_t valueSize,
-        struct OwnedBufferStorage** output
-    ) {
-        if (output == null) { return OWNED_BUFFER_INVALID_ARGUMENT; }
-        *output = null;
-        if (count == (size_t)0) {
-            return OWNED_BUFFER_COUNT_OUT_OF_RANGE;
-        }
-        if (valueSize == (size_t)0) {
-            return OWNED_BUFFER_INVALID_ARGUMENT;
-        }
-        if (count > (size_t)(-1) / valueSize) {
-            return OWNED_BUFFER_SIZE_OVERFLOW;
-        }
+	class OwnedBufferOpenKind tryOpen(size_t count, size_t valueSize, struct OwnedBufferStorage** output) {
+		if (output == null) { return OWNED_BUFFER_INVALID_ARGUMENT; }
+			*output = null;
+		if (count == (size_t)0) {
+			return OWNED_BUFFER_COUNT_OUT_OF_RANGE;
+		}
+		if (valueSize == (size_t)0) {
+			return OWNED_BUFFER_INVALID_ARGUMENT;
+		}
+		if (count > (size_t)(-1) / valueSize) {
+			return OWNED_BUFFER_SIZE_OVERFLOW;
+		}
 
-        struct OwnedBufferStorage* storage =
-            (struct OwnedBufferStorage*)calloc(
-                (size_t)1, sizeof(struct OwnedBufferStorage));
-        if (storage == null) { return OWNED_BUFFER_OUT_OF_MEMORY; }
-        storage->values = (unsigned char*)calloc(count, valueSize);
-        if (storage->values == null) {
-            free(storage);
-            return OWNED_BUFFER_OUT_OF_MEMORY;
-        }
-        storage->count = count;
-        storage->valueSize = valueSize;
-        *output = storage;
-        return OWNED_BUFFER_OPENED;
-    }
+		struct OwnedBufferStorage* storage = (struct OwnedBufferStorage*)calloc((size_t)1, sizeof(struct OwnedBufferStorage));
+		if (storage == null) { return OWNED_BUFFER_OUT_OF_MEMORY; }
+		storage->values = (unsigned char*)calloc(count, valueSize);
+		if (storage->values == null) {
+			free(storage);
+			return OWNED_BUFFER_OUT_OF_MEMORY;
+		}
+		storage->count = count;
+		storage->valueSize = valueSize;
+			*output = storage;
+		return OWNED_BUFFER_OPENED;
+	}
 
-    class @realtime void* borrow(
-        struct OwnedBufferStorage* storage,
-        size_t expectedValueSize
-    ) {
-        if (storage == null || expectedValueSize == (size_t)0
-                || storage->valueSize != expectedValueSize) {
-            return null;
-        }
-        return storage->values;
-    }
+	class @realtime void* borrow(struct OwnedBufferStorage* storage, size_t expectedValueSize) {
+		if (storage == null || expectedValueSize == (size_t)0 || storage->valueSize != expectedValueSize) {
+			return null;
+		}
+		return storage->values;
+	}
 
-    class size_t count(
-        struct OwnedBufferStorage* storage,
-        size_t expectedValueSize
-    ) {
-        if (storage == null || expectedValueSize == (size_t)0
-                || storage->valueSize != expectedValueSize) {
-            return (size_t)0;
-        }
-        return storage->count;
-    }
+	class size_t count(struct OwnedBufferStorage* storage, size_t expectedValueSize) {
+		if (storage == null || expectedValueSize == (size_t)0 || storage->valueSize != expectedValueSize) {
+			return (size_t)0;
+		}
+		return storage->count;
+	}
 
-    class bool tryPointerAt(
-        struct OwnedBufferStorage* storage,
-        size_t expectedValueSize,
-        size_t index,
-        void** output
-    ) {
-        if (output == null) { return false; }
-        *output = null;
-        if (storage == null || expectedValueSize == (size_t)0
-                || storage->valueSize != expectedValueSize
-                || index >= storage->count) {
-            return false;
-        }
-        *output = storage->values + index * storage->valueSize;
-        return true;
-    }
+	class bool tryPointerAt(struct OwnedBufferStorage* storage, size_t expectedValueSize, size_t index, void** output) {
+		if (output == null) { return false; }
+			*output = null;
+		if (storage == null || expectedValueSize == (size_t)0 || storage->valueSize != expectedValueSize || index >= storage->count) {
+			return false;
+		}
+			*output = storage->values + index * storage->valueSize;
+		return true;
+	}
 
-    class bool tryCopyFrom(
-        struct OwnedBufferStorage* storage,
-        size_t expectedValueSize,
-        size_t destinationIndex,
-        const void* source,
-        size_t elementCount
-    ) {
-        if (storage == null || expectedValueSize == (size_t)0
-                || storage->valueSize != expectedValueSize
-                || destinationIndex > storage->count
-                || elementCount > storage->count - destinationIndex) {
-            return false;
-        }
-        if (elementCount == (size_t)0) { return true; }
-        if (source == null) { return false; }
-        memmove(
-            storage->values + destinationIndex * storage->valueSize,
-            source,
-            elementCount * storage->valueSize
-        );
-        return true;
-    }
+	class bool tryCopyFrom(struct OwnedBufferStorage* storage, size_t expectedValueSize, size_t destinationIndex, const void* source, size_t elementCount) {
+		if (storage == null || expectedValueSize == (size_t)0 || storage->valueSize != expectedValueSize || destinationIndex > storage->count || elementCount > storage->count - destinationIndex) {
+			return false;
+		}
+		if (elementCount == (size_t)0) { return true; }
+		if (source == null) { return false; }
+		memmove(storage->values + destinationIndex * storage->valueSize, source, elementCount * storage->valueSize);
+		return true;
+	}
 
-    class bool tryCopyTo(
-        struct OwnedBufferStorage* storage,
-        size_t expectedValueSize,
-        size_t sourceIndex,
-        void* output,
-        size_t elementCount
-    ) {
-        if (storage == null || expectedValueSize == (size_t)0
-                || storage->valueSize != expectedValueSize
-                || sourceIndex > storage->count
-                || elementCount > storage->count - sourceIndex) {
-            return false;
-        }
-        if (elementCount == (size_t)0) { return true; }
-        if (output == null) { return false; }
-        memmove(
-            output,
-            storage->values + sourceIndex * storage->valueSize,
-            elementCount * storage->valueSize
-        );
-        return true;
-    }
+	class bool tryCopyTo(struct OwnedBufferStorage* storage, size_t expectedValueSize, size_t sourceIndex, void* output, size_t elementCount) {
+		if (storage == null || expectedValueSize == (size_t)0 || storage->valueSize != expectedValueSize || sourceIndex > storage->count || elementCount > storage->count - sourceIndex) {
+			return false;
+		}
+		if (elementCount == (size_t)0) { return true; }
+		if (output == null) { return false; }
+		memmove(output, storage->values + sourceIndex * storage->valueSize, elementCount * storage->valueSize);
+		return true;
+	}
 
-    class bool tryCopyBetween(
-        struct OwnedBufferStorage* destination,
-        size_t expectedValueSize,
-        size_t destinationIndex,
-        struct OwnedBufferStorage* source,
-        size_t sourceIndex,
-        size_t elementCount
-    ) {
-        if (destination == null || source == null
-                || expectedValueSize == (size_t)0
-                || destination->valueSize != expectedValueSize
-                || source->valueSize != expectedValueSize
-                || destinationIndex > destination->count
-                || elementCount
-                    > destination->count - destinationIndex
-                || sourceIndex > source->count
-                || elementCount > source->count - sourceIndex) {
-            return false;
-        }
-        if (elementCount == (size_t)0) { return true; }
-        memmove(
-            destination->values
-                + destinationIndex * destination->valueSize,
-            source->values + sourceIndex * source->valueSize,
-            elementCount * expectedValueSize
-        );
-        return true;
-    }
+	class bool tryCopyBetween(struct OwnedBufferStorage* destination, size_t expectedValueSize, size_t destinationIndex, struct OwnedBufferStorage* source, size_t sourceIndex, size_t elementCount) {
+		if (destination == null || source == null || expectedValueSize == (size_t)0 || destination->valueSize != expectedValueSize || source->valueSize != expectedValueSize || destinationIndex > destination->count || elementCount > destination->count - destinationIndex || sourceIndex > source->count || elementCount > source->count - sourceIndex) {
+			return false;
+		}
+		if (elementCount == (size_t)0) { return true; }
+		memmove(destination->values + destinationIndex * destination->valueSize, source->values + sourceIndex * source->valueSize, elementCount * expectedValueSize);
+		return true;
+	}
 
-    class void close(struct OwnedBufferStorage** owner) {
-        if (owner == null || *owner == null) { return; }
-        struct OwnedBufferStorage* storage = *owner;
-        *owner = null;
-        free(storage->values);
-        storage->values = null;
-        storage->count = (size_t)0;
-        storage->valueSize = (size_t)0;
-        free(storage);
-    }
+	class void close(struct OwnedBufferStorage** owner) {
+		if (owner == null || *owner == null) { return; }
+		struct OwnedBufferStorage* storage = *owner;
+			*owner = null;
+		free(storage->values);
+		storage->values = null;
+		storage->count = (size_t)0;
+		storage->valueSize = (size_t)0;
+		free(storage);
+	}
 }
 
 class OwnedBuffer<T> {
-    private struct OwnedBufferStorage* _storage;
-    private OwnedBufferOpenKind _status;
+	private struct OwnedBufferStorage* _storage;
+	private OwnedBufferOpenKind _status;
 
-    public OwnedBuffer(size_t count) {
-        struct OwnedBufferStorage* openedStorage = null;
-        self._status = OwnedBuffers.tryOpen(
-            count, sizeof(T), &openedStorage);
-        self._storage = openedStorage;
-    }
+	public OwnedBuffer(size_t count) {
+		struct OwnedBufferStorage* openedStorage = null;
+		self._status = OwnedBuffers.tryOpen(count, sizeof(T), &openedStorage);
+		self._storage = openedStorage;
+	}
 
-    public OwnedBufferOpenKind status() { return self._status; }
+	public OwnedBufferOpenKind status() { return self._status; }
 
-    public bool opened() {
-        return self._status == OWNED_BUFFER_OPENED
-            && self._storage != null;
-    }
+	public bool opened() { return self._status == OWNED_BUFFER_OPENED && self._storage != null; }
 
-    public size_t count() {
-        return OwnedBuffers.count(self._storage, sizeof(T));
-    }
+	public size_t count() { return OwnedBuffers.count(self._storage, sizeof(T)); }
 
-    public T* borrow() {
-        return (T*)OwnedBuffers.borrow(self._storage, sizeof(T));
-    }
+	public T* borrow() { return (T*)OwnedBuffers.borrow(self._storage, sizeof(T)); }
 
-    public bool tryPointerAt(size_t index, T** output) {
-        return OwnedBuffers.tryPointerAt(
-            self._storage, sizeof(T), index, (void**)output);
-    }
+	public bool tryPointerAt(size_t index, T** output) { return OwnedBuffers.tryPointerAt(self._storage, sizeof(T), index, (void**)output); }
 
-    public bool tryGet(size_t index, T* output) {
-        return OwnedBuffers.tryCopyTo(
-            self._storage, sizeof(T), index, output, (size_t)1);
-    }
+	public bool tryGet(size_t index, T* output) { return OwnedBuffers.tryCopyTo(self._storage, sizeof(T), index, output, (size_t)1); }
 
-    public bool trySet(size_t index, const T* value) {
-        return OwnedBuffers.tryCopyFrom(
-            self._storage, sizeof(T), index, value, (size_t)1);
-    }
+	public bool trySet(size_t index, const T* value) { return OwnedBuffers.tryCopyFrom(self._storage, sizeof(T), index, value, (size_t)1); }
 
-    public T get(size_t index) {
-        if (self._storage == null || index >= self._storage->count) {
-            fprintf(stderr, "OwnedBuffer index out of bounds\n");
-            abort();
-        }
-        return ((T*)self._storage->values)[index];
-    }
+	public T get(size_t index) {
+		if (self._storage == null || index >= self._storage->count) {
+			fprintf(stderr, "OwnedBuffer index out of bounds\n");
+			abort();
+		}
+		return ((T*)self._storage->values)[index];
+	}
 
-    public bool set(size_t index, T value) {
-        return self.trySet(index, &value);
-    }
+	public bool set(size_t index, T value) { return self.trySet(index, &value); }
 
-    public bool tryCopyFrom(
-        size_t destinationIndex,
-        const T* source,
-        size_t elementCount
-    ) {
-        return OwnedBuffers.tryCopyFrom(
-            self._storage,
-            sizeof(T),
-            destinationIndex,
-            source,
-            elementCount
-        );
-    }
+	public bool tryCopyFrom(size_t destinationIndex, const T* source, size_t elementCount) { return OwnedBuffers.tryCopyFrom(self._storage, sizeof(T), destinationIndex, source, elementCount); }
 
-    public bool tryCopyTo(
-        size_t sourceIndex,
-        T* output,
-        size_t elementCount
-    ) {
-        return OwnedBuffers.tryCopyTo(
-            self._storage,
-            sizeof(T),
-            sourceIndex,
-            output,
-            elementCount
-        );
-    }
+	public bool tryCopyTo(size_t sourceIndex, T* output, size_t elementCount) { return OwnedBuffers.tryCopyTo(self._storage, sizeof(T), sourceIndex, output, elementCount); }
 
-    public bool tryCopyFromBuffer(
-        size_t destinationIndex,
-        OwnedBuffer<T> source,
-        size_t sourceIndex,
-        size_t elementCount
-    ) {
-        if (source == null) { return false; }
-        return OwnedBuffers.tryCopyBetween(
-            self._storage,
-            sizeof(T),
-            destinationIndex,
-            source._storage,
-            sourceIndex,
-            elementCount
-        );
-    }
+	public bool tryCopyFromBuffer(size_t destinationIndex, OwnedBuffer<T> source, size_t sourceIndex, size_t elementCount) {
+		if (source == null) { return false; }
+		return OwnedBuffers.tryCopyBetween(self._storage, sizeof(T), destinationIndex, source._storage, sourceIndex, elementCount);
+	}
 
-    public void close() {
-        struct OwnedBufferStorage* storage = self._storage;
-        self._storage = null;
-        OwnedBuffers.close(&storage);
-    }
+	public void close() {
+		struct OwnedBufferStorage* storage = self._storage;
+		self._storage = null;
+		OwnedBuffers.close(&storage);
+	}
 
-    public void __del__() {
-        self.close();
-    }
+	public void __del__() { self.close(); }
 }
 
 /* Atomic owners may only be initialized and accessed through their stable raw
  * borrow. There is intentionally no get/set/copy surface on this class. */
 class AtomicBuffer<T> {
-    private struct OwnedBufferStorage* _storage;
-    private OwnedBufferOpenKind _status;
+	private struct OwnedBufferStorage* _storage;
+	private OwnedBufferOpenKind _status;
 
-    public AtomicBuffer(size_t count) {
-        struct OwnedBufferStorage* openedStorage = null;
-        self._status = OwnedBuffers.tryOpen(
-            count, sizeof(Atomic<T>), &openedStorage);
-        self._storage = openedStorage;
-    }
+	public AtomicBuffer(size_t count) {
+		struct OwnedBufferStorage* openedStorage = null;
+		self._status = OwnedBuffers.tryOpen(count, sizeof(Atomic<T>), &openedStorage);
+		self._storage = openedStorage;
+	}
 
-    public OwnedBufferOpenKind status() { return self._status; }
+	public OwnedBufferOpenKind status() { return self._status; }
 
-    public bool opened() {
-        return self._status == OWNED_BUFFER_OPENED
-            && self._storage != null;
-    }
+	public bool opened() { return self._status == OWNED_BUFFER_OPENED && self._storage != null; }
 
-    public size_t count() {
-        return OwnedBuffers.count(self._storage, sizeof(Atomic<T>));
-    }
+	public size_t count() { return OwnedBuffers.count(self._storage, sizeof(Atomic<T>)); }
 
-    public Atomic<T>* borrow() {
-        return (Atomic<T>*)OwnedBuffers.borrow(
-            self._storage, sizeof(Atomic<T>));
-    }
+	public Atomic<T>* borrow() { return (Atomic<T>*)OwnedBuffers.borrow(self._storage, sizeof(Atomic<T>)); }
 
-    public void close() {
-        struct OwnedBufferStorage* storage = self._storage;
-        self._storage = null;
-        OwnedBuffers.close(&storage);
-    }
+	public void close() {
+		struct OwnedBufferStorage* storage = self._storage;
+		self._storage = null;
+		OwnedBuffers.close(&storage);
+	}
 
-    public void __del__() {
-        self.close();
-    }
+	public void __del__() { self.close(); }
 }
