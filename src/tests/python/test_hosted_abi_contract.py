@@ -260,7 +260,6 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
                 and declaration.name.startswith(("btrc_", "std_"))
             ):
                 declarations.setdefault(declaration.name, []).append(declaration)
-    assert len(declarations) == 91
     assert declarations.keys() == HOSTED_NATIVE_FUNCTIONS.keys()
     analyzer = SemanticAnalyzer()
     for name, variants in declarations.items():
@@ -286,17 +285,28 @@ def test_every_shipped_native_source_prototype_has_an_exact_spec() -> None:
 def test_native_headers_are_exact_or_an_explicit_internal_seam() -> None:
     names = set()
     pattern = re.compile(r"\b((?:btrc|std)_[A-Za-z0-9_]+)\s*\(")
-    for directory in (
-        SOURCE_ROOT / "stdlib" / "app",
-        SOURCE_ROOT / "stdlib" / "gpu",
-        SOURCE_ROOT / "stdlib" / "gui",
-        SOURCE_ROOT / "stdlib" / "tray",
-    ):
-        for path in directory.glob("*.h"):
-            names.update(pattern.findall(path.read_text()))
-    assert len(names) == 139
+    stdlib = SOURCE_ROOT / "stdlib"
+    for path in stdlib.rglob("*.h"):
+        if path.relative_to(stdlib).parts[0] == "win":
+            continue
+        names.update(pattern.findall(path.read_text()))
     assert names == set(HOSTED_NATIVE_FUNCTIONS) | set(HOSTED_NATIVE_INTERNAL_NAMES)
-    assert len(HOSTED_NATIVE_INTERNAL_NAMES) == 48
+
+
+def test_native_app_background_jobs_and_ui_effects_are_exact() -> None:
+    scroll = hosted_function("std_app_event_scroll_x")
+    submit = hosted_function("std_background_jobs_submit")
+    add_image = hosted_function("std_gpu_native_ui_add_image")
+
+    assert scroll is not None and scroll.result == abi_type("float")
+    assert submit is not None
+    assert submit.effects == (MUTATE, VALUE, VALUE, UNKNOWN, VALUE, MUTATE)
+    assert add_image is not None
+    assert add_image.effects == (VALUE, READ, READ, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE, VALUE)
+    assert {
+        "btrc_gpu_native_ui_create",
+        "btrc_gpu_native_ui_test_fail_next_upload",
+    } <= set(HOSTED_NATIVE_INTERNAL_NAMES)
 
 
 def test_gpu_surface_attachment_uses_public_capabilities_and_private_raw_compute() -> None:

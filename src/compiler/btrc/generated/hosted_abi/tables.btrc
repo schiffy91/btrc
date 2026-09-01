@@ -112,6 +112,7 @@ class GeneratedHostedAbiData {
 		self.pushFunctions9();
 		self.pushFunctions10();
 		self.pushFunctions11();
+		self.pushFunctions12();
 		self.function_names = [];
 		self.push_function_names0();
 		self.push_function_names1();
@@ -185,7 +186,7 @@ class GeneratedHostedAbiData {
 		self.push_platform_typedef_names0();
 		self.stdlib_source_marker = "compiler:stdlib";
 		self.user_source_marker = "compiler:user";
-		self.fingerprint = "c1709606ea7f45f0d4c3efeb885f2097bcfae1e1d0c679fe204c33c920bb4bc4";
+		self.fingerprint = "54171f3797d2a04942be26af80ab862be7f03b016d08522dfed8381ca0328c72";
 	}
 
 	private void pushFunctions0() {
@@ -7710,6 +7711,46 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_app_event_scroll_x",
+			"native_app",
+			GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_app_event_scroll_y",
+			"native_app",
+			GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"std_app_event_text",
 			"native_app",
 			GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
@@ -8040,6 +8081,186 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_background_jobs_cancel",
+			"native_background_jobs",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_background_jobs_cancel_generation",
+			"native_background_jobs",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_background_jobs_cancel_requested",
+			"native_background_jobs",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_background_jobs_close",
+			"native_background_jobs",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_background_jobs_open",
+			"native_background_jobs",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 2, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_background_jobs_outstanding",
+			"native_background_jobs",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "read", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_background_jobs_poll",
+			"native_background_jobs",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("struct BtrcBackgroundJobNativeCompletion", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+	}
+
+	private void pushFunctions10() {
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_background_jobs_submit",
+			"native_background_jobs",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("BtrcBackgroundJobNativeRun", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("void", 1, false, self.emptyTypes()), "unknown", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("BtrcBackgroundJobNativeDispose", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_attach_surface",
 			"native_gpu",
 			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
@@ -8193,6 +8414,240 @@ class GeneratedHostedAbiData {
 			"",
 			"unknown"));
 		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_add_glyph",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_add_image",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned char", 1, false, self.emptyTypes()), "read", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_add_rect",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("float", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_begin",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_command_count",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_create",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 1, false, self.emptyTypes()), "mutate", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_destroy",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_draw",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_finalize",
+			"native_gpu",
+			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
+			"std_gpu_native_ui_image_count",
+			"native_gpu",
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			true,
+			[
+			GeneratedHostedParameterRow(GeneratedAbiTypeRow("unsigned long long", 0, false, self.emptyTypes()), "value", ""),
+		],
+			false,
+			false,
+			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+			"value",
+			-1,
+			"",
+			false,
+			"",
+			"",
+			"",
+			"",
+			"unknown"));
+		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_pipeline_create",
 			"native_gpu",
 			GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
@@ -8238,9 +8693,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions10() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"std_gpu_pipeline_finalize",
 			"native_gpu",
@@ -8664,6 +9116,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"strncpy",
 			"string",
@@ -9086,9 +9541,6 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
-	}
-
-	private void pushFunctions11() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"tanh",
 			"math",
@@ -9476,6 +9928,9 @@ class GeneratedHostedAbiData {
 			"",
 			"",
 			"unknown"));
+	}
+
+	private void pushFunctions12() {
 		self.functions.push(GeneratedHostedFunctionRow(
 			"waitpid",
 			"posix_process",
@@ -10540,6 +10995,8 @@ class GeneratedHostedAbiData {
 		self.function_names.push("std_app_event_pointer_y");
 		self.function_names.push("std_app_event_scale_x");
 		self.function_names.push("std_app_event_scale_y");
+		self.function_names.push("std_app_event_scroll_x");
+		self.function_names.push("std_app_event_scroll_y");
 		self.function_names.push("std_app_event_text");
 		self.function_names.push("std_app_finalize");
 		self.function_names.push("std_app_poll");
@@ -10560,6 +11017,14 @@ class GeneratedHostedAbiData {
 		self.function_names.push("std_app_window_open");
 		self.function_names.push("std_app_window_scale_x");
 		self.function_names.push("std_app_window_scale_y");
+		self.function_names.push("std_background_jobs_cancel");
+		self.function_names.push("std_background_jobs_cancel_generation");
+		self.function_names.push("std_background_jobs_cancel_requested");
+		self.function_names.push("std_background_jobs_close");
+		self.function_names.push("std_background_jobs_open");
+		self.function_names.push("std_background_jobs_outstanding");
+		self.function_names.push("std_background_jobs_poll");
+		self.function_names.push("std_background_jobs_submit");
 		self.function_names.push("std_gpu_attach_surface");
 		self.function_names.push("std_gpu_begin_frame");
 		self.function_names.push("std_gpu_close");
@@ -10567,6 +11032,16 @@ class GeneratedHostedAbiData {
 		self.function_names.push("std_gpu_draw_uniform");
 		self.function_names.push("std_gpu_end_frame");
 		self.function_names.push("std_gpu_finalize");
+		self.function_names.push("std_gpu_native_ui_add_glyph");
+		self.function_names.push("std_gpu_native_ui_add_image");
+		self.function_names.push("std_gpu_native_ui_add_rect");
+		self.function_names.push("std_gpu_native_ui_begin");
+		self.function_names.push("std_gpu_native_ui_command_count");
+		self.function_names.push("std_gpu_native_ui_create");
+		self.function_names.push("std_gpu_native_ui_destroy");
+		self.function_names.push("std_gpu_native_ui_draw");
+		self.function_names.push("std_gpu_native_ui_finalize");
+		self.function_names.push("std_gpu_native_ui_image_count");
 		self.function_names.push("std_gpu_pipeline_create");
 		self.function_names.push("std_gpu_pipeline_destroy");
 		self.function_names.push("std_gpu_pipeline_finalize");
@@ -17625,17 +18100,19 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_app_event_pointer_y");
 		self.owned_names.push("std_app_event_scale_x");
 		self.owned_names.push("std_app_event_scale_y");
+		self.owned_names.push("std_app_event_scroll_x");
+		self.owned_names.push("std_app_event_scroll_y");
 		self.owned_names.push("std_app_event_text");
 		self.owned_names.push("std_app_finalize");
 		self.owned_names.push("std_app_poll");
 		self.owned_names.push("std_app_surface_attach");
 		self.owned_names.push("std_app_surface_create");
 		self.owned_names.push("std_app_surface_detach");
-		self.owned_names.push("std_app_surface_finalize");
-		self.owned_names.push("std_app_surface_generation");
 	}
 
 	private void push_owned_names15() {
+		self.owned_names.push("std_app_surface_finalize");
+		self.owned_names.push("std_app_surface_generation");
 		self.owned_names.push("std_app_surface_glfw");
 		self.owned_names.push("std_app_surface_lease_generation");
 		self.owned_names.push("std_app_surface_release");
@@ -17648,6 +18125,14 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_app_window_open");
 		self.owned_names.push("std_app_window_scale_x");
 		self.owned_names.push("std_app_window_scale_y");
+		self.owned_names.push("std_background_jobs_cancel");
+		self.owned_names.push("std_background_jobs_cancel_generation");
+		self.owned_names.push("std_background_jobs_cancel_requested");
+		self.owned_names.push("std_background_jobs_close");
+		self.owned_names.push("std_background_jobs_open");
+		self.owned_names.push("std_background_jobs_outstanding");
+		self.owned_names.push("std_background_jobs_poll");
+		self.owned_names.push("std_background_jobs_submit");
 		self.owned_names.push("std_gpu_attach_surface");
 		self.owned_names.push("std_gpu_begin_frame");
 		self.owned_names.push("std_gpu_close");
@@ -17655,6 +18140,16 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("std_gpu_draw_uniform");
 		self.owned_names.push("std_gpu_end_frame");
 		self.owned_names.push("std_gpu_finalize");
+		self.owned_names.push("std_gpu_native_ui_add_glyph");
+		self.owned_names.push("std_gpu_native_ui_add_image");
+		self.owned_names.push("std_gpu_native_ui_add_rect");
+		self.owned_names.push("std_gpu_native_ui_begin");
+		self.owned_names.push("std_gpu_native_ui_command_count");
+		self.owned_names.push("std_gpu_native_ui_create");
+		self.owned_names.push("std_gpu_native_ui_destroy");
+		self.owned_names.push("std_gpu_native_ui_draw");
+		self.owned_names.push("std_gpu_native_ui_finalize");
+		self.owned_names.push("std_gpu_native_ui_image_count");
 		self.owned_names.push("std_gpu_pipeline_create");
 		self.owned_names.push("std_gpu_pipeline_destroy");
 		self.owned_names.push("std_gpu_pipeline_finalize");
@@ -17866,6 +18361,9 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("va_copy");
 		self.owned_names.push("va_end");
 		self.owned_names.push("va_start");
+	}
+
+	private void push_owned_names16() {
 		self.owned_names.push("valloc");
 		self.owned_names.push("vfork");
 		self.owned_names.push("vfprintf");
@@ -17886,9 +18384,6 @@ class GeneratedHostedAbiData {
 		self.owned_names.push("wait4");
 		self.owned_names.push("waitid");
 		self.owned_names.push("waitpid");
-	}
-
-	private void push_owned_names16() {
 		self.owned_names.push("wchar_t");
 		self.owned_names.push("wcstombs");
 		self.owned_names.push("wctomb");
@@ -17964,6 +18459,8 @@ class GeneratedHostedAbiData {
 		self.native_names.push("std_app_event_pointer_y");
 		self.native_names.push("std_app_event_scale_x");
 		self.native_names.push("std_app_event_scale_y");
+		self.native_names.push("std_app_event_scroll_x");
+		self.native_names.push("std_app_event_scroll_y");
 		self.native_names.push("std_app_event_text");
 		self.native_names.push("std_app_finalize");
 		self.native_names.push("std_app_poll");
@@ -17980,6 +18477,14 @@ class GeneratedHostedAbiData {
 		self.native_names.push("std_app_window_open");
 		self.native_names.push("std_app_window_scale_x");
 		self.native_names.push("std_app_window_scale_y");
+		self.native_names.push("std_background_jobs_cancel");
+		self.native_names.push("std_background_jobs_cancel_generation");
+		self.native_names.push("std_background_jobs_cancel_requested");
+		self.native_names.push("std_background_jobs_close");
+		self.native_names.push("std_background_jobs_open");
+		self.native_names.push("std_background_jobs_outstanding");
+		self.native_names.push("std_background_jobs_poll");
+		self.native_names.push("std_background_jobs_submit");
 		self.native_names.push("std_gpu_attach_surface");
 		self.native_names.push("std_gpu_begin_frame");
 		self.native_names.push("std_gpu_close");
@@ -17987,6 +18492,16 @@ class GeneratedHostedAbiData {
 		self.native_names.push("std_gpu_draw_uniform");
 		self.native_names.push("std_gpu_end_frame");
 		self.native_names.push("std_gpu_finalize");
+		self.native_names.push("std_gpu_native_ui_add_glyph");
+		self.native_names.push("std_gpu_native_ui_add_image");
+		self.native_names.push("std_gpu_native_ui_add_rect");
+		self.native_names.push("std_gpu_native_ui_begin");
+		self.native_names.push("std_gpu_native_ui_command_count");
+		self.native_names.push("std_gpu_native_ui_create");
+		self.native_names.push("std_gpu_native_ui_destroy");
+		self.native_names.push("std_gpu_native_ui_draw");
+		self.native_names.push("std_gpu_native_ui_finalize");
+		self.native_names.push("std_gpu_native_ui_image_count");
 		self.native_names.push("std_gpu_pipeline_create");
 		self.native_names.push("std_gpu_pipeline_destroy");
 		self.native_names.push("std_gpu_pipeline_finalize");
@@ -18026,6 +18541,21 @@ class GeneratedHostedAbiData {
 		self.native_internal_names.push("btrc_gpu_draw_uniform");
 		self.native_internal_names.push("btrc_gpu_end_frame");
 		self.native_internal_names.push("btrc_gpu_init_compute");
+		self.native_internal_names.push("btrc_gpu_native_ui_add_glyph");
+		self.native_internal_names.push("btrc_gpu_native_ui_add_image");
+		self.native_internal_names.push("btrc_gpu_native_ui_add_rect");
+		self.native_internal_names.push("btrc_gpu_native_ui_begin");
+		self.native_internal_names.push("btrc_gpu_native_ui_command_count");
+		self.native_internal_names.push("btrc_gpu_native_ui_create");
+		self.native_internal_names.push("btrc_gpu_native_ui_destroy");
+		self.native_internal_names.push("btrc_gpu_native_ui_draw");
+		self.native_internal_names.push("btrc_gpu_native_ui_image_count");
+		self.native_internal_names.push("btrc_gpu_native_ui_test_cached_pixels");
+		self.native_internal_names.push("btrc_gpu_native_ui_test_fail_next_create");
+		self.native_internal_names.push("btrc_gpu_native_ui_test_fail_next_upload");
+		self.native_internal_names.push("btrc_gpu_native_ui_test_has_image");
+		self.native_internal_names.push("btrc_gpu_native_ui_test_placement_count");
+		self.native_internal_names.push("btrc_gpu_native_ui_test_upload_count");
 		self.native_internal_names.push("btrc_gpu_pending_list_destroy");
 		self.native_internal_names.push("btrc_gpu_pending_list_init");
 		self.native_internal_names.push("btrc_gpu_pending_list_lock");
@@ -18681,6 +19211,8 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("std_app_event_pointer_y");
 		self.platform_function_names.push("std_app_event_scale_x");
 		self.platform_function_names.push("std_app_event_scale_y");
+		self.platform_function_names.push("std_app_event_scroll_x");
+		self.platform_function_names.push("std_app_event_scroll_y");
 		self.platform_function_names.push("std_app_event_text");
 		self.platform_function_names.push("std_app_finalize");
 		self.platform_function_names.push("std_app_poll");
@@ -18701,6 +19233,14 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("std_app_window_open");
 		self.platform_function_names.push("std_app_window_scale_x");
 		self.platform_function_names.push("std_app_window_scale_y");
+		self.platform_function_names.push("std_background_jobs_cancel");
+		self.platform_function_names.push("std_background_jobs_cancel_generation");
+		self.platform_function_names.push("std_background_jobs_cancel_requested");
+		self.platform_function_names.push("std_background_jobs_close");
+		self.platform_function_names.push("std_background_jobs_open");
+		self.platform_function_names.push("std_background_jobs_outstanding");
+		self.platform_function_names.push("std_background_jobs_poll");
+		self.platform_function_names.push("std_background_jobs_submit");
 		self.platform_function_names.push("std_gpu_attach_surface");
 		self.platform_function_names.push("std_gpu_begin_frame");
 		self.platform_function_names.push("std_gpu_close");
@@ -18708,6 +19248,16 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("std_gpu_draw_uniform");
 		self.platform_function_names.push("std_gpu_end_frame");
 		self.platform_function_names.push("std_gpu_finalize");
+		self.platform_function_names.push("std_gpu_native_ui_add_glyph");
+		self.platform_function_names.push("std_gpu_native_ui_add_image");
+		self.platform_function_names.push("std_gpu_native_ui_add_rect");
+		self.platform_function_names.push("std_gpu_native_ui_begin");
+		self.platform_function_names.push("std_gpu_native_ui_command_count");
+		self.platform_function_names.push("std_gpu_native_ui_create");
+		self.platform_function_names.push("std_gpu_native_ui_destroy");
+		self.platform_function_names.push("std_gpu_native_ui_draw");
+		self.platform_function_names.push("std_gpu_native_ui_finalize");
+		self.platform_function_names.push("std_gpu_native_ui_image_count");
 		self.platform_function_names.push("std_gpu_pipeline_create");
 		self.platform_function_names.push("std_gpu_pipeline_destroy");
 		self.platform_function_names.push("std_gpu_pipeline_finalize");
@@ -18793,6 +19343,9 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("utimes");
 		self.platform_function_names.push("uuid_clear");
 		self.platform_function_names.push("uuid_compare");
+	}
+
+	private void push_platform_function_names3() {
 		self.platform_function_names.push("uuid_copy");
 		self.platform_function_names.push("uuid_generate");
 		self.platform_function_names.push("uuid_generate_random");
@@ -18813,9 +19366,6 @@ class GeneratedHostedAbiData {
 		self.platform_function_names.push("y0");
 		self.platform_function_names.push("y0f");
 		self.platform_function_names.push("y0l");
-	}
-
-	private void push_platform_function_names3() {
 		self.platform_function_names.push("y1");
 		self.platform_function_names.push("y1f");
 		self.platform_function_names.push("y1l");
