@@ -1,0 +1,32 @@
+/* btrc standard library — fixed-width scalar bit patterns.
+ *
+ * These conversions preserve all 32 bits without relying on implementation-
+ * defined numeric casts. Binary readers and writers should use this surface
+ * instead of calling C memory functions directly.
+ */
+
+class BitPattern32 {
+    class int signedInteger(uint bits) {
+        int value = 0;
+        memcpy(&value, &bits, sizeof(value));
+        return value;
+    }
+
+    class float floatingPoint(uint bits) {
+        float value = 0.0f;
+        memcpy(&value, &bits, sizeof(value));
+        return value;
+    }
+
+    class uint fromSignedInteger(int value) {
+        uint bits = 0u;
+        memcpy(&bits, &value, sizeof(bits));
+        return bits;
+    }
+
+    class uint fromFloatingPoint(float value) {
+        uint bits = 0u;
+        memcpy(&bits, &value, sizeof(bits));
+        return bits;
+    }
+}

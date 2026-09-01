@@ -342,6 +342,12 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
 
 # Generated from stdlib .btrc files
 STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
+    ("BitPattern32", (
+        BuiltinMemberSpec("signedInteger", "int", "method", (("uint", "bits"),), "signedInteger"),
+        BuiltinMemberSpec("floatingPoint", "float", "method", (("uint", "bits"),), "floatingPoint"),
+        BuiltinMemberSpec("fromSignedInteger", "uint", "method", (("int", "value"),), "fromSignedInteger"),
+        BuiltinMemberSpec("fromFloatingPoint", "uint", "method", (("float", "value"),), "fromFloatingPoint"),
+    )),
     ("UnixFileSystem", (
         BuiltinMemberSpec("chmodPath", "int", "method", (("string", "path"), ("int", "mode"),), "chmodPath"),
         BuiltinMemberSpec("mkdirPath", "int", "method", (("string", "path"), ("int", "mode"),), "mkdirPath"),

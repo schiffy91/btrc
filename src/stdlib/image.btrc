@@ -166,6 +166,23 @@ class Image {
         self.data[offset + 3] = (unsigned char)RGBA.channel(alpha);
     }
 
+    /* Copy one complete tightly packed RGBA raster from a native codec or GPU
+     * boundary. Partial rasters never mutate the image. */
+    public bool tryCopyPackedRgba(
+        const void* source,
+        unsigned long long byteCount
+    ) {
+        if (self.isEmpty()) {
+            return source == null && byteCount == 0ULL;
+        }
+        unsigned long long expected =
+            (unsigned long long)self.width
+            * (unsigned long long)self.height * 4ULL;
+        if (source == null || byteCount != expected) { return false; }
+        memcpy(self.data, source, (size_t)expected);
+        return true;
+    }
+
     public Image crop(int x, int y, int width, int height) {
         if (!self.containsRegion(x, y, width, height)) { return Image.empty(); }
         Image result = Image(width, height);

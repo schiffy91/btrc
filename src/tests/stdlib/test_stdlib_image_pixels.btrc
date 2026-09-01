@@ -19,6 +19,10 @@ int main() {
 
     Image actual = Image(2, 1);
     Image expected = Image(2, 1);
+    unsigned char packed[8] = {10, 20, 30, 40, 50, 60, 70, 80};
+    assert(actual.tryCopyPackedRgba(packed, 8ULL));
+    assert(!actual.tryCopyPackedRgba(packed, 7ULL));
+    assert(actual.pixel(0, 0).equals(RGBA(10, 20, 30, 40)));
     fillPair(actual, expected);
     assert(actual.width == 2 && actual.height == 1 && actual.area() == 2);
     assert(actual.pixel(1, 0).equals(RGBA(50, 60, 70, 80)));
