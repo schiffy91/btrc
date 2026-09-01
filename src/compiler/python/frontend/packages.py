@@ -19,7 +19,7 @@ import stat
 import subprocess
 import tempfile
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -43,6 +43,7 @@ PACKAGE_MANIFEST_VERSION = 1
 NATIVE_LINK_PLAN_SCHEMA = 1
 
 _IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_MODULE_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _NATIVE_NAME = re.compile(r"^[A-Za-z0-9_.+-]+$")
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _GIT_COMMIT = re.compile(r"^[0-9a-f]{40}$")
@@ -202,6 +203,7 @@ class NativeDeclaration:
     standard: str = ""
     operating_systems: tuple[str, ...] = ()
     architectures: tuple[str, ...] = ()
+    modules: tuple[str, ...] = ()
 
     def selected_for(self, target: PackageTarget) -> bool:
         return (not self.operating_systems or target.operating_system in self.operating_systems) and (
@@ -316,6 +318,51 @@ class NativeLinkPlan:
             )
             + "\n"
         )
+
+    @staticmethod
+    def _source_identity(path: str) -> str:
+        return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+    def for_sources(self, sources: Iterable[str]) -> NativeLinkPlan:
+        """Project this resolved package graph to loaded source owners."""
+
+        source_identities = frozenset(self._source_identity(path) for path in sources)
+        package_roots = {package.name: self._source_identity(package.root) for package in self.packages}
+        reached_packages: set[str] = set()
+        for source in source_identities:
+            owners = []
+            for package in self.packages:
+                try:
+                    if os.path.commonpath((source, package_roots[package.name])) == package_roots[package.name]:
+                        owners.append(package)
+                except ValueError:
+                    continue
+            owner = max(owners, key=lambda package: len(package_roots[package.name]), default=None)
+            if owner is not None:
+                reached_packages.add(owner.name)
+
+        packages = tuple(
+            PackageNode(
+                package.name,
+                package.root,
+                {alias: target for alias, target in package.dependencies.items() if target in reached_packages},
+                package.source,
+                package.manifest_hash,
+                package.native,
+            )
+            for package in self.packages
+            if package.name in reached_packages
+        )
+        declarations = tuple(
+            declaration
+            for declaration in self.declarations
+            if declaration.package in reached_packages
+            and (
+                not declaration.modules
+                or any(self._source_identity(module) in source_identities for module in declaration.modules)
+            )
+        )
+        return NativeLinkPlan(self.target, packages, declarations)
 
     def with_stdlib_background_jobs(self, stdlib_directory: str) -> NativeLinkPlan:
         """Return a plan that owns the imported background-job runtime.
@@ -524,6 +571,37 @@ class PackageManifestValidator:
             raise ValueError(f"{context} does not name a {kind}: {relative!r}")
         return candidate
 
+    @staticmethod
+    def _module_paths(root: str, entry: Mapping, context: str) -> tuple[str, ...]:
+        if "modules" not in entry:
+            return ()
+        modules = entry["modules"]
+        if not isinstance(modules, list) or not all(isinstance(module, str) for module in modules):
+            raise ValueError(f"{context}.modules must be an array of strings")
+        if not modules:
+            raise ValueError(f"{context}.modules must not be empty")
+        if len(set(modules)) != len(modules):
+            raise ValueError(f"{context}.modules contains a duplicate value")
+        resolved = []
+        canonical_root = os.path.realpath(root)
+        for module in sorted(modules):
+            if _MODULE_NAME.fullmatch(module) is None:
+                raise ValueError(f"{context}.modules contains invalid module {module!r}")
+            relative = module.replace(".", os.sep) + ".btrc"
+            candidates = (os.path.join(root, "src", relative), os.path.join(root, relative))
+            selected = next((candidate for candidate in candidates if os.path.isfile(candidate)), None)
+            if selected is None:
+                raise ValueError(f"{context}.modules names unknown module {module!r}")
+            canonical = os.path.realpath(selected)
+            try:
+                inside = os.path.commonpath((canonical_root, canonical)) == canonical_root
+            except ValueError:
+                inside = False
+            if not inside:
+                raise ValueError(f"{context}.modules module {module!r} escapes package root {canonical_root!r}")
+            resolved.append(canonical)
+        return tuple(resolved)
+
     def validate_identity(self, manifest: Mapping, path: str) -> str:
         self._reject_unknown(manifest, self._TOP_LEVEL_FIELDS, f"package manifest {path!r}")
         if manifest.get("manifest-version") != PACKAGE_MANIFEST_VERSION:
@@ -585,7 +663,8 @@ class PackageManifestValidator:
                 context = f"package manifest {path!r} native.{field}[{index}]"
                 operating_systems = self._target_values(entry, "os", _TARGET_OPERATING_SYSTEMS, context)
                 architectures = self._target_values(entry, "arch", _TARGET_ARCHITECTURES, context)
-                predicate_fields = frozenset({"os", "arch"})
+                modules = self._module_paths(root, entry, context)
+                predicate_fields = frozenset({"os", "arch", "modules"})
                 if field == "sources":
                     self._reject_unknown(
                         entry,
@@ -607,6 +686,7 @@ class PackageManifestValidator:
                         standard=standard,
                         operating_systems=operating_systems,
                         architectures=architectures,
+                        modules=modules,
                     )
                 elif field in {"headers", "include-directories"}:
                     self._reject_unknown(entry, predicate_fields | {"path"}, context)
@@ -623,6 +703,7 @@ class PackageManifestValidator:
                         value,
                         operating_systems=operating_systems,
                         architectures=architectures,
+                        modules=modules,
                     )
                 elif field == "defines":
                     self._reject_unknown(entry, predicate_fields | {"name", "value"}, context)
@@ -637,6 +718,7 @@ class PackageManifestValidator:
                         detail=value,
                         operating_systems=operating_systems,
                         architectures=architectures,
+                        modules=modules,
                     )
                 else:
                     self._reject_unknown(entry, predicate_fields | {"name"}, context)
@@ -649,6 +731,7 @@ class PackageManifestValidator:
                         name,
                         operating_systems=operating_systems,
                         architectures=architectures,
+                        modules=modules,
                     )
                 if declaration in declarations:
                     raise ValueError(f"{context} duplicates an earlier native declaration")

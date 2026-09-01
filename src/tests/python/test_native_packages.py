@@ -17,6 +17,7 @@ from src.compiler.python.frontend.packages import (
     LockfileError,
     PackageUniverse,
 )
+from src.compiler.python.frontend.sources import SourceDependencyGraph
 from src.compiler.python.main import main as compiler_main
 
 REPO = Path(__file__).resolve().parents[3]
@@ -29,6 +30,142 @@ def _manifest(path: Path, name: str, dependencies: str = "", native: str = "") -
         f'manifest-version = 1\n\n[package]\nname = "{name}"\n{dependencies}{native}',
         encoding="utf-8",
     )
+
+
+def _compile(source: Path):
+    return Compiler().compile(
+        source.read_text(encoding="utf-8"),
+        str(source),
+        CompilerOptions(include_stdlib=False, use_cache=False, target="linux-x86_64"),
+    )
+
+
+def test_native_plan_is_a_loaded_module_projection(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    dependency = app / "packages" / "seams"
+    (dependency / "src").mkdir(parents=True)
+    (dependency / "native").mkdir()
+    (dependency / "src/Direct.btrc").write_text("extern int direct_native();\n", encoding="utf-8")
+    (dependency / "src/Primary.btrc").write_text(
+        'import "./Secondary.btrc"\nextern int primary_native();\n',
+        encoding="utf-8",
+    )
+    (dependency / "src/Secondary.btrc").write_text("extern int secondary_native();\n", encoding="utf-8")
+    for name in ("Direct", "Primary", "Secondary"):
+        (dependency / f"native/{name}.c").write_text(f"int {name.lower()}_native(void) {{ return 1; }}\n")
+    (dependency / "native/Common.h").write_text("#pragma once\n", encoding="utf-8")
+    _manifest(
+        dependency,
+        "seams",
+        native=(
+            '\n[[native.headers]]\npath = "native/Common.h"\n'
+            '\n[[native.include-directories]]\npath = "native"\n'
+            '\n[[native.defines]]\nname = "SEAMS_COMMON"\nvalue = "1"\n'
+            '\n[[native.sources]]\npath = "native/Direct.c"\nlanguage = "c"\nstandard = "c11"\n'
+            'modules = ["Direct"]\n'
+            '\n[[native.sources]]\npath = "native/Primary.c"\nlanguage = "c"\nstandard = "c11"\n'
+            'modules = ["Primary"]\n'
+            '\n[[native.sources]]\npath = "native/Secondary.c"\nlanguage = "c"\nstandard = "c11"\n'
+            'modules = ["Secondary"]\n'
+            '\n[[native.pkg-config]]\nname = "direct-native"\nmodules = ["Direct"]\n'
+        ),
+    )
+    _manifest(app, "app", '\n[dependencies]\nseams = { path = "packages/seams" }\n')
+    source = app / "src/Main.btrc"
+    source.parent.mkdir()
+
+    source.write_text("int main() { return 0; }\n", encoding="utf-8")
+    pure = _compile(source)
+    assert pure.successful, pure.failure
+    assert pure.source_bundle is not None
+    assert SourceDependencyGraph.canonical_file(str(source)) in {
+        SourceDependencyGraph.canonical_file(path) for path in pure.source_bundle.graph.source_paths()
+    }
+    pure_plan = pure.native_plan.as_dict()
+    assert [package["name"] for package in pure_plan["packages"]] == ["app"]
+    for field in ("defines", "frameworks", "headers", "include-directories", "pkg-config", "units"):
+        assert pure_plan[field] == []
+
+    source.write_text("import seams.Direct\nint main() { return 0; }\n", encoding="utf-8")
+    direct = _compile(source)
+    assert direct.successful, direct.failure
+    direct_plan = direct.native_plan.as_dict()
+    assert [package["name"] for package in direct_plan["packages"]] == ["app", "seams"]
+    assert direct_plan["packages"][0]["dependencies"] == {"seams": "seams"}
+    assert [Path(unit["path"]).name for unit in direct_plan["units"]] == ["Direct.c"]
+    assert [Path(header["path"]).name for header in direct_plan["headers"]] == ["Common.h"]
+    assert direct_plan["defines"] == [{"name": "SEAMS_COMMON", "package": "seams", "value": "1"}]
+    assert direct_plan["pkg-config"] == [{"name": "direct-native", "package": "seams"}]
+
+    source.write_text("import seams.Primary\nint main() { return 0; }\n", encoding="utf-8")
+    transitive = _compile(source)
+    assert transitive.successful, transitive.failure
+    transitive_plan = transitive.native_plan.as_dict()
+    assert transitive_plan["packages"][0]["dependencies"] == {"seams": "seams"}
+    assert [Path(unit["path"]).name for unit in transitive_plan["units"]] == ["Primary.c", "Secondary.c"]
+    assert transitive_plan["pkg-config"] == []
+
+
+def test_nested_package_sources_belong_only_to_the_longest_root(tmp_path: Path) -> None:
+    app = tmp_path / "app"
+    parent = app / "packages" / "parent"
+    child = parent / "child"
+    for package in (parent, child):
+        (package / "src").mkdir(parents=True)
+        (package / "native").mkdir()
+    (parent / "native/Parent.c").write_text("int parent_native(void) { return 1; }\n")
+    (child / "native/Child.c").write_text("int child_native(void) { return 1; }\n")
+    (child / "src/Api.btrc").write_text("extern int child_native();\n", encoding="utf-8")
+    _manifest(
+        parent,
+        "parent",
+        native=('\n[[native.sources]]\npath = "native/Parent.c"\nlanguage = "c"\nstandard = "c11"\n'),
+    )
+    _manifest(
+        child,
+        "child",
+        native=('\n[[native.sources]]\npath = "native/Child.c"\nlanguage = "c"\nstandard = "c11"\nmodules = ["Api"]\n'),
+    )
+    _manifest(
+        app,
+        "app",
+        '\n[dependencies]\nparent = { path = "packages/parent" }\nchild = { path = "packages/parent/child" }\n',
+    )
+    source = app / "src/Main.btrc"
+    source.parent.mkdir()
+    source.write_text("import child.Api\nint main() { return 0; }\n", encoding="utf-8")
+
+    result = _compile(source)
+
+    assert result.successful, result.failure
+    plan = result.native_plan.as_dict()
+    assert [package["name"] for package in plan["packages"]] == ["app", "child"]
+    assert plan["packages"][0]["dependencies"] == {"child": "child"}
+    assert [Path(unit["path"]).name for unit in plan["units"]] == ["Child.c"]
+
+
+@pytest.mark.parametrize(
+    ("modules", "message"),
+    [
+        ("[]", "modules must not be empty"),
+        ('["Direct", "Direct"]', "modules contains a duplicate value"),
+        ('["bad..module"]', "contains invalid module"),
+        ('["Missing"]', "names unknown module"),
+    ],
+)
+def test_native_module_scopes_fail_closed(tmp_path: Path, modules: str, message: str) -> None:
+    (tmp_path / "native").mkdir()
+    (tmp_path / "native/Seam.c").write_text("int seam(void) { return 1; }\n")
+    _manifest(
+        tmp_path,
+        "app",
+        native=(
+            f'\n[[native.sources]]\npath = "native/Seam.c"\nlanguage = "c"\nstandard = "c11"\nmodules = {modules}\n'
+        ),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="linux-x64")
 
 
 def _compile_plan(plan: dict, generated_c: Path, output: Path, temporary: Path) -> None:

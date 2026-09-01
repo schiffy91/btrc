@@ -111,6 +111,11 @@ class SourceDependencyGraph:
         canonical_source = self.canonical_file(source)
         return any(self.canonical_file(path) == canonical_source for path in self._outgoing)
 
+    def source_paths(self) -> tuple[str, ...]:
+        """Return every loaded source path for package-plan projection."""
+
+        return tuple(self._outgoing)
+
     def cache_records(self) -> tuple[tuple[str, str, str], ...]:
         """Canonical, deterministic edge records for artifact identities."""
 
@@ -971,15 +976,13 @@ class SourceResolver:
             self._timed(profile, "stdlib_include", start)
 
         full_source = f"{stdlib_source}\n{user_source}" if stdlib_source else user_source
-        native_plan = packages.native_plan
+        native_plan = packages.native_plan.for_sources(graph.source_paths())
         background_jobs_module = os.path.join(
             self.stdlib.directory(),
             "background_jobs.btrc",
         )
         if graph.has_source(background_jobs_module):
-            native_plan = native_plan.with_stdlib_background_jobs(
-                self.stdlib.directory()
-            )
+            native_plan = native_plan.with_stdlib_background_jobs(self.stdlib.directory())
         return ResolvedSource(
             user_source=user_source,
             source=full_source,
