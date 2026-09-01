@@ -336,15 +336,15 @@
           version = extensionVersion;
           src = extensionSource;
           sourceRoot = "source/src/devex/vscode";
-          npmDepsHash = "sha256-Onn3nJ4r8wTjX/32gc+75CNmid32yxdqnntB0xsZjcI=";
+          npmDepsHash = "sha256-xm6xxb4Nz1kYBJSRBkO3hJmOsw7vZRUkOkZtLQq+MWI=";
           npmInstallFlags = [ "--ignore-scripts" ];
           npmRebuildFlags = [ "--ignore-scripts" ];
           nodejs = pkgs.nodejs_22;
           nativeBuildInputs = [ pkgs.esbuild lspPython ];
           buildPhase = ''
             runHook preBuild
-            node packaging/prepare.js
-            bundle_root="$PWD/../../../build/devex/vscode"
+            bundle_root="$TMPDIR/btrc-vscode-bundle"
+            BTRC_PACKAGING_OUTPUT_ROOT="$bundle_root" node packaging/prepare.js
             cp -R node_modules "$bundle_root/node_modules"
             cd "$bundle_root"
             npm run typecheck

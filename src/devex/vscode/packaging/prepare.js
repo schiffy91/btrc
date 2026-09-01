@@ -7,13 +7,18 @@ function main() {
     const repositoryRoot = path.resolve(__dirname, '..', '..', '..', '..');
     const python = process.env.BTRC_PACKAGING_PYTHON?.trim()
         || (process.platform === 'win32' ? 'python' : 'python3');
+    const outputRoot = process.env.BTRC_PACKAGING_OUTPUT_ROOT?.trim();
+    const spawnArguments = [
+        path.join(__dirname, 'bundle.py'),
+        '--repository-root',
+        repositoryRoot,
+    ];
+    if (outputRoot) {
+        spawnArguments.push('--output-root', path.resolve(outputRoot));
+    }
     const result = spawnSync(
         python,
-        [
-            path.join(__dirname, 'bundle.py'),
-            '--repository-root',
-            repositoryRoot,
-        ],
+        spawnArguments,
         {
             env: process.env,
             shell: false,

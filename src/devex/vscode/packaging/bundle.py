@@ -233,8 +233,12 @@ class ExtensionBundler:
             type=Path,
             default=Path(__file__).resolve().parents[4],
         )
+        parser.add_argument("--output-root", type=Path)
         arguments = parser.parse_args()
-        cls(arguments.repository_root).bundle()
+        cls(
+            arguments.repository_root,
+            output_root=arguments.output_root,
+        ).bundle()
         return 0
 
 

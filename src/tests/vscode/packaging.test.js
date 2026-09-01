@@ -14,6 +14,8 @@ test('packaging entry point delegates one transaction to ExtensionBundler', () =
     assert.match(source, /path\.join\(__dirname, 'bundle\.py'\)/);
     assert.match(source, /--repository-root/);
     assert.match(source, /BTRC_PACKAGING_PYTHON/);
+    assert.match(source, /BTRC_PACKAGING_OUTPUT_ROOT/);
+    assert.match(source, /--output-root/);
     assert.doesNotMatch(source, /module\.exports/);
 });
 
@@ -33,4 +35,5 @@ test('Python bundler owns the fixed source and build roots', () => {
     );
     assert.match(source, /source \/ "devex" \/ "lsp"/);
     assert.match(source, /source \/ "devex" \/ "debug"/);
+    assert.match(source, /parser\.add_argument\("--output-root", type=Path\)/);
 });
