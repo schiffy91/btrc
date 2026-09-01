@@ -1,5 +1,6 @@
 """Exact noncapturing CFunction ABI parity across both compilers."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -51,10 +52,68 @@ def test_recursive_const_callback_aliases_preserve_declaration_layers_through_bo
         assert alias_positions[-1] < callback_position
         assert callback_position < generated.index(callback_alias)
         assert generated.count("(*__btrc_fn_void_InputChannels_int_OutputChannels_int)") == 1
+        assert re.search(r"void\* __btrc_(?:call_)?operand_\d+;", generated)
+        assert re.search(r"OutputChannels __btrc_(?:call_)?operand_\d+;", generated)
         assert "const float**" not in generated
 
     _strict_build_and_run(selfhost_c, tmp_path / "selfhost-recursive-const-alias")
     _strict_build_and_run(reference_c, tmp_path / "reference-recursive-const-alias")
+
+
+def test_ordered_call_storage_does_not_retain_alias_across_class_upcast(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = r"""
+        #include <assert.h>
+
+        int markerCalls = 0;
+
+        int marker() {
+            markerCalls++;
+            return markerCalls;
+        }
+
+        class Base {
+            public Base() {}
+        }
+
+        class Child extends Base {
+            public Child() {}
+        }
+
+        typedef Child ChildAlias;
+
+        void accept(int order, Base value) {
+            assert(order == 1);
+            assert(value != null);
+        }
+
+        int main() {
+            ChildAlias value = new Child();
+            accept(marker(), value);
+            assert(markerCalls == 1);
+            value = null;
+            return 0;
+        }
+    """
+    (selfhost, selfhost_c), (reference, reference_c) = _compile_pair(
+        semantic_btrcc,
+        tmp_path,
+        source,
+    )
+    assert selfhost.returncode == 0, selfhost.stderr
+    assert reference.returncode == 0, reference.stderr
+
+    selfhost_generated = selfhost_c.read_text()
+    reference_generated = reference_c.read_text()
+    assert re.search(r"Base\* __btrc_operand_\d+;", selfhost_generated)
+    assert re.search(r"Base\* __btrc_call_operand_\d+;", reference_generated)
+    for generated in (selfhost_generated, reference_generated):
+        assert not re.search(r"ChildAlias __btrc_(?:call_)?operand_\d+;", generated)
+
+    _strict_build_and_run(selfhost_c, tmp_path / "selfhost-ordered-upcast")
+    _strict_build_and_run(reference_c, tmp_path / "reference-ordered-upcast")
 
 
 def test_cfunction_qsort_bsearch_compiles_and_runs_through_both_compilers(

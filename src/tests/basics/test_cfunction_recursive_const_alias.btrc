@@ -46,7 +46,10 @@ int main() {
     callback = holder.value();
     assert(callback != null);
     requireCallback(marker(), callback);
-    callback(null, 0, null, 0);
+    float outputValue = 0.0f;
+    OutputChannel output = &outputValue;
+    float** outputs = &output;
+    callback(null, marker() - 1, (OutputChannels)outputs, 1);
     print("PASS: test_cfunction_recursive_const_alias");
     return 0;
 }

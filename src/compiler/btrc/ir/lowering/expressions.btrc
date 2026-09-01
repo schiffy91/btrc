@@ -871,10 +871,42 @@ class ExpressionLowerer {
             operand.targetType, varTypes, callableFlow);
         self.operandPlanner.requireType(
             prepared.effectiveType, operand.expression);
+        Node storageType = self.callOperandStorageType(
+            operand, prepared.effectiveType, varTypes);
         boundary.addLoweredCallOperand(
-            operand.expression, prepared.effectiveType,
+            operand.expression, storageType,
             prepared.value, prepared.owned, operand.keepValue,
             prepared.owned && operand.transferred);
+    }
+
+    private Node callOperandStorageType(
+            OwnershipCallOperand operand, Node effectiveType,
+            Map<string, Node> varTypes) {
+        Node? declared = self.operandPlanner.expressionStorageType(
+            operand.expression,
+            self.context.ownershipEnvironment(
+                varTypes, self.gpuPipeline.cpuActive()));
+        if (declared == null) { return effectiveType; }
+        Node sourceType = self.cTypes.resolveBodyType(
+            declared, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0);
+        Node concreteEffective = self.cTypes.resolveBodyType(
+            effectiveType, self.context.activeTypeMap,
+            self.context.genericBody
+                || self.context.callDefaultTypeDepth > 0);
+        Node? canonicalSource = SemanticTypeSystem.resolveTypedefType(
+            sourceType, self.analyzed.typedefTable);
+        Node? canonicalEffective = SemanticTypeSystem.resolveTypedefType(
+            concreteEffective, self.analyzed.typedefTable);
+        if (canonicalSource != null && canonicalEffective != null
+                && TypeIdentity.shapeKey(canonicalSource)
+                    == TypeIdentity.shapeKey(canonicalEffective)) {
+            /* A named alias can be the only spelling that retains qualifiers
+             * applied to an intermediate pointer layer. */
+            return sourceType;
+        }
+        return effectiveType;
     }
 
     private IRNode lowerImmediateLambdaCallWithOwnership(

@@ -341,6 +341,12 @@ class CTypeLowerer:
         """Resolve typedef aliases while composing every use-site modifier."""
         return self._resolve_typedef(self.resolve_active_type(type_expr), frozenset())
 
+    def same_canonical_shape(self, left: TypeExpr | None, right: TypeExpr | None) -> bool:
+        """Compare resolved semantic storage without registering C declarations."""
+        return bool(
+            left is not None and right is not None and self._identity.shape_key(left) == self._identity.shape_key(right)
+        )
+
     def concrete_value_compatible(
         self,
         target_type: TypeExpr | None,

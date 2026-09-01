@@ -1284,6 +1284,21 @@ class OwnershipOperandOrder:
     def operand_c_type(self, node, type_expr):
         if isinstance(node, Identifier) and any(node.name in values for values in self._analyzed.enum_table.values()):
             return "int"
+        source_type = self._session.type_of(node)
+        if source_type is not None:
+            source_type = self._types.resolve_active_type(source_type)
+        source_canonical = self._types.canonical_type(source_type)
+        effective_canonical = self._types.canonical_type(type_expr)
+        if (
+            source_type is not None
+            and source_canonical is not None
+            and effective_canonical is not None
+            and self._types.same_canonical_shape(source_canonical, effective_canonical)
+        ):
+            # The typedef spelling is the only representation of qualifiers on
+            # an intermediate pointer layer. Keep it on ordered temporaries
+            # whenever target preparation did not change the physical C type.
+            return self._types.render(source_type)
         return self._types.render(type_expr)
 
 

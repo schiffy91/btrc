@@ -985,12 +985,20 @@ class ExpressionLowerer:
                         if parameter is None:
                             value = self.lower_expr(source, provenance)
                         else:
-                            value = self.prepare_value(
-                                source,
-                                self._calls.argument_target_type(parameter, source),
-                                provenance,
-                            ).value
-                source_types[key] = explicit_by_index[key][4]
+                            target_type = self._types.canonical_type(
+                                self._calls.argument_target_type(parameter, source)
+                            )
+                            prepared = self.prepare_value(source, target_type, provenance)
+                            value = prepared.value
+                            prepared_for_target = self._types.upcast_class_pointer(
+                                target_type,
+                                prepared.effective_type,
+                                value,
+                            )
+                            if prepared_for_target is not value:
+                                value = prepared_for_target
+                                type_expr = target_type
+                source_types[key] = type_expr
             elif value is None:
                 with self._session.operand_scope(evaluation.values, override_types, evaluation.ownership):
                     value = self.lower_expr(source, provenance)
@@ -1000,7 +1008,7 @@ class ExpressionLowerer:
                 CallOperand(
                     node=source,
                     type_expr=type_expr,
-                    c_type=self._types.render(type_expr),
+                    c_type=self._operand_order.operand_c_type(source, type_expr),
                     keep=keep,
                     pin=pins[row_index],
                     owned=row_owned,

@@ -157,6 +157,19 @@ class OwnershipOperandPlanner {
         return result;
     }
 
+    public Node? expressionStorageType(
+            Node? expression, OwnershipOperandEnvironment environment) {
+        Node? result = environment.usesGpuInference()
+            ? self.gpu.contextualExprType(
+                expression, environment.variables())
+            : self.expressionTypes.inferRaw(
+                expression, environment.variables());
+        if (result != null && environment.resolvesTypes()) {
+            result = environment.resolveType(result, self.analyzed);
+        }
+        return result;
+    }
+
     public bool hasEffect(
             Node? expression, OwnershipOperandEnvironment environment) {
         if (expression == null) { return false; }
