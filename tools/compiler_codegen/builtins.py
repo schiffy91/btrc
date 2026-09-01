@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePath, PurePosixPath
 from types import MappingProxyType
 
 from src.compiler.python.lexer.lexer import Lexer, LexerError
@@ -307,7 +307,10 @@ class BuiltinStdlibScanner:
 
         collections: dict[str, BuiltinClassSpec] = {}
         static_classes: dict[str, BuiltinClassSpec] = {}
-        for source_path in sorted(self._stdlib_directory.glob("*.btrc")):
+        for source_path in sorted(
+            self._stdlib_directory.glob("*.btrc"),
+            key=self._source_order_key,
+        ):
             for class_name, declaration in self._parse_file(source_path).items():
                 declared_methods = [
                     member
@@ -335,6 +338,11 @@ class BuiltinStdlibScanner:
             collections=tuple(collections.values()),
             static_classes=tuple(static_classes.values()),
         )
+
+    @staticmethod
+    def _source_order_key(source_path: PurePath) -> str:
+        """Use one case-sensitive order on POSIX and Windows path flavors."""
+        return source_path.name
 
     def _parse_file(self, source_path: Path) -> dict[str, ClassDecl]:
         try:
@@ -464,10 +472,7 @@ class BuiltinCatalogRenderer:
                 '    ("string", STRING_MEMBERS),',
             )
         )
-        lines.extend(
-            f'    ("{type_name}", {type_name.upper()}_MEMBERS),'
-            for type_name in INTRINSIC_TYPE_MEMBERS
-        )
+        lines.extend(f'    ("{type_name}", {type_name.upper()}_MEMBERS),' for type_name in INTRINSIC_TYPE_MEMBERS)
         lines.extend(
             f'    ("{collection.name}", {collection.name.upper()}_MEMBERS),' for collection in catalog.collections
         )
