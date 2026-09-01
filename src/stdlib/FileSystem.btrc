@@ -766,6 +766,12 @@ class FileSystem {
         return TemporaryDirectory.create(prefix);
     }
 
+    class PrivateDirectoryOpenOutcome openPrivateDirectory(
+        string absolutePath
+    ) {
+        return PrivateDirectory.openAbsoluteLeaf(absolutePath);
+    }
+
     class bool exists(string path) {
         FileStatus status = FileStatus(path);
         bool result = status.exists();

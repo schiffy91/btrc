@@ -65,6 +65,18 @@ enum FileSystemCloseKind {
     FS_CLOSE_FAILED = 2
 };
 
+enum PrivateFileReadKind {
+    PRIVATE_FILE_DATA = 0,
+    PRIVATE_FILE_MISSING = 1,
+    PRIVATE_FILE_READ_FAILED = 2
+};
+
+enum DurableReplaceKind {
+    DURABLE_REPLACE_COMMITTED = 0,
+    DURABLE_REPLACE_FAILED = 1,
+    DURABLE_REPLACE_DURABILITY_UNCERTAIN = 2
+};
+
 class FileSystemError {
     private FileSystemErrorKind _kind;
     private string _operation;
@@ -1366,6 +1378,282 @@ class TemporaryDirectory {
         }
         if (!leaseClose.ok()) { return leaseClose; }
         return FileSystemCloseOutcome.closed();
+    }
+
+    public void __del__() { self.close(); }
+}
+
+class PrivateDirectoryOpenOutcome {
+    private FileSystemOutcomeKind _kind;
+    private PrivateDirectory? _directory;
+    private FileSystemError? _error;
+
+    private PrivateDirectoryOpenOutcome(
+        FileSystemOutcomeKind kind,
+        PrivateDirectory? directory,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._directory = directory;
+        self._error = error;
+    }
+
+    class PrivateDirectoryOpenOutcome opened(PrivateDirectory directory) {
+        if (directory == null) { throw "private directory is null"; }
+        return PrivateDirectoryOpenOutcome(FS_VALUE, directory, null);
+    }
+
+    class PrivateDirectoryOpenOutcome failed(FileSystemError error) {
+        if (error == null) { throw "private directory error is null"; }
+        return PrivateDirectoryOpenOutcome(FS_ERROR, null, error);
+    }
+
+    public bool ok() { return self._kind == FS_VALUE; }
+    public PrivateDirectory directory() {
+        if (self._directory == null) {
+            throw "private directory unavailable";
+        }
+        return self._directory;
+    }
+    public FileSystemError error() {
+        if (self._error == null) {
+            throw "private directory open has no error";
+        }
+        return self._error;
+    }
+}
+
+class ExclusiveFileLeaseOpenOutcome {
+    private FileSystemOutcomeKind _kind;
+    private ExclusiveFileLease? _lease;
+    private FileSystemError? _error;
+
+    private ExclusiveFileLeaseOpenOutcome(
+        FileSystemOutcomeKind kind,
+        ExclusiveFileLease? lease,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._lease = lease;
+        self._error = error;
+    }
+
+    class ExclusiveFileLeaseOpenOutcome opened(ExclusiveFileLease lease) {
+        if (lease == null) { throw "exclusive file lease is null"; }
+        return ExclusiveFileLeaseOpenOutcome(FS_VALUE, lease, null);
+    }
+
+    class ExclusiveFileLeaseOpenOutcome failed(FileSystemError error) {
+        if (error == null) { throw "exclusive file lease error is null"; }
+        return ExclusiveFileLeaseOpenOutcome(FS_ERROR, null, error);
+    }
+
+    public bool ok() { return self._kind == FS_VALUE; }
+    public ExclusiveFileLease lease() {
+        if (self._lease == null) { throw "exclusive file lease unavailable"; }
+        return self._lease;
+    }
+    public FileSystemError error() {
+        if (self._error == null) {
+            throw "exclusive file lease open has no error";
+        }
+        return self._error;
+    }
+}
+
+class PrivateFileReadOutcome {
+    private PrivateFileReadKind _kind;
+    private Bytes? _bytes;
+    private FileSystemError? _error;
+
+    private PrivateFileReadOutcome(
+        PrivateFileReadKind kind,
+        Bytes? bytes,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._bytes = bytes;
+        self._error = error;
+    }
+
+    class PrivateFileReadOutcome data(Bytes bytes) {
+        if (bytes == null) { throw "private file bytes are null"; }
+        return PrivateFileReadOutcome(PRIVATE_FILE_DATA, bytes, null);
+    }
+
+    class PrivateFileReadOutcome missing() {
+        return PrivateFileReadOutcome(PRIVATE_FILE_MISSING, null, null);
+    }
+
+    class PrivateFileReadOutcome failed(FileSystemError error) {
+        if (error == null) { throw "private file read error is null"; }
+        return PrivateFileReadOutcome(PRIVATE_FILE_READ_FAILED, null, error);
+    }
+
+    public PrivateFileReadKind kind() { return self._kind; }
+    public bool ok() { return self._kind != PRIVATE_FILE_READ_FAILED; }
+    public bool found() { return self._kind == PRIVATE_FILE_DATA; }
+    public Bytes bytes() {
+        if (self._bytes == null) { throw "private file read has no data"; }
+        return self._bytes;
+    }
+    public FileSystemError error() {
+        if (self._error == null) { throw "private file read has no error"; }
+        return self._error;
+    }
+}
+
+class DurableReplaceOutcome {
+    private DurableReplaceKind _kind;
+    private FileSystemError? _error;
+
+    private DurableReplaceOutcome(
+        DurableReplaceKind kind,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._error = error;
+    }
+
+    class DurableReplaceOutcome succeeded() {
+        return DurableReplaceOutcome(DURABLE_REPLACE_COMMITTED, null);
+    }
+
+    class DurableReplaceOutcome failed(FileSystemError error) {
+        if (error == null) { throw "durable replace error is null"; }
+        return DurableReplaceOutcome(DURABLE_REPLACE_FAILED, error);
+    }
+
+    class DurableReplaceOutcome durabilityUncertain(FileSystemError error) {
+        if (error == null) { throw "durable replace error is null"; }
+        return DurableReplaceOutcome(
+            DURABLE_REPLACE_DURABILITY_UNCERTAIN, error);
+    }
+
+    public DurableReplaceKind kind() { return self._kind; }
+    public bool committed() {
+        return self._kind == DURABLE_REPLACE_COMMITTED;
+    }
+    public bool mayHaveCommitted() {
+        return self._kind != DURABLE_REPLACE_FAILED;
+    }
+    public FileSystemError error() {
+        if (self._error == null) { throw "durable replace has no error"; }
+        return self._error;
+    }
+}
+
+class PrivateDirectory {
+    private bool _open;
+    private string _path;
+
+    private PrivateDirectory(string path) {
+        self._open = true;
+        self._path = path;
+    }
+
+    class PrivateDirectoryOpenOutcome openAbsoluteLeaf(string absolutePath) {
+        if (absolutePath == null || absolutePath.isEmpty()
+                || !absolutePath.startsWith("/")) {
+            return PrivateDirectoryOpenOutcome.failed(
+                FileSystemError.invalid(
+                    "open private directory", absolutePath));
+        }
+        return PrivateDirectoryOpenOutcome.failed(
+            FileSystemError.unsupported(
+                "open private directory", absolutePath));
+    }
+
+    public bool isOpen() { return self._open; }
+    public string path() { return self._path; }
+
+    public ExclusiveFileLeaseOpenOutcome acquireExclusiveLease(
+        string childName
+    ) {
+        if (!self.isOpen()) {
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.closed(
+                    "acquire exclusive file lease", self._path));
+        }
+        if (!self.validChildName(childName)) {
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.invalid(
+                    "acquire exclusive file lease", childName));
+        }
+        return ExclusiveFileLeaseOpenOutcome.failed(
+            FileSystemError.unsupported(
+                "acquire exclusive file lease", childName));
+    }
+
+    public FileSystemCloseOutcome close() {
+        if (!self._open) { return FileSystemCloseOutcome.alreadyClosed(); }
+        self._open = false;
+        return FileSystemCloseOutcome.closed();
+    }
+
+    private bool validChildName(string childName) {
+        return childName != null && !childName.isEmpty()
+            && !childName.equals(".") && !childName.equals("..")
+            && !childName.contains("/") && !childName.contains("\\");
+    }
+
+    public void __del__() { self.close(); }
+}
+
+class ExclusiveFileLease {
+    private bool _open;
+    private string _path;
+
+    private ExclusiveFileLease(string path) {
+        self._open = true;
+        self._path = path;
+    }
+
+    public bool isOpen() { return self._open; }
+
+    public PrivateFileReadOutcome readRegularChild(
+        string childName,
+        int maximumBytes
+    ) {
+        if (!self.isOpen()) {
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.closed("read private file", self._path));
+        }
+        if (!self.validChildName(childName)
+                || maximumBytes < 0) {
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.invalid("read private file", childName));
+        }
+        return PrivateFileReadOutcome.failed(
+            FileSystemError.unsupported("read private file", childName));
+    }
+
+    public DurableReplaceOutcome replaceRegularChildDurably(
+        string childName,
+        Bytes content
+    ) {
+        if (!self.isOpen()) {
+            return DurableReplaceOutcome.failed(
+                FileSystemError.closed("replace private file", self._path));
+        }
+        if (!self.validChildName(childName) || content == null) {
+            return DurableReplaceOutcome.failed(
+                FileSystemError.invalid("replace private file", childName));
+        }
+        return DurableReplaceOutcome.failed(
+            FileSystemError.unsupported("replace private file", childName));
+    }
+
+    public FileSystemCloseOutcome close() {
+        if (!self._open) { return FileSystemCloseOutcome.alreadyClosed(); }
+        self._open = false;
+        return FileSystemCloseOutcome.closed();
+    }
+
+    private bool validChildName(string childName) {
+        return childName != null && !childName.isEmpty()
+            && !childName.equals(".") && !childName.equals("..")
+            && !childName.contains("/") && !childName.contains("\\");
     }
 
     public void __del__() { self.close(); }

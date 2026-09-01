@@ -74,6 +74,55 @@ int main() {
     assert(FileSystemCloseOutcome.alreadyClosed().ok());
     assert(!FileSystemCloseOutcome.failed(denied).ok());
 
+    PrivateDirectoryOpenOutcome privateFailure =
+        PrivateDirectoryOpenOutcome.failed(denied);
+    assert(!privateFailure.ok());
+    assert(privateFailure.error() == denied);
+    ExclusiveFileLeaseOpenOutcome leaseFailure =
+        ExclusiveFileLeaseOpenOutcome.failed(denied);
+    assert(!leaseFailure.ok());
+    assert(leaseFailure.error() == denied);
+
+    Bytes empty = Bytes();
+    PrivateFileReadOutcome emptyData = PrivateFileReadOutcome.data(empty);
+    assert(emptyData.ok());
+    assert(emptyData.found());
+    assert(emptyData.kind() == PRIVATE_FILE_DATA);
+    assert(emptyData.bytes().isEmpty());
+    PrivateFileReadOutcome missing = PrivateFileReadOutcome.missing();
+    assert(missing.ok());
+    assert(!missing.found());
+    assert(missing.kind() == PRIVATE_FILE_MISSING);
+    PrivateFileReadOutcome privateReadFailure =
+        PrivateFileReadOutcome.failed(denied);
+    assert(!privateReadFailure.ok());
+    assert(privateReadFailure.kind() == PRIVATE_FILE_READ_FAILED);
+    assert(privateReadFailure.error() == denied);
+
+    DurableReplaceOutcome committed = DurableReplaceOutcome.succeeded();
+    assert(committed.kind() == DURABLE_REPLACE_COMMITTED);
+    assert(committed.committed());
+    assert(committed.mayHaveCommitted());
+    DurableReplaceOutcome replaceFailure =
+        DurableReplaceOutcome.failed(denied);
+    assert(replaceFailure.kind() == DURABLE_REPLACE_FAILED);
+    assert(!replaceFailure.committed());
+    assert(!replaceFailure.mayHaveCommitted());
+    assert(replaceFailure.error() == denied);
+    DurableReplaceOutcome uncertain =
+        DurableReplaceOutcome.durabilityUncertain(denied);
+    assert(uncertain.kind() == DURABLE_REPLACE_DURABILITY_UNCERTAIN);
+    assert(!uncertain.committed());
+    assert(uncertain.mayHaveCommitted());
+    assert(uncertain.error() == denied);
+
+    assert(!FileSystem.openPrivateDirectory("").ok());
+    assert(FileSystem.openPrivateDirectory("").error().kind()
+        == FS_INVALID_ARGUMENT);
+    assert(!FileSystem.openPrivateDirectory("relative/private").ok());
+    assert(FileSystem.openPrivateDirectory("relative/private").error().kind()
+        == FS_INVALID_ARGUMENT);
+
     print("PASS: typed filesystem handle contract");
     return 0;
 }
