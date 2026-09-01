@@ -18,10 +18,12 @@ jobs:
           # Fixed labels make the bundle architecture an explicit CI contract.
           - runner: macos-15
             target: macos-arm64
-            machine: arm64
-          - runner: macos-15-intel
+            bundle_machine: arm64
+            rosetta: false
+          - runner: macos-15
             target: macos-x64
-            machine: x86_64
+            bundle_machine: x86_64
+            rosetta: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -30,10 +32,18 @@ jobs:
       - uses: DeterminateSystems/determinate-nix-action@c70cb8ae92d68c66953db28a26a63db1665bc837 # v3.21.5
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
+      - name: Enable x64 execution through Rosetta
+        if: matrix.rosetta
+        run: |
+          if ! arch -x86_64 /usr/bin/true; then
+            sudo softwareupdate --install-rosetta --agree-to-license
+          fi
+          arch -x86_64 /usr/bin/true
+
       - name: Build the native release archive
         run: |
           test "$(uname -s)" = Darwin
-          test "$(uname -m)" = "${{ matrix.machine }}"
+          test "$(uname -m)" = arm64
           nix develop --command make NIX= "btrcc-${{ matrix.target }}"
 
       - name: Run the relocated archive and its strictly compiled output
@@ -41,7 +51,7 @@ jobs:
           # GitHub resolves matrix expressions before nested Bash evaluates the script.
           # shellcheck disable=SC2016
           nix develop --command bash -euo pipefail -c '
-            test "$(uname -m)" = "${{ matrix.machine }}"
+            test "$(uname -m)" = arm64
             unset BTRC_HOME
             (cd dist && shasum -a 256 -c "btrcc-${{ matrix.target }}.tar.gz.sha256")
             source="$GITHUB_WORKSPACE/src/tests/strings/test_braces_in_code_gen.btrc"
@@ -51,12 +61,17 @@ jobs:
             tar -xzf "dist/btrcc-${{ matrix.target }}.tar.gz" -C "$work"
             root="$work/btrcc-${{ matrix.target }}"
             compiler="$root/bin/btrcc"
+            lipo -archs "$compiler" | grep -qw "${{ matrix.bundle_machine }}"
+            compiler_command=("$compiler")
+            if [ "${{ matrix.rosetta }}" = true ]; then
+              compiler_command=(arch -x86_64 "$compiler")
+            fi
             expected_stdlib=$(cd "$root/share/btrc/stdlib" && pwd -P)
             run="$work/run"
             mkdir "$run"
-            actual_stdlib=$(cd "$run" && "$compiler" --stdlib-dir)
+            actual_stdlib=$(cd "$run" && "${compiler_command[@]}" --stdlib-dir)
             test "$actual_stdlib" = "$expected_stdlib"
-            (cd "$run" && "$compiler" "$source") > "$run/program.c"
+            (cd "$run" && "${compiler_command[@]}" "$source") > "$run/program.c"
             cc -std=c11 -pedantic-errors -Wall -Wextra -Werror -O2 \
               "$run/program.c" -o "$run/program" -lm -lpthread
             (cd "$run" && ./program) > "$run/program.stdout"
