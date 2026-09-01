@@ -72,7 +72,11 @@ class ArtifactStorage:
                     path = directory / entry.name
                     if exclude is not None and exclude(path):
                         continue
-                    metadata = entry.stat(follow_symlinks=False)
+                    # Windows DirEntry metadata comes from WIN32_FIND_DATA and
+                    # does not carry the stable volume/file identity returned
+                    # by lstat(). Capture every entry through the same no-follow
+                    # path API used by the pre-descent identity checks.
+                    metadata = path.lstat()
                     if self.metadata_is_reparse_point(metadata):
                         raise ReparsePointError(path)
                     children.append((path, metadata))

@@ -74,6 +74,46 @@ def test_tree_walker_rejects_reparse_directory_before_descent(
     assert scanned == [root]
 
 
+def test_tree_walker_does_not_compare_incomplete_scandir_identity(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = tmp_path / "bundle"
+    child = root / "child"
+    child.mkdir(parents=True)
+    payload = child / "payload"
+    payload.write_bytes(b"payload")
+    scandir = storage_module.os.scandir
+
+    class IncompleteEntry:
+        def __init__(self, entry: os.DirEntry[str]) -> None:
+            self._entry = entry
+            self.name = entry.name
+
+        def stat(self, *, follow_symlinks: bool = True) -> os.stat_result:
+            metadata = list(self._entry.stat(follow_symlinks=follow_symlinks))
+            metadata[stat.ST_INO] = 0
+            metadata[stat.ST_DEV] = 0
+            return os.stat_result(metadata)
+
+    class IncompleteScandir:
+        def __init__(self, directory: Path) -> None:
+            self._entries = scandir(directory)
+
+        def __enter__(self):
+            entries = self._entries.__enter__()
+            return (IncompleteEntry(entry) for entry in entries)
+
+        def __exit__(self, exception_type, exception, traceback):
+            return self._entries.__exit__(exception_type, exception, traceback)
+
+    monkeypatch.setattr(storage_module.os, "scandir", IncompleteScandir)
+
+    paths = [path for path, _ in ArtifactStorage().real_tree_entries(root)]
+
+    assert paths == [root, child, payload]
+
+
 @pytest.mark.parametrize("writer", [write_tar_gz, write_zip])
 def test_archive_writers_apply_reparse_policy_to_every_entry(
     tmp_path: Path,
