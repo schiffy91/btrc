@@ -1,32 +1,33 @@
 /* Method-level generic whose U differs from class T and builds a Vector<U>
  * from scratch internally, then returns it. Exercises collection-of-method-
  * param construction inside a monomorphized generic method. */
-#include <assert.h>
-#include <string.h>
 import std.vector;
 
+#include <assert.h>
+#include <string.h>
+
 class Wrap<T> {
-    public T v;
-    public Wrap(T x) { self.v = x; }
-    public Vector<U> repeat<U>(U val, int n) {
-        Vector<U> out = [];
-        for (int i = 0; i < n; i = i + 1) { out.push(val); }
-        return out;
-    }
+	public T v;
+	public Wrap(T x) { self.v = x; }
+	public Vector<U> repeat<U>(U val, int n) {
+		Vector<U> out = [];
+		for (int i = 0; i < n; i = i + 1) { out.push(val); }
+		return out;
+	}
 }
 
 int main() {
-    Wrap<int> w = new Wrap<int>(0);
-    Vector<string> ss = w.repeat("x", 3);
-    assert(ss.len == 3);
-    assert(strcmp(ss.get(0), "x") == 0);
-    assert(strcmp(ss.get(2), "x") == 0);
+	Wrap<int> w = new Wrap<int>(0);
+	Vector<string> ss = w.repeat("x", 3);
+	assert(ss.len == 3);
+	assert(strcmp(ss.get(0), "x") == 0);
+	assert(strcmp(ss.get(2), "x") == 0);
 
-    Vector<int> ii = w.repeat(7, 2);
-    assert(ii.len == 2);
-    assert(ii.get(0) == 7);
-    assert(ii.get(1) == 7);
+	Vector<int> ii = w.repeat(7, 2);
+	assert(ii.len == 2);
+	assert(ii.get(0) == 7);
+	assert(ii.get(1) == 7);
 
-    print("PASS: test_method_generic_builds_collection");
-    return 0;
+	print("PASS: test_method_generic_builds_collection");
+	return 0;
 }

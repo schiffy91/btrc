@@ -4,26 +4,26 @@
 #include <assert.h>
 
 interface BinaryOp {
-    int apply(int a, int b);
+	int apply(int a, int b);
 }
 
 class Adder implements BinaryOp {
-    public int apply(int a, int b) { return a + b; }
+	public int apply(int a, int b) { return a + b; }
 }
 
 class Multiplier implements BinaryOp {
-    public int apply(int a, int b) { return a * b; }
+	public int apply(int a, int b) { return a * b; }
 }
 
 int main() {
-    Adder add = Adder();
-    assert(add.apply(2, 3) == 5);
-    assert(add.apply(10, -4) == 6);
+	Adder add = Adder();
+	assert(add.apply(2, 3) == 5);
+	assert(add.apply(10, -4) == 6);
 
-    Multiplier mul = Multiplier();
-    assert(mul.apply(2, 3) == 6);
-    assert(mul.apply(7, 0) == 0);
+	Multiplier mul = Multiplier();
+	assert(mul.apply(2, 3) == 6);
+	assert(mul.apply(7, 0) == 0);
 
-    print("PASS: test_interface_method_with_params");
-    return 0;
+	print("PASS: test_interface_method_with_params");
+	return 0;
 }

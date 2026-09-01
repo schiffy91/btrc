@@ -1,9 +1,9 @@
 #include <stdio.h>
 int main() {
-    string s = "initial";
-    int x = 42;
-    s = f"updated: {x}";
-    printf("%s\n", s);
-    printf("PASS: test_fstring_reassignment\n");
-    return 0;
+	string s = "initial";
+	int x = 42;
+	s = f"updated: {x}";
+	printf("%s\n", s);
+	printf("PASS: test_fstring_reassignment\n");
+	return 0;
 }

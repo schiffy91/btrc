@@ -2,13 +2,11 @@
 
 typedef int Score;
 
-Score addScores(Score left, Score right) {
-    return left + right;
-}
+Score addScores(Score left, Score right) { return left + right; }
 
 int main() {
-    Score answer = addScores(20, 22);
-    assert(answer == 42);
-    print("PASS: test_typedef_alias_lowering");
-    return 0;
+	Score answer = addScores(20, 22);
+	assert(answer == 42);
+	print("PASS: test_typedef_alias_lowering");
+	return 0;
 }

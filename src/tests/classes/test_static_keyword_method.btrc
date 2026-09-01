@@ -4,16 +4,17 @@
 #include <assert.h>
 
 class M {
-    static int twice(int x) { return x * 2; }
-    static int add(int a, int b) { return a + b; }
+	static int twice(int x) { return x * 2; }
+
+	static int add(int a, int b) { return a + b; }
 }
 
 int main() {
-    assert(M.twice(21) == 42);
-    assert(M.add(3, 7) == 10);
-    // chained static calls
-    assert(M.twice(M.add(4, 6)) == 20);
+	assert(M.twice(21) == 42);
+	assert(M.add(3, 7) == 10);
+	// chained static calls
+	assert(M.twice(M.add(4, 6)) == 20);
 
-    print("PASS: test_static_keyword_method");
-    return 0;
+	print("PASS: test_static_keyword_method");
+	return 0;
 }

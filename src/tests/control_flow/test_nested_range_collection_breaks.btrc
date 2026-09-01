@@ -6,38 +6,38 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    Vector<int> v = [1, 2, 3];
-    int s = 0;
-    for i in range(2) {           // i = 0, 1
-        for x in v {              // x = 1, 2, 3
-            if (x == 3) {
-                break;            // inner break before adding 3
-            }
-            s += i + x;
-        }
-    }
-    // i=0: (0+1)+(0+2)=3 ; i=1: (1+1)+(1+2)=5 ; total 8
-    assert(s == 8);
+	Vector<int> v = [1, 2, 3];
+	int s = 0;
+	for i in range(2) {           // i = 0, 1
+		for x in v {              // x = 1, 2, 3
+			if (x == 3) {
+				break;            // inner break before adding 3
+			}
+			s += i + x;
+		}
+	}
+	// i=0: (0+1)+(0+2)=3 ; i=1: (1+1)+(1+2)=5 ; total 8
+	assert(s == 8);
 
-    // continue in the inner collection loop, distinct index temps from outer range
-    Vector<int> w = [10, 20, 30, 40];
-    int picked = 0;
-    int outer_iters = 0;
-    for i in range(3) {
-        outer_iters++;
-        for x in w {
-            if (x % 20 == 0) {
-                continue;          // skip 20 and 40
-            }
-            picked += x;           // adds 10 and 30 each outer iteration
-        }
-    }
-    assert(outer_iters == 3);
-    assert(picked == 120); // (10+30) * 3
+	// continue in the inner collection loop, distinct index temps from outer range
+	Vector<int> w = [10, 20, 30, 40];
+	int picked = 0;
+	int outer_iters = 0;
+	for i in range(3) {
+		outer_iters++;
+		for x in w {
+			if (x % 20 == 0) {
+				continue;          // skip 20 and 40
+			}
+			picked += x;           // adds 10 and 30 each outer iteration
+		}
+	}
+	assert(outer_iters == 3);
+	assert(picked == 120); // (10+30) * 3
 
-    v.free();
-    w.free();
+	v.free();
+	w.free();
 
-    print("PASS: test_nested_range_collection_breaks");
-    return 0;
+	print("PASS: test_nested_range_collection_breaks");
+	return 0;
 }

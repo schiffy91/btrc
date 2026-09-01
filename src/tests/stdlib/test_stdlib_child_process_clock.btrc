@@ -4,40 +4,34 @@ import std.process;
 #include <assert.h>
 
 int main() {
-    long long minimum = LLONG_MIN;
-    long long maximum = LLONG_MAX;
-    long long boundarySecondsWide = maximum / 1000LL;
-    uintmax_t boundarySeconds = (uintmax_t)boundarySecondsWide;
-    long long remainder = maximum - boundarySecondsWide * 1000LL;
-    long boundaryNanoseconds = (long)remainder * 1000000L;
+	long long minimum = LLONG_MIN;
+	long long maximum = LLONG_MAX;
+	long long boundarySecondsWide = maximum / 1000LL;
+	uintmax_t boundarySeconds = (uintmax_t)boundarySecondsWide;
+	long long remainder = maximum - boundarySecondsWide * 1000LL;
+	long boundaryNanoseconds = (long)remainder * 1000000L;
 
-    assert(ChildProcessClock.millisecondsFrom((uintmax_t)0, 0L) == 0LL);
-    assert(ChildProcessClock.millisecondsFrom(
-        (uintmax_t)12, 345678901L) == 12345LL);
-    assert(ChildProcessClock.millisecondsFrom(
-        (uintmax_t)0, -1L) == -1LL);
-    assert(ChildProcessClock.millisecondsFrom(
-        (uintmax_t)0, 1000000000L) == -1LL);
-    assert(ChildProcessClock.millisecondsFrom(
-        boundarySeconds, boundaryNanoseconds) == maximum);
-    if (remainder < 999LL) {
-        long overflowingNanoseconds = (long)(remainder + 1LL) * 1000000L;
-        assert(ChildProcessClock.millisecondsFrom(
-            boundarySeconds, overflowingNanoseconds) == maximum);
-    }
-    assert(ChildProcessClock.millisecondsFrom(
-        boundarySeconds + (uintmax_t)1, 0L) == maximum);
+	assert(ChildProcessClock.millisecondsFrom((uintmax_t)0, 0L) == 0LL);
+	assert(ChildProcessClock.millisecondsFrom((uintmax_t)12, 345678901L) == 12345LL);
+	assert(ChildProcessClock.millisecondsFrom((uintmax_t)0, -1L) == -1LL);
+	assert(ChildProcessClock.millisecondsFrom((uintmax_t)0, 1000000000L) == -1LL);
+	assert(ChildProcessClock.millisecondsFrom(boundarySeconds, boundaryNanoseconds) == maximum);
+	if (remainder < 999LL) {
+		long overflowingNanoseconds = (long)(remainder + 1LL) * 1000000L;
+		assert(ChildProcessClock.millisecondsFrom(boundarySeconds, overflowingNanoseconds) == maximum);
+	}
+	assert(ChildProcessClock.millisecondsFrom(boundarySeconds + (uintmax_t)1, 0L) == maximum);
 
-    assert(ChildProcessClock.deadline(0LL, 0) == 0LL);
-    assert(ChildProcessClock.deadline(1250LL, 750) == 2000LL);
-    assert(ChildProcessClock.deadline(maximum, 0) == maximum);
-    assert(ChildProcessClock.deadline(maximum - 10LL, 10) == maximum);
-    assert(ChildProcessClock.deadline(maximum - 9LL, 10) == maximum);
-    assert(ChildProcessClock.deadline(maximum - 2LL, 10) == maximum);
-    assert(ChildProcessClock.deadline(minimum, 0) == -1LL);
-    assert(ChildProcessClock.deadline(-1LL, 0) == -1LL);
-    assert(ChildProcessClock.deadline(0LL, -1) == -1LL);
+	assert(ChildProcessClock.deadline(0LL, 0) == 0LL);
+	assert(ChildProcessClock.deadline(1250LL, 750) == 2000LL);
+	assert(ChildProcessClock.deadline(maximum, 0) == maximum);
+	assert(ChildProcessClock.deadline(maximum - 10LL, 10) == maximum);
+	assert(ChildProcessClock.deadline(maximum - 9LL, 10) == maximum);
+	assert(ChildProcessClock.deadline(maximum - 2LL, 10) == maximum);
+	assert(ChildProcessClock.deadline(minimum, 0) == -1LL);
+	assert(ChildProcessClock.deadline(-1LL, 0) == -1LL);
+	assert(ChildProcessClock.deadline(0LL, -1) == -1LL);
 
-    print("PASS: test_stdlib_child_process_clock");
-    return 0;
+	print("PASS: test_stdlib_child_process_clock");
+	return 0;
 }

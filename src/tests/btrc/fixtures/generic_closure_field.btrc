@@ -3,23 +3,22 @@
 int fieldLeafAlive = 0;
 
 class FieldLeaf<T> {
-    public FieldLeaf() { fieldLeafAlive++; }
-    public void __del__() { fieldLeafAlive--; }
+	public FieldLeaf() { fieldLeafAlive++; }
+
+	public void __del__() { fieldLeafAlive--; }
 }
 
 class FieldSeed<T> {
-    public FieldLeaf<T> leaf;
+	public FieldLeaf<T> leaf;
 
-    public FieldSeed() {
-        self.leaf = new FieldLeaf<T>();
-    }
+	public FieldSeed() { self.leaf = new FieldLeaf<T> (); }
 }
 
 int main() {
-    FieldSeed<int> seed = new FieldSeed<int>();
-    assert(fieldLeafAlive == 1);
-    delete seed;
-    assert(fieldLeafAlive == 0);
-    print("PASS: field generic closure");
-    return 0;
+	FieldSeed<int> seed = new FieldSeed<int>();
+	assert(fieldLeafAlive == 1);
+	delete seed;
+	assert(fieldLeafAlive == 0);
+	print("PASS: field generic closure");
+	return 0;
 }

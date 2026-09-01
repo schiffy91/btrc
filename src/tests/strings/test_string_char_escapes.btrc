@@ -2,25 +2,25 @@
 #include <assert.h>
 
 int main() {
-    char nl = '\n';
-    char tab = '\t';
-    char z = '\0';
-    char bs = '\\';
-    char q = '\'';
-    char cr = '\r';
+	char nl = '\n';
+	char tab = '\t';
+	char z = '\0';
+	char bs = '\\';
+	char q = '\'';
+	char cr = '\r';
 
-    assert((int)nl == 10);
-    assert((int)tab == 9);
-    assert((int)z == 0);
-    assert((int)bs == 92);
-    assert((int)q == 39);
-    assert((int)cr == 13);
+	assert((int)nl == 10);
+	assert((int)tab == 9);
+	assert((int)z == 0);
+	assert((int)bs == 92);
+	assert((int)q == 39);
+	assert((int)cr == 13);
 
-    // hex escape
-    char hexA = '\x41';
-    assert((int)hexA == 65);
-    assert(hexA == 'A');
+	// hex escape
+	char hexA = '\x41';
+	assert((int)hexA == 65);
+	assert(hexA == 'A');
 
-    print("PASS: test_string_char_escapes");
-    return 0;
+	print("PASS: test_string_char_escapes");
+	return 0;
 }

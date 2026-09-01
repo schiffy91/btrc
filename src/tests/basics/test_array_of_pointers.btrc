@@ -4,30 +4,30 @@
 #include <assert.h>
 
 int main() {
-    int a = 1;
-    int b = 2;
-    int c = 3;
+	int a = 1;
+	int b = 2;
+	int c = 3;
 
-    int* arr[3];
-    arr[0] = &a;
-    arr[1] = &b;
-    arr[2] = &c;
+	int* arr[3];
+	arr[0] = &a;
+	arr[1] = &b;
+	arr[2] = &c;
 
-    // index + dereference through the array of pointers
-    assert(*arr[0] + *arr[1] + *arr[2] == 6);
+	// index + dereference through the array of pointers
+	assert(*arr[0] + *arr[1] + *arr[2] == 6);
 
-    // sizeof is N pointer-widths, not N int-widths
-    assert(sizeof(arr) == (size_t)3 * sizeof(int*));
+	// sizeof is N pointer-widths, not N int-widths
+	assert(sizeof(arr) == (size_t)3 * sizeof(int*));
 
-    // mutate the pointee through the array element; the original changes
-    *arr[1] = 9;
-    assert(b == 9);
-    assert(*arr[1] == 9);
+	// mutate the pointee through the array element; the original changes
+		*arr[1] = 9;
+	assert(b == 9);
+	assert(*arr[1] == 9);
 
-    // re-target an element to a different variable
-    arr[0] = &c;
-    assert(*arr[0] == 3);
+	// re-target an element to a different variable
+	arr[0] = &c;
+	assert(*arr[0] == 3);
 
-    print("PASS: test_array_of_pointers");
-    return 0;
+	print("PASS: test_array_of_pointers");
+	return 0;
 }

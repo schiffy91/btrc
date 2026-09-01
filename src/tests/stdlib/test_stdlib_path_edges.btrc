@@ -6,54 +6,50 @@ import std.FileSystem;
 #include <assert.h>
 
 int main() {
-    // Normal case (baseline).
-    assert(PathTools.basename("/a/b/c.txt").equals("c.txt"));
-    assert(PathTools.dirname("/a/b/c.txt").equals("/a/b"));
+	// Normal case (baseline).
+	assert(PathTools.basename("/a/b/c.txt").equals("c.txt"));
+	assert(PathTools.dirname("/a/b/c.txt").equals("/a/b"));
 
-    // Trailing slash: the trailing '/' is stripped before taking the last part.
-    assert(PathTools.basename("/a/b/").equals("b"));
-    assert(PathTools.dirname("/a/b/").equals("/a"));
+	// Trailing slash: the trailing '/' is stripped before taking the last part.
+	assert(PathTools.basename("/a/b/").equals("b"));
+	assert(PathTools.dirname("/a/b/").equals("/a"));
 
-    // Root: dirname of "/" is "/", basename of "/" is "/" (end stays at 0).
-    assert(PathTools.dirname("/").equals("/"));
-    assert(PathTools.basename("/").equals("/"));
+	// Root: dirname of "/" is "/", basename of "/" is "/" (end stays at 0).
+	assert(PathTools.dirname("/").equals("/"));
+	assert(PathTools.basename("/").equals("/"));
 
-    // Relative path with no slash: dirname is ".", basename is the name itself.
-    assert(PathTools.dirname("file.txt").equals("."));
-    assert(PathTools.basename("file.txt").equals("file.txt"));
+	// Relative path with no slash: dirname is ".", basename is the name itself.
+	assert(PathTools.dirname("file.txt").equals("."));
+	assert(PathTools.basename("file.txt").equals("file.txt"));
 
-    // Empty string: dirname is ".", basename is "".
-    assert(PathTools.dirname("").equals("."));
-    assert(PathTools.basename("").equals(""));
+	// Empty string: dirname is ".", basename is "".
+	assert(PathTools.dirname("").equals("."));
+	assert(PathTools.basename("").equals(""));
 
-    // join keeps a single separator and handles empty sides.
-    assert(PathTools.join("/a/", "b").equals("/a/b"));
-    assert(PathTools.join("/a", "b").equals("/a/b"));
-    assert(PathTools.join("", "b").equals("b"));
-    assert(PathTools.join("a", "").equals("a"));
+	// join keeps a single separator and handles empty sides.
+	assert(PathTools.join("/a/", "b").equals("/a/b"));
+	assert(PathTools.join("/a", "b").equals("/a/b"));
+	assert(PathTools.join("", "b").equals("b"));
+	assert(PathTools.join("a", "").equals("a"));
 
-    // Platform-independent probes cover drive, UNC, and drive-relative forms.
-    assert(PathTools.isAbsoluteFor("C:\\a\\b", true));
-    assert(PathTools.isAbsoluteFor("\\\\host\\share\\a", true));
-    assert(!PathTools.isAbsoluteFor("C:a", true));
-    assert(!PathTools.isAbsoluteFor("a/b", true));
-    assert(PathTools.isAbsoluteFor("/a/b", false));
-    assert(!PathTools.isAbsoluteFor("a\\b", false));
-    assert(PathTools.isRootRelativeFor("\\a", true));
-    assert(PathTools.rootLengthFor("C:\\", true) == 3);
-    assert(PathTools.rootLengthFor("C:relative", true) == 2);
-    assert(PathTools.rootLengthFor("\\\\host\\share\\a", true) == 12);
-    assert(PathTools.joinFor("C:\\base", "C:tail", true)
-        .equals("C:\\base\\tail"));
-    assert(PathTools.joinFor("C:\\base", "D:tail", true)
-        .equals("D:tail"));
-    assert(PathTools.joinFor("C:", "tail", true).equals("C:tail"));
-    assert(PathTools.joinFor("C:\\base", "\\tail", true)
-        .equals("C:\\tail"));
-    assert(PathTools.joinFor("\\\\host\\share\\dir", "\\tail", true)
-        .equals("\\\\host\\share\\tail"));
-    assert(PathTools.joinFor("/base", "tail", false).equals("/base/tail"));
+	// Platform-independent probes cover drive, UNC, and drive-relative forms.
+	assert(PathTools.isAbsoluteFor("C:\\a\\b", true));
+	assert(PathTools.isAbsoluteFor("\\\\host\\share\\a", true));
+	assert(!PathTools.isAbsoluteFor("C:a", true));
+	assert(!PathTools.isAbsoluteFor("a/b", true));
+	assert(PathTools.isAbsoluteFor("/a/b", false));
+	assert(!PathTools.isAbsoluteFor("a\\b", false));
+	assert(PathTools.isRootRelativeFor("\\a", true));
+	assert(PathTools.rootLengthFor("C:\\", true) == 3);
+	assert(PathTools.rootLengthFor("C:relative", true) == 2);
+	assert(PathTools.rootLengthFor("\\\\host\\share\\a", true) == 12);
+	assert(PathTools.joinFor("C:\\base", "C:tail", true).equals("C:\\base\\tail"));
+	assert(PathTools.joinFor("C:\\base", "D:tail", true).equals("D:tail"));
+	assert(PathTools.joinFor("C:", "tail", true).equals("C:tail"));
+	assert(PathTools.joinFor("C:\\base", "\\tail", true).equals("C:\\tail"));
+	assert(PathTools.joinFor("\\\\host\\share\\dir", "\\tail", true).equals("\\\\host\\share\\tail"));
+	assert(PathTools.joinFor("/base", "tail", false).equals("/base/tail"));
 
-    print("PASS: test_stdlib_path_edges");
-    return 0;
+	print("PASS: test_stdlib_path_edges");
+	return 0;
 }

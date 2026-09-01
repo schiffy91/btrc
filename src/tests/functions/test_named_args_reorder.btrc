@@ -2,23 +2,21 @@
 // for a 4-parameter function (stresses argument reordering).
 #include <assert.h>
 
-int g(int a, int b, int c, int d) {
-    return a * 1000 + b * 100 + c * 10 + d;
-}
+int g(int a, int b, int c, int d) { return a * 1000 + b * 100 + c * 10 + d; }
 
 int main() {
-    // all named, completely scrambled order
-    assert(g(d=4, b=2, a=1, c=3) == 1234);
+	// all named, completely scrambled order
+	assert(g(d=4, b=2, a=1, c=3) == 1234);
 
-    // positional prefix, then named out of order
-    assert(g(1, 2, d=4, c=3) == 1234);
+	// positional prefix, then named out of order
+	assert(g(1, 2, d=4, c=3) == 1234);
 
-    // named for the first param right away
-    assert(g(a=1, b=2, c=3, d=4) == 1234);
+	// named for the first param right away
+	assert(g(a=1, b=2, c=3, d=4) == 1234);
 
-    // last two named in reverse
-    assert(g(1, 2, d=9, c=8) == 1289);
+	// last two named in reverse
+	assert(g(1, 2, d=9, c=8) == 1289);
 
-    print("PASS: test_named_args_reorder");
-    return 0;
+	print("PASS: test_named_args_reorder");
+	return 0;
 }

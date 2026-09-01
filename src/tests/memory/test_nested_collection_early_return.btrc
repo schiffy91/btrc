@@ -8,41 +8,39 @@ import std.vector;
 int alive = 0;
 
 class Obj {
-    public int v;
+	public int v;
 
-    public Obj(int v) {
-        self.v = v;
-        alive++;
-    }
+	public Obj(int v) {
+		self.v = v;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 // Builds a nested collection then returns early; the early-return release path
 // must free both nesting levels and their elements.
 void build(bool early) {
-    Vector<Vector<Obj>> vv = {};
-    Vector<Obj> inner = {};
-    inner.push(new Obj(1));
-    inner.push(new Obj(2));
-    vv.push(inner);
-    if (early) {
-        return;             // early exit: must release vv (and the moved inner)
-    }
-    Vector<Obj> more = {};
-    more.push(new Obj(3));
-    vv.push(more);
+	Vector<Vector<Obj>> vv = {};
+	Vector<Obj> inner = {};
+	inner.push(new Obj(1));
+	inner.push(new Obj(2));
+	vv.push(inner);
+	if (early) {
+		return;             // early exit: must release vv (and the moved inner)
+	}
+	Vector<Obj> more = {};
+	more.push(new Obj(3));
+	vv.push(more);
 }
 
 int main() {
-    build(true);
-    assert(alive == 0);
+	build(true);
+	assert(alive == 0);
 
-    build(false);
-    assert(alive == 0);
+	build(false);
+	assert(alive == 0);
 
-    print("PASS: test_nested_collection_early_return");
-    return 0;
+	print("PASS: test_nested_collection_early_return");
+	return 0;
 }

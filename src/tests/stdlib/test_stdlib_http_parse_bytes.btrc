@@ -13,36 +13,36 @@ import std.http_types;
 #include <assert.h>
 
 int main() {
-    /* Build a raw request whose body is A NUL B NUL C (5 bytes, two NULs). */
-    Bytes raw = Bytes();
-    string head = "POST /up HTTP/1.1\r\nHost: local\r\nContent-Length: 5\r\n\r\n";
-    raw.appendRaw((char*)head, (int)strlen(head));
-    raw.append(65);   /* 'A' */
-    raw.append(0);    /* embedded NUL */
-    raw.append(66);   /* 'B' */
-    raw.append(0);    /* embedded NUL */
-    raw.append(67);   /* 'C' */
+	/* Build a raw request whose body is A NUL B NUL C (5 bytes, two NULs). */
+	Bytes raw = Bytes();
+	string head = "POST /up HTTP/1.1\r\nHost: local\r\nContent-Length: 5\r\n\r\n";
+	raw.appendRaw((char*)head, (int)strlen(head));
+	raw.append(65);   /* 'A' */
+	raw.append(0);    /* embedded NUL */
+	raw.append(66);   /* 'B' */
+	raw.append(0);    /* embedded NUL */
+	raw.append(67);   /* 'C' */
 
-    HttpServer srv = HttpServer(0);
-    HttpRequest req = srv.parseBytes(raw);
+	HttpServer srv = HttpServer(0);
+	HttpRequest req = srv.parseBytes(raw);
 
-    /* Request line + headers parse from the ASCII head as usual. */
-    assert(req.method.equals("POST"));
-    assert(req.path.equals("/up"));
-    assert(req.header("content-length").equals("5"));
+	/* Request line + headers parse from the ASCII head as usual. */
+	assert(req.method.equals("POST"));
+	assert(req.path.equals("/up"));
+	assert(req.header("content-length").equals("5"));
 
-    /* bodyBytes is binary-safe: full length, NUL bytes preserved in place. */
-    assert(req.bodyBytes.length() == 5);
-    assert(req.bodyBytes.get(0) == 65);   /* 'A' */
-    assert(req.bodyBytes.get(1) == 0);    /* NUL survived */
-    assert(req.bodyBytes.get(2) == 66);   /* 'B' */
-    assert(req.bodyBytes.get(3) == 0);    /* NUL survived */
-    assert(req.bodyBytes.get(4) == 67);   /* 'C' */
+	/* bodyBytes is binary-safe: full length, NUL bytes preserved in place. */
+	assert(req.bodyBytes.length() == 5);
+	assert(req.bodyBytes.get(0) == 65);   /* 'A' */
+	assert(req.bodyBytes.get(1) == 0);    /* NUL survived */
+	assert(req.bodyBytes.get(2) == 66);   /* 'B' */
+	assert(req.bodyBytes.get(3) == 0);    /* NUL survived */
+	assert(req.bodyBytes.get(4) == 67);   /* 'C' */
 
-    /* The string view truncates at the first NUL: only "A" is visible. */
-    assert((int)strlen(req.body) == 1);
-    assert(req.bodyBytes.length() > (int)strlen(req.body));
+	/* The string view truncates at the first NUL: only "A" is visible. */
+	assert((int)strlen(req.body) == 1);
+	assert(req.bodyBytes.length() > (int)strlen(req.body));
 
-    print("PASS: test_stdlib_http_parse_bytes");
-    return 0;
+	print("PASS: test_stdlib_http_parse_bytes");
+	return 0;
 }

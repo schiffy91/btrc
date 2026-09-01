@@ -3,26 +3,26 @@
 #include <assert.h>
 
 int main() {
-    // Unary plus is a no-op.
-    int a = +5;
-    assert(a == 5);
-    int b = +(-3);
-    assert(b == -3);
-    int c = -3;
-    assert(+c == -3);
+	// Unary plus is a no-op.
+	int a = +5;
+	assert(a == 5);
+	int b = +(-3);
+	assert(b == -3);
+	int c = -3;
+	assert(+c == -3);
 
-    // Bitwise NOT on nonzero / boundary values: ~x == -x - 1.
-    assert(~5 == -6);
-    assert(~(-1) == 0);
-    assert(~0xFF == -256);
-    assert(~0 == -1);
+	// Bitwise NOT on nonzero / boundary values: ~x == -x - 1.
+	assert(~5 == -6);
+	assert(~(-1) == 0);
+	assert(~0xFF == -256);
+	assert(~0 == -1);
 
-    // Logical NOT chaining and double negation.
-    assert(!!true == true);
-    assert(!!false == false);
-    assert(!(1 == 1) == false);
-    assert(!(1 == 2) == true);
+	// Logical NOT chaining and double negation.
+	assert(!!true == true);
+	assert(!!false == false);
+	assert(!(1 == 1) == false);
+	assert(!(1 == 2) == true);
 
-    print("PASS: test_unary_plus_and_not");
-    return 0;
+	print("PASS: test_unary_plus_and_not");
+	return 0;
 }

@@ -5,46 +5,46 @@ bool a(int n);
 bool b(int n);
 
 bool c(int n) {
-    if (n == 0) {
-        return true;
-    }
-    return a(n - 1);
+	if (n == 0) {
+		return true;
+	}
+	return a(n - 1);
 }
 
 bool a(int n) {
-    if (n == 0) {
-        return true;
-    }
-    return b(n - 1);
+	if (n == 0) {
+		return true;
+	}
+	return b(n - 1);
 }
 
 bool b(int n) {
-    if (n == 0) {
-        return false;
-    }
-    return c(n - 1);
+	if (n == 0) {
+		return false;
+	}
+	return c(n - 1);
 }
 
 int main() {
-    // a(9): a->b->c repeating; trace the chain.
-    assert(a(0) == true);
-    assert(b(0) == false);
-    assert(c(0) == true);
+	// a(9): a->b->c repeating; trace the chain.
+	assert(a(0) == true);
+	assert(b(0) == false);
+	assert(c(0) == true);
 
-    // a(9): a->b->c->...->a(0)=true
-    assert(a(9) == true);
-    // b(9): ...->b(0)=false
-    assert(b(9) == false);
-    // c(9): ...->c(0)=true
-    assert(c(9) == true);
+	// a(9): a->b->c->...->a(0)=true
+	assert(a(9) == true);
+	// b(9): ...->b(0)=false
+	assert(b(9) == false);
+	// c(9): ...->c(0)=true
+	assert(c(9) == true);
 
-    // a(1) -> b(0) -> false
-    assert(a(1) == false);
-    // b(1) -> c(0) -> true
-    assert(b(1) == true);
-    // c(1) -> a(0) -> true
-    assert(c(1) == true);
+	// a(1) -> b(0) -> false
+	assert(a(1) == false);
+	// b(1) -> c(0) -> true
+	assert(b(1) == true);
+	// c(1) -> a(0) -> true
+	assert(c(1) == true);
 
-    print("PASS: test_mutual_recursion_three");
-    return 0;
+	print("PASS: test_mutual_recursion_three");
+	return 0;
 }

@@ -5,45 +5,40 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 class Box {
-    public Obj held;
+	public Obj held;
 
-    public Box(keep Obj o) {
-        self.held = o;
-    }
+	public Box(keep Obj o) { self.held = o; }
 
-    public void __del__() {
-    }
+	public void __del__() {}
 }
 
 int main() {
-    Obj o = new Obj(1);
-    assert(alive == 1);
+	Obj o = new Obj(1);
+	assert(alive == 1);
 
-    // The constructor call is guarded and the field retains o.
-    Box b = new Box(o);
-    assert(b.held.id == 1);
+	// The constructor call is guarded and the field retains o.
+	Box b = new Box(o);
+	assert(b.held.id == 1);
 
-    // Deleting the Box runs its destructor and releases the held field,
-    // while the local handle still keeps o alive.
-    delete b;
-    assert(alive == 1);
+	// Deleting the Box runs its destructor and releases the held field,
+	// while the local handle still keeps o alive.
+	delete b;
+	assert(alive == 1);
 
-    delete o;
-    assert(alive == 0);
+	delete o;
+	assert(alive == 0);
 
-    print("PASS: test_keep_param_constructor");
-    return 0;
+	print("PASS: test_keep_param_constructor");
+	return 0;
 }

@@ -8,39 +8,39 @@ import std.datetime;
 #include "../../stdlib/datetime.btrc"
 
 int main() {
-    Timer t = Timer();
+	Timer t = Timer();
 
-    // Before start, reset state: both clocks 0 -> elapsed is exactly 0.
-    assert(t.elapsed() == 0.0f);
-    assert(t.elapsedMillis() == 0.0f);
+	// Before start, reset state: both clocks 0 -> elapsed is exactly 0.
+	assert(t.elapsed() == 0.0f);
+	assert(t.elapsedMillis() == 0.0f);
 
-    // While running, the running branch samples monoNanos(): non-negative and
-    // millis is consistent with seconds (millis >= 0 too).
-    t.start();
-    float s1 = t.elapsed();
-    float m1 = t.elapsedMillis();
-    assert(s1 >= 0.0f);
-    assert(m1 >= 0.0f);
+	// While running, the running branch samples monoNanos(): non-negative and
+	// millis is consistent with seconds (millis >= 0 too).
+	t.start();
+	float s1 = t.elapsed();
+	float m1 = t.elapsedMillis();
+	assert(s1 >= 0.0f);
+	assert(m1 >= 0.0f);
 
-    // Burn some monotonic time so a second sample is >= the first.
-    int acc = 0;
-    for i in range(200000) { acc = acc + (i % 7); }
-    assert(acc >= 0);
-    float s2 = t.elapsed();
-    assert(s2 >= s1);
+	// Burn some monotonic time so a second sample is >= the first.
+	int acc = 0;
+	for i in range(200000) { acc = acc + (i % 7); }
+	assert(acc >= 0);
+	float s2 = t.elapsed();
+	assert(s2 >= s1);
 
-    // stop() freezes: the not-running branch uses end_time, so two reads match.
-    t.stop();
-    float fixedA = t.elapsed();
-    float fixedB = t.elapsed();
-    assert(fixedA == fixedB);
-    assert(fixedA >= 0.0f);
+	// stop() freezes: the not-running branch uses end_time, so two reads match.
+	t.stop();
+	float fixedA = t.elapsed();
+	float fixedB = t.elapsed();
+	assert(fixedA == fixedB);
+	assert(fixedA >= 0.0f);
 
-    // reset() zeroes both clocks again.
-    t.reset();
-    assert(t.elapsed() == 0.0f);
-    assert(t.elapsedMillis() == 0.0f);
+	// reset() zeroes both clocks again.
+	t.reset();
+	assert(t.elapsed() == 0.0f);
+	assert(t.elapsedMillis() == 0.0f);
 
-    print("PASS: test_stdlib_timer_running");
-    return 0;
+	print("PASS: test_stdlib_timer_running");
+	return 0;
 }

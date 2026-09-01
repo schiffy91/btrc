@@ -1,23 +1,22 @@
 #include <assert.h>
 // A void @gpu kernel with TWO distinct array buffers (separate storage bindings):
 // exercises per-buffer binding emission where src and dst differ.
-@gpu
-void copyDoubled(int[] src, int[] dst) {
-    int i = gpu_id();
-    dst[i] = src[i] * 2;
+@gpu void copyDoubled(int[] src, int[] dst) {
+	int i = gpu_id();
+	dst[i] = src[i] * 2;
 }
 
 int main() {
-    // CPU mirror of the kernel semantics.
-    int src[] = {1, 2, 3};
-    int dst[] = {0, 0, 0};
-    for (int i = 0; i < 3; i++) {
-        dst[i] = src[i] * 2;
-    }
-    assert(dst[0] == 2);
-    assert(dst[1] == 4);
-    assert(dst[2] == 6);
+	// CPU mirror of the kernel semantics.
+	int src[] = {1, 2, 3};
+	int dst[] = {0, 0, 0};
+	for (int i = 0; i < 3; i++) {
+		dst[i] = src[i] * 2;
+	}
+	assert(dst[0] == 2);
+	assert(dst[1] == 4);
+	assert(dst[2] == 6);
 
-    print("PASS: test_gpu_mixed_buffer_lengths");
-    return 0;
+	print("PASS: test_gpu_mixed_buffer_lengths");
+	return 0;
 }

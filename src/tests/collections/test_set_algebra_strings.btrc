@@ -8,55 +8,55 @@ import std.set;
 #include <stdio.h>
 
 int main() {
-    Set<string> a = {};
-    a.add("apple");
-    a.add("banana");
-    a.add("cherry");
+	Set<string> a = {};
+	a.add("apple");
+	a.add("banana");
+	a.add("cherry");
 
-    Set<string> b = {};
-    b.add("banana");
-    b.add("date");
+	Set<string> b = {};
+	b.add("banana");
+	b.add("date");
 
-    /* union: all distinct elements from both sets */
-    Set<string> u = a.unite(b);
-    assert(u.size() == 4);
-    assert(u.contains("apple"));
-    assert(u.contains("date"));
+	/* union: all distinct elements from both sets */
+	Set<string> u = a.unite(b);
+	assert(u.size() == 4);
+	assert(u.contains("apple"));
+	assert(u.contains("date"));
 
-    /* intersection: elements in both */
-    Set<string> i = a.intersect(b);
-    assert(i.size() == 1);
-    assert(i.contains("banana"));
+	/* intersection: elements in both */
+	Set<string> i = a.intersect(b);
+	assert(i.size() == 1);
+	assert(i.contains("banana"));
 
-    /* difference: in a but not b */
-    Set<string> s = a.subtract(b);
-    assert(s.size() == 2);
-    assert(s.contains("apple"));
-    assert(s.contains("cherry"));
-    assert(!s.contains("banana"));
+	/* difference: in a but not b */
+	Set<string> s = a.subtract(b);
+	assert(s.size() == 2);
+	assert(s.contains("apple"));
+	assert(s.contains("cherry"));
+	assert(!s.contains("banana"));
 
-    /* symmetric difference: in exactly one */
-    Set<string> sym = a.symmetricDifference(b);
-    assert(sym.size() == 3);
-    assert(sym.contains("apple"));
-    assert(sym.contains("cherry"));
-    assert(sym.contains("date"));
-    assert(!sym.contains("banana"));
+	/* symmetric difference: in exactly one */
+	Set<string> sym = a.symmetricDifference(b);
+	assert(sym.size() == 3);
+	assert(sym.contains("apple"));
+	assert(sym.contains("cherry"));
+	assert(sym.contains("date"));
+	assert(!sym.contains("banana"));
 
-    /* subset / superset on strings */
-    Set<string> sub = {};
-    sub.add("apple");
-    assert(sub.isSubsetOf(a));
-    assert(a.isSupersetOf(sub));
-    assert(!a.isSubsetOf(b));
+	/* subset / superset on strings */
+	Set<string> sub = {};
+	sub.add("apple");
+	assert(sub.isSubsetOf(a));
+	assert(a.isSupersetOf(sub));
+	assert(!a.isSubsetOf(b));
 
-    a.free();
-    b.free();
-    u.free();
-    i.free();
-    s.free();
-    sym.free();
-    sub.free();
-    printf("PASS: test_set_algebra_strings\n");
-    return 0;
+	a.free();
+	b.free();
+	u.free();
+	i.free();
+	s.free();
+	sym.free();
+	sub.free();
+	printf("PASS: test_set_algebra_strings\n");
+	return 0;
 }

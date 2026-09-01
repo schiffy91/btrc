@@ -1,11 +1,11 @@
 class GenericLambda<T> {
-    public int run(T marker) {
-        var increment = (int value) => value + 1;
-        return increment(1);
-    }
+	public int run(T marker) {
+		var increment = (int value) => value + 1;
+		return increment(1);
+	}
 }
 
 int main() {
-    GenericLambda<int> value = new GenericLambda<int>();
-    return value.run(0);
+	GenericLambda<int> value = new GenericLambda<int>();
+	return value.run(0);
 }

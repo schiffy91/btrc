@@ -12,32 +12,32 @@ int finCount = 0;
 
 // return from inside try: the finally does NOT run.
 int returnsFromTry() {
-    try {
-        return 7;
-    } finally {
-        finCount = finCount + 1;   // NOT reached on the return path
-    }
+	try {
+		return 7;
+	} finally {
+		finCount = finCount + 1;   // NOT reached on the return path
+	}
 }
 
 int main() {
-    int r = returnsFromTry();
-    assert(r == 7);
-    assert(finCount == 0);          // finally skipped by the return
+	int r = returnsFromTry();
+	assert(r == 7);
+	assert(finCount == 0);          // finally skipped by the return
 
-    // break out of a try inside a loop: the breaking iteration skips finally.
-    int total = 0;
-    int loopFin = 0;
-    for (int i = 0; i < 10; i = i + 1) {
-        try {
-            if (i == 5) { break; }
-            total = total + i;      // 0+1+2+3+4 = 10
-        } finally {
-            loopFin = loopFin + 1;  // runs for i=0..4 only (not the i==5 break)
-        }
-    }
-    assert(total == 10);
-    assert(loopFin == 5);           // 5 normal iterations; break iter skipped
+	// break out of a try inside a loop: the breaking iteration skips finally.
+	int total = 0;
+	int loopFin = 0;
+	for (int i = 0; i < 10; i = i + 1) {
+		try {
+			if (i == 5) { break; }
+			total = total + i;      // 0+1+2+3+4 = 10
+		} finally {
+			loopFin = loopFin + 1;  // runs for i=0..4 only (not the i==5 break)
+		}
+	}
+	assert(total == 10);
+	assert(loopFin == 5);           // 5 normal iterations; break iter skipped
 
-    print("PASS: test_exceptions_finally_control_flow_escape");
-    return 0;
+	print("PASS: test_exceptions_finally_control_flow_escape");
+	return 0;
 }

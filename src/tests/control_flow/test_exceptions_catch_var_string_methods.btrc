@@ -9,30 +9,30 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    // Typed catch: the bound variable supports every string method.
-    try {
-        throw "error: code 42";
-    } catch (string e) {
-        assert(e.length() == 14);
-        assert(e.startsWith("error"));
-        assert(e.endsWith("42"));
-        assert(e.contains("code"));
-        string head = e.substring(0, 5);
-        assert(head.equals("error"));
-        Vector<string> parts = Strings.split(e, ":");
-        assert(parts.len == 2);
-        assert(parts.get(0).equals("error"));
-        parts.free();
-    }
+	// Typed catch: the bound variable supports every string method.
+	try {
+		throw "error: code 42";
+	} catch (string e) {
+		assert(e.length() == 14);
+		assert(e.startsWith("error"));
+		assert(e.endsWith("42"));
+		assert(e.contains("code"));
+		string head = e.substring(0, 5);
+		assert(head.equals("error"));
+		Vector<string> parts = Strings.split(e, ":");
+		assert(parts.len == 2);
+		assert(parts.get(0).equals("error"));
+		parts.free();
+	}
 
-    // Untyped catch binds the same string type: identical behavior.
-    try {
-        throw "error: code 42";
-    } catch (e) {
-        assert(e.length() == 14);
-        assert(e.startsWith("error"));
-    }
+	// Untyped catch binds the same string type: identical behavior.
+	try {
+		throw "error: code 42";
+	} catch (e) {
+		assert(e.length() == 14);
+		assert(e.startsWith("error"));
+	}
 
-    print("PASS: test_exceptions_catch_var_string_methods");
-    return 0;
+	print("PASS: test_exceptions_catch_var_string_methods");
+	return 0;
 }

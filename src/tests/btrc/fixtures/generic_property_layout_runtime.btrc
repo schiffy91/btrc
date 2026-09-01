@@ -4,68 +4,69 @@ int itemAlive = 0;
 int receiverCalls = 0;
 
 class Item {
-    public Item() { itemAlive++; }
-    public void __del__() { itemAlive--; }
+	public Item() { itemAlive++; }
+
+	public void __del__() { itemAlive--; }
 }
 
 class Box<T> {
-    private T customStorage;
-    public T automatic { get; set; }
-    public T custom {
-        get { return self.customStorage; }
-        set { self.customStorage = value; }
-    }
-    public T mixed {
-        get;
-        set { self.mixed = value; }
-    }
+	private T customStorage;
+	public T automatic { get; set; }
+	public T custom {
+		get { return self.customStorage; }
+		set { self.customStorage = value; }
+	}
+	public T mixed {
+		get;
+		set { self.mixed = value; }
+	}
 }
 
 Box<int> integerBox;
 
 Box<int> probe() {
-    receiverCalls++;
-    return integerBox;
+	receiverCalls++;
+	return integerBox;
 }
 
 int main() {
-    integerBox = new Box<int>();
-    integerBox.automatic = 10;
-    int updated = probe().automatic += 5;
-    int old = probe().automatic++;
-    int current = ++probe().automatic;
-    assert(updated == 15);
-    assert(old == 15);
-    assert(current == 17);
-    assert(receiverCalls == 3);
+	integerBox = new Box<int>();
+	integerBox.automatic = 10;
+	int updated = probe().automatic += 5;
+	int old = probe().automatic++;
+	int current = ++probe().automatic;
+	assert(updated == 15);
+	assert(old == 15);
+	assert(current == 17);
+	assert(receiverCalls == 3);
 
-    integerBox.custom = 4;
-    integerBox.mixed = 8;
-    assert(integerBox.custom == 4);
-    assert(integerBox.mixed == 8);
+	integerBox.custom = 4;
+	integerBox.mixed = 8;
+	assert(integerBox.custom == 4);
+	assert(integerBox.mixed == 8);
 
-    Box<int>? absent = null;
-    assert((absent?.automatic ?? 41) == 41);
+	Box<int>? absent = null;
+	assert((absent?.automatic ?? 41) == 41);
 
-    {
-        Box<Item> objects = new Box<Item>();
-        {
-            Item automaticItem = new Item();
-            Item customItem = new Item();
-            Item mixedItem = new Item();
-            objects.automatic = automaticItem;
-            objects.custom = customItem;
-            objects.mixed = mixedItem;
-            assert(itemAlive == 3);
-        }
-        assert(itemAlive == 3);
-        assert(objects.automatic != null);
-        assert(objects.custom != null);
-        assert(objects.mixed != null);
-    }
-    assert(itemAlive == 0);
+	{
+		Box<Item> objects = new Box<Item>();
+		{
+			Item automaticItem = new Item();
+			Item customItem = new Item();
+			Item mixedItem = new Item();
+			objects.automatic = automaticItem;
+			objects.custom = customItem;
+			objects.mixed = mixedItem;
+			assert(itemAlive == 3);
+		}
+		assert(itemAlive == 3);
+		assert(objects.automatic != null);
+		assert(objects.custom != null);
+		assert(objects.mixed != null);
+	}
+	assert(itemAlive == 0);
 
-    delete integerBox;
-    print("PASS: generic property layout contracts");
-    return 0;
+	delete integerBox;
+	print("PASS: generic property layout contracts");
+	return 0;
 }

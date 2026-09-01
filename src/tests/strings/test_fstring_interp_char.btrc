@@ -2,17 +2,17 @@
 #include <assert.h>
 
 int main() {
-    char c = 'Q';
-    assert(f"[{c}]".equals("[Q]"));
+	char c = 'Q';
+	assert(f"[{c}]".equals("[Q]"));
 
-    string s = "hello";
-    assert(f"{s.charAt(0)}".equals("h"));
-    assert(f"first={s.charAt(0)} last={s.charAt(4)}".equals("first=h last=o"));
+	string s = "hello";
+	assert(f"{s.charAt(0)}".equals("h"));
+	assert(f"first={s.charAt(0)} last={s.charAt(4)}".equals("first=h last=o"));
 
-    // char from an escape interpolates by its glyph, not its code
-    char tab = '\t';
-    assert((int)f"x{tab}y".charAt(1) == 9);
+	// char from an escape interpolates by its glyph, not its code
+	char tab = '\t';
+	assert((int)f"x{tab}y".charAt(1) == 9);
 
-    print("PASS: test_fstring_interp_char");
-    return 0;
+	print("PASS: test_fstring_interp_char");
+	return 0;
 }

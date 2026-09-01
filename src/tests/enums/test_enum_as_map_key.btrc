@@ -9,28 +9,28 @@ import std.map;
 enum Color { RED, GREEN, BLUE };
 
 int main() {
-    Map<Color, int> m = {};
-    m.put(RED, 100);
-    m.put(BLUE, 300);
+	Map<Color, int> m = {};
+	m.put(RED, 100);
+	m.put(BLUE, 300);
 
-    assert(m.get(RED) == 100);
-    assert(m.get(BLUE) == 300);
-    assert(m.has(RED));
-    assert(!m.has(GREEN));
-    assert(m.len == 2);
+	assert(m.get(RED) == 100);
+	assert(m.get(BLUE) == 300);
+	assert(m.has(RED));
+	assert(!m.has(GREEN));
+	assert(m.len == 2);
 
-    // Re-insert an existing key updates rather than duplicates.
-    m.put(RED, 101);
-    assert(m.get(RED) == 101);
-    assert(m.len == 2);
+	// Re-insert an existing key updates rather than duplicates.
+	m.put(RED, 101);
+	assert(m.get(RED) == 101);
+	assert(m.len == 2);
 
-    // Adding the remaining variant as a key works (all three distinct).
-    m.put(GREEN, 200);
-    assert(m.has(GREEN));
-    assert(m.get(GREEN) == 200);
-    assert(m.len == 3);
+	// Adding the remaining variant as a key works (all three distinct).
+	m.put(GREEN, 200);
+	assert(m.has(GREEN));
+	assert(m.get(GREEN) == 200);
+	assert(m.len == 3);
 
-    m.free();
-    print("PASS: test_enum_as_map_key");
-    return 0;
+	m.free();
+	print("PASS: test_enum_as_map_key");
+	return 0;
 }

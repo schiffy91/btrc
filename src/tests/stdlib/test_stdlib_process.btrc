@@ -5,93 +5,85 @@ import std.vector;
 
 #include <assert.h>
 
-string rendered(Command command) {
-    return command;
-}
+string rendered(Command command) { return command; }
 
 int main() {
-    UnixShell sh = UnixShell();
-    Vector<string> emptyArguments = [];
-    Vector<string> invalidArguments = [];
-    invalidArguments.len = -1;
-    assert(!ChildProcess.run("/bin/true", invalidArguments).ok());
-    Vector<string> invalidEnvironment = [];
-    invalidEnvironment.len = -1;
-    assert(!ChildProcess.run(
-        "/bin/true", emptyArguments, environment=invalidEnvironment).ok());
-    string? missing = null;
-    Vector<string> nullArguments = [];
-    nullArguments.push(missing);
-    bool nullArgumentRejected = false;
-    try {
-        ChildProcess.run("/bin/true", nullArguments);
-    } catch (string error) {
-        nullArgumentRejected = error.contains("arguments cannot contain null");
-    }
-    assert(nullArgumentRejected);
-    Vector<string> nullEnvironment = [];
-    nullEnvironment.push(missing);
-    bool nullEnvironmentRejected = false;
-    try {
-        ChildProcess.run(
-            "/bin/true", emptyArguments, environment=nullEnvironment);
-    } catch (string error) {
-        nullEnvironmentRejected = error.contains("overrides cannot contain null");
-    }
-    assert(nullEnvironmentRejected);
-    bool nullUnsetRejected = false;
-    try {
-        ChildProcess.run(
-            "/bin/true", emptyArguments, unsetEnvironment=nullEnvironment);
-    } catch (string error) {
-        nullUnsetRejected = error.contains("unsets cannot contain null");
-    }
-    assert(nullUnsetRejected);
-    bool nullModeRejected = false;
-    try {
-        ChildProcess.run("/bin/true", emptyArguments, stdout=missing);
-    } catch (string error) {
-        nullModeRejected = error.contains("invalid child output mode");
-    }
-    assert(nullModeRejected);
-    bool conflictingEnvironmentRejected = false;
-    try {
-        ChildProcess.run(
-            "/bin/true", emptyArguments,
-            environment=["BTRC_PROCESS_CONFLICT=value"],
-            unsetEnvironment=["BTRC_PROCESS_CONFLICT"]);
-    } catch (string error) {
-        conflictingEnvironmentRejected = error.contains("both set and unset");
-    }
-    assert(conflictingEnvironmentRejected);
-    assert(sh.run("printf '  hi  '", logFailure=false).trimmed().equals("hi"));
-    assert(ProcessStatus(0).ok());
-    assert(UnixProcess.system("exit 7").code() == 7);
-    assert(!UnixProcess.system("exit 7").ok());
-    assert(UnixProcess.system("kill -TERM $$").code() == 143);
-    assert(Command("printf direct").render().equals("printf direct"));
-    string commandText = Command("printf direct");
-    assert(commandText.equals("printf direct"));
-    assert(rendered(Command("printf direct")).equals("printf direct"));
-    assert(f"{Command("printf direct")}".equals("printf direct"));
-    assert(sh.run(Command("printf direct")).trimmed().equals("direct"));
-    assert(sh.run(Command("printf").arg("world")).trimmed().equals("world"));
-    assert(sh.run("printf 'x'").trimmed().equals("x"));
-    assert(sh.run("false", logFailure=false).code == 1);
-    assert(sh.run("exit 7", logFailure=false).code == 7);
-    assert(sh.run("kill -TERM $$", logFailure=false).code == 143);
-    assert(sh.run("printf 'quiet'", stdout=CommandOutput.stream(), stderr=CommandOutput.stream()).code == 0);
-    assert(sh.run("printf 'err' >&2", stderr=CommandOutput.collect()).stderr().equals("err"));
-    assert(sh.run("printf 'raw'", logFailure=true).trimmed().equals("raw"));
-    assert(sh.run("cat", stdin="secret input").stdout().equals("secret input"));
-    assert(sh.run("cat", stdin="line\n").stdout().equals("line\n"));
-    var tempRoot = UnixShell.quote(Environment.get("TMPDIR", "/tmp"));
-    var tempPattern = UnixShell.quote(f"btrc-process-{Platform.pid()}-*");
-    var countCommand = f"find {tempRoot} -maxdepth 1 -type f -name {tempPattern} | wc -l";
-    var before = sh.run(countCommand, logFailure=false).trimmed();
-    assert(sh.run("cat", stdin="temp check").stdout().equals("temp check"));
-    var after = sh.run(countCommand, logFailure=false).trimmed();
-    assert(after.equals(before));
-    print("PASS");
-    return 0;
+	UnixShell sh = UnixShell();
+	Vector<string> emptyArguments = [];
+	Vector<string> invalidArguments = [];
+	invalidArguments.len = -1;
+	assert(!ChildProcess.run("/bin/true", invalidArguments).ok());
+	Vector<string> invalidEnvironment = [];
+	invalidEnvironment.len = -1;
+	assert(!ChildProcess.run("/bin/true", emptyArguments, environment=invalidEnvironment).ok());
+	string? missing = null;
+	Vector<string> nullArguments = [];
+	nullArguments.push(missing);
+	bool nullArgumentRejected = false;
+	try {
+		ChildProcess.run("/bin/true", nullArguments);
+	} catch (string error) {
+		nullArgumentRejected = error.contains("arguments cannot contain null");
+	}
+	assert(nullArgumentRejected);
+	Vector<string> nullEnvironment = [];
+	nullEnvironment.push(missing);
+	bool nullEnvironmentRejected = false;
+	try {
+		ChildProcess.run("/bin/true", emptyArguments, environment=nullEnvironment);
+	} catch (string error) {
+		nullEnvironmentRejected = error.contains("overrides cannot contain null");
+	}
+	assert(nullEnvironmentRejected);
+	bool nullUnsetRejected = false;
+	try {
+		ChildProcess.run("/bin/true", emptyArguments, unsetEnvironment=nullEnvironment);
+	} catch (string error) {
+		nullUnsetRejected = error.contains("unsets cannot contain null");
+	}
+	assert(nullUnsetRejected);
+	bool nullModeRejected = false;
+	try {
+		ChildProcess.run("/bin/true", emptyArguments, stdout=missing);
+	} catch (string error) {
+		nullModeRejected = error.contains("invalid child output mode");
+	}
+	assert(nullModeRejected);
+	bool conflictingEnvironmentRejected = false;
+	try {
+		ChildProcess.run("/bin/true", emptyArguments, environment=["BTRC_PROCESS_CONFLICT=value"], unsetEnvironment=["BTRC_PROCESS_CONFLICT"]);
+	} catch (string error) {
+		conflictingEnvironmentRejected = error.contains("both set and unset");
+	}
+	assert(conflictingEnvironmentRejected);
+	assert(sh.run("printf '  hi  '", logFailure=false).trimmed().equals("hi"));
+	assert(ProcessStatus(0).ok());
+	assert(UnixProcess.system("exit 7").code() == 7);
+	assert(!UnixProcess.system("exit 7").ok());
+	assert(UnixProcess.system("kill -TERM $$").code() == 143);
+	assert(Command("printf direct").render().equals("printf direct"));
+	string commandText = Command("printf direct");
+	assert(commandText.equals("printf direct"));
+	assert(rendered(Command("printf direct")).equals("printf direct"));
+	assert(f"{Command("printf direct")}".equals("printf direct"));
+	assert(sh.run(Command("printf direct")).trimmed().equals("direct"));
+	assert(sh.run(Command("printf").arg("world")).trimmed().equals("world"));
+	assert(sh.run("printf 'x'").trimmed().equals("x"));
+	assert(sh.run("false", logFailure=false).code == 1);
+	assert(sh.run("exit 7", logFailure=false).code == 7);
+	assert(sh.run("kill -TERM $$", logFailure=false).code == 143);
+	assert(sh.run("printf 'quiet'", stdout=CommandOutput.stream(), stderr=CommandOutput.stream()).code == 0);
+	assert(sh.run("printf 'err' >&2", stderr=CommandOutput.collect()).stderr().equals("err"));
+	assert(sh.run("printf 'raw'", logFailure=true).trimmed().equals("raw"));
+	assert(sh.run("cat", stdin="secret input").stdout().equals("secret input"));
+	assert(sh.run("cat", stdin="line\n").stdout().equals("line\n"));
+	var tempRoot = UnixShell.quote(Environment.get("TMPDIR", "/tmp"));
+	var tempPattern = UnixShell.quote(f"btrc-process-{Platform.pid()}-*");
+	var countCommand = f"find {tempRoot} -maxdepth 1 -type f -name {tempPattern} | wc -l";
+	var before = sh.run(countCommand, logFailure=false).trimmed();
+	assert(sh.run("cat", stdin="temp check").stdout().equals("temp check"));
+	var after = sh.run(countCommand, logFailure=false).trimmed();
+	assert(after.equals(before));
+	print("PASS");
+	return 0;
 }

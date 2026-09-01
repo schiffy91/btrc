@@ -1,15 +1,13 @@
-int genericSpawnWorker() {
-    return 7;
-}
+int genericSpawnWorker() { return 7; }
 
 class GenericSpawner<T> {
-    public int run(T marker) {
-        Thread<int> worker = spawn(genericSpawnWorker);
-        return worker.join();
-    }
+	public int run(T marker) {
+		Thread<int> worker = spawn(genericSpawnWorker);
+		return worker.join();
+	}
 }
 
 int main() {
-    GenericSpawner<int> value = new GenericSpawner<int>();
-    return value.run(0);
+	GenericSpawner<int> value = new GenericSpawner<int>();
+	return value.run(0);
 }

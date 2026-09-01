@@ -4,17 +4,17 @@
 // their lexical scope even though IR groups struct definitions together.
 #pragma pack(push, 1)
 struct Packed {
-    char tag;
-    int value;
+	char tag;
+	int value;
 };
 #pragma pack(pop)
 
 int main() {
-    struct Packed p = {65, 1000};
-    assert(p.tag == 65);
-    assert(p.value == 1000);
-    assert(sizeof(struct Packed) == (size_t)5);
+	struct Packed p = {65, 1000};
+	assert(p.tag == 65);
+	assert(p.value == 1000);
+	assert(sizeof(struct Packed) == (size_t)5);
 
-    print("PASS: test_interop_pragma_passthrough");
-    return 0;
+	print("PASS: test_interop_pragma_passthrough");
+	return 0;
 }

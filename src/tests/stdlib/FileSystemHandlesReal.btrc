@@ -11,221 +11,207 @@ import std.io;
 #include <unistd.h>
 
 int openDescriptorCount() {
-    int count = 0;
-    for (int descriptor = 0; descriptor < 4096; descriptor++) {
-        errno = 0;
-        if (fcntl(descriptor, F_GETFD) != -1 || errno != EBADF) {
-            count++;
-        }
-    }
-    return count;
+	int count = 0;
+	for (int descriptor = 0; descriptor < 4096; descriptor++) {
+		errno = 0;
+		if (fcntl(descriptor, F_GETFD) != -1 || errno != EBADF) {
+			count++;
+		}
+	}
+	return count;
 }
 
 int main() {
-    assert(!FileSystem.inspectExact("/definitely/missing/btrc-entry").ok());
-    assert(FileSystem.inspectExact("/definitely/missing/btrc-entry")
-        .error().kind() == FS_NOT_FOUND);
+	assert(!FileSystem.inspectExact("/definitely/missing/btrc-entry").ok());
+	assert(FileSystem.inspectExact("/definitely/missing/btrc-entry").error().kind() == FS_NOT_FOUND);
 
-    TemporaryDirectoryOpenOutcome temporaryOpen =
-        FileSystem.createTemporaryDirectory("btrc_fs_handles_real");
-    assert(temporaryOpen.ok());
-    TemporaryDirectory temporary = temporaryOpen.directory();
-    string rootPath = temporary.path();
-    assert(FileSystem.isDir(rootPath));
+	TemporaryDirectoryOpenOutcome temporaryOpen = FileSystem.createTemporaryDirectory("btrc_fs_handles_real");
+	assert(temporaryOpen.ok());
+	TemporaryDirectory temporary = temporaryOpen.directory();
+	string rootPath = temporary.path();
+	assert(FileSystem.isDir(rootPath));
 
-    string filePath = PathTools.join(rootPath, "blob.bin");
-    Bytes payload = Bytes();
-    payload.append(65);
-    payload.append(0);
-    payload.append(66);
-    payload.append(67);
-    File writer = File(filePath, "wb");
-    assert(writer.ok());
-    assert(writer.writeBytes(payload));
-    assert(writer.close());
+	string filePath = PathTools.join(rootPath, "blob.bin");
+	Bytes payload = Bytes();
+	payload.append(65);
+	payload.append(0);
+	payload.append(66);
+	payload.append(67);
+	File writer = File(filePath, "wb");
+	assert(writer.ok());
+	assert(writer.writeBytes(payload));
+	assert(writer.close());
 
-    string childPath = PathTools.join(rootPath, "child");
-    assert(FileSystem.mkdir(childPath, 448) == 0);
-    assert(FileSystem.writeText(
-        PathTools.join(childPath, "nested.txt"), "nested"));
-    string linkPath = PathTools.join(rootPath, "blob-link");
-    assert(FileSystem.symlink(filePath, linkPath) == 0);
-    string racePath = PathTools.join(rootPath, "race.txt");
-    assert(FileSystem.writeText(racePath, "old race value"));
+	string childPath = PathTools.join(rootPath, "child");
+	assert(FileSystem.mkdir(childPath, 448) == 0);
+	assert(FileSystem.writeText(PathTools.join(childPath, "nested.txt"), "nested"));
+	string linkPath = PathTools.join(rootPath, "blob-link");
+	assert(FileSystem.symlink(filePath, linkPath) == 0);
+	string racePath = PathTools.join(rootPath, "race.txt");
+	assert(FileSystem.writeText(racePath, "old race value"));
 
-    FileSnapshotOutcome fileStatus = FileSystem.inspectExact(filePath);
-    assert(fileStatus.ok());
-    assert(fileStatus.snapshot().kind() == FILE_REGULAR);
-    FileSnapshotOutcome linkStatus = FileSystem.inspectExact(linkPath);
-    assert(linkStatus.ok());
-    assert(linkStatus.snapshot().kind() == FILE_SYMLINK);
-    assert(!FileSystem.openFileExact(linkPath).ok());
-    assert(FileSystem.openFileExact(linkPath).error().kind() == FS_SYMLINK);
-    assert(!FileSystem.openDirectoryExact(filePath).ok());
-    assert(FileSystem.openDirectoryExact(filePath).error().kind()
-        == FS_WRONG_TYPE);
+	FileSnapshotOutcome fileStatus = FileSystem.inspectExact(filePath);
+	assert(fileStatus.ok());
+	assert(fileStatus.snapshot().kind() == FILE_REGULAR);
+	FileSnapshotOutcome linkStatus = FileSystem.inspectExact(linkPath);
+	assert(linkStatus.ok());
+	assert(linkStatus.snapshot().kind() == FILE_SYMLINK);
+	assert(!FileSystem.openFileExact(linkPath).ok());
+	assert(FileSystem.openFileExact(linkPath).error().kind() == FS_SYMLINK);
+	assert(!FileSystem.openDirectoryExact(filePath).ok());
+	assert(FileSystem.openDirectoryExact(filePath).error().kind() == FS_WRONG_TYPE);
 
-    DirectoryOpenOutcome rootOpen =
-        FileSystem.openDirectoryExact(rootPath);
-    assert(rootOpen.ok());
-    DirectoryHandle root = rootOpen.directory();
-    assert(root.isOpen());
-    assert(root.snapshot().ok());
-    assert(root.snapshot().snapshot().sameObject(root.openedSnapshot()));
+	DirectoryOpenOutcome rootOpen = FileSystem.openDirectoryExact(rootPath);
+	assert(rootOpen.ok());
+	DirectoryHandle root = rootOpen.directory();
+	assert(root.isOpen());
+	assert(root.snapshot().ok());
+	assert(root.snapshot().snapshot().sameObject(root.openedSnapshot()));
 
-    DirectoryEntry? fileEntry = null;
-    DirectoryEntry? childEntry = null;
-    DirectoryEntry? linkEntry = null;
-    DirectoryEntry? raceEntry = null;
-    int entries = 0;
-    while (true) {
-        DirectoryStepOutcome step = root.next();
-        assert(step.ok());
-        if (step.kind() == DIRECTORY_STEP_END) { break; }
-        assert(step.kind() == DIRECTORY_STEP_ENTRY);
-        DirectoryEntry entry = step.entry();
-        assert(entry.belongsTo(root));
-        assert(!entry.name().equals("."));
-        assert(!entry.name().equals(".."));
-        if (entry.name().equals("blob.bin")) { fileEntry = entry; }
-        if (entry.name().equals("child")) { childEntry = entry; }
-        if (entry.name().equals("blob-link")) { linkEntry = entry; }
-        if (entry.name().equals("race.txt")) { raceEntry = entry; }
-        entries++;
-    }
-    assert(entries == 4);
-    assert(fileEntry != null);
-    assert(childEntry != null);
-    assert(linkEntry != null);
-    assert(raceEntry != null);
-    assert(root.next().kind() == DIRECTORY_STEP_END);
+	DirectoryEntry? fileEntry = null;
+	DirectoryEntry? childEntry = null;
+	DirectoryEntry? linkEntry = null;
+	DirectoryEntry? raceEntry = null;
+	int entries = 0;
+	while (true) {
+		DirectoryStepOutcome step = root.next();
+		assert(step.ok());
+		if (step.kind() == DIRECTORY_STEP_END) { break; }
+		assert(step.kind() == DIRECTORY_STEP_ENTRY);
+		DirectoryEntry entry = step.entry();
+		assert(entry.belongsTo(root));
+		assert(!entry.name().equals("."));
+		assert(!entry.name().equals(".."));
+		if (entry.name().equals("blob.bin")) { fileEntry = entry; }
+		if (entry.name().equals("child")) { childEntry = entry; }
+		if (entry.name().equals("blob-link")) { linkEntry = entry; }
+		if (entry.name().equals("race.txt")) { raceEntry = entry; }
+		entries++;
+	}
+	assert(entries == 4);
+	assert(fileEntry != null);
+	assert(childEntry != null);
+	assert(linkEntry != null);
+	assert(raceEntry != null);
+	assert(root.next().kind() == DIRECTORY_STEP_END);
 
-    DirectoryEntry regular = fileEntry;
-    FileOpenOutcome heldOpen = root.openFile(regular);
-    assert(heldOpen.ok());
-    FileHandle held = heldOpen.file();
-    assert(held.isOpen());
-    assert(held.snapshot().ok());
-    assert(held.snapshot().snapshot().sameVersion(held.openedSnapshot()));
-    FileReadOutcome first = held.readAt(0LL, 2);
-    assert(first.kind() == FILE_READ_DATA);
-    assert(first.bytes().length() == 2);
-    assert(first.bytes().get(0) == 65);
-    assert(first.bytes().get(1) == 0);
-    FileReadOutcome second = held.readAt(2LL, 64);
-    assert(second.kind() == FILE_READ_DATA);
-    assert(second.bytes().length() == 2);
-    assert(second.bytes().get(0) == 66);
-    assert(second.bytes().get(1) == 67);
-    assert(held.readAt(4LL, 1).kind() == FILE_READ_END);
-    assert(!held.readAt(-1LL, 1).ok());
-    assert(held.readAt(-1LL, 1).error().kind() == FS_INVALID_ARGUMENT);
+	DirectoryEntry regular = fileEntry;
+	FileOpenOutcome heldOpen = root.openFile(regular);
+	assert(heldOpen.ok());
+	FileHandle held = heldOpen.file();
+	assert(held.isOpen());
+	assert(held.snapshot().ok());
+	assert(held.snapshot().snapshot().sameVersion(held.openedSnapshot()));
+	FileReadOutcome first = held.readAt(0LL, 2);
+	assert(first.kind() == FILE_READ_DATA);
+	assert(first.bytes().length() == 2);
+	assert(first.bytes().get(0) == 65);
+	assert(first.bytes().get(1) == 0);
+	FileReadOutcome second = held.readAt(2LL, 64);
+	assert(second.kind() == FILE_READ_DATA);
+	assert(second.bytes().length() == 2);
+	assert(second.bytes().get(0) == 66);
+	assert(second.bytes().get(1) == 67);
+	assert(held.readAt(4LL, 1).kind() == FILE_READ_END);
+	assert(!held.readAt(-1LL, 1).ok());
+	assert(held.readAt(-1LL, 1).error().kind() == FS_INVALID_ARGUMENT);
 
-    DirectoryEntry child = childEntry;
-    DirectoryOpenOutcome childOpen = root.openDirectory(child);
-    assert(childOpen.ok());
-    DirectoryHandle childDirectory = childOpen.directory();
-    DirectoryStepOutcome nestedStep = childDirectory.next();
-    assert(nestedStep.kind() == DIRECTORY_STEP_ENTRY);
-    assert(nestedStep.entry().name().equals("nested.txt"));
-    assert(childDirectory.next().kind() == DIRECTORY_STEP_END);
-    assert(childDirectory.close().kind() == FS_CLOSED_NOW);
-    assert(childDirectory.close().kind() == FS_ALREADY_CLOSED);
+	DirectoryEntry child = childEntry;
+	DirectoryOpenOutcome childOpen = root.openDirectory(child);
+	assert(childOpen.ok());
+	DirectoryHandle childDirectory = childOpen.directory();
+	DirectoryStepOutcome nestedStep = childDirectory.next();
+	assert(nestedStep.kind() == DIRECTORY_STEP_ENTRY);
+	assert(nestedStep.entry().name().equals("nested.txt"));
+	assert(childDirectory.next().kind() == DIRECTORY_STEP_END);
+	assert(childDirectory.close().kind() == FS_CLOSED_NOW);
+	assert(childDirectory.close().kind() == FS_ALREADY_CLOSED);
 
-    DirectoryEntry symbolic = linkEntry;
-    assert(!root.openFile(symbolic).ok());
-    assert(root.openFile(symbolic).error().kind() == FS_SYMLINK);
+	DirectoryEntry symbolic = linkEntry;
+	assert(!root.openFile(symbolic).ok());
+	assert(root.openFile(symbolic).error().kind() == FS_SYMLINK);
 
-    string racedOriginal = PathTools.join(rootPath, "race-original.txt");
-    assert(rename(racePath, racedOriginal) == 0);
-    assert(FileSystem.symlink(filePath, racePath) == 0);
-    DirectoryEntry raced = raceEntry;
-    FileOpenOutcome racedOpen = root.openFile(raced);
-    assert(!racedOpen.ok());
-    assert(racedOpen.error().kind() == FS_CHANGED);
-    assert(!root.inspect(raced).ok());
-    assert(root.inspect(raced).error().kind() == FS_CHANGED);
+	string racedOriginal = PathTools.join(rootPath, "race-original.txt");
+	assert(rename(racePath, racedOriginal) == 0);
+	assert(FileSystem.symlink(filePath, racePath) == 0);
+	DirectoryEntry raced = raceEntry;
+	FileOpenOutcome racedOpen = root.openFile(raced);
+	assert(!racedOpen.ok());
+	assert(racedOpen.error().kind() == FS_CHANGED);
+	assert(!root.inspect(raced).ok());
+	assert(root.inspect(raced).error().kind() == FS_CHANGED);
 
-    string originalFile = PathTools.join(rootPath, "blob-original.bin");
-    assert(rename(filePath, originalFile) == 0);
-    assert(FileSystem.writeText(filePath, "replacement"));
-    assert(!root.inspect(regular).ok());
-    assert(root.inspect(regular).error().kind() == FS_CHANGED);
-    FileReadOutcome pinned = held.readAt(0LL, 4);
-    assert(pinned.kind() == FILE_READ_DATA);
-    assert(pinned.bytes().length() == 4);
-    assert(pinned.bytes().get(0) == 65);
-    assert(pinned.bytes().get(1) == 0);
-    assert(pinned.bytes().get(2) == 66);
-    assert(pinned.bytes().get(3) == 67);
+	string originalFile = PathTools.join(rootPath, "blob-original.bin");
+	assert(rename(filePath, originalFile) == 0);
+	assert(FileSystem.writeText(filePath, "replacement"));
+	assert(!root.inspect(regular).ok());
+	assert(root.inspect(regular).error().kind() == FS_CHANGED);
+	FileReadOutcome pinned = held.readAt(0LL, 4);
+	assert(pinned.kind() == FILE_READ_DATA);
+	assert(pinned.bytes().length() == 4);
+	assert(pinned.bytes().get(0) == 65);
+	assert(pinned.bytes().get(1) == 0);
+	assert(pinned.bytes().get(2) == 66);
+	assert(pinned.bytes().get(3) == 67);
 
-    DirectoryEntry forged = DirectoryEntry(
-        root,
-        "../escape",
-        "/definitely/not/authoritative",
-        regular.snapshot()
-    );
-    assert(!root.openFile(forged).ok());
-    assert(root.openFile(forged).error().kind() == FS_INVALID_ARGUMENT);
+	DirectoryEntry forged = DirectoryEntry(root, "../escape", "/definitely/not/authoritative", regular.snapshot());
+	assert(!root.openFile(forged).ok());
+	assert(root.openFile(forged).error().kind() == FS_INVALID_ARGUMENT);
 
-    int descriptorBaseline = openDescriptorCount();
-    for i in range(32) {
-        FileOpenOutcome repeatFile =
-            FileSystem.openFileExact(originalFile);
-        assert(repeatFile.ok());
-        assert(repeatFile.file().close().kind() == FS_CLOSED_NOW);
-        DirectoryOpenOutcome repeatDirectory =
-            FileSystem.openDirectoryExact(rootPath);
-        assert(repeatDirectory.ok());
-        assert(repeatDirectory.directory().close().kind() == FS_CLOSED_NOW);
-    }
-    assert(openDescriptorCount() == descriptorBaseline);
+	int descriptorBaseline = openDescriptorCount();
+	for i in range(32) {
+		FileOpenOutcome repeatFile = FileSystem.openFileExact(originalFile);
+		assert(repeatFile.ok());
+		assert(repeatFile.file().close().kind() == FS_CLOSED_NOW);
+		DirectoryOpenOutcome repeatDirectory = FileSystem.openDirectoryExact(rootPath);
+		assert(repeatDirectory.ok());
+		assert(repeatDirectory.directory().close().kind() == FS_CLOSED_NOW);
+	}
+	assert(openDescriptorCount() == descriptorBaseline);
 
-    DirectoryOpenOutcome cancelledOpen =
-        FileSystem.openDirectoryExact(rootPath);
-    assert(cancelledOpen.ok());
-    DirectoryHandle cancelled = cancelledOpen.directory();
-    DirectoryStepOutcome oneStep = cancelled.next();
-    assert(oneStep.kind() == DIRECTORY_STEP_ENTRY);
-    assert(cancelled.close().kind() == FS_CLOSED_NOW);
-    assert(openDescriptorCount() == descriptorBaseline);
+	DirectoryOpenOutcome cancelledOpen = FileSystem.openDirectoryExact(rootPath);
+	assert(cancelledOpen.ok());
+	DirectoryHandle cancelled = cancelledOpen.directory();
+	DirectoryStepOutcome oneStep = cancelled.next();
+	assert(oneStep.kind() == DIRECTORY_STEP_ENTRY);
+	assert(cancelled.close().kind() == FS_CLOSED_NOW);
+	assert(openDescriptorCount() == descriptorBaseline);
 
-    assert(held.close().kind() == FS_CLOSED_NOW);
-    assert(held.close().kind() == FS_ALREADY_CLOSED);
-    assert(!held.snapshot().ok());
-    assert(held.snapshot().error().kind() == FS_CLOSED);
-    assert(!held.readAt(0LL, 1).ok());
-    assert(held.readAt(0LL, 1).error().kind() == FS_CLOSED);
-    assert(root.close().kind() == FS_CLOSED_NOW);
-    assert(root.close().kind() == FS_ALREADY_CLOSED);
-    assert(root.next().kind() == DIRECTORY_STEP_FAILED);
-    assert(root.next().error().kind() == FS_CLOSED);
+	assert(held.close().kind() == FS_CLOSED_NOW);
+	assert(held.close().kind() == FS_ALREADY_CLOSED);
+	assert(!held.snapshot().ok());
+	assert(held.snapshot().error().kind() == FS_CLOSED);
+	assert(!held.readAt(0LL, 1).ok());
+	assert(held.readAt(0LL, 1).error().kind() == FS_CLOSED);
+	assert(root.close().kind() == FS_CLOSED_NOW);
+	assert(root.close().kind() == FS_ALREADY_CLOSED);
+	assert(root.next().kind() == DIRECTORY_STEP_FAILED);
+	assert(root.next().error().kind() == FS_CLOSED);
 
-    assert(temporary.close().kind() == FS_CLOSED_NOW);
-    assert(!FileSystem.exists(rootPath));
-    assert(temporary.close().kind() == FS_ALREADY_CLOSED);
+	assert(temporary.close().kind() == FS_CLOSED_NOW);
+	assert(!FileSystem.exists(rootPath));
+	assert(temporary.close().kind() == FS_ALREADY_CLOSED);
 
-    TemporaryDirectoryOpenOutcome replacedOpen =
-        FileSystem.createTemporaryDirectory("btrc_fs_handles_replaced");
-    assert(replacedOpen.ok());
-    TemporaryDirectory replaced = replacedOpen.directory();
-    string replacedPath = replaced.path();
-    string movedPath = replacedPath + ".moved";
-    string outside = FileSystem.tempDir("btrc_fs_handles_outside");
-    string outsideMarker = PathTools.join(outside, "must-survive.txt");
-    assert(FileSystem.writeText(outsideMarker, "safe"));
-    assert(rename(replacedPath, movedPath) == 0);
-    assert(FileSystem.symlink(outside, replacedPath) == 0);
-    FileSystemCloseOutcome replacedClose = replaced.close();
-    assert(replacedClose.kind() == FS_CLOSE_FAILED);
-    assert(replacedClose.error().kind() == FS_CHANGED);
-    assert(FileSystem.isSymlink(replacedPath));
-    assert(FileSystem.readText(outsideMarker).equals("safe"));
-    assert(replaced.close().kind() == FS_ALREADY_CLOSED);
-    assert(FileSystem.removeRecursive(replacedPath) == 0);
-    assert(FileSystem.removeRecursive(movedPath) == 0);
-    assert(FileSystem.removeRecursive(outside) == 0);
+	TemporaryDirectoryOpenOutcome replacedOpen = FileSystem.createTemporaryDirectory("btrc_fs_handles_replaced");
+	assert(replacedOpen.ok());
+	TemporaryDirectory replaced = replacedOpen.directory();
+	string replacedPath = replaced.path();
+	string movedPath = replacedPath + ".moved";
+	string outside = FileSystem.tempDir("btrc_fs_handles_outside");
+	string outsideMarker = PathTools.join(outside, "must-survive.txt");
+	assert(FileSystem.writeText(outsideMarker, "safe"));
+	assert(rename(replacedPath, movedPath) == 0);
+	assert(FileSystem.symlink(outside, replacedPath) == 0);
+	FileSystemCloseOutcome replacedClose = replaced.close();
+	assert(replacedClose.kind() == FS_CLOSE_FAILED);
+	assert(replacedClose.error().kind() == FS_CHANGED);
+	assert(FileSystem.isSymlink(replacedPath));
+	assert(FileSystem.readText(outsideMarker).equals("safe"));
+	assert(replaced.close().kind() == FS_ALREADY_CLOSED);
+	assert(FileSystem.removeRecursive(replacedPath) == 0);
+	assert(FileSystem.removeRecursive(movedPath) == 0);
+	assert(FileSystem.removeRecursive(outside) == 0);
 
-    print("PASS: real filesystem handle lifecycle and races");
-    return 0;
+	print("PASS: real filesystem handle lifecycle and races");
+	return 0;
 }

@@ -4,25 +4,25 @@
 #include <assert.h>
 
 int main() {
-    // Empty try + empty catch (nothing thrown).
-    try {} catch (string e) {}
+	// Empty try + empty catch (nothing thrown).
+	try {} catch (string e) {}
 
-    // Empty try + empty finally.
-    try {} finally {}
+	// Empty try + empty finally.
+	try {} finally {}
 
-    // Throw caught by an EMPTY catch body: control continues past it.
-    int reached = 0;
-    try {
-        throw "x";
-    } catch (string e) {}
-    reached = 1;             // reached only because the catch swallowed the throw
-    assert(reached == 1);
+	// Throw caught by an EMPTY catch body: control continues past it.
+	int reached = 0;
+	try {
+		throw "x";
+	} catch (string e) {}
+	reached = 1;             // reached only because the catch swallowed the throw
+	assert(reached == 1);
 
-    // Empty try with a finally that does the work.
-    int fin = 0;
-    try {} finally { fin = 1; }
-    assert(fin == 1);
+	// Empty try with a finally that does the work.
+	int fin = 0;
+	try {} finally { fin = 1; }
+	assert(fin == 1);
 
-    print("PASS: test_exceptions_empty_blocks");
-    return 0;
+	print("PASS: test_exceptions_empty_blocks");
+	return 0;
 }

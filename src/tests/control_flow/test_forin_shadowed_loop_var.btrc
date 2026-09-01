@@ -6,20 +6,20 @@
 #include <assert.h>
 
 int main() {
-    int total = 0;
-    int outerSum = 0;
-    for i in range(3) {           // outer i = 0, 1, 2
-        for i in range(2) {       // inner i = 0, 1 (shadows outer)
-            total += i;           // (0 + 1) per outer iter
-        }
-        total += 100;             // 100 per outer iter
-        outerSum += i;            // outer i must be restored: 0 + 1 + 2
-    }
-    // inner contributes (0+1) * 3 = 3, plus 100 * 3 = 300 -> total 303
-    assert(total == 303);
-    // outer i visible/correct after each inner loop -> 0+1+2 = 3
-    assert(outerSum == 3);
+	int total = 0;
+	int outerSum = 0;
+	for i in range(3) {           // outer i = 0, 1, 2
+		for i in range(2) {       // inner i = 0, 1 (shadows outer)
+			total += i;           // (0 + 1) per outer iter
+		}
+		total += 100;             // 100 per outer iter
+		outerSum += i;            // outer i must be restored: 0 + 1 + 2
+	}
+	// inner contributes (0+1) * 3 = 3, plus 100 * 3 = 300 -> total 303
+	assert(total == 303);
+	// outer i visible/correct after each inner loop -> 0+1+2 = 3
+	assert(outerSum == 3);
 
-    print("PASS: test_forin_shadowed_loop_var");
-    return 0;
+	print("PASS: test_forin_shadowed_loop_var");
+	return 0;
 }

@@ -1,30 +1,26 @@
 #include <assert.h>
 
-int mix(int a, int b = 2, int c = 3) {
-    return a + b * 10 + c * 100;
-}
+int mix(int a, int b = 2, int c = 3) { return a + b * 10 + c * 100; }
 
 class Rect {
-    public int w;
-    public int h;
+	public int w;
+	public int h;
 
-    public Rect(int w = 100, int h = 50) {
-        self.w = w;
-        self.h = h;
-    }
+	public Rect(int w = 100, int h = 50) {
+		self.w = w;
+		self.h = h;
+	}
 
-    public int area(int scale = 1, int bonus = 0) {
-        return self.w * self.h * scale + bonus;
-    }
+	public int area(int scale = 1, int bonus = 0) { return self.w * self.h * scale + bonus; }
 }
 
 int main() {
-    assert(mix(1, c=4) == 421);
-    assert(mix(c=5, a=6, b=7) == 576);
+	assert(mix(1, c=4) == 421);
+	assert(mix(c=5, a=6, b=7) == 576);
 
-    Rect rect = new Rect(h=7, w=3);
-    assert(rect.area(bonus=1, scale=2) == 43);
+	Rect rect = new Rect(h=7, w=3);
+	assert(rect.area(bonus=1, scale=2) == 43);
 
-    print("PASS: test_named_args");
-    return 0;
+	print("PASS: test_named_args");
+	return 0;
 }

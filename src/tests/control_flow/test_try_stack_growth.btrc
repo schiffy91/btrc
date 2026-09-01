@@ -1,20 +1,20 @@
 #include <assert.h>
 
 int nestedTry(int depth) {
-    int value = 0;
-    try {
-        if (depth == 0) {
-            throw "bottom";
-        }
-        value = nestedTry(depth - 1) + 1;
-    } catch (string error) {
-        value = 1;
-    }
-    return value;
+	int value = 0;
+	try {
+		if (depth == 0) {
+			throw "bottom";
+		}
+		value = nestedTry(depth - 1) + 1;
+	} catch (string error) {
+		value = 1;
+	}
+	return value;
 }
 
 int main() {
-    assert(nestedTry(80) == 81);
-    print("PASS: try_stack_growth");
-    return 0;
+	assert(nestedTry(80) == 81);
+	print("PASS: try_stack_growth");
+	return 0;
 }

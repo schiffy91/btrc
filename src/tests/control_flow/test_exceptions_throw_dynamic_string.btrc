@@ -3,25 +3,23 @@
  * to the throw machinery; literal-only throws dominate the corpus. */
 #include <assert.h>
 
-string build(string base) {
-    return base + "!";
-}
+string build(string base) { return base + "!"; }
 
 int main() {
-    // throw a variable
-    string m = "dyn";
-    try { throw m; } catch (string e) { assert(e.equals("dyn")); }
+	// throw a variable
+	string m = "dyn";
+	try { throw m; } catch (string e) { assert(e.equals("dyn")); }
 
-    // throw an f-string
-    int n = 42;
-    try { throw f"n={n}"; } catch (string e) { assert(e.equals("n=42")); }
+	// throw an f-string
+	int n = 42;
+	try { throw f"n={n}"; } catch (string e) { assert(e.equals("n=42")); }
 
-    // throw a function-call result
-    try { throw build("hi"); } catch (string e) { assert(e.equals("hi!")); }
+	// throw a function-call result
+	try { throw build("hi"); } catch (string e) { assert(e.equals("hi!")); }
 
-    // throw a string concatenation expression
-    try { throw "a" + "b" + "c"; } catch (string e) { assert(e.equals("abc")); }
+	// throw a string concatenation expression
+	try { throw "a" + "b" + "c"; } catch (string e) { assert(e.equals("abc")); }
 
-    print("PASS: test_exceptions_throw_dynamic_string");
-    return 0;
+	print("PASS: test_exceptions_throw_dynamic_string");
+	return 0;
 }

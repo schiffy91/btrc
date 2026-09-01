@@ -3,19 +3,19 @@
 // Writing to a rich enum payload field in place (mutating the union member
 // after construction), exercising IRFieldAccess as an lvalue through the union.
 enum class Counter {
-    Count(int n)
+	Count(int n)
 }
 
 int main() {
-    Counter c = Counter.Count(5);
-    assert(c.data.Count.n == 5);
+	Counter c = Counter.Count(5);
+	assert(c.data.Count.n == 5);
 
-    c.data.Count.n = 10;
-    assert(c.data.Count.n == 10);
+	c.data.Count.n = 10;
+	assert(c.data.Count.n == 10);
 
-    c.data.Count.n = c.data.Count.n + 1;
-    assert(c.data.Count.n == 11);
+	c.data.Count.n = c.data.Count.n + 1;
+	assert(c.data.Count.n == 11);
 
-    print("PASS: test_rich_enum_payload_mutation");
-    return 0;
+	print("PASS: test_rich_enum_payload_mutation");
+	return 0;
 }

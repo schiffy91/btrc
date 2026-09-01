@@ -1,6 +1,6 @@
-#include <assert.h>
-
 import std.vector;
+
+#include <assert.h>
 
 extern void arc_test_allocation_checkpoint();
 extern long arc_test_allocation_delta();
@@ -12,135 +12,135 @@ int cleanupBombsAlive = 0;
 int cleanupBombsDestroyed = 0;
 
 class ExceptionToken {
-    public int value;
+	public int value;
 
-    public ExceptionToken(int value) {
-        self.value = value;
-        exceptionTokensAlive++;
-    }
+	public ExceptionToken(int value) {
+		self.value = value;
+		exceptionTokensAlive++;
+	}
 
-    public void __del__() {
-        exceptionTokensAlive--;
-        exceptionTokensDestroyed++;
-    }
+	public void __del__() {
+		exceptionTokensAlive--;
+		exceptionTokensDestroyed++;
+	}
 
-    public string toString() {
-        exceptionRenderCalls++;
-        return self.value.toString();
-    }
+	public string toString() {
+		exceptionRenderCalls++;
+		return self.value.toString();
+	}
 }
 
 class StringCleanupBomb {
-    public string message;
+	public string message;
 
-    public StringCleanupBomb(string message) {
-        self.message = message;
-        cleanupBombsAlive++;
-    }
+	public StringCleanupBomb(string message) {
+		self.message = message;
+		cleanupBombsAlive++;
+	}
 
-    public void __del__() {
-        cleanupBombsAlive--;
-        cleanupBombsDestroyed++;
-        throw self.message;
-    }
+	public void __del__() {
+		cleanupBombsAlive--;
+		cleanupBombsDestroyed++;
+		throw self.message;
+	}
 }
 
 ExceptionToken throwLaterToken() { throw "later operand"; }
 
 string returnConvertedBeforeCleanupFailure(int value) {
-    StringCleanupBomb bomb = new StringCleanupBomb("return cleanup");
-    return new ExceptionToken(value);
+	StringCleanupBomb bomb = new StringCleanupBomb("return cleanup");
+	return new ExceptionToken(value);
 }
 
 string returnFStringBeforeCleanupFailure(int value) {
-    StringCleanupBomb bomb = new StringCleanupBomb("fstring cleanup");
-    return f"allocated-{value}";
+	StringCleanupBomb bomb = new StringCleanupBomb("fstring cleanup");
+	return f"allocated-{value}";
 }
 
 void exercisePrintFailure(int base) {
-    bool caught = false;
-    try {
-        print(new ExceptionToken(base), throwLaterToken());
-        assert(false);
-    } catch (string error) {
-        caught = error.equals("later operand");
-    }
-    assert(caught);
+	bool caught = false;
+	try {
+		print(new ExceptionToken(base), throwLaterToken());
+		assert(false);
+	} catch (string error) {
+		caught = error.equals("later operand");
+	}
+	assert(caught);
 }
 
 void exerciseFStringFailure(int base) {
-    bool caught = false;
-    try {
-        string value = f"{new ExceptionToken(base)}-{throwLaterToken()}";
-        assert(value == "unreachable");
-    } catch (string error) {
-        caught = error.equals("later operand");
-    }
-    assert(caught);
+	bool caught = false;
+	try {
+		string value = f"{new ExceptionToken(base)}-{throwLaterToken()}";
+		assert(value == "unreachable");
+	} catch (string error) {
+		caught = error.equals("later operand");
+	}
+	assert(caught);
 }
 
 void exerciseCollectionFailure(int base) {
-    bool caught = false;
-    try {
-        Vector<string> values = [
-            new ExceptionToken(base),
-            throwLaterToken(),
-        ];
-        assert(values.len == 2);
-    } catch (string error) {
-        caught = error.equals("later operand");
-    }
-    assert(caught);
+	bool caught = false;
+	try {
+		Vector<string> values = [
+			new ExceptionToken(base),
+			throwLaterToken(),
+		];
+		assert(values.len == 2);
+	} catch (string error) {
+		caught = error.equals("later operand");
+	}
+	assert(caught);
 }
 
 void exerciseReturnCleanupFailures(int base) {
-    bool caughtReturn = false;
-    try {
-        string value = returnConvertedBeforeCleanupFailure(base);
-        assert(value == "unreachable");
-    } catch (string error) {
-        caughtReturn = error.equals("return cleanup");
-    }
-    assert(caughtReturn);
+	bool caughtReturn = false;
+	try {
+		string value = returnConvertedBeforeCleanupFailure(base);
+		assert(value == "unreachable");
+	} catch (string error) {
+		caughtReturn = error.equals("return cleanup");
+	}
+	assert(caughtReturn);
 
-    bool caughtFString = false;
-    try {
-        string value = returnFStringBeforeCleanupFailure(base + 1);
-        assert(value == "unreachable");
-    } catch (string error) {
-        caughtFString = error.equals("fstring cleanup");
-    }
-    assert(caughtFString);
+	bool caughtFString = false;
+	try {
+		string value = returnFStringBeforeCleanupFailure(base + 1);
+		assert(value == "unreachable");
+	} catch (string error) {
+		caughtFString = error.equals("fstring cleanup");
+	}
+	assert(caughtFString);
 }
 
 void exerciseStringExceptionTargets(int base) {
-    int calls = exceptionRenderCalls;
-    int tokensDestroyed = exceptionTokensDestroyed;
-    int bombsDestroyed = cleanupBombsDestroyed;
+	int calls = exceptionRenderCalls;
+	int tokensDestroyed = exceptionTokensDestroyed;
+	int bombsDestroyed = cleanupBombsDestroyed;
 
-    exercisePrintFailure(base);
-    exerciseFStringFailure(base + 1);
-    exerciseCollectionFailure(base + 2);
-    exerciseReturnCleanupFailures(base + 3);
+	exercisePrintFailure(base);
+	exerciseFStringFailure(base + 1);
+	exerciseCollectionFailure(base + 2);
+	exerciseReturnCleanupFailures(base + 3);
 
-    assert(exceptionRenderCalls == calls + 4);
-    assert(exceptionTokensAlive == 0);
-    assert(exceptionTokensDestroyed == tokensDestroyed + 4);
-    assert(cleanupBombsAlive == 0);
-    assert(cleanupBombsDestroyed == bombsDestroyed + 2);
+	assert(exceptionRenderCalls == calls + 4);
+	assert(exceptionTokensAlive == 0);
+	assert(exceptionTokensDestroyed == tokensDestroyed + 4);
+	assert(cleanupBombsAlive == 0);
+	assert(cleanupBombsDestroyed == bombsDestroyed + 2);
 }
 
 int main() {
-    exerciseStringExceptionTargets(1000);
-    assert(exceptionRenderCalls == 4);
-    assert(exceptionTokensDestroyed == 4);
-    assert(cleanupBombsDestroyed == 2);
+	exerciseStringExceptionTargets(1000);
+	assert(exceptionRenderCalls == 4);
+	assert(exceptionTokensDestroyed == 4);
+	assert(cleanupBombsDestroyed == 2);
 
-    arc_test_allocation_checkpoint();
-    exerciseStringExceptionTargets(2000);
-    assert(exceptionRenderCalls == 8);
-    assert(exceptionTokensDestroyed == 8);
-    assert(cleanupBombsDestroyed == 4);
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	arc_test_allocation_checkpoint();
+	exerciseStringExceptionTargets(2000);
+	assert(exceptionRenderCalls == 8);
+	assert(exceptionTokensDestroyed == 8);
+	assert(cleanupBombsDestroyed == 4);
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

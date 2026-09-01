@@ -5,30 +5,26 @@
 #include <assert.h>
 
 class C {
-    public int x;
-    public C(int x) {
-        self.x = x;
-    }
-    public C __add__(int v) {
-        return C(self.x + v);
-    }
-    public bool __eq__(int v) {
-        return self.x == v;
-    }
+	public int x;
+	public C(int x) { self.x = x; }
+
+	public C __add__(int v) { return C(self.x + v); }
+
+	public bool __eq__(int v) { return self.x == v; }
 }
 
 int main() {
-    C a = C(5);
+	C a = C(5);
 
-    // Equality against a primitive RHS.
-    assert(a == 5);
-    assert(!(a == 4));
+	// Equality against a primitive RHS.
+	assert(a == 5);
+	assert(!(a == 4));
 
-    // Addition with a primitive RHS yields a new object.
-    C b = a + 3;
-    assert(b.x == 8);
-    assert(b == 8);
+	// Addition with a primitive RHS yields a new object.
+	C b = a + 3;
+	assert(b.x == 8);
+	assert(b == 8);
 
-    print("PASS: test_operator_overload_scalar_rhs");
-    return 0;
+	print("PASS: test_operator_overload_scalar_rhs");
+	return 0;
 }

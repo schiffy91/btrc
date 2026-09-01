@@ -4,14 +4,14 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    Vector<int> xs = [1, 2];
-    Map<string, int> m = {};
-    m.put("a", 1);
-    (Vector<int>, Map<string, int>) t = (xs, m);
-    Vector<int> v = t._0;
-    assert(v.size() == 2);
-    Map<string, int> mm = t._1;
-    assert(mm.get("a") == 1);
-    print("PASS: test_tuple_of_generics");
-    return 0;
+	Vector<int> xs = [1, 2];
+	Map<string, int> m = {};
+	m.put("a", 1);
+	(Vector<int>, Map<string, int>) t = (xs, m);
+	Vector<int> v = t._0;
+	assert(v.size() == 2);
+	Map<string, int> mm = t._1;
+	assert(mm.get("a") == 1);
+	print("PASS: test_tuple_of_generics");
+	return 0;
 }

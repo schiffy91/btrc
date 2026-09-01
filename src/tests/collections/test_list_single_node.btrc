@@ -7,30 +7,30 @@ import std.list;
 #include <stdio.h>
 
 int main() {
-    List<int> l = new List<int>();
+	List<int> l = new List<int>();
 
-    /* push one, pop from back -> empty, head=tail=null */
-    l.pushBack(5);
-    assert(l.size() == 1);
-    assert(l.popBack() == 5);
-    assert(l.isEmpty());
-    assert(l.size() == 0);
+	/* push one, pop from back -> empty, head=tail=null */
+	l.pushBack(5);
+	assert(l.size() == 1);
+	assert(l.popBack() == 5);
+	assert(l.isEmpty());
+	assert(l.size() == 0);
 
-    /* push one via front, pop from front -> empty again */
-    l.pushFront(7);
-    assert(l.front() == 7);
-    assert(l.back() == 7);
-    assert(l.popFront() == 7);
-    assert(l.size() == 0);
-    assert(l.isEmpty());
+	/* push one via front, pop from front -> empty again */
+	l.pushFront(7);
+	assert(l.front() == 7);
+	assert(l.back() == 7);
+	assert(l.popFront() == 7);
+	assert(l.size() == 0);
+	assert(l.isEmpty());
 
-    /* push one again: head and tail must both point at the lone node */
-    l.pushBack(9);
-    assert(l.front() == 9);
-    assert(l.back() == 9);
-    assert(l.size() == 1);
+	/* push one again: head and tail must both point at the lone node */
+	l.pushBack(9);
+	assert(l.front() == 9);
+	assert(l.back() == 9);
+	assert(l.size() == 1);
 
-    l.free();
-    printf("PASS: test_list_single_node\n");
-    return 0;
+	l.free();
+	printf("PASS: test_list_single_node\n");
+	return 0;
 }

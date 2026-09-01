@@ -4,52 +4,50 @@
 #include <assert.h>
 
 double scaleBy(int x, bool round = false, double factor = 2.5) {
-    double v = x * factor;
-    if (round) {
-        // bool default of true bumps the result by 1.0
-        v = v + 1.0;
-    }
-    return v;
+	double v = x * factor;
+	if (round) {
+		// bool default of true bumps the result by 1.0
+		v = v + 1.0;
+	}
+	return v;
 }
 
 class Toggle {
-    public int state;
+	public int state;
 
-    public Toggle() {
-        self.state = 0;
-    }
+	public Toggle() { self.state = 0; }
 
-    // bool default true: by default we flip ON (add `by`); on=false subtracts.
-    public int flip(int by, bool on = true) {
-        if (on) {
-            self.state = self.state + by;
-        } else {
-            self.state = self.state - by;
-        }
-        return self.state;
-    }
+	// bool default true: by default we flip ON (add `by`); on=false subtracts.
+	public int flip(int by, bool on = true) {
+		if (on) {
+			self.state = self.state + by;
+		} else {
+			self.state = self.state - by;
+		}
+		return self.state;
+	}
 }
 
 int main() {
-    // both defaults used: 4 * 2.5 = 10.0, round=false -> no bump
-    assert(scaleBy(4) == 10.0);
-    // round overridden positionally to true: 3 * 2.5 = 7.5, +1.0 = 8.5
-    assert(scaleBy(3, true) == 8.5);
-    // all overridden: 4 * 1.5 = 6.0, round=false
-    assert(scaleBy(4, false, 1.5) == 6.0);
-    // defaulted double skipped via named bool override
-    assert(scaleBy(2, round = true) == 6.0);
+	// both defaults used: 4 * 2.5 = 10.0, round=false -> no bump
+	assert(scaleBy(4) == 10.0);
+	// round overridden positionally to true: 3 * 2.5 = 7.5, +1.0 = 8.5
+	assert(scaleBy(3, true) == 8.5);
+	// all overridden: 4 * 1.5 = 6.0, round=false
+	assert(scaleBy(4, false, 1.5) == 6.0);
+	// defaulted double skipped via named bool override
+	assert(scaleBy(2, round = true) == 6.0);
 
-    Toggle t = new Toggle();
-    // bool default true -> add 5
-    assert(t.flip(5) == 5);
-    assert(t.state == 5);
-    // bool default skipped via named arg on=false -> subtract 2
-    assert(t.flip(2, on = false) == 3);
-    assert(t.state == 3);
+	Toggle t = new Toggle();
+	// bool default true -> add 5
+	assert(t.flip(5) == 5);
+	assert(t.state == 5);
+	// bool default skipped via named arg on=false -> subtract 2
+	assert(t.flip(2, on = false) == 3);
+	assert(t.state == 3);
 
-    delete t;
+	delete t;
 
-    print("PASS: test_default_param_bool_double");
-    return 0;
+	print("PASS: test_default_param_bool_double");
+	return 0;
 }

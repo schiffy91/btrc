@@ -4,26 +4,28 @@
 #include <assert.h>
 
 class Box<T> {
-    public T v;
-    public Box(T v) { self.v = v; }
-    public Box<T> __add__(Box<T> o) { return Box(self.v + o.v); }
-    public bool __eq__(Box<T> o) { return self.v == o.v; }
+	public T v;
+	public Box(T v) { self.v = v; }
+
+	public Box<T> __add__(Box<T> o) { return Box(self.v + o.v); }
+
+	public bool __eq__(Box<T> o) { return self.v == o.v; }
 }
 
 int main() {
-    Box<int> ai = Box(1);
-    Box<int> bi = Box(2);
-    Box<int> ci = ai + bi;
-    assert(ci.v == 3);
+	Box<int> ai = Box(1);
+	Box<int> bi = Box(2);
+	Box<int> ci = ai + bi;
+	assert(ci.v == 3);
 
-    Box<int> three = Box(3);
-    assert(ci == three);
+	Box<int> three = Box(3);
+	assert(ci == three);
 
-    Box<double> ad = Box(1.5);
-    Box<double> bd = Box(2.25);
-    Box<double> cd = ad + bd;
-    assert(cd.v > 3.74 && cd.v < 3.76);
+	Box<double> ad = Box(1.5);
+	Box<double> bd = Box(2.25);
+	Box<double> cd = ad + bd;
+	assert(cd.v > 3.74 && cd.v < 3.76);
 
-    print("PASS: test_generic_operator_overload");
-    return 0;
+	print("PASS: test_generic_operator_overload");
+	return 0;
 }

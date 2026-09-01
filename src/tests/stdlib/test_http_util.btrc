@@ -10,70 +10,70 @@ import std.map;
 #include <assert.h>
 
 int main() {
-    // --- urlDecode: %XX hex and '+' -> space ---
-    assert(HttpServer.urlDecode("a%20b+c").equals("a b c"));
-    assert(HttpServer.urlDecode("hello").equals("hello"));          // no escapes
-    assert(HttpServer.urlDecode("100%25").equals("100%"));          // %25 -> '%'
-    assert(HttpServer.urlDecode("%2Fpath%2Fto").equals("/path/to"));// %2F -> '/'
-    assert(HttpServer.urlDecode("a%2gb").equals("a%2gb"));          // bad hex: verbatim
-    assert(HttpServer.urlDecode("trail%").equals("trail%"));        // dangling %: verbatim
-    assert(HttpServer.urlDecode("").equals(""));                    // empty
+	// --- urlDecode: %XX hex and '+' -> space ---
+	assert(HttpServer.urlDecode("a%20b+c").equals("a b c"));
+	assert(HttpServer.urlDecode("hello").equals("hello"));          // no escapes
+	assert(HttpServer.urlDecode("100%25").equals("100%"));          // %25 -> '%'
+	assert(HttpServer.urlDecode("%2Fpath%2Fto").equals("/path/to"));// %2F -> '/'
+	assert(HttpServer.urlDecode("a%2gb").equals("a%2gb"));          // bad hex: verbatim
+	assert(HttpServer.urlDecode("trail%").equals("trail%"));        // dangling %: verbatim
+	assert(HttpServer.urlDecode("").equals(""));                    // empty
 
-    // --- urlEncode: unreserved pass through, everything else %XX, space -> %20 ---
-    assert(HttpServer.urlEncode("a b c").equals("a%20b%20c"));
-    assert(HttpServer.urlEncode("safe-_.~").equals("safe-_.~"));    // unreserved set
-    assert(HttpServer.urlEncode("a/b?c=d").equals("a%2Fb%3Fc%3Dd"));// reserved encoded
+	// --- urlEncode: unreserved pass through, everything else %XX, space -> %20 ---
+	assert(HttpServer.urlEncode("a b c").equals("a%20b%20c"));
+	assert(HttpServer.urlEncode("safe-_.~").equals("safe-_.~"));    // unreserved set
+	assert(HttpServer.urlEncode("a/b?c=d").equals("a%2Fb%3Fc%3Dd"));// reserved encoded
 
-    // --- urlEncode -> urlDecode round-trips back to the original ---
-    string original = "name=Ann & Bob/100% done?";
-    string encoded = HttpServer.urlEncode(original);
-    assert(HttpServer.urlDecode(encoded).equals(original));
+	// --- urlEncode -> urlDecode round-trips back to the original ---
+	string original = "name=Ann & Bob/100% done?";
+	string encoded = HttpServer.urlEncode(original);
+	assert(HttpServer.urlDecode(encoded).equals(original));
 
-    // --- reason() phrase table ---
-    HttpServer parser = HttpServer(0);
-    assert(parser.reason(200).equals("OK"));
-    assert(parser.reason(201).equals("Created"));
-    assert(parser.reason(301).equals("Moved Permanently"));
-    assert(parser.reason(302).equals("Found"));                     // was buggy "OK"
-    assert(parser.reason(404).equals("Not Found"));
-    assert(parser.reason(500).equals("Internal Server Error"));
-    assert(parser.reason(503).equals("Service Unavailable"));
-    assert(parser.reason(418).equals("Client Error"));             // unknown 4xx -> generic
-    assert(parser.reason(999).equals(""));                         // out of range -> empty
+	// --- reason() phrase table ---
+	HttpServer parser = HttpServer(0);
+	assert(parser.reason(200).equals("OK"));
+	assert(parser.reason(201).equals("Created"));
+	assert(parser.reason(301).equals("Moved Permanently"));
+	assert(parser.reason(302).equals("Found"));                     // was buggy "OK"
+	assert(parser.reason(404).equals("Not Found"));
+	assert(parser.reason(500).equals("Internal Server Error"));
+	assert(parser.reason(503).equals("Service Unavailable"));
+	assert(parser.reason(418).equals("Client Error"));             // unknown 4xx -> generic
+	assert(parser.reason(999).equals(""));                         // out of range -> empty
 
-    // --- decodeChunked: single chunk ---
-    // "5\r\nhello\r\n0\r\n\r\n" assembles to "hello".
-    string oneChunk = "5\r\nhello\r\n0\r\n\r\n";
-    assert(HttpServer.decodeChunked(oneChunk).equals("hello"));
+	// --- decodeChunked: single chunk ---
+	// "5\r\nhello\r\n0\r\n\r\n" assembles to "hello".
+	string oneChunk = "5\r\nhello\r\n0\r\n\r\n";
+	assert(HttpServer.decodeChunked(oneChunk).equals("hello"));
 
-    // --- decodeChunked: multiple chunks concatenate in order ---
-    // "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n" -> "Hello World".
-    string multi = "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";
-    assert(HttpServer.decodeChunked(multi).equals("Hello World"));
+	// --- decodeChunked: multiple chunks concatenate in order ---
+	// "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n" -> "Hello World".
+	string multi = "5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";
+	assert(HttpServer.decodeChunked(multi).equals("Hello World"));
 
-    // --- decodeChunked: hex size > 9 and a chunk extension are handled ---
-    // 0x10 = 16 bytes "0123456789ABCDEF", with ";ext" after the size.
-    string hexSize = "10;name=val\r\n0123456789ABCDEF\r\n0\r\n\r\n";
-    assert(HttpServer.decodeChunked(hexSize).equals("0123456789ABCDEF"));
+	// --- decodeChunked: hex size > 9 and a chunk extension are handled ---
+	// 0x10 = 16 bytes "0123456789ABCDEF", with ";ext" after the size.
+	string hexSize = "10;name=val\r\n0123456789ABCDEF\r\n0\r\n\r\n";
+	assert(HttpServer.decodeChunked(hexSize).equals("0123456789ABCDEF"));
 
-    // --- decodeChunked: empty body / terminating chunk only -> "" ---
-    assert(HttpServer.decodeChunked("0\r\n\r\n").equals(""));
+	// --- decodeChunked: empty body / terminating chunk only -> "" ---
+	assert(HttpServer.decodeChunked("0\r\n\r\n").equals(""));
 
-    // --- end-to-end: a chunked request parses to the assembled body ---
-    string chunkedReq = "POST /u HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";
-    HttpRequest req = parser.parse(chunkedReq);
-    assert(req.method.equals("POST"));
-    assert(req.path.equals("/u"));
-    assert(req.body.equals("Hello World"));                        // decoded, not raw
+	// --- end-to-end: a chunked request parses to the assembled body ---
+	string chunkedReq = "POST /u HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nHello\r\n6\r\n World\r\n0\r\n\r\n";
+	HttpRequest req = parser.parse(chunkedReq);
+	assert(req.method.equals("POST"));
+	assert(req.path.equals("/u"));
+	assert(req.body.equals("Hello World"));                        // decoded, not raw
 
-    // --- queryParams: split + per-value percent-decode (query stays raw) ---
-    HttpRequest q = parser.parse("GET /s?q=hello%20world&n=42&flag HTTP/1.1\r\nHost: a\r\n\r\n");
-    assert(q.query.equals("q=hello%20world&n=42&flag"));           // raw preserved
-    Map<string, string> params = q.queryParams();
-    assert(params.get("q").equals("hello world"));                 // decoded value
-    assert(params.get("n").equals("42"));
-    assert(params.get("flag").equals(""));                         // bare key -> ""
+	// --- queryParams: split + per-value percent-decode (query stays raw) ---
+	HttpRequest q = parser.parse("GET /s?q=hello%20world&n=42&flag HTTP/1.1\r\nHost: a\r\n\r\n");
+	assert(q.query.equals("q=hello%20world&n=42&flag"));           // raw preserved
+	Map<string, string> params = q.queryParams();
+	assert(params.get("q").equals("hello world"));                 // decoded value
+	assert(params.get("n").equals("42"));
+	assert(params.get("flag").equals(""));                         // bare key -> ""
 
-    print("PASS");
-    return 0;
+	print("PASS");
+	return 0;
 }

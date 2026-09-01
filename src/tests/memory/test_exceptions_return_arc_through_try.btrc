@@ -9,32 +9,33 @@
 int alive = 0;
 
 class R {
-    public int v;
-    public R(int v) { self.v = v; alive = alive + 1; }
-    public void __del__() { alive = alive - 1; }
+	public int v;
+	public R(int v) { self.v = v; alive = alive + 1; }
+
+	public void __del__() { alive = alive - 1; }
 }
 
 R make(bool fail) {
-    try {
-        R r = new R(1);
-        if (fail) { throw "fail"; }
-        return r;            // returned out of the try on the success path
-    } catch (string e) {
-        return new R(2);     // returned out of the catch on the failure path
-    }
+	try {
+		R r = new R(1);
+		if (fail) { throw "fail"; }
+		return r;            // returned out of the try on the success path
+	} catch (string e) {
+		return new R(2);     // returned out of the catch on the failure path
+	}
 }
 
 int main() {
-    R ok = make(false);
-    assert(ok.v == 1);
-    delete ok;
+	R ok = make(false);
+	assert(ok.v == 1);
+	delete ok;
 
-    R recovered = make(true);
-    assert(recovered.v == 2);
-    delete recovered;
+	R recovered = make(true);
+	assert(recovered.v == 2);
+	delete recovered;
 
-    assert(alive == 0);      // no leak on either path
+	assert(alive == 0);      // no leak on either path
 
-    print("PASS: test_exceptions_return_arc_through_try");
-    return 0;
+	print("PASS: test_exceptions_return_arc_through_try");
+	return 0;
 }

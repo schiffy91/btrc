@@ -1,22 +1,13 @@
 #include <assert.h>
 #include <fake_app_gpu_runtime.h>
-
 import ../../../stdlib/app/app.btrc;
 import ../../../stdlib/gpu/gpu.btrc;
 
 void fake_platform_reset();
-void fake_platform_push_pointer(
-    int action, int button, float x, float y, int modifiers);
+void fake_platform_push_pointer(int action, int button, float x, float y, int modifiers);
 void fake_platform_push_keyboard(int action, int key, int modifiers);
 void fake_platform_push_text(string text);
-void fake_platform_push_surface(
-    int kind,
-    int logicalWidth,
-    int logicalHeight,
-    int framebufferWidth,
-    int framebufferHeight,
-    float scaleX,
-    float scaleY);
+void fake_platform_push_surface(int kind, int logicalWidth, int logicalHeight, int framebufferWidth, int framebufferHeight, float scaleX, float scaleY);
 void fake_platform_push_close();
 void fake_platform_expire_surface(unsigned long long surface);
 void fake_gpu_fail_next_attach(int status);
@@ -24,8 +15,7 @@ void fake_gpu_malformed_next_attach(int status, int publishHandle);
 void fake_gpu_set_next_frame(int status);
 void fake_gpu_set_next_draw(int status);
 void fake_gpu_set_device_lost(int lost);
-void fake_gpu_set_next_resource_result(
-    int status, int publishIdentity, int publishReceipt);
+void fake_gpu_set_next_resource_result(int status, int publishIdentity, int publishReceipt);
 string fake_platform_lifecycle();
 int fake_platform_live_resources();
 void fake_platform_worker_hold();
@@ -33,496 +23,476 @@ void fake_platform_wait_worker_ready();
 void fake_platform_release_worker();
 
 ApplicationWindow openedWindow(Application application) {
-    AppWindowOpenOutcome opened = application.openWindow(
-        new AppWindowDescriptor("conformance", 64, 40));
-    assert(opened.kind == APP_WINDOW_OPENED);
-    ApplicationWindow? window = opened.window;
-    assert(window != null);
-    return window;
+	AppWindowOpenOutcome opened = application.openWindow(new AppWindowDescriptor("conformance", 64, 40));
+	assert(opened.kind == APP_WINDOW_OPENED);
+	ApplicationWindow? window = opened.window;
+	assert(window != null);
+	return window;
 }
 
 AppSurfaceAttachment openedSurface(ApplicationWindow window) {
-    AppSurfaceOpenOutcome opened = window.surface();
-    assert(opened.kind == APP_SURFACE_OPENED);
-    AppSurfaceAttachment? surface = opened.surface;
-    assert(surface != null);
-    return surface;
+	AppSurfaceOpenOutcome opened = window.surface();
+	assert(opened.kind == APP_SURFACE_OPENED);
+	AppSurfaceAttachment? surface = opened.surface;
+	assert(surface != null);
+	return surface;
 }
 
 GPU attachedGPU(AppSurfaceAttachment surface) {
-    GPUAttachOutcome attached = GPU.attach(surface);
-    assert(attached.kind == GPU_ATTACHED);
-    GPU? gpu = attached.gpu;
-    assert(gpu != null);
-    return gpu;
+	GPUAttachOutcome attached = GPU.attach(surface);
+	assert(attached.kind == GPU_ATTACHED);
+	GPU? gpu = attached.gpu;
+	assert(gpu != null);
+	return gpu;
 }
 
 GPUShader readyShader(GPU gpu) {
-    GPUShaderOutcome created = gpu.createShader("valid shader");
-    assert(created.kind == GPU_RESOURCE_READY);
-    GPUShader? shader = created.shader;
-    assert(shader != null);
-    return shader;
+	GPUShaderOutcome created = gpu.createShader("valid shader");
+	assert(created.kind == GPU_RESOURCE_READY);
+	GPUShader? shader = created.shader;
+	assert(shader != null);
+	return shader;
 }
 
 GPURenderPipeline readyPipeline(GPU gpu, GPUShader shader) {
-    GPUPipelineOutcome created = gpu.createPipeline(shader);
-    assert(created.kind == GPU_RESOURCE_READY);
-    GPURenderPipeline? pipeline = created.pipeline;
-    assert(pipeline != null);
-    return pipeline;
+	GPUPipelineOutcome created = gpu.createPipeline(shader);
+	assert(created.kind == GPU_RESOURCE_READY);
+	GPURenderPipeline? pipeline = created.pipeline;
+	assert(pipeline != null);
+	return pipeline;
 }
 
 GPUUniform readyUniform(GPU gpu) {
-    GPUUniformOutcome created = gpu.createUniform(4);
-    assert(created.kind == GPU_RESOURCE_READY);
-    GPUUniform? uniform = created.uniform;
-    assert(uniform != null);
-    return uniform;
+	GPUUniformOutcome created = gpu.createUniform(4);
+	assert(created.kind == GPU_RESOURCE_READY);
+	GPUUniform? uniform = created.uniform;
+	assert(uniform != null);
+	return uniform;
 }
 
 void ownerAndDescriptorFailures() {
-    fake_platform_reset();
-    Application application = new Application();
-    assert(application.isOpen());
-    Application second = new Application();
-    assert(!second.isOpen());
-    AppError secondError = second.initializationError();
-    assert(secondError.code == APP_ERROR_ALREADY_RUNNING);
+	fake_platform_reset();
+	Application application = new Application();
+	assert(application.isOpen());
+	Application second = new Application();
+	assert(!second.isOpen());
+	AppError secondError = second.initializationError();
+	assert(secondError.code == APP_ERROR_ALREADY_RUNNING);
 
-    AppWindowOpenOutcome invalid = application.openWindow(
-        new AppWindowDescriptor("", 0, 40));
-    assert(invalid.kind == APP_WINDOW_OPEN_REJECTED);
-    AppError? invalidError = invalid.error;
-    if (invalidError == null) { assert(false); return; }
-    AppError invalidValue = invalidError;
-    assert(invalidValue.code == APP_ERROR_INVALID_ARGUMENT);
+	AppWindowOpenOutcome invalid = application.openWindow(new AppWindowDescriptor("", 0, 40));
+	assert(invalid.kind == APP_WINDOW_OPEN_REJECTED);
+	AppError? invalidError = invalid.error;
+	if (invalidError == null) { assert(false); return; }
+	AppError invalidValue = invalidError;
+	assert(invalidValue.code == APP_ERROR_INVALID_ARGUMENT);
 
-    AppWindowOpenOutcome stillFailed = second.openWindow(
-        new AppWindowDescriptor("never opens", 10, 10));
-    assert(stillFailed.kind == APP_WINDOW_OPEN_REJECTED);
-    AppError? stillFailedError = stillFailed.error;
-    if (stillFailedError == null) { assert(false); return; }
-    AppError stillFailedValue = stillFailedError;
-    assert(stillFailedValue.code == APP_ERROR_ALREADY_RUNNING);
+	AppWindowOpenOutcome stillFailed = second.openWindow(new AppWindowDescriptor("never opens", 10, 10));
+	assert(stillFailed.kind == APP_WINDOW_OPEN_REJECTED);
+	AppError? stillFailedError = stillFailed.error;
+	if (stillFailedError == null) { assert(false); return; }
+	AppError stillFailedValue = stillFailedError;
+	assert(stillFailedValue.code == APP_ERROR_ALREADY_RUNNING);
 
-    ApplicationWindow window = openedWindow(application);
-    AppSurfaceMetrics metrics = window.metrics();
-    assert(metrics.logicalWidth == 64 && metrics.logicalHeight == 40);
-    assert(metrics.framebufferWidth == 128 && metrics.framebufferHeight == 80);
-    assert(metrics.scaleX == 2.0f && metrics.scaleY == 2.0f);
-    assert(new AppSurfaceMetrics(64, 40, 0, 0, 2.0f, 2.0f).isValid());
+	ApplicationWindow window = openedWindow(application);
+	AppSurfaceMetrics metrics = window.metrics();
+	assert(metrics.logicalWidth == 64 && metrics.logicalHeight == 40);
+	assert(metrics.framebufferWidth == 128 && metrics.framebufferHeight == 80);
+	assert(metrics.scaleX == 2.0f && metrics.scaleY == 2.0f);
+	assert(new AppSurfaceMetrics(64, 40, 0, 0, 2.0f, 2.0f).isValid());
 
-    AppWindowOpenOutcome duplicateWindow = application.openWindow(
-        new AppWindowDescriptor("duplicate", 10, 10));
-    assert(duplicateWindow.kind == APP_WINDOW_OPEN_REJECTED);
-    AppError? duplicateWindowError = duplicateWindow.error;
-    if (duplicateWindowError == null) { assert(false); return; }
-    AppError duplicateWindowValue = duplicateWindowError;
-    assert(duplicateWindowValue.code == APP_ERROR_WINDOW_ALREADY_OPEN);
+	AppWindowOpenOutcome duplicateWindow = application.openWindow(new AppWindowDescriptor("duplicate", 10, 10));
+	assert(duplicateWindow.kind == APP_WINDOW_OPEN_REJECTED);
+	AppError? duplicateWindowError = duplicateWindow.error;
+	if (duplicateWindowError == null) { assert(false); return; }
+	AppError duplicateWindowValue = duplicateWindowError;
+	assert(duplicateWindowValue.code == APP_ERROR_WINDOW_ALREADY_OPEN);
 
-    AppSurfaceAttachment surface = openedSurface(window);
-    AppSurfaceOpenOutcome duplicateSurface = window.surface();
-    assert(duplicateSurface.kind == APP_SURFACE_OPEN_REJECTED);
-    AppError? duplicateSurfaceError = duplicateSurface.error;
-    if (duplicateSurfaceError == null) { assert(false); return; }
-    AppError duplicateSurfaceValue = duplicateSurfaceError;
-    assert(duplicateSurfaceValue.code == APP_ERROR_SURFACE_ALREADY_CREATED);
+	AppSurfaceAttachment surface = openedSurface(window);
+	AppSurfaceOpenOutcome duplicateSurface = window.surface();
+	assert(duplicateSurface.kind == APP_SURFACE_OPEN_REJECTED);
+	AppError? duplicateSurfaceError = duplicateSurface.error;
+	if (duplicateSurfaceError == null) { assert(false); return; }
+	AppError duplicateSurfaceValue = duplicateSurfaceError;
+	assert(duplicateSurfaceValue.code == APP_ERROR_SURFACE_ALREADY_CREATED);
 
-    assert(surface.close().kind == APP_CLOSED);
-    assert(window.close().kind == APP_CLOSED);
-    assert(application.close().kind == APP_CLOSED);
-    AppWindowOpenOutcome afterClose = application.openWindow(
-        new AppWindowDescriptor("closed", 10, 10));
-    assert(afterClose.kind == APP_WINDOW_OPEN_REJECTED);
-    AppError? afterCloseError = afterClose.error;
-    if (afterCloseError == null) { assert(false); return; }
-    AppError afterCloseValue = afterCloseError;
-    assert(afterCloseValue.code == APP_ERROR_CLOSED);
-    assert(fake_platform_live_resources() == 0);
-    assert(fake_platform_lifecycle().equals("surface,window,application"));
+	assert(surface.close().kind == APP_CLOSED);
+	assert(window.close().kind == APP_CLOSED);
+	assert(application.close().kind == APP_CLOSED);
+	AppWindowOpenOutcome afterClose = application.openWindow(new AppWindowDescriptor("closed", 10, 10));
+	assert(afterClose.kind == APP_WINDOW_OPEN_REJECTED);
+	AppError? afterCloseError = afterClose.error;
+	if (afterCloseError == null) { assert(false); return; }
+	AppError afterCloseValue = afterCloseError;
+	assert(afterCloseValue.code == APP_ERROR_CLOSED);
+	assert(fake_platform_live_resources() == 0);
+	assert(fake_platform_lifecycle().equals("surface,window,application"));
 }
 
 void orderedEventsAndOverflow() {
-    fake_platform_reset();
-    Application application = new Application();
-    ApplicationWindow window = openedWindow(application);
+	fake_platform_reset();
+	Application application = new Application();
+	ApplicationWindow window = openedWindow(application);
 
-    fake_platform_push_pointer(
-        APP_POINTER_PRESSED,
-        APP_POINTER_BUTTON_PRIMARY,
-        12.5f,
-        18.25f,
-        9);
-    fake_platform_push_scroll(-1.5f, 2.25f);
-    fake_platform_push_keyboard(APP_KEY_REPEATED, APP_KEY_SPACE, 6);
-    fake_platform_push_text("é");
-    fake_platform_push_surface(
-        APP_EVENT_RESIZED, 80, 48, 160, 96, 2.0f, 2.0f);
-    fake_platform_push_surface(
-        APP_EVENT_DPI_CHANGED, 80, 48, 120, 72, 1.5f, 1.5f);
-    fake_platform_push_close();
+	fake_platform_push_pointer(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, 12.5f, 18.25f, 9);
+	fake_platform_push_scroll(-1.5f, 2.25f);
+	fake_platform_push_keyboard(APP_KEY_REPEATED, APP_KEY_SPACE, 6);
+	fake_platform_push_text("é");
+	fake_platform_push_surface(APP_EVENT_RESIZED, 80, 48, 160, 96, 2.0f, 2.0f);
+	fake_platform_push_surface(APP_EVENT_DPI_CHANGED, 80, 48, 120, 72, 1.5f, 1.5f);
+	fake_platform_push_close();
 
-    AppWindowEvent pointerEvent = application.poll();
-    assert(pointerEvent.kind == APP_EVENT_POINTER);
-    AppPointerEvent? pointer = pointerEvent.pointer;
-    if (pointer == null) { assert(false); return; }
-    AppPointerEvent pointerValue = pointer;
-    assert(pointerValue.action == APP_POINTER_PRESSED);
-    assert(pointerValue.button == APP_POINTER_BUTTON_PRIMARY);
-    assert(pointerValue.logicalX == 12.5f && pointerValue.logicalY == 18.25f);
-    assert(pointerValue.modifiers.shift && pointerValue.modifiers.command);
-    assert(!pointerValue.modifiers.control && !pointerValue.modifiers.alt);
+	AppWindowEvent pointerEvent = application.poll();
+	assert(pointerEvent.kind == APP_EVENT_POINTER);
+	AppPointerEvent? pointer = pointerEvent.pointer;
+	if (pointer == null) { assert(false); return; }
+	AppPointerEvent pointerValue = pointer;
+	assert(pointerValue.action == APP_POINTER_PRESSED);
+	assert(pointerValue.button == APP_POINTER_BUTTON_PRIMARY);
+	assert(pointerValue.logicalX == 12.5f && pointerValue.logicalY == 18.25f);
+	assert(pointerValue.modifiers.shift && pointerValue.modifiers.command);
+	assert(!pointerValue.modifiers.control && !pointerValue.modifiers.alt);
 
-    AppWindowEvent scrollEvent = application.poll();
-    assert(scrollEvent.kind == APP_EVENT_SCROLLED);
-    AppScrollEvent? scroll = scrollEvent.scroll;
-    if (scroll == null) { assert(false); return; }
-    AppScrollEvent scrollValue = scroll;
-    assert(scrollValue.deltaX == -1.5f && scrollValue.deltaY == 2.25f);
+	AppWindowEvent scrollEvent = application.poll();
+	assert(scrollEvent.kind == APP_EVENT_SCROLLED);
+	AppScrollEvent? scroll = scrollEvent.scroll;
+	if (scroll == null) { assert(false); return; }
+	AppScrollEvent scrollValue = scroll;
+	assert(scrollValue.deltaX == -1.5f && scrollValue.deltaY == 2.25f);
 
-    AppWindowEvent keyboardEvent = application.poll();
-    assert(keyboardEvent.kind == APP_EVENT_KEYBOARD);
-    AppKeyboardEvent? keyboard = keyboardEvent.keyboard;
-    if (keyboard == null) { assert(false); return; }
-    AppKeyboardEvent keyboardValue = keyboard;
-    assert(keyboardValue.action == APP_KEY_REPEATED
-        && keyboardValue.key == APP_KEY_SPACE);
-    assert(!keyboardValue.modifiers.shift && keyboardValue.modifiers.control);
-    assert(keyboardValue.modifiers.alt && !keyboardValue.modifiers.command);
+	AppWindowEvent keyboardEvent = application.poll();
+	assert(keyboardEvent.kind == APP_EVENT_KEYBOARD);
+	AppKeyboardEvent? keyboard = keyboardEvent.keyboard;
+	if (keyboard == null) { assert(false); return; }
+	AppKeyboardEvent keyboardValue = keyboard;
+	assert(keyboardValue.action == APP_KEY_REPEATED && keyboardValue.key == APP_KEY_SPACE);
+	assert(!keyboardValue.modifiers.shift && keyboardValue.modifiers.control);
+	assert(keyboardValue.modifiers.alt && !keyboardValue.modifiers.command);
 
-    AppWindowEvent textEvent = application.poll();
-    assert(textEvent.kind == APP_EVENT_TEXT && textEvent.text.equals("é"));
+	AppWindowEvent textEvent = application.poll();
+	assert(textEvent.kind == APP_EVENT_TEXT && textEvent.text.equals("é"));
 
-    AppWindowEvent resizedEvent = application.poll();
-    assert(textEvent.text.equals("é"));
-    assert(resizedEvent.kind == APP_EVENT_RESIZED);
-    AppSurfaceMetrics? resized = resizedEvent.surface;
-    if (resized == null) { assert(false); return; }
-    AppSurfaceMetrics resizedValue = resized;
-    assert(resizedValue.logicalWidth == 80
-        && resizedValue.framebufferWidth == 160);
-    assert(resizedValue.scaleX == 2.0f);
+	AppWindowEvent resizedEvent = application.poll();
+	assert(textEvent.text.equals("é"));
+	assert(resizedEvent.kind == APP_EVENT_RESIZED);
+	AppSurfaceMetrics? resized = resizedEvent.surface;
+	if (resized == null) { assert(false); return; }
+	AppSurfaceMetrics resizedValue = resized;
+	assert(resizedValue.logicalWidth == 80 && resizedValue.framebufferWidth == 160);
+	assert(resizedValue.scaleX == 2.0f);
 
-    AppWindowEvent dpiEvent = application.poll();
-    assert(dpiEvent.kind == APP_EVENT_DPI_CHANGED);
-    AppSurfaceMetrics? dpi = dpiEvent.surface;
-    if (dpi == null) { assert(false); return; }
-    AppSurfaceMetrics dpiValue = dpi;
-    assert(dpiValue.logicalWidth == 80 && dpiValue.framebufferWidth == 120);
-    assert(dpiValue.scaleX == 1.5f);
-    assert(application.poll().kind == APP_EVENT_CLOSE_REQUESTED);
-    assert(application.poll().kind == APP_EVENT_IDLE);
+	AppWindowEvent dpiEvent = application.poll();
+	assert(dpiEvent.kind == APP_EVENT_DPI_CHANGED);
+	AppSurfaceMetrics? dpi = dpiEvent.surface;
+	if (dpi == null) { assert(false); return; }
+	AppSurfaceMetrics dpiValue = dpi;
+	assert(dpiValue.logicalWidth == 80 && dpiValue.framebufferWidth == 120);
+	assert(dpiValue.scaleX == 1.5f);
+	assert(application.poll().kind == APP_EVENT_CLOSE_REQUESTED);
+	assert(application.poll().kind == APP_EVENT_IDLE);
 
-    for (int index = 0; index < 65; index++) {
-        fake_platform_push_close();
-    }
-    for (int index = 0; index < 64; index++) {
-        assert(application.poll().kind == APP_EVENT_CLOSE_REQUESTED);
-    }
-    AppWindowEvent overflow = application.poll();
-    assert(overflow.kind == APP_EVENT_FAILED);
-    AppError? overflowError = overflow.error;
-    if (overflowError == null) { assert(false); return; }
-    AppError overflowValue = overflowError;
-    assert(overflowValue.code == APP_ERROR_EVENT_QUEUE_OVERFLOW);
+	for (int index = 0; index < 65; index++) {
+		fake_platform_push_close();
+	}
+	for (int index = 0; index < 64; index++) {
+		assert(application.poll().kind == APP_EVENT_CLOSE_REQUESTED);
+	}
+	AppWindowEvent overflow = application.poll();
+	assert(overflow.kind == APP_EVENT_FAILED);
+	AppError? overflowError = overflow.error;
+	if (overflowError == null) { assert(false); return; }
+	AppError overflowValue = overflowError;
+	assert(overflowValue.code == APP_ERROR_EVENT_QUEUE_OVERFLOW);
 
-    assert(window.close().kind == APP_CLOSED);
-    assert(application.close().kind == APP_CLOSED);
-    assert(fake_platform_live_resources() == 0);
+	assert(window.close().kind == APP_CLOSED);
+	assert(application.close().kind == APP_CLOSED);
+	assert(fake_platform_live_resources() == 0);
 }
 
 void partialAttachAndFrameFailures() {
-    fake_platform_reset();
-    Application application = new Application();
-    ApplicationWindow window = openedWindow(application);
-    AppSurfaceAttachment surface = openedSurface(window);
+	fake_platform_reset();
+	Application application = new Application();
+	ApplicationWindow window = openedWindow(application);
+	AppSurfaceAttachment surface = openedSurface(window);
 
-    fake_gpu_fail_next_attach(GPU_ATTACH_DEVICE_UNAVAILABLE);
-    GPUAttachOutcome failed = GPU.attach(surface);
-    assert(failed.kind == GPU_ATTACH_DEVICE_UNAVAILABLE);
-    assert(failed.gpu == null);
-    assert(fake_platform_lifecycle().equals("partial-child,gpu-surface"));
-    assert(fake_platform_live_resources() == 3);
+	fake_gpu_fail_next_attach(GPU_ATTACH_DEVICE_UNAVAILABLE);
+	GPUAttachOutcome failed = GPU.attach(surface);
+	assert(failed.kind == GPU_ATTACH_DEVICE_UNAVAILABLE);
+	assert(failed.gpu == null);
+	assert(fake_platform_lifecycle().equals("partial-child,gpu-surface"));
+	assert(fake_platform_live_resources() == 3);
 
-    GPU gpu = attachedGPU(surface);
-    GPUAttachOutcome duplicate = GPU.attach(surface);
-    assert(duplicate.kind == GPU_ATTACH_SURFACE_BUSY);
-    assert(duplicate.gpu == null);
+	GPU gpu = attachedGPU(surface);
+	GPUAttachOutcome duplicate = GPU.attach(surface);
+	assert(duplicate.kind == GPU_ATTACH_SURFACE_BUSY);
+	assert(duplicate.gpu == null);
 
-    assert(window.close().kind == APP_CLOSE_REJECTED);
-    assert(application.close().kind == APP_CLOSE_REJECTED);
-    AppCloseOutcome earlySurface = surface.close();
-    assert(earlySurface.kind == APP_CLOSE_REJECTED);
-    AppError? earlySurfaceError = earlySurface.error;
-    if (earlySurfaceError == null) { assert(false); return; }
-    AppError earlySurfaceValue = earlySurfaceError;
-    assert(earlySurfaceValue.code == APP_ERROR_RESOURCE_BUSY);
+	assert(window.close().kind == APP_CLOSE_REJECTED);
+	assert(application.close().kind == APP_CLOSE_REJECTED);
+	AppCloseOutcome earlySurface = surface.close();
+	assert(earlySurface.kind == APP_CLOSE_REJECTED);
+	AppError? earlySurfaceError = earlySurface.error;
+	if (earlySurfaceError == null) { assert(false); return; }
+	AppError earlySurfaceValue = earlySurfaceError;
+	assert(earlySurfaceValue.code == APP_ERROR_RESOURCE_BUSY);
 
-    fake_gpu_set_next_frame(GPU_FRAME_TIMEOUT);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_TIMEOUT);
-    fake_gpu_set_next_frame(GPU_FRAME_OUTDATED);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_OUTDATED);
-    fake_gpu_set_next_frame(GPU_FRAME_SURFACE_LOST);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_SURFACE_LOST);
-    fake_gpu_set_next_frame(GPU_FRAME_DEVICE_LOST);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_DEVICE_LOST);
-    fake_gpu_set_next_frame(GPU_FRAME_OUT_OF_MEMORY);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_OUT_OF_MEMORY);
-    fake_gpu_set_next_frame(999);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_REJECTED);
+	fake_gpu_set_next_frame(GPU_FRAME_TIMEOUT);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_TIMEOUT);
+	fake_gpu_set_next_frame(GPU_FRAME_OUTDATED);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_OUTDATED);
+	fake_gpu_set_next_frame(GPU_FRAME_SURFACE_LOST);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_SURFACE_LOST);
+	fake_gpu_set_next_frame(GPU_FRAME_DEVICE_LOST);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_DEVICE_LOST);
+	fake_gpu_set_next_frame(GPU_FRAME_OUT_OF_MEMORY);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_OUT_OF_MEMORY);
+	fake_gpu_set_next_frame(999);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_REJECTED);
 
-    GPUShaderOutcome invalidShader = gpu.createShader("");
-    assert(invalidShader.kind == GPU_RESOURCE_INVALID_DESCRIPTOR);
-    assert(invalidShader.shader == null);
-    GPUUniformOutcome invalidUniform = gpu.createUniform(0);
-    assert(invalidUniform.kind == GPU_RESOURCE_INVALID_DESCRIPTOR);
-    assert(invalidUniform.uniform == null);
+	GPUShaderOutcome invalidShader = gpu.createShader("");
+	assert(invalidShader.kind == GPU_RESOURCE_INVALID_DESCRIPTOR);
+	assert(invalidShader.shader == null);
+	GPUUniformOutcome invalidUniform = gpu.createUniform(0);
+	assert(invalidUniform.kind == GPU_RESOURCE_INVALID_DESCRIPTOR);
+	assert(invalidUniform.uniform == null);
 
-    GPUShader shader = readyShader(gpu);
-    GPURenderPipeline pipeline = readyPipeline(gpu, shader);
-    GPUUniform uniform = readyUniform(gpu);
-    assert(uniform.set(0, 1.0f).kind == GPU_RESOURCE_READY);
-    assert(uniform.set(-1, 1.0f).kind == GPU_RESOURCE_INVALID_DESCRIPTOR);
-    assert(uniform.set(4, 1.0f).kind == GPU_RESOURCE_INVALID_DESCRIPTOR);
-    assert(gpu.draw(pipeline, 3).kind == GPU_DRAW_NO_ACTIVE_FRAME);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_READY);
-    fake_gpu_set_next_draw(999);
-    assert(gpu.draw(pipeline, 3).kind == GPU_DRAW_BACKEND_FAILURE);
-    assert(gpu.draw(pipeline, 0).kind == GPU_DRAW_INVALID_DESCRIPTOR);
-    assert(gpu.drawWithUniform(pipeline, 3, uniform).kind == GPU_DRAW_RECORDED);
-    assert(gpu.endFrame().kind == GPU_FRAME_PRESENTED);
+	GPUShader shader = readyShader(gpu);
+	GPURenderPipeline pipeline = readyPipeline(gpu, shader);
+	GPUUniform uniform = readyUniform(gpu);
+	assert(uniform.set(0, 1.0f).kind == GPU_RESOURCE_READY);
+	assert(uniform.set(-1, 1.0f).kind == GPU_RESOURCE_INVALID_DESCRIPTOR);
+	assert(uniform.set(4, 1.0f).kind == GPU_RESOURCE_INVALID_DESCRIPTOR);
+	assert(gpu.draw(pipeline, 3).kind == GPU_DRAW_NO_ACTIVE_FRAME);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_READY);
+	fake_gpu_set_next_draw(999);
+	assert(gpu.draw(pipeline, 3).kind == GPU_DRAW_BACKEND_FAILURE);
+	assert(gpu.draw(pipeline, 0).kind == GPU_DRAW_INVALID_DESCRIPTOR);
+	assert(gpu.drawWithUniform(pipeline, 3, uniform).kind == GPU_DRAW_RECORDED);
+	assert(gpu.endFrame().kind == GPU_FRAME_PRESENTED);
 
-    Thread<int> wrongThread = spawn(() => {
-        GPUShaderOutcome wrongShader = gpu.createShader("worker shader");
-        GPUPipelineOutcome wrongPipeline = gpu.createPipeline(shader);
-        GPUUniformOutcome wrongUniform = gpu.createUniform(2);
-        GPUResourceOutcome wrongSet = uniform.set(0, 2.0f);
-        GPUDrawOutcome wrongDraw = gpu.draw(pipeline, 3);
-        return wrongShader.kind == GPU_RESOURCE_NOT_OWNER_THREAD
-                && wrongShader.shader == null
-                && wrongPipeline.kind == GPU_RESOURCE_NOT_OWNER_THREAD
-                && wrongPipeline.pipeline == null
-                && wrongUniform.kind == GPU_RESOURCE_NOT_OWNER_THREAD
-                && wrongUniform.uniform == null
-                && wrongSet.kind == GPU_RESOURCE_NOT_OWNER_THREAD
-                && wrongDraw.kind == GPU_DRAW_NOT_OWNER_THREAD
-            ? 0 : 1;
-    });
-    assert(wrongThread.join() == 0);
+	Thread<int> wrongThread = spawn(() => {
+			GPUShaderOutcome wrongShader = gpu.createShader("worker shader");
+			GPUPipelineOutcome wrongPipeline = gpu.createPipeline(shader);
+			GPUUniformOutcome wrongUniform = gpu.createUniform(2);
+			GPUResourceOutcome wrongSet = uniform.set(0, 2.0f);
+			GPUDrawOutcome wrongDraw = gpu.draw(pipeline, 3);
+			return wrongShader.kind == GPU_RESOURCE_NOT_OWNER_THREAD
+			&& wrongShader.shader == null
+			&& wrongPipeline.kind == GPU_RESOURCE_NOT_OWNER_THREAD
+			&& wrongPipeline.pipeline == null
+			&& wrongUniform.kind == GPU_RESOURCE_NOT_OWNER_THREAD
+			&& wrongUniform.uniform == null
+			&& wrongSet.kind == GPU_RESOURCE_NOT_OWNER_THREAD
+			&& wrongDraw.kind == GPU_DRAW_NOT_OWNER_THREAD
+			? 0 : 1;
+		});
+	assert(wrongThread.join() == 0);
 
-    fake_gpu_set_device_lost(1);
-    GPUShaderOutcome lostShader = gpu.createShader("lost shader");
-    assert(lostShader.kind == GPU_RESOURCE_DEVICE_LOST);
-    assert(lostShader.shader == null);
-    assert(uniform.set(0, 3.0f).kind == GPU_RESOURCE_DEVICE_LOST);
-    assert(gpu.draw(pipeline, 3).kind == GPU_DRAW_DEVICE_LOST);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_DEVICE_LOST);
-    fake_gpu_set_device_lost(0);
+	fake_gpu_set_device_lost(1);
+	GPUShaderOutcome lostShader = gpu.createShader("lost shader");
+	assert(lostShader.kind == GPU_RESOURCE_DEVICE_LOST);
+	assert(lostShader.shader == null);
+	assert(uniform.set(0, 3.0f).kind == GPU_RESOURCE_DEVICE_LOST);
+	assert(gpu.draw(pipeline, 3).kind == GPU_DRAW_DEVICE_LOST);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_DEVICE_LOST);
+	fake_gpu_set_device_lost(0);
 
-    assert(uniform.close().kind == GPU_CLOSED);
-    assert(uniform.set(0, 1.0f).kind == GPU_RESOURCE_INVALID_RESOURCE);
-    assert(pipeline.close().kind == GPU_CLOSED);
-    assert(gpu.draw(pipeline, 3).kind == GPU_DRAW_INVALID_RESOURCE);
-    assert(shader.close().kind == GPU_CLOSED);
-    GPUPipelineOutcome closedShaderPipeline = gpu.createPipeline(shader);
-    assert(closedShaderPipeline.kind == GPU_RESOURCE_INVALID_RESOURCE);
-    assert(closedShaderPipeline.pipeline == null);
-    assert(gpu.close().kind == GPU_CLOSED);
-    assert(gpu.close().kind == GPU_ALREADY_CLOSED);
-    assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_REJECTED);
-    assert(surface.close().kind == APP_CLOSED);
-    GPUAttachOutcome afterSurfaceClose = GPU.attach(surface);
-    assert(afterSurfaceClose.kind == GPU_ATTACH_INVALID_SURFACE);
-    assert(window.close().kind == APP_CLOSED);
-    AppSurfaceOpenOutcome afterWindowClose = window.surface();
-    assert(afterWindowClose.kind == APP_SURFACE_OPEN_REJECTED);
-    AppError? afterWindowCloseError = afterWindowClose.error;
-    if (afterWindowCloseError == null) { assert(false); return; }
-    AppError afterWindowCloseValue = afterWindowCloseError;
-    assert(afterWindowCloseValue.code == APP_ERROR_CLOSED);
-    assert(application.close().kind == APP_CLOSED);
-    AppWindowEvent afterApplicationClose = application.poll();
-    assert(afterApplicationClose.kind == APP_EVENT_FAILED);
-    AppError? afterApplicationCloseError = afterApplicationClose.error;
-    if (afterApplicationCloseError == null) { assert(false); return; }
-    AppError afterApplicationCloseValue = afterApplicationCloseError;
-    assert(afterApplicationCloseValue.code == APP_ERROR_CLOSED);
-    assert(fake_platform_lifecycle().equals(
-        "partial-child,gpu-surface,uniform,pipeline,shader,gpu-surface,surface,window,application"));
-    assert(fake_platform_live_resources() == 0);
+	assert(uniform.close().kind == GPU_CLOSED);
+	assert(uniform.set(0, 1.0f).kind == GPU_RESOURCE_INVALID_RESOURCE);
+	assert(pipeline.close().kind == GPU_CLOSED);
+	assert(gpu.draw(pipeline, 3).kind == GPU_DRAW_INVALID_RESOURCE);
+	assert(shader.close().kind == GPU_CLOSED);
+	GPUPipelineOutcome closedShaderPipeline = gpu.createPipeline(shader);
+	assert(closedShaderPipeline.kind == GPU_RESOURCE_INVALID_RESOURCE);
+	assert(closedShaderPipeline.pipeline == null);
+	assert(gpu.close().kind == GPU_CLOSED);
+	assert(gpu.close().kind == GPU_ALREADY_CLOSED);
+	assert(gpu.beginFrame(0.0f, 0.0f, 0.0f).kind == GPU_FRAME_REJECTED);
+	assert(surface.close().kind == APP_CLOSED);
+	GPUAttachOutcome afterSurfaceClose = GPU.attach(surface);
+	assert(afterSurfaceClose.kind == GPU_ATTACH_INVALID_SURFACE);
+	assert(window.close().kind == APP_CLOSED);
+	AppSurfaceOpenOutcome afterWindowClose = window.surface();
+	assert(afterWindowClose.kind == APP_SURFACE_OPEN_REJECTED);
+	AppError? afterWindowCloseError = afterWindowClose.error;
+	if (afterWindowCloseError == null) { assert(false); return; }
+	AppError afterWindowCloseValue = afterWindowCloseError;
+	assert(afterWindowCloseValue.code == APP_ERROR_CLOSED);
+	assert(application.close().kind == APP_CLOSED);
+	AppWindowEvent afterApplicationClose = application.poll();
+	assert(afterApplicationClose.kind == APP_EVENT_FAILED);
+	AppError? afterApplicationCloseError = afterApplicationClose.error;
+	if (afterApplicationCloseError == null) { assert(false); return; }
+	AppError afterApplicationCloseValue = afterApplicationCloseError;
+	assert(afterApplicationCloseValue.code == APP_ERROR_CLOSED);
+	assert(fake_platform_lifecycle().equals("partial-child,gpu-surface,uniform,pipeline,shader,gpu-surface,surface,window,application"));
+	assert(fake_platform_live_resources() == 0);
 }
 
 void staleGeneration() {
-    fake_platform_reset();
-    Application application = new Application();
-    ApplicationWindow firstWindow = openedWindow(application);
-    AppSurfaceAttachment firstSurface = openedSurface(firstWindow);
-    unsigned long long staleIdentity = firstSurface.attachmentIdentity();
-    assert(firstSurface.generation() == 1ULL);
-    fake_platform_expire_surface(staleIdentity);
-    assert(firstSurface.generation() == 0ULL);
+	fake_platform_reset();
+	Application application = new Application();
+	ApplicationWindow firstWindow = openedWindow(application);
+	AppSurfaceAttachment firstSurface = openedSurface(firstWindow);
+	unsigned long long staleIdentity = firstSurface.attachmentIdentity();
+	assert(firstSurface.generation() == 1ULL);
+	fake_platform_expire_surface(staleIdentity);
+	assert(firstSurface.generation() == 0ULL);
 
-    AppSurfaceAttachment sameWindowSurface = openedSurface(firstWindow);
-    GPUAttachOutcome sameWindowStale = GPU.attach(firstSurface);
-    assert(sameWindowStale.kind == GPU_ATTACH_INVALID_SURFACE);
-    assert(sameWindowStale.gpu == null);
-    assert(sameWindowSurface.generation() == 2ULL);
-    assert(sameWindowSurface.close().kind == APP_CLOSED);
-    assert(firstWindow.close().kind == APP_CLOSED);
+	AppSurfaceAttachment sameWindowSurface = openedSurface(firstWindow);
+	GPUAttachOutcome sameWindowStale = GPU.attach(firstSurface);
+	assert(sameWindowStale.kind == GPU_ATTACH_INVALID_SURFACE);
+	assert(sameWindowStale.gpu == null);
+	assert(sameWindowSurface.generation() == 2ULL);
+	assert(sameWindowSurface.close().kind == APP_CLOSED);
+	assert(firstWindow.close().kind == APP_CLOSED);
 
-    ApplicationWindow secondWindow = openedWindow(application);
-    GPUAttachOutcome stale = GPU.attach(firstSurface);
-    assert(stale.kind == GPU_ATTACH_INVALID_SURFACE);
-    assert(stale.gpu == null);
+	ApplicationWindow secondWindow = openedWindow(application);
+	GPUAttachOutcome stale = GPU.attach(firstSurface);
+	assert(stale.kind == GPU_ATTACH_INVALID_SURFACE);
+	assert(stale.gpu == null);
 
-    AppSurfaceAttachment current = openedSurface(secondWindow);
-    assert(current.generation() == 3ULL);
-    assert(current.close().kind == APP_CLOSED);
-    assert(secondWindow.close().kind == APP_CLOSED);
-    assert(application.close().kind == APP_CLOSED);
-    assert(fake_platform_live_resources() == 0);
+	AppSurfaceAttachment current = openedSurface(secondWindow);
+	assert(current.generation() == 3ULL);
+	assert(current.close().kind == APP_CLOSED);
+	assert(secondWindow.close().kind == APP_CLOSED);
+	assert(application.close().kind == APP_CLOSED);
+	assert(fake_platform_live_resources() == 0);
 }
 
 void malformedNativeAttachOutcomes() {
-    fake_platform_reset();
-    Application application = new Application();
-    ApplicationWindow window = openedWindow(application);
-    AppSurfaceAttachment surface = openedSurface(window);
+	fake_platform_reset();
+	Application application = new Application();
+	ApplicationWindow window = openedWindow(application);
+	AppSurfaceAttachment surface = openedSurface(window);
 
-    fake_gpu_malformed_next_attach(GPU_ATTACHED, 0);
-    GPUAttachOutcome missingOwner = GPU.attach(surface);
-    assert(missingOwner.kind == GPU_ATTACH_INTERNAL_ERROR);
-    assert(missingOwner.gpu == null);
+	fake_gpu_malformed_next_attach(GPU_ATTACHED, 0);
+	GPUAttachOutcome missingOwner = GPU.attach(surface);
+	assert(missingOwner.kind == GPU_ATTACH_INTERNAL_ERROR);
+	assert(missingOwner.gpu == null);
 
-    fake_gpu_malformed_next_attach(GPU_ATTACH_DEVICE_UNAVAILABLE, 1);
-    GPUAttachOutcome leakedOwner = GPU.attach(surface);
-    assert(leakedOwner.kind == GPU_ATTACH_INTERNAL_ERROR);
-    assert(leakedOwner.gpu == null);
-    assert(fake_platform_lifecycle().equals("gpu-surface"));
+	fake_gpu_malformed_next_attach(GPU_ATTACH_DEVICE_UNAVAILABLE, 1);
+	GPUAttachOutcome leakedOwner = GPU.attach(surface);
+	assert(leakedOwner.kind == GPU_ATTACH_INTERNAL_ERROR);
+	assert(leakedOwner.gpu == null);
+	assert(fake_platform_lifecycle().equals("gpu-surface"));
 
-    fake_gpu_malformed_next_attach(999, 0);
-    GPUAttachOutcome unknownStatus = GPU.attach(surface);
-    assert(unknownStatus.kind == GPU_ATTACH_INTERNAL_ERROR);
-    assert(unknownStatus.gpu == null);
+	fake_gpu_malformed_next_attach(999, 0);
+	GPUAttachOutcome unknownStatus = GPU.attach(surface);
+	assert(unknownStatus.kind == GPU_ATTACH_INTERNAL_ERROR);
+	assert(unknownStatus.gpu == null);
 
-    assert(surface.close().kind == APP_CLOSED);
-    assert(window.close().kind == APP_CLOSED);
-    assert(application.close().kind == APP_CLOSED);
-    assert(fake_platform_live_resources() == 0);
+	assert(surface.close().kind == APP_CLOSED);
+	assert(window.close().kind == APP_CLOSED);
+	assert(application.close().kind == APP_CLOSED);
+	assert(fake_platform_live_resources() == 0);
 }
 
 void malformedNativeResourceOutcomes() {
-    fake_platform_reset();
-    Application application = new Application();
-    ApplicationWindow window = openedWindow(application);
-    AppSurfaceAttachment surface = openedSurface(window);
-    GPU gpu = attachedGPU(surface);
+	fake_platform_reset();
+	Application application = new Application();
+	ApplicationWindow window = openedWindow(application);
+	AppSurfaceAttachment surface = openedSurface(window);
+	GPU gpu = attachedGPU(surface);
 
-    fake_gpu_set_next_resource_result(GPU_RESOURCE_CREATION_FAILED, 0, 0);
-    GPUShaderOutcome typedFailure = gpu.createShader("typed failure");
-    assert(typedFailure.kind == GPU_RESOURCE_CREATION_FAILED);
-    assert(typedFailure.shader == null);
+	fake_gpu_set_next_resource_result(GPU_RESOURCE_CREATION_FAILED, 0, 0);
+	GPUShaderOutcome typedFailure = gpu.createShader("typed failure");
+	assert(typedFailure.kind == GPU_RESOURCE_CREATION_FAILED);
+	assert(typedFailure.shader == null);
 
-    fake_gpu_set_next_resource_result(GPU_RESOURCE_READY, 0, 0);
-    GPUShaderOutcome missingOwner = gpu.createShader("missing owner");
-    assert(missingOwner.kind == GPU_RESOURCE_INTERNAL_ERROR);
-    assert(missingOwner.shader == null);
+	fake_gpu_set_next_resource_result(GPU_RESOURCE_READY, 0, 0);
+	GPUShaderOutcome missingOwner = gpu.createShader("missing owner");
+	assert(missingOwner.kind == GPU_RESOURCE_INTERNAL_ERROR);
+	assert(missingOwner.shader == null);
 
-    fake_gpu_set_next_resource_result(
-        GPU_RESOURCE_CREATION_FAILED, 1, 1);
-    GPUShaderOutcome leakedOwner = gpu.createShader("leaked owner");
-    assert(leakedOwner.kind == GPU_RESOURCE_INTERNAL_ERROR);
-    assert(leakedOwner.shader == null);
-    assert(fake_platform_lifecycle().equals("shader"));
+	fake_gpu_set_next_resource_result(GPU_RESOURCE_CREATION_FAILED, 1, 1);
+	GPUShaderOutcome leakedOwner = gpu.createShader("leaked owner");
+	assert(leakedOwner.kind == GPU_RESOURCE_INTERNAL_ERROR);
+	assert(leakedOwner.shader == null);
+	assert(fake_platform_lifecycle().equals("shader"));
 
-    fake_gpu_set_next_resource_result(999, 0, 0);
-    GPUShaderOutcome unknownStatus = gpu.createShader("unknown status");
-    assert(unknownStatus.kind == GPU_RESOURCE_INTERNAL_ERROR);
-    assert(unknownStatus.shader == null);
+	fake_gpu_set_next_resource_result(999, 0, 0);
+	GPUShaderOutcome unknownStatus = gpu.createShader("unknown status");
+	assert(unknownStatus.kind == GPU_RESOURCE_INTERNAL_ERROR);
+	assert(unknownStatus.shader == null);
 
-    assert(gpu.close().kind == GPU_CLOSED);
-    assert(surface.close().kind == APP_CLOSED);
-    assert(window.close().kind == APP_CLOSED);
-    assert(application.close().kind == APP_CLOSED);
-    assert(fake_platform_lifecycle().equals(
-        "shader,gpu-surface,surface,window,application"));
-    assert(fake_platform_live_resources() == 0);
+	assert(gpu.close().kind == GPU_CLOSED);
+	assert(surface.close().kind == APP_CLOSED);
+	assert(window.close().kind == APP_CLOSED);
+	assert(application.close().kind == APP_CLOSED);
+	assert(fake_platform_lifecycle().equals("shader,gpu-surface,surface,window,application"));
+	assert(fake_platform_live_resources() == 0);
 }
 
 void arcOwnedCascade() {
-    Application application = new Application();
-    ApplicationWindow window = openedWindow(application);
-    AppSurfaceAttachment surface = openedSurface(window);
-    GPU gpu = attachedGPU(surface);
-    GPUShader shader = readyShader(gpu);
-    GPURenderPipeline pipeline = readyPipeline(gpu, shader);
-    GPUUniform uniform = readyUniform(gpu);
-    assert(uniform.isOpen() && pipeline.isOpen() && shader.isOpen());
+	Application application = new Application();
+	ApplicationWindow window = openedWindow(application);
+	AppSurfaceAttachment surface = openedSurface(window);
+	GPU gpu = attachedGPU(surface);
+	GPUShader shader = readyShader(gpu);
+	GPURenderPipeline pipeline = readyPipeline(gpu, shader);
+	GPUUniform uniform = readyUniform(gpu);
+	assert(uniform.isOpen() && pipeline.isOpen() && shader.isOpen());
 }
 
 void arcCleanupOrder() {
-    fake_platform_reset();
-    arcOwnedCascade();
-    assert(fake_platform_live_resources() == 0);
-    assert(fake_platform_lifecycle().equals(
-        "uniform,pipeline,shader,gpu-surface,surface,window,application"));
+	fake_platform_reset();
+	arcOwnedCascade();
+	assert(fake_platform_live_resources() == 0);
+	assert(fake_platform_lifecycle().equals("uniform,pipeline,shader,gpu-surface,surface,window,application"));
 }
 
 Thread<int> abandonOwnedGraphOnWorker() {
-    Application application = new Application();
-    ApplicationWindow window = openedWindow(application);
-    AppSurfaceAttachment surface = openedSurface(window);
-    GPU gpu = attachedGPU(surface);
-    GPUShader shader = readyShader(gpu);
-    GPURenderPipeline pipeline = readyPipeline(gpu, shader);
-    GPUUniform uniform = readyUniform(gpu);
+	Application application = new Application();
+	ApplicationWindow window = openedWindow(application);
+	AppSurfaceAttachment surface = openedSurface(window);
+	GPU gpu = attachedGPU(surface);
+	GPUShader shader = readyShader(gpu);
+	GPURenderPipeline pipeline = readyPipeline(gpu, shader);
+	GPUUniform uniform = readyUniform(gpu);
 
-    Thread<int> worker = spawn(() => {
-        fake_platform_worker_hold();
-        return uniform.isOpen() && pipeline.isOpen() && shader.isOpen()
-                && gpu.isOpen() && surface.isOpen() && application.isOpen()
-            ? 0 : 1;
-    });
-    fake_platform_wait_worker_ready();
-    release uniform;
-    release pipeline;
-    release shader;
-    release gpu;
-    release surface;
-    release window;
-    release application;
-    fake_platform_release_worker();
-    return worker;
+	Thread<int> worker = spawn(() => {
+			fake_platform_worker_hold();
+			return uniform.isOpen() && pipeline.isOpen() && shader.isOpen()
+			&& gpu.isOpen() && surface.isOpen() && application.isOpen()
+			? 0 : 1;
+		});
+	fake_platform_wait_worker_ready();
+	release uniform;
+	release pipeline;
+	release shader;
+	release gpu;
+	release surface;
+	release window;
+	release application;
+	fake_platform_release_worker();
+	return worker;
 }
 
 void workerLastReferenceCleanup() {
-    fake_platform_reset();
-    Thread<int> worker = abandonOwnedGraphOnWorker();
-    assert(worker.join() == 0);
-    assert(fake_platform_live_resources() == 8);
-    assert(fake_platform_lifecycle().isEmpty());
+	fake_platform_reset();
+	Thread<int> worker = abandonOwnedGraphOnWorker();
+	assert(worker.join() == 0);
+	assert(fake_platform_live_resources() == 8);
+	assert(fake_platform_lifecycle().isEmpty());
 
-    Application replacement = new Application();
-    assert(replacement.isOpen());
-    assert(fake_platform_lifecycle().equals(
-        "uniform,pipeline,shader,gpu-surface,surface,window,application"));
-    assert(fake_platform_live_resources() == 1);
-    assert(replacement.close().kind == APP_CLOSED);
-    assert(fake_platform_lifecycle().equals(
-        "uniform,pipeline,shader,gpu-surface,surface,window,application,application"));
-    assert(fake_platform_live_resources() == 0);
+	Application replacement = new Application();
+	assert(replacement.isOpen());
+	assert(fake_platform_lifecycle().equals("uniform,pipeline,shader,gpu-surface,surface,window,application"));
+	assert(fake_platform_live_resources() == 1);
+	assert(replacement.close().kind == APP_CLOSED);
+	assert(fake_platform_lifecycle().equals("uniform,pipeline,shader,gpu-surface,surface,window,application,application"));
+	assert(fake_platform_live_resources() == 0);
 }
 
 int main() {
-    ownerAndDescriptorFailures();
-    orderedEventsAndOverflow();
-    partialAttachAndFrameFailures();
-    staleGeneration();
-    malformedNativeAttachOutcomes();
-    malformedNativeResourceOutcomes();
-    arcCleanupOrder();
-    workerLastReferenceCleanup();
-    print("PASS: unified application surface conformance");
-    return 0;
+	ownerAndDescriptorFailures();
+	orderedEventsAndOverflow();
+	partialAttachAndFrameFailures();
+	staleGeneration();
+	malformedNativeAttachOutcomes();
+	malformedNativeResourceOutcomes();
+	arcCleanupOrder();
+	workerLastReferenceCleanup();
+	print("PASS: unified application surface conformance");
+	return 0;
 }

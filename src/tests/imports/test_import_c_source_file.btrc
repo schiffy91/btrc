@@ -1,5 +1,4 @@
 import ./cinterop/triple.c
-
 #include <assert.h>
 
 // `import ./helper.c` — a local RAW C source file. The front-end has a distinct
@@ -9,9 +8,9 @@ import ./cinterop/triple.c
 extern int triple(int x);
 
 int main() {
-    assert(triple(14) == 42);
-    assert(triple(0) == 0);
-    assert(triple(-3) == -9);
-    print("PASS: test_import_c_source_file");
-    return 0;
+	assert(triple(14) == 42);
+	assert(triple(0) == 0);
+	assert(triple(-3) == -9);
+	print("PASS: test_import_c_source_file");
+	return 0;
 }

@@ -7,40 +7,37 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    UnixShell sh = UnixShell();
+	UnixShell sh = UnixShell();
 
-    // cwd= prefixes the command with `cd <quoted> && ...`, so pwd reports /tmp.
-    var pwd = sh.run("pwd", cwd="/tmp", logFailure=false).trimmed();
-    assert(pwd.endsWith("tmp"));
+	// cwd= prefixes the command with `cd <quoted> && ...`, so pwd reports /tmp.
+	var pwd = sh.run("pwd", cwd="/tmp", logFailure=false).trimmed();
+	assert(pwd.endsWith("tmp"));
 
-    // env= renders a NAME=value prefix the spawned command inherits. The value
-    // is read by `printenv`, which inspects its own environment (a "$FOO" in the
-    // shell would expand before the prefix takes effect, so we must read it from
-    // a child process, not via shell expansion).
-    Vector<string> env = ["FOO=bar"];
-    var got = sh.run("printenv FOO", env=env, logFailure=false).trimmed();
-    assert(got.equals("bar"));
+	// env= renders a NAME=value prefix the spawned command inherits. The value
+	// is read by `printenv`, which inspects its own environment (a "$FOO" in the
+	// shell would expand before the prefix takes effect, so we must read it from
+	// a child process, not via shell expansion).
+	Vector<string> env = ["FOO=bar"];
+	var got = sh.run("printenv FOO", env=env, logFailure=false).trimmed();
+	assert(got.equals("bar"));
 
-    // cwd and env combine.
-    Vector<string> env2 = ["MSG=hi"];
-    var combo = sh.run("printenv MSG", cwd="/tmp", env=env2, logFailure=false).trimmed();
-    assert(combo.equals("hi"));
+	// cwd and env combine.
+	Vector<string> env2 = ["MSG=hi"];
+	var combo = sh.run("printenv MSG", cwd="/tmp", env=env2, logFailure=false).trimmed();
+	assert(combo.equals("hi"));
 
-    // A multi-KB stdin round-trips through the temp stdin file unchanged.
-    string big = "";
-    for i in range(1000) { big += "0123456789"; }   // 10000 bytes
-    var echoed = sh.run("cat", stdin=big, logFailure=false).stdout();
-    assert(echoed.len() == 10000);
-    assert(echoed.equals(big));
+	// A multi-KB stdin round-trips through the temp stdin file unchanged.
+	string big = "";
+	for i in range(1000) { big += "0123456789"; }   // 10000 bytes
+	var echoed = sh.run("cat", stdin=big, logFailure=false).stdout();
+	assert(echoed.len() == 10000);
+	assert(echoed.equals(big));
 
-    // stderr=collect captures the error stream separately from stdout.
-    var res = sh.run("printf err >&2; printf out",
-                     stdout=CommandOutput.collect(),
-                     stderr=CommandOutput.collect(),
-                     logFailure=false);
-    assert(res.stdout().equals("out"));
-    assert(res.stderr().equals("err"));
+	// stderr=collect captures the error stream separately from stdout.
+	var res = sh.run("printf err >&2; printf out", stdout=CommandOutput.collect(), stderr=CommandOutput.collect(), logFailure=false);
+	assert(res.stdout().equals("out"));
+	assert(res.stderr().equals("err"));
 
-    print("PASS: test_stdlib_shell_cwd_env");
-    return 0;
+	print("PASS: test_stdlib_shell_cwd_env");
+	return 0;
 }

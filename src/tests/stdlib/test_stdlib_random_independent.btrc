@@ -6,51 +6,50 @@ import std.random;
 #include "../../stdlib/random.btrc"
 
 int main() {
-    Random left = new Random();
-    Random right = new Random();
-    left.seed(123456);
-    right.seed(123456);
+	Random left = new Random();
+	Random right = new Random();
+	left.seed(123456);
+	right.seed(123456);
 
-    /* Equal seeds stay equal even when calls are interleaved.  A process-global
+	/* Equal seeds stay equal even when calls are interleaved.  A process-global
      * rand() stream would make each object consume a different position. */
-    for i in range(64) {
-        assert(left.randint(-1000000000, 1000000000)
-            == right.randint(-1000000000, 1000000000));
-        assert(left.random() == right.random());
-    }
+	for i in range(64) {
+		assert(left.randint(-1000000000, 1000000000) == right.randint(-1000000000, 1000000000));
+		assert(left.random() == right.random());
+	}
 
-    /* Random operations must not reseed or consume the C library's unrelated
+	/* Random operations must not reseed or consume the C library's unrelated
      * process-global stream. */
-    srand(98765);
-    int expectedFirst = rand();
-    int expectedSecond = rand();
-    srand(98765);
-    assert(rand() == expectedFirst);
-    left.seed(9);
-    left.randint(0, 100);
-    left.random();
-    assert(rand() == expectedSecond);
+	srand(98765);
+	int expectedFirst = rand();
+	int expectedSecond = rand();
+	srand(98765);
+	assert(rand() == expectedFirst);
+	left.seed(9);
+	left.randint(0, 100);
+	left.random();
+	assert(rand() == expectedSecond);
 
-    int minInt = -2147483647 - 1;
-    int maxInt = 2147483647;
-    bool sawNegative = false;
-    bool sawNonNegative = false;
-    for i in range(128) {
-        int value = left.randint(minInt, maxInt);
-        if (value < 0) {
-            sawNegative = true;
-        } else {
-            sawNonNegative = true;
-        }
-    }
-    assert(sawNegative && sawNonNegative);
+	int minInt = -2147483647 - 1;
+	int maxInt = 2147483647;
+	bool sawNegative = false;
+	bool sawNonNegative = false;
+	for i in range(128) {
+		int value = left.randint(minInt, maxInt);
+		if (value < 0) {
+			sawNegative = true;
+		} else {
+			sawNonNegative = true;
+		}
+	}
+	assert(sawNegative && sawNonNegative);
 
-    /* Swapping the extreme endpoints uses the same overflow-safe path. */
-    int swapped = left.randint(maxInt, minInt);
-    assert(swapped >= minInt && swapped <= maxInt);
+	/* Swapping the extreme endpoints uses the same overflow-safe path. */
+	int swapped = left.randint(maxInt, minInt);
+	assert(swapped >= minInt && swapped <= maxInt);
 
-    delete right;
-    delete left;
-    print("PASS: test_stdlib_random_independent");
-    return 0;
+	delete right;
+	delete left;
+	print("PASS: test_stdlib_random_independent");
+	return 0;
 }

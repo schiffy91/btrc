@@ -3,26 +3,27 @@
 int crateAlive = 0;
 
 class Crate<T> {
-    public Crate() { crateAlive++; }
-    public void __del__() { crateAlive--; }
+	public Crate() { crateAlive++; }
+
+	public void __del__() { crateAlive--; }
 }
 
 class Factory<T> {
-    public void build<U>(U ignored) {
-        Crate<T> outer = new Crate<T>();
-        Crate<U> inner = new Crate<U>();
-        size_t ignoredSize = sizeof(ignored);
-        assert(ignoredSize != (size_t)0);
-        delete inner;
-        delete outer;
-    }
+	public void build<U>(U ignored) {
+		Crate<T> outer = new Crate<T>();
+		Crate<U> inner = new Crate<U>();
+		size_t ignoredSize = sizeof(ignored);
+		assert(ignoredSize != (size_t)0);
+		delete inner;
+		delete outer;
+	}
 }
 
 int main() {
-    Factory<int> factory = new Factory<int>();
-    factory.build("payload");
-    assert(crateAlive == 0);
-    delete factory;
-    print("PASS: generic method-body closure");
-    return 0;
+	Factory<int> factory = new Factory<int>();
+	factory.build("payload");
+	assert(crateAlive == 0);
+	delete factory;
+	print("PASS: generic method-body closure");
+	return 0;
 }

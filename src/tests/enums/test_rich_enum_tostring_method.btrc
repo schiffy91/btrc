@@ -5,15 +5,15 @@
 // exercised via the public method form. Also covers a payload-carrying
 // variant's name.
 enum class Shape {
-    Circle(double r),
-    Point
+	Circle(double r),
+	Point
 }
 
 int main() {
-    Shape c = Shape.Circle(5.0);
-    Shape p = Shape.Point();
-    assert(strcmp(c.toString(), "Circle") == 0);
-    assert(strcmp(p.toString(), "Point") == 0);
-    print("PASS: test_rich_enum_tostring_method");
-    return 0;
+	Shape c = Shape.Circle(5.0);
+	Shape p = Shape.Point();
+	assert(strcmp(c.toString(), "Circle") == 0);
+	assert(strcmp(p.toString(), "Point") == 0);
+	print("PASS: test_rich_enum_tostring_method");
+	return 0;
 }

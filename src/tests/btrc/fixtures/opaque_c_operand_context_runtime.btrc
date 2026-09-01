@@ -21,159 +21,158 @@ int pointerValues[3] = {11, 22, 33};
 long long dependentValue = 5LL;
 
 class ChildProcessClock {
-    class long long deadline(long long now, int timeoutMilliseconds) {
-        long long duration = (long long)timeoutMilliseconds;
-        return duration > (long long)LLONG_MAX - now
-            ? LLONG_MAX : now + duration;
-    }
+	class long long deadline(long long now, int timeoutMilliseconds) {
+		long long duration = (long long)timeoutMilliseconds;
+		return duration > (long long)LLONG_MAX - now ? LLONG_MAX : now + duration;
+	}
 }
 
 long long signedLeft() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    return LLONG_MAX;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	return LLONG_MAX;
 }
 
 long long signedOpaqueValue() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    signedReads++;
-    return LLONG_MAX;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	signedReads++;
+	return LLONG_MAX;
 }
 
 unsigned long long unsignedOpaqueValue() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    unsignedReads++;
-    return ULLONG_MAX;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	unsignedReads++;
+	return ULLONG_MAX;
 }
 
 unsigned long long unsignedRight() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    return ULLONG_MAX;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	return ULLONG_MAX;
 }
 
 int* pointerLeft() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    return &pointerTarget;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	return &pointerTarget;
 }
 
 int* pointerOpaqueValue() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    pointerReads++;
-    return &pointerTarget;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	pointerReads++;
+	return &pointerTarget;
 }
 
 int ordinaryLeft() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    ordinaryReads++;
-    return 4;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	ordinaryReads++;
+	return 4;
 }
 
 int ordinaryRight() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    ordinaryReads++;
-    return 5;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	ordinaryReads++;
+	return 5;
 }
 
 long long arithmeticLeft() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    arithmeticReads++;
-    return LLONG_MAX - 3LL;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	arithmeticReads++;
+	return LLONG_MAX - 3LL;
 }
 
 long long arithmeticOpaqueValue() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    arithmeticReads++;
-    return 3LL;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	arithmeticReads++;
+	return 3LL;
 }
 
 unsigned int bitwiseLeft() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    bitwiseReads++;
-    return 0x10U;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	bitwiseReads++;
+	return 0x10U;
 }
 
 unsigned int bitwiseOpaqueValue() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    bitwiseReads++;
-    return 0x03U;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	bitwiseReads++;
+	return 0x03U;
 }
 
 int* pointerBase() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    offsetReads++;
-    return pointerValues;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	offsetReads++;
+	return pointerValues;
 }
 
 ptrdiff_t pointerOpaqueOffset() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    offsetReads++;
-    return (ptrdiff_t)1;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	offsetReads++;
+	return (ptrdiff_t)1;
 }
 
 int adversarialZero() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    adversarialReads++;
-    return 0;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	adversarialReads++;
+	return 0;
 }
 
 long long adversarialOpaqueWide() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    adversarialReads++;
-    return LLONG_MAX;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	adversarialReads++;
+	return LLONG_MAX;
 }
 
 unsigned long long explicitOpaqueWide() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    explicitReads++;
-    return ULLONG_MAX;
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	explicitReads++;
+	return ULLONG_MAX;
 }
 
 unsigned long long explicitRight() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    explicitReads++;
-    return ULLONG_MAX;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	explicitReads++;
+	return ULLONG_MAX;
 }
 
 string callOwnedText() {
-    assert(sequenceStep == 0);
-    sequenceStep = 1;
-    callReads++;
-    return "opaque call\n";
+	assert(sequenceStep == 0);
+	sequenceStep = 1;
+	callReads++;
+	return "opaque call\n";
 }
 
 FILE* callOpaqueStream() {
-    assert(sequenceStep == 1);
-    sequenceStep = 2;
-    callReads++;
-    return stdout;
+	assert(sequenceStep == 1);
+	sequenceStep = 2;
+	callReads++;
+	return stdout;
 }
 
 long long literalOpaqueWide() {
-    literalReads++;
-    return 5000000000LL;
+	literalReads++;
+	return 5000000000LL;
 }
 
 long long dependentOpaqueValue() {
-    dependentReads++;
-    dependentValue = 9LL;
-    return 5LL;
+	dependentReads++;
+	dependentValue = 9LL;
+	return 5LL;
 }
 
 #define OPAQUE_SIGNED_VALUE signedOpaqueValue()
@@ -189,59 +188,58 @@ long long dependentOpaqueValue() {
 #define OPAQUE_DEPENDENT_VALUE dependentOpaqueValue()
 
 int main() {
-    assert(access("/", F_OK) == 0);
-    char workingDirectory[4096];
-    while ((char*)getcwd(
-            workingDirectory, (size_t)sizeof(workingDirectory)) == NULL) {
-        assert(0);
-    }
-    assert(ChildProcessClock.deadline(LLONG_MAX - 2LL, 10) == LLONG_MAX);
+	assert(access("/", F_OK) == 0);
+	char workingDirectory[4096];
+	while ((char*)getcwd(workingDirectory, (size_t)sizeof(workingDirectory)) == NULL) {
+		assert(0);
+	}
+	assert(ChildProcessClock.deadline(LLONG_MAX - 2LL, 10) == LLONG_MAX);
 
-    sequenceStep = 0;
-    assert(signedLeft() == OPAQUE_SIGNED_VALUE);
-    assert(sequenceStep == 2 && signedReads == 1);
+	sequenceStep = 0;
+	assert(signedLeft() == OPAQUE_SIGNED_VALUE);
+	assert(sequenceStep == 2 && signedReads == 1);
 
-    sequenceStep = 0;
-    assert(((unsigned long long)OPAQUE_UNSIGNED_VALUE) == unsignedRight());
-    assert(sequenceStep == 2 && unsignedReads == 1);
+	sequenceStep = 0;
+	assert(((unsigned long long)OPAQUE_UNSIGNED_VALUE) == unsignedRight());
+	assert(sequenceStep == 2 && unsignedReads == 1);
 
-    sequenceStep = 0;
-    assert(pointerLeft() == OPAQUE_POINTER_VALUE);
-    assert(sequenceStep == 2 && pointerReads == 1);
+	sequenceStep = 0;
+	assert(pointerLeft() == OPAQUE_POINTER_VALUE);
+	assert(sequenceStep == 2 && pointerReads == 1);
 
-    sequenceStep = 0;
-    assert(ordinaryLeft() < ordinaryRight());
-    assert(sequenceStep == 2 && ordinaryReads == 2);
+	sequenceStep = 0;
+	assert(ordinaryLeft() < ordinaryRight());
+	assert(sequenceStep == 2 && ordinaryReads == 2);
 
-    sequenceStep = 0;
-    assert(arithmeticLeft() + OPAQUE_WIDE_ADDEND == LLONG_MAX);
-    assert(sequenceStep == 2 && arithmeticReads == 2);
+	sequenceStep = 0;
+	assert(arithmeticLeft() + OPAQUE_WIDE_ADDEND == LLONG_MAX);
+	assert(sequenceStep == 2 && arithmeticReads == 2);
 
-    sequenceStep = 0;
-    assert((bitwiseLeft() | OPAQUE_FLAGS) == 0x13U);
-    assert(sequenceStep == 2 && bitwiseReads == 2);
+	sequenceStep = 0;
+	assert((bitwiseLeft() | OPAQUE_FLAGS) == 0x13U);
+	assert(sequenceStep == 2 && bitwiseReads == 2);
 
-    sequenceStep = 0;
-    assert(*(pointerBase() + OPAQUE_POINTER_OFFSET) == 22);
-    assert(sequenceStep == 2 && offsetReads == 2);
+	sequenceStep = 0;
+	assert(*(pointerBase() + OPAQUE_POINTER_OFFSET) == 22);
+	assert(sequenceStep == 2 && offsetReads == 2);
 
-    sequenceStep = 0;
-    assert(adversarialZero() < OPAQUE_ADVERSARIAL_WIDE);
-    assert(sequenceStep == 2 && adversarialReads == 2);
+	sequenceStep = 0;
+	assert(adversarialZero() < OPAQUE_ADVERSARIAL_WIDE);
+	assert(sequenceStep == 2 && adversarialReads == 2);
 
-    sequenceStep = 0;
-    assert(((unsigned long long)OPAQUE_EXPLICIT_WIDE) == explicitRight());
-    assert(sequenceStep == 2 && explicitReads == 2);
+	sequenceStep = 0;
+	assert(((unsigned long long)OPAQUE_EXPLICIT_WIDE) == explicitRight());
+	assert(sequenceStep == 2 && explicitReads == 2);
 
-    sequenceStep = 0;
-    assert(fputs(callOwnedText(), OPAQUE_STREAM) >= 0);
-    assert(sequenceStep == 2 && callReads == 2);
+	sequenceStep = 0;
+	assert(fputs(callOwnedText(), OPAQUE_STREAM) >= 0);
+	assert(sequenceStep == 2 && callReads == 2);
 
-    assert(OPAQUE_LITERAL_WIDE == (long long)5000000000LL);
-    assert(literalReads == 1);
+	assert(OPAQUE_LITERAL_WIDE == (long long)5000000000LL);
+	assert(literalReads == 1);
 
-    dependentValue = 5LL;
-    assert(dependentValue == OPAQUE_DEPENDENT_VALUE);
-    assert(dependentValue == 9LL && dependentReads == 1);
-    return 0;
+	dependentValue = 5LL;
+	assert(dependentValue == OPAQUE_DEPENDENT_VALUE);
+	assert(dependentValue == 9LL && dependentReads == 1);
+	return 0;
 }

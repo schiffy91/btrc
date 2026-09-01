@@ -3,30 +3,27 @@
 #include <assert.h>
 
 int run(int x) {
-    int a = 0;
-    switch (x) {
-        case 1:
-            a += 1;
-            // intentional fall-through into case 2
-        case 2:
-            a += 10;
-            break;
-        case 3:
-            a += 100;
-    }
-    return a;
+	int a = 0;
+	switch (x) {
+		case 1: a += 1;
+		// intentional fall-through into case 2
+		case 2: a += 10;
+		break;
+		case 3: a += 100;
+	}
+	return a;
 }
 
 int main() {
-    // x==1 falls through 1 -> 2: 1 + 10
-    assert(run(1) == 11);
-    // x==2 enters at case 2 only: 10
-    assert(run(2) == 10);
-    // x==3 is the last clause, no break needed: 100
-    assert(run(3) == 100);
-    // unmatched value does nothing
-    assert(run(9) == 0);
+	// x==1 falls through 1 -> 2: 1 + 10
+	assert(run(1) == 11);
+	// x==2 enters at case 2 only: 10
+	assert(run(2) == 10);
+	// x==3 is the last clause, no break needed: 100
+	assert(run(3) == 100);
+	// unmatched value does nothing
+	assert(run(9) == 0);
 
-    print("PASS: test_switch_fallthrough");
-    return 0;
+	print("PASS: test_switch_fallthrough");
+	return 0;
 }

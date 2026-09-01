@@ -1,21 +1,21 @@
 #include <assert.h>
 
 struct Node {
-    int v;
-    struct Node* next;
+	int v;
+	struct Node* next;
 };
 
 int main() {
-    // sizeof on a C aggregate type
-    assert(sizeof(struct Node) > (size_t)0);
-    // a struct with an int and a pointer is at least that big
-    assert(sizeof(struct Node) >= sizeof(int) + sizeof(struct Node*));
-    // pointer-to-struct is the size of any data pointer
-    assert(sizeof(struct Node*) == sizeof(void*));
-    // sizeof of an expression (a variable) also works
-    struct Node n = {7, NULL};
-    assert(sizeof(n) == sizeof(struct Node));
+	// sizeof on a C aggregate type
+	assert(sizeof(struct Node) > (size_t)0);
+	// a struct with an int and a pointer is at least that big
+	assert(sizeof(struct Node) >= sizeof(int) + sizeof(struct Node*));
+	// pointer-to-struct is the size of any data pointer
+	assert(sizeof(struct Node*) == sizeof(void*));
+	// sizeof of an expression (a variable) also works
+	struct Node n = {7, NULL};
+	assert(sizeof(n) == sizeof(struct Node));
 
-    print("PASS: test_interop_sizeof_c_types");
-    return 0;
+	print("PASS: test_interop_sizeof_c_types");
+	return 0;
 }

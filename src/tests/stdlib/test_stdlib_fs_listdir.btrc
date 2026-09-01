@@ -8,32 +8,32 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    string dir = FileSystem.tempDir("btrc_listdir");
-    assert(FileSystem.isDir(dir));
+	string dir = FileSystem.tempDir("btrc_listdir");
+	assert(FileSystem.isDir(dir));
 
-    FileSystem.writeText(PathTools.join(dir, "a.txt"), "A");
-    FileSystem.writeText(PathTools.join(dir, "b.txt"), "B");
+	FileSystem.writeText(PathTools.join(dir, "a.txt"), "A");
+	FileSystem.writeText(PathTools.join(dir, "b.txt"), "B");
 
-    Vector<string> entries = FileSystem.listDir(dir);
+	Vector<string> entries = FileSystem.listDir(dir);
 
-    /* Exactly the two files we created (order is filesystem-dependent, so count
+	/* Exactly the two files we created (order is filesystem-dependent, so count
      * matches rather than position). '.' / '..' are excluded by entries(). */
-    int matched = 0;
-    for name in entries {
-        if (name.equals("a.txt") || name.equals("b.txt")) { matched++; }
-        assert(!name.equals("."));
-        assert(!name.equals(".."));
-    }
-    assert(matched == 2);
-    assert(entries.len == 2);
+	int matched = 0;
+	for name in entries {
+		if (name.equals("a.txt") || name.equals("b.txt")) { matched++; }
+		assert(!name.equals("."));
+		assert(!name.equals(".."));
+	}
+	assert(matched == 2);
+	assert(entries.len == 2);
 
-    /* listDir of a non-existent path is empty (opendir fails -> empty Vector). */
-    Vector<string> missing = FileSystem.listDir(PathTools.join(dir, "nope"));
-    assert(missing.len == 0);
+	/* listDir of a non-existent path is empty (opendir fails -> empty Vector). */
+	Vector<string> missing = FileSystem.listDir(PathTools.join(dir, "nope"));
+	assert(missing.len == 0);
 
-    FileSystem.removeRecursive(dir);
-    assert(!FileSystem.exists(dir));
+	FileSystem.removeRecursive(dir);
+	assert(!FileSystem.exists(dir));
 
-    print("PASS: test_stdlib_fs_listdir");
-    return 0;
+	print("PASS: test_stdlib_fs_listdir");
+	return 0;
 }

@@ -11,206 +11,180 @@ import std.vector;
 #include <assert.h>
 
 int childProbe(int argc, char** argv) {
-    string mode = Strings.copy(argv[1]);
-    if (mode.equals("--probe")) {
-        char cwd[4096];
-        assert(getcwd(cwd, 4096) != NULL);
-        string overrideValue = Environment.get("BTRC_CHILD_OVERRIDE", "");
-        string newValue = Environment.get("BTRC_CHILD_NEW", "");
-        string removedValue = null;
-        char* removedRaw = getenv("BTRC_CHILD_REMOVE");
-        if (removedRaw != NULL) { removedValue = Strings.copy(removedRaw); }
-        printf("cwd=%s\n", cwd);
-        printf("override=%s\n", overrideValue);
-        printf("new=%s\n", newValue);
-        printf("removed=%s\n", removedValue == null ? "missing" : removedValue);
-        for (int i = 2; i < argc; i++) {
-            printf("arg=%s\n", argv[i]);
-        }
-        fprintf(stderr, "captured stderr\n");
-        return 23;
-    }
-    if (mode.equals("--timeout-group")) {
-        pid_t descendant = fork();
-        if (descendant == (pid_t)0) {
-            usleep(500000);
-            FILE* marker = fopen(argv[2], "w");
-            if (marker != NULL) {
-                fputs("survived", marker);
-                fclose(marker);
-            }
-            _exit(0);
-        }
-        // Exit the direct child immediately. Its descendant keeps the capture
-        // pipes open, so the run is only bounded if timeout owns the group.
-        return 0;
-    }
-    if (mode.equals("--escaped-pipe")) {
-        pid_t descendant = fork();
-        if (descendant == (pid_t)0) {
-            setsid();
-            usleep(500000);
-            _exit(0);
-        }
-        return 0;
-    }
-    if (mode.equals("--stdin")) {
-        char input[128];
-        size_t count = fread(input, 1, 127, stdin);
-        input[(int)count] = '\0';
-        printf("stdin=%s", input);
-        return 0;
-    }
-    if (mode.equals("--volume")) {
-        for (int i = 0; i < 20000; i++) { fputs("out\n", stdout); }
-        for (int i = 0; i < 20000; i++) { fputs("err\n", stderr); }
-        return 0;
-    }
-    return 64;
+	string mode = Strings.copy(argv[1]);
+	if (mode.equals("--probe")) {
+		char cwd[4096];
+		assert(getcwd(cwd, 4096) != NULL);
+		string overrideValue = Environment.get("BTRC_CHILD_OVERRIDE", "");
+		string newValue = Environment.get("BTRC_CHILD_NEW", "");
+		string removedValue = null;
+		char* removedRaw = getenv("BTRC_CHILD_REMOVE");
+		if (removedRaw != NULL) { removedValue = Strings.copy(removedRaw); }
+		printf("cwd=%s\n", cwd);
+		printf("override=%s\n", overrideValue);
+		printf("new=%s\n", newValue);
+		printf("removed=%s\n", removedValue == null ? "missing" : removedValue);
+		for (int i = 2; i < argc; i++) {
+			printf("arg=%s\n", argv[i]);
+		}
+		fprintf(stderr, "captured stderr\n");
+		return 23;
+	}
+	if (mode.equals("--timeout-group")) {
+		pid_t descendant = fork();
+		if (descendant == (pid_t)0) {
+			usleep(500000);
+			FILE* marker = fopen(argv[2], "w");
+			if (marker != NULL) {
+				fputs("survived", marker);
+				fclose(marker);
+			}
+			_exit(0);
+		}
+		// Exit the direct child immediately. Its descendant keeps the capture
+		// pipes open, so the run is only bounded if timeout owns the group.
+		return 0;
+	}
+	if (mode.equals("--escaped-pipe")) {
+		pid_t descendant = fork();
+		if (descendant == (pid_t)0) {
+			setsid();
+			usleep(500000);
+			_exit(0);
+		}
+		return 0;
+	}
+	if (mode.equals("--stdin")) {
+		char input[128];
+		size_t count = fread(input, 1, 127, stdin);
+		input[(int)count] = '\0';
+		printf("stdin=%s", input);
+		return 0;
+	}
+	if (mode.equals("--volume")) {
+		for (int i = 0; i < 20000; i++) { fputs("out\n", stdout); }
+		for (int i = 0; i < 20000; i++) { fputs("err\n", stderr); }
+		return 0;
+	}
+	return 64;
 }
 
 int main(int argc, char** argv) {
-    if (argc > 1) { return childProbe(argc, argv); }
+	if (argc > 1) { return childProbe(argc, argv); }
 
-    ChildProcessCapture invalidCapture = ChildProcessCapture(2147483647);
-    invalidCapture.readReady();
-    assert(invalidCapture.failed && !invalidCapture.open);
+	ChildProcessCapture invalidCapture = ChildProcessCapture(2147483647);
+	invalidCapture.readReady();
+	assert(invalidCapture.failed && !invalidCapture.open);
 
-    int cloexecPipe[2];
-    assert(ChildProcess.openPipe(cloexecPipe) == 0);
-    assert((fcntl(cloexecPipe[0], F_GETFD) & FD_CLOEXEC) != 0);
-    assert((fcntl(cloexecPipe[1], F_GETFD) & FD_CLOEXEC) != 0);
-    ChildProcess.closePipe(cloexecPipe);
-    assert(ChildProcessClock.milliseconds() >= 0LL);
-    assert(ChildProcessClock.deadline(LLONG_MAX - 2LL, 10) == LLONG_MAX);
+	int cloexecPipe[2];
+	assert(ChildProcess.openPipe(cloexecPipe) == 0);
+	assert((fcntl(cloexecPipe[0], F_GETFD) & FD_CLOEXEC) != 0);
+	assert((fcntl(cloexecPipe[1], F_GETFD) & FD_CLOEXEC) != 0);
+	ChildProcess.closePipe(cloexecPipe);
+	assert(ChildProcessClock.milliseconds() >= 0LL);
+	assert(ChildProcessClock.deadline(LLONG_MAX - 2LL, 10) == LLONG_MAX);
 
-    string secret = "pa'ss word";
-    string renderedSecret = "tool --token " + ShellWords.quote(secret);
-    string redacted = ShellWords.redact(renderedSecret, secret);
-    assert(redacted.equals("tool --token ***"));
-    string nestedRendered = ShellWords.quote(renderedSecret);
-    string nestedRedacted = ShellWords.redact(nestedRendered, secret);
-    assert(nestedRedacted.contains("***"));
-    assert(!nestedRedacted.contains("ss word"));
+	string secret = "pa'ss word";
+	string renderedSecret = "tool --token " + ShellWords.quote(secret);
+	string redacted = ShellWords.redact(renderedSecret, secret);
+	assert(redacted.equals("tool --token ***"));
+	string nestedRendered = ShellWords.quote(renderedSecret);
+	string nestedRedacted = ShellWords.redact(nestedRendered, secret);
+	assert(nestedRedacted.contains("***"));
+	assert(!nestedRedacted.contains("ss word"));
 
-    string root = FileSystem.tempDir("btrc child process");
-    assert(!root.isEmpty());
-    root = PathTools.absolute(root);
-    string executable = PathTools.absolute(argv[0]);
-    string spacedExecutable = PathTools.join(root, "helper with spaces");
-    assert(FileSystem.symlink(executable, spacedExecutable) == 0);
+	string root = FileSystem.tempDir("btrc child process");
+	assert(!root.isEmpty());
+	root = PathTools.absolute(root);
+	string executable = PathTools.absolute(argv[0]);
+	string spacedExecutable = PathTools.join(root, "helper with spaces");
+	assert(FileSystem.symlink(executable, spacedExecutable) == 0);
 
-    string shellMarker = PathTools.join(root, "shell-expanded");
-    string metacharacters = f"; touch {shellMarker}";
-    Vector<string> arguments = [
-        "--probe",
-        "space value",
-        "$HOME `literal` * ?",
-        metacharacters,
-        "quote'\"value"
-    ];
-    setenv("BTRC_CHILD_OVERRIDE", "old", 1);
-    setenv("BTRC_CHILD_REMOVE", "inherited", 1);
-    ExecResult result = ChildProcess.run(
-        spacedExecutable,
-        arguments,
-        cwd=root,
-        environment=[
-            "BTRC_CHILD_OVERRIDE=two words",
-            "BTRC_CHILD_NEW=$literal=with=equals"
-        ],
-        unsetEnvironment=["BTRC_CHILD_REMOVE"],
-        timeoutMilliseconds=2000
-    );
+	string shellMarker = PathTools.join(root, "shell-expanded");
+	string metacharacters = f"; touch {shellMarker}";
+	Vector<string> arguments = [
+		"--probe",
+		"space value",
+		"$HOME `literal` * ?",
+		metacharacters,
+		"quote'\"value"
+	];
+	setenv("BTRC_CHILD_OVERRIDE", "old", 1);
+	setenv("BTRC_CHILD_REMOVE", "inherited", 1);
+	ExecResult result = ChildProcess.run(
+		spacedExecutable,
+		arguments,
+		cwd=root,
+		environment=[
+		"BTRC_CHILD_OVERRIDE=two words",
+		"BTRC_CHILD_NEW=$literal=with=equals"
+	],
+		unsetEnvironment=["BTRC_CHILD_REMOVE"],
+		timeoutMilliseconds=2000
+	);
 
-    assert(result.code == 23);
-    assert(!result.ok());
-    assert(!result.wasTimedOut());
-    assert(result.command.startsWith("'" + spacedExecutable + "'"));
-    assert(result.stderr().equals("captured stderr\n"));
-    string expected = f"cwd={root}\n"
-        + "override=two words\n"
-        + "new=$literal=with=equals\n"
-        + "removed=missing\n"
-        + "arg=space value\n"
-        + "arg=$HOME `literal` * ?\n"
-        + f"arg={metacharacters}\n"
-        + "arg=quote'\"value\n";
-    assert(result.stdout().equals(expected));
-    assert(!FileSystem.exists(shellMarker));
+	assert(result.code == 23);
+	assert(!result.ok());
+	assert(!result.wasTimedOut());
+	assert(result.command.startsWith("'" + spacedExecutable + "'"));
+	assert(result.stderr().equals("captured stderr\n"));
+	string expected = f"cwd={root}\n" + "override=two words\n" + "new=$literal=with=equals\n" + "removed=missing\n" + "arg=space value\n" + "arg=$HOME `literal` * ?\n" + f"arg={metacharacters}\n" + "arg=quote'\"value\n";
+	assert(result.stdout().equals(expected));
+	assert(!FileSystem.exists(shellMarker));
 
-    ExecResult input = ChildProcess.run(
-        executable, ["--stdin"], stdinData="anonymous input");
-    assert(input.ok());
-    assert(input.stdout().equals("stdin=anonymous input"));
+	ExecResult input = ChildProcess.run(executable, ["--stdin"], stdinData="anonymous input");
+	assert(input.ok());
+	assert(input.stdout().equals("stdin=anonymous input"));
 
-    ExecResult pathOverride = ChildProcess.run(
-        "helper with spaces", ["--probe"], cwd=root,
-        environment=["PATH=" + root], timeoutMilliseconds=2000);
-    assert(pathOverride.code == 23);
+	ExecResult pathOverride = ChildProcess.run("helper with spaces", ["--probe"], cwd=root, environment=["PATH=" + root], timeoutMilliseconds=2000);
+	assert(pathOverride.code == 23);
 
-    bool rejected = false;
-    Vector<string> noArguments = [];
-    try {
-        ChildProcess.run(executable, noArguments, environment=["BAD-NAME=value"]);
-    } catch (string error) {
-        rejected = error.contains("invalid environment variable name");
-    }
-    assert(rejected);
+	bool rejected = false;
+	Vector<string> noArguments = [];
+	try {
+		ChildProcess.run(executable, noArguments, environment=["BAD-NAME=value"]);
+	} catch (string error) {
+		rejected = error.contains("invalid environment variable name");
+	}
+	assert(rejected);
 
-    ExecResult missing = ChildProcess.run(
-        PathTools.join(root, "missing executable"),
-        noArguments,
-        timeoutMilliseconds=1000
-    );
-    assert(missing.code == 127);
-    string missingStderr = missing.stderr();
-    assert(missingStderr.contains("failed to execute")
-        || missingStderr.contains("failed to start"));
+	ExecResult missing = ChildProcess.run(PathTools.join(root, "missing executable"), noArguments, timeoutMilliseconds=1000);
+	assert(missing.code == 127);
+	string missingStderr = missing.stderr();
+	assert(missingStderr.contains("failed to execute") || missingStderr.contains("failed to start"));
 
-    ExecResult volume = ChildProcess.run(
-        executable,
-        ["--volume"],
-        timeoutMilliseconds=2000
-    );
-    assert(volume.ok());
-    assert(volume.stdout().len() == 80000);
-    assert(volume.stderr().len() == 80000);
+	ExecResult volume = ChildProcess.run(executable, ["--volume"], timeoutMilliseconds=2000);
+	assert(volume.ok());
+	assert(volume.stdout().len() == 80000);
+	assert(volume.stderr().len() == 80000);
 
-    ExecResult bounded = ChildProcess.run(
-        executable, ["--volume"], timeoutMilliseconds=2000,
-        maxStdoutBytes=1024, maxStderrBytes=1024);
-    assert(bounded.code == 125);
-    assert(bounded.stdout().len() <= 1024);
-    assert(bounded.stderr().contains("capture limit"));
+	ExecResult bounded = ChildProcess.run(executable, ["--volume"], timeoutMilliseconds=2000, maxStdoutBytes=1024, maxStderrBytes=1024);
+	assert(bounded.code == 125);
+	assert(bounded.stdout().len() <= 1024);
+	assert(bounded.stderr().contains("capture limit"));
 
-    string descendantMarker = PathTools.join(root, "descendant survived");
-    Timer timer = Timer();
-    timer.start();
-    ExecResult timeout = ChildProcess.run(
-        executable,
-        ["--timeout-group", descendantMarker],
-        timeoutMilliseconds=100
-    );
-    timer.stop();
-    assert(timeout.code == 124);
-    assert(timeout.wasTimedOut());
-    assert(timer.elapsedMillis() < 2000.0f);
-    usleep(700000);
-    assert(!FileSystem.exists(descendantMarker));
+	string descendantMarker = PathTools.join(root, "descendant survived");
+	Timer timer = Timer();
+	timer.start();
+	ExecResult timeout = ChildProcess.run(executable, ["--timeout-group", descendantMarker], timeoutMilliseconds=100);
+	timer.stop();
+	assert(timeout.code == 124);
+	assert(timeout.wasTimedOut());
+	assert(timer.elapsedMillis() < 2000.0f);
+	usleep(700000);
+	assert(!FileSystem.exists(descendantMarker));
 
-    Timer escapedTimer = Timer();
-    escapedTimer.start();
-    ExecResult escaped = ChildProcess.run(
-        executable, ["--escaped-pipe"], timeoutMilliseconds=100);
-    escapedTimer.stop();
-    assert(escaped.code == 124);
-    assert(escaped.wasTimedOut());
-    assert(escapedTimer.elapsedMillis() < 2000.0f);
+	Timer escapedTimer = Timer();
+	escapedTimer.start();
+	ExecResult escaped = ChildProcess.run(executable, ["--escaped-pipe"], timeoutMilliseconds=100);
+	escapedTimer.stop();
+	assert(escaped.code == 124);
+	assert(escaped.wasTimedOut());
+	assert(escapedTimer.elapsedMillis() < 2000.0f);
 
-    unsetenv("BTRC_CHILD_OVERRIDE");
-    unsetenv("BTRC_CHILD_REMOVE");
-    FileSystem.removeRecursive(root);
-    print("PASS: test_stdlib_child_process");
-    return 0;
+	unsetenv("BTRC_CHILD_OVERRIDE");
+	unsetenv("BTRC_CHILD_REMOVE");
+	FileSystem.removeRecursive(root);
+	print("PASS: test_stdlib_child_process");
+	return 0;
 }

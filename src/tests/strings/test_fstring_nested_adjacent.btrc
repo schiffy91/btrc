@@ -3,26 +3,26 @@
 #include <assert.h>
 
 int main() {
-    // nested f-string inside an interpolation
-    int x = 5;
-    assert(f"outer {f"in {x}"} end".equals("outer in 5 end"));
+	// nested f-string inside an interpolation
+	int x = 5;
+	assert(f"outer {f"in {x}"} end".equals("outer in 5 end"));
 
-    // adjacent interpolations with no separator
-    int a = 1;
-    int b = 2;
-    assert(f"{a}{b}".equals("12"));
+	// adjacent interpolations with no separator
+	int a = 1;
+	int b = 2;
+	assert(f"{a}{b}".equals("12"));
 
-    // leading / trailing single interpolation
-    assert(f"{a}".equals("1"));
-    assert(f"{a} ".equals("1 "));
+	// leading / trailing single interpolation
+	assert(f"{a}".equals("1"));
+	assert(f"{a} ".equals("1 "));
 
-    // no interpolation at all -> plain string-literal path
-    assert(f"plain text".equals("plain text"));
+	// no interpolation at all -> plain string-literal path
+	assert(f"plain text".equals("plain text"));
 
-    // literal percent sign alongside an int interpolation
-    int p = 50;
-    assert(f"{p}% done".equals("50% done"));
+	// literal percent sign alongside an int interpolation
+	int p = 50;
+	assert(f"{p}% done".equals("50% done"));
 
-    print("PASS: test_fstring_nested_adjacent");
-    return 0;
+	print("PASS: test_fstring_nested_adjacent");
+	return 0;
 }

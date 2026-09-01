@@ -5,49 +5,43 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 class Holder {
-    public Obj stored;
+	public Obj stored;
 
-    public Holder() {
-        self.stored = null;
-    }
+	public Holder() { self.stored = null; }
 
-    public void store(keep Obj o) {
-        self.stored = o;
-    }
+	public void store(keep Obj o) { self.stored = o; }
 }
 
 int main() {
-    // The keep parameter guards the call itself.
-    Holder h = new Holder();
-    Obj o = new Obj(1);
-    assert(alive == 1);
+	// The keep parameter guards the call itself.
+	Holder h = new Holder();
+	Obj o = new Obj(1);
+	assert(alive == 1);
 
-    // The field store retains o; the call-scoped keep is released on return.
-    h.store(o);
-    assert(h.stored.id == 1);
+	// The field store retains o; the call-scoped keep is released on return.
+	h.store(o);
+	assert(h.stored.id == 1);
 
-    // Deleting the holder releases the field-owned reference.
-    delete h;
-    // The local owned reference keeps o alive.
-    assert(alive == 1);
+	// Deleting the holder releases the field-owned reference.
+	delete h;
+	// The local owned reference keeps o alive.
+	assert(alive == 1);
 
-    // No hidden keep alias remains after the call, so force-delete is final.
-    delete o;
-    assert(alive == 0);
+	// No hidden keep alias remains after the call, so force-delete is final.
+	delete o;
+	assert(alive == 0);
 
-    print("PASS: test_keep_params");
-    return 0;
+	print("PASS: test_keep_params");
+	return 0;
 }

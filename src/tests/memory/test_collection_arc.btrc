@@ -13,83 +13,81 @@ import std.vector;
 int live = 0;
 
 class Obj {
-    public int v;
+	public int v;
 
-    public Obj(int v) {
-        self.v = v;
-        live++;
-    }
+	public Obj(int v) {
+		self.v = v;
+		live++;
+	}
 
-    public void __del__() {
-        live--;
-    }
+	public void __del__() { live--; }
 }
 
 /* All four collection kinds, scope exit with bare `new` temporaries. */
 void scopeExit() {
-    Vector<Obj> v = {};
-    v.push(new Obj(1));
-    v.push(new Obj(2));
-    Map<int, Obj> m = {};
-    m.set(1, new Obj(3));
-    Set<Obj> s = {};
-    s.add(new Obj(4));
-    List<Obj> l = {};
-    l.pushBack(new Obj(5));
+	Vector<Obj> v = {};
+	v.push(new Obj(1));
+	v.push(new Obj(2));
+	Map<int, Obj> m = {};
+	m.set(1, new Obj(3));
+	Set<Obj> s = {};
+	s.add(new Obj(4));
+	List<Obj> l = {};
+	l.pushBack(new Obj(5));
 }
 
 /* Early return must release the collection on every exit path. */
 void earlyReturn(bool f) {
-    Vector<Obj> v = {};
-    v.push(new Obj(10));
-    if (f) {
-        return;
-    }
-    v.push(new Obj(11));
+	Vector<Obj> v = {};
+	v.push(new Obj(10));
+	if (f) {
+		return;
+	}
+	v.push(new Obj(11));
 }
 
 /* Nested collection: inner is moved into outer; both released once. */
 void nested() {
-    Vector<Vector<Obj>> vv = {};
-    Vector<Obj> inner = {};
-    inner.push(new Obj(20));
-    vv.push(inner);
+	Vector<Vector<Obj>> vv = {};
+	Vector<Obj> inner = {};
+	inner.push(new Obj(20));
+	vv.push(inner);
 }
 
 /* Alias: b borrows a (its initializer is not owning), so only a is registered.
  * The collection (and its element) must be destroyed exactly once.
  */
 void aliasNoDoubleFree() {
-    Vector<Obj> a = {};
-    a.push(new Obj(30));
-    Vector<Obj> b = a;
+	Vector<Obj> a = {};
+	a.push(new Obj(30));
+	Vector<Obj> b = a;
 }
 
 /* Explicit free() then scope exit must be idempotent (no double-free). */
 void explicitFreeThenScope() {
-    Vector<Obj> v = {};
-    v.push(new Obj(40));
-    v.free();
+	Vector<Obj> v = {};
+	v.push(new Obj(40));
+	v.free();
 }
 
 int main() {
-    scopeExit();
-    assert(live == 0);
+	scopeExit();
+	assert(live == 0);
 
-    earlyReturn(true);
-    assert(live == 0);
-    earlyReturn(false);
-    assert(live == 0);
+	earlyReturn(true);
+	assert(live == 0);
+	earlyReturn(false);
+	assert(live == 0);
 
-    nested();
-    assert(live == 0);
+	nested();
+	assert(live == 0);
 
-    aliasNoDoubleFree();
-    assert(live == 0);
+	aliasNoDoubleFree();
+	assert(live == 0);
 
-    explicitFreeThenScope();
-    assert(live == 0);
+	explicitFreeThenScope();
+	assert(live == 0);
 
-    print("PASS: test_collection_arc");
-    return 0;
+	print("PASS: test_collection_arc");
+	return 0;
 }

@@ -3,29 +3,26 @@
 #include <assert.h>
 
 int pick(int x) {
-    int r = -99;
-    switch (x) {
-        default:
-            r = 0;
-            break;
-        case 1:
-            r = 1;
-            break;
-        case 2:
-            r = 2;
-            break;
-    }
-    return r;
+	int r = -99;
+	switch (x) {
+		default: r = 0;
+		break;
+		case 1: r = 1;
+		break;
+		case 2: r = 2;
+		break;
+	}
+	return r;
 }
 
 int main() {
-    // value matches no case -> default (declared first) still applies
-    assert(pick(5) == 0);
-    assert(pick(0) == 0);
-    // explicit cases declared after default still match
-    assert(pick(1) == 1);
-    assert(pick(2) == 2);
+	// value matches no case -> default (declared first) still applies
+	assert(pick(5) == 0);
+	assert(pick(0) == 0);
+	// explicit cases declared after default still match
+	assert(pick(1) == 1);
+	assert(pick(2) == 2);
 
-    print("PASS: test_switch_default_first");
-    return 0;
+	print("PASS: test_switch_default_first");
+	return 0;
 }

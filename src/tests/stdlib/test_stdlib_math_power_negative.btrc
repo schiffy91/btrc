@@ -6,21 +6,21 @@ import std.math;
 #include "../../stdlib/math.btrc"
 
 int main() {
-    // negative exponent -> reciprocal
-    assert(Math.fabs(Math.power(2.0f, -2) - 0.25f) < 0.0001f);
-    assert(Math.fabs(Math.power(10.0f, -1) - 0.1f) < 0.0001f);
-    assert(Math.fabs(Math.power(4.0f, -1) - 0.25f) < 0.0001f);
+	// negative exponent -> reciprocal
+	assert(Math.fabs(Math.power(2.0f, -2) - 0.25f) < 0.0001f);
+	assert(Math.fabs(Math.power(10.0f, -1) - 0.1f) < 0.0001f);
+	assert(Math.fabs(Math.power(4.0f, -1) - 0.25f) < 0.0001f);
 
-    // exponent of zero is always 1 regardless of base
-    assert(Math.fabs(Math.power(5.0f, 0) - 1.0f) < 0.0001f);
-    assert(Math.fabs(Math.power(0.0f, 0) - 1.0f) < 0.0001f);
+	// exponent of zero is always 1 regardless of base
+	assert(Math.fabs(Math.power(5.0f, 0) - 1.0f) < 0.0001f);
+	assert(Math.fabs(Math.power(0.0f, 0) - 1.0f) < 0.0001f);
 
-    // positive still works (sanity that the negative branch didn't break it)
-    assert(Math.fabs(Math.power(3.0f, 2) - 9.0f) < 0.0001f);
+	// positive still works (sanity that the negative branch didn't break it)
+	assert(Math.fabs(Math.power(3.0f, 2) - 9.0f) < 0.0001f);
 
-    // round-trip: x^-n * x^n == 1
-    assert(Math.fabs(Math.power(7.0f, -2) * Math.power(7.0f, 2) - 1.0f) < 0.001f);
+	// round-trip: x^-n * x^n == 1
+	assert(Math.fabs(Math.power(7.0f, -2) * Math.power(7.0f, 2) - 1.0f) < 0.001f);
 
-    print("PASS: test_stdlib_math_power_negative");
-    return 0;
+	print("PASS: test_stdlib_math_power_negative");
+	return 0;
 }

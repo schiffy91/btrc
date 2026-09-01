@@ -4,31 +4,33 @@
 #include <assert.h>
 
 interface Drawable {
-    string draw();
+	string draw();
 }
 
 abstract class Shape {
-    public abstract double area();
-    public string kind() { return "shape"; }
+	public abstract double area();
+	public string kind() { return "shape"; }
 }
 
 class Circle extends Shape implements Drawable {
-    public double r;
-    public Circle(double r) { self.r = r; }
-    public double area() { return 3.0 * self.r * self.r; }
-    public string draw() { return "circle"; }
+	public double r;
+	public Circle(double r) { self.r = r; }
+
+	public double area() { return 3.0 * self.r * self.r; }
+
+	public string draw() { return "circle"; }
 }
 
 int main() {
-    Circle c = Circle(2.0);
-    // Overridden abstract method.
-    double a = c.area();
-    assert(a > 11.9 && a < 12.1);
-    // Interface method.
-    assert(c.draw() == "circle");
-    // Concrete method inherited from the abstract base.
-    assert(c.kind() == "shape");
+	Circle c = Circle(2.0);
+	// Overridden abstract method.
+	double a = c.area();
+	assert(a > 11.9 && a < 12.1);
+	// Interface method.
+	assert(c.draw() == "circle");
+	// Concrete method inherited from the abstract base.
+	assert(c.kind() == "shape");
 
-    print("PASS: test_class_extends_and_implements");
-    return 0;
+	print("PASS: test_class_extends_and_implements");
+	return 0;
 }

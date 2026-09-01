@@ -6,24 +6,24 @@
 #include <assert.h>
 
 int main() {
-    int a = 5;
-    int b = 3;
+	int a = 5;
+	int b = 3;
 
-    // (a) is a grouped value, then the binary operator applies.
-    assert((a) + b == 8);
-    assert((a) * b == 15);
-    assert((a) - b == 2);
-    // '&' binds looser than '==', so parenthesize the bitwise result.
-    assert(((a) & b) == 1);
+	// (a) is a grouped value, then the binary operator applies.
+	assert((a) + b == 8);
+	assert((a) * b == 15);
+	assert((a) - b == 2);
+	// '&' binds looser than '==', so parenthesize the bitwise result.
+	assert(((a) & b) == 1);
 
-    // For contrast: an explicit type-keyword cast IS a cast and binds to
-    // the unary operand. (int)-a is the cast of -a, giving -5.
-    assert((int)-a == -5);
+	// For contrast: an explicit type-keyword cast IS a cast and binds to
+	// the unary operand. (int)-a is the cast of -a, giving -5.
+	assert((int)-a == -5);
 
-    // The grouped identifier composes with further arithmetic correctly.
-    int c = (a) * b - (b) + a;
-    assert(c == 17);
+	// The grouped identifier composes with further arithmetic correctly.
+	int c = (a) * b - (b) + a;
+	assert(c == 17);
 
-    print("PASS: test_bare_paren_grouping");
-    return 0;
+	print("PASS: test_bare_paren_grouping");
+	return 0;
 }

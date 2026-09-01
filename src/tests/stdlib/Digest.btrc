@@ -4,24 +4,24 @@ import std.Digest;
 #include <assert.h>
 
 int main() {
-    Fnv1a32 text = Fnv1a32();
-    text.appendBytes(Bytes.fromString("hello"));
-    assert(text.value() == 1335831723u);
+	Fnv1a32 text = Fnv1a32();
+	text.appendBytes(Bytes.fromString("hello"));
+	assert(text.value() == 1335831723u);
 
-    Fnv1a32 integer = Fnv1a32();
-    integer.appendUInt32(305419896u);
-    assert(integer.value() == 2741278597u);
+	Fnv1a32 integer = Fnv1a32();
+	integer.appendUInt32(305419896u);
+	assert(integer.value() == 2741278597u);
 
-    Fnv1a32 floating = Fnv1a32();
-    floating.appendFloat(1.0f);
-    assert(floating.value() == 458782360u);
+	Fnv1a32 floating = Fnv1a32();
+	floating.appendFloat(1.0f);
+	assert(floating.value() == 458782360u);
 
-    Fnv1a32 sequence = Fnv1a32();
-    sequence.appendFloat(1.0f);
-    sequence.appendFloat(-2.5f);
-    sequence.appendFloat(0.0f);
-    assert(sequence.value() == 256564856u);
+	Fnv1a32 sequence = Fnv1a32();
+	sequence.appendFloat(1.0f);
+	sequence.appendFloat(-2.5f);
+	sequence.appendFloat(0.0f);
+	assert(sequence.value() == 256564856u);
 
-    print("PASS Digest");
-    return 0;
+	print("PASS Digest");
+	return 0;
 }

@@ -4,25 +4,21 @@
 // A free function declared to take the class accesses its fields directly;
 // IR gen rewrites the parameter to `Vec*` and field access to `->`.
 class Vec {
-    public int x;
-    public int y;
-    public Vec(int x, int y) { self.x = x; self.y = y; }
+	public int x;
+	public int y;
+	public Vec(int x, int y) { self.x = x; self.y = y; }
 }
 
-int sum_xy(Vec v) {
-    return v.x + v.y;
-}
+int sum_xy(Vec v) { return v.x + v.y; }
 
-Vec make(int a, int b) {
-    return Vec(a, b);
-}
+Vec make(int a, int b) { return Vec(a, b); }
 
 int main() {
-    Vec v = make(10, 32);
-    assert(sum_xy(v) == 42);
-    assert(make(1, 2).x == 1);
-    assert(sum_xy(make(7, 8)) == 15);
+	Vec v = make(10, 32);
+	assert(sum_xy(v) == 42);
+	assert(make(1, 2).x == 1);
+	assert(sum_xy(make(7, 8)) == 15);
 
-    print("PASS: test_interop_c_func_takes_class");
-    return 0;
+	print("PASS: test_interop_c_func_takes_class");
+	return 0;
 }

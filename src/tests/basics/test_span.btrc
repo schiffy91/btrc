@@ -1,23 +1,23 @@
 int sum(Span<int> values) {
-    int result = 0;
-    for value in values { result += value; }
-    return result;
+	int result = 0;
+	for value in values { result += value; }
+	return result;
 }
 
 int main() {
-    int storage[4] = {2, 3, 5, 7};
-    Span<int> values = Span(storage);
-    int output = -1;
-    if (!values.isValid() || values.isEmpty()) { return 1; }
-    if (!values.tryGet(2, &output) || output != 5) { return 2; }
-    if (!values.trySet(2, 11) || storage[2] != 11) { return 3; }
-    if (sum(values) != 23) { return 4; }
-    Span<int> empty = Span((int*)null, 0);
-    if (!empty.isValid() || !empty.isEmpty()) { return 5; }
-    if (empty.tryGet(0, &output) || output != 5) { return 6; }
-    const int readOnlyStorage[2] = {11, 13};
-    Span<const int> readOnly = Span(readOnlyStorage);
-    if (!readOnly.tryGet(1, &output) || output != 13) { return 7; }
-    print("PASS span");
-    return 0;
+	int storage[4] = {2, 3, 5, 7};
+	Span<int> values = Span(storage);
+	int output = -1;
+	if (!values.isValid() || values.isEmpty()) { return 1; }
+	if (!values.tryGet(2, &output) || output != 5) { return 2; }
+	if (!values.trySet(2, 11) || storage[2] != 11) { return 3; }
+	if (sum(values) != 23) { return 4; }
+	Span<int> empty = Span((int*)null, 0);
+	if (!empty.isValid() || !empty.isEmpty()) { return 5; }
+	if (empty.tryGet(0, &output) || output != 5) { return 6; }
+	const int readOnlyStorage[2] = {11, 13};
+	Span<const int> readOnly = Span(readOnlyStorage);
+	if (!readOnly.tryGet(1, &output) || output != 13) { return 7; }
+	print("PASS span");
+	return 0;
 }

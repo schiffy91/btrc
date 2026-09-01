@@ -1,13 +1,13 @@
 #include <assert.h>
 // spawn with an arrow lambda whose body is a bare EXPRESSION (no braces, no return).
 int main() {
-    Thread<int> t = spawn(() => 6 * 7);
-    int r = t.join();
-    assert(r == 42);
+	Thread<int> t = spawn(() => 6 * 7);
+	int r = t.join();
+	assert(r == 42);
 
-    Thread<int> t2 = spawn(() => 100 - 1);
-    assert(t2.join() == 99);
+	Thread<int> t2 = spawn(() => 100 - 1);
+	assert(t2.join() == 99);
 
-    print("PASS: test_thread_expr_body");
-    return 0;
+	print("PASS: test_thread_expr_body");
+	return 0;
 }

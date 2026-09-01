@@ -5,15 +5,15 @@ import std.vector;
 // pointer-payload unboxing was tested for string and a user class, but never
 // for a built-in generic collection — a different return-type lowering path.
 int main() {
-    Thread<Vector<int>> t = spawn(() => {
-        Vector<int> v = [1, 2, 3];
-        return v;
-    });
-    Vector<int> r = t.join();
-    assert(r.size() == 3);
-    assert(r[0] == 1);
-    assert(r[2] == 3);
+	Thread<Vector<int>> t = spawn(() => {
+			Vector<int> v = [1, 2, 3];
+			return v;
+		});
+	Vector<int> r = t.join();
+	assert(r.size() == 3);
+	assert(r[0] == 1);
+	assert(r[2] == 3);
 
-    print("PASS: test_thread_vector_result");
-    return 0;
+	print("PASS: test_thread_vector_result");
+	return 0;
 }

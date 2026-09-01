@@ -7,30 +7,30 @@ import std.list;
 #include <stdio.h>
 
 int main() {
-    List<int> l = new List<int>();
-    for x in [10, 20, 40] {
-        l.pushBack(x);
-    }
-    /* insert 30 in the middle: 10, 20, 30, 40 */
-    l.insert(2, 30);
-    assert(l.size() == 4);
-    assert(l.get(0) == 10);
-    assert(l.get(1) == 20);
-    assert(l.get(2) == 30);
-    assert(l.get(3) == 40);
+	List<int> l = new List<int>();
+	for x in [10, 20, 40] {
+		l.pushBack(x);
+	}
+	/* insert 30 in the middle: 10, 20, 30, 40 */
+	l.insert(2, 30);
+	assert(l.size() == 4);
+	assert(l.get(0) == 10);
+	assert(l.get(1) == 20);
+	assert(l.get(2) == 30);
+	assert(l.get(3) == 40);
 
-    /* remove the middle element at index 1 (20): 10, 30, 40 */
-    l.remove(1);
-    assert(l.size() == 3);
-    assert(l.get(0) == 10);
-    assert(l.get(1) == 30);
-    assert(l.get(2) == 40);
+	/* remove the middle element at index 1 (20): 10, 30, 40 */
+	l.remove(1);
+	assert(l.size() == 3);
+	assert(l.get(0) == 10);
+	assert(l.get(1) == 30);
+	assert(l.get(2) == 40);
 
-    /* the chain must still be walkable forward and the ends correct */
-    assert(l.front() == 10);
-    assert(l.back() == 40);
+	/* the chain must still be walkable forward and the ends correct */
+	assert(l.front() == 10);
+	assert(l.back() == 40);
 
-    l.free();
-    printf("PASS: test_list_insert_remove_middle\n");
-    return 0;
+	l.free();
+	printf("PASS: test_list_insert_remove_middle\n");
+	return 0;
 }

@@ -5,22 +5,22 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    Vector<int> xs = [2, 4, 6];
+	Vector<int> xs = [2, 4, 6];
 
-    assert(xs.all((int x) => x % 2 == 0) == true);
-    assert(xs.all((int x) => x > 3) == false);   // 2 fails
+	assert(xs.all((int x) => x % 2 == 0) == true);
+	assert(xs.all((int x) => x > 3) == false);   // 2 fails
 
-    assert(xs.any((int x) => x > 5) == true);     // 6 matches
-    assert(xs.any((int x) => x > 100) == false);
+	assert(xs.any((int x) => x > 5) == true);     // 6 matches
+	assert(xs.any((int x) => x > 100) == false);
 
-    // any on the very first element
-    Vector<int> ys = [9, 1, 1];
-    assert(ys.any((int x) => x == 9) == true);
+	// any on the very first element
+	Vector<int> ys = [9, 1, 1];
+	assert(ys.any((int x) => x == 9) == true);
 
-    // all true on every element
-    Vector<int> zs = [10, 20, 30];
-    assert(zs.all((int x) => x >= 10) == true);
+	// all true on every element
+	Vector<int> zs = [10, 20, 30];
+	assert(zs.all((int x) => x >= 10) == true);
 
-    print("PASS: test_any_all_arrow");
-    return 0;
+	print("PASS: test_any_all_arrow");
+	return 0;
 }

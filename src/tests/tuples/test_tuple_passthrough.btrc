@@ -1,14 +1,12 @@
 #include <assert.h>
 
-(int, int) id((int, int) p) {
-    return p;
-}
+(int, int) id((int, int) p) { return p; }
 
 int main() {
-    (int, int) r = id((4, 5));
-    assert(r._0 == 4);
-    assert(r._1 == 5);
-    assert(id((4, 5))._1 == 5);
-    print("PASS: test_tuple_passthrough");
-    return 0;
+	(int, int) r = id((4, 5));
+	assert(r._0 == 4);
+	assert(r._1 == 5);
+	assert(id((4, 5))._1 == 5);
+	print("PASS: test_tuple_passthrough");
+	return 0;
 }

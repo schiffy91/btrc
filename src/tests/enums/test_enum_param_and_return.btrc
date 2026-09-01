@@ -4,16 +4,16 @@
 enum Color { RED, GREEN, BLUE };
 
 Color next(Color c) {
-    if (c == BLUE) {
-        return RED;
-    }
-    return c + 1;
+	if (c == BLUE) {
+		return RED;
+	}
+	return c + 1;
 }
 
 int main() {
-    assert(next(RED) == GREEN);
-    assert(next(GREEN) == BLUE);
-    assert(next(BLUE) == RED);
-    print("PASS: test_enum_param_and_return");
-    return 0;
+	assert(next(RED) == GREEN);
+	assert(next(GREEN) == BLUE);
+	assert(next(BLUE) == RED);
+	print("PASS: test_enum_param_and_return");
+	return 0;
 }

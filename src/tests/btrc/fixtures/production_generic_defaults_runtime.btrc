@@ -10,124 +10,124 @@ int defaultLeavesDestroyed = 0;
 int defaultOwnersDestroyed = 0;
 
 struct DefaultPair {
-    int left;
-    int right;
+	int left;
+	int right;
 };
 
 struct DefaultBuckets {
-    int values[3];
+	int values[3];
 };
 
 class DefaultItem {
-    public int id;
+	public int id;
 
-    public DefaultItem(int id) {
-        self.id = id;
-        defaultItemsAlive++;
-    }
+	public DefaultItem(int id) {
+		self.id = id;
+		defaultItemsAlive++;
+	}
 
-    public void __del__() {
-        defaultItemsAlive--;
-        defaultItemsDestroyed++;
-    }
+	public void __del__() {
+		defaultItemsAlive--;
+		defaultItemsDestroyed++;
+	}
 }
 
 DefaultItem? sharedDefaultItem = null;
 
 class DefaultLeaf<T> {
-    public int marker = 5;
-    public T? value = null;
+	public int marker = 5;
+	public T? value = null;
 
-    public DefaultLeaf() {
-        defaultLeavesAlive++;
-        assert(self.marker == 5);
-        assert(self.value == null);
-    }
+	public DefaultLeaf() {
+		defaultLeavesAlive++;
+		assert(self.marker == 5);
+		assert(self.value == null);
+	}
 
-    public void __del__() {
-        defaultLeavesAlive--;
-        defaultLeavesDestroyed++;
-    }
+	public void __del__() {
+		defaultLeavesAlive--;
+		defaultLeavesDestroyed++;
+	}
 }
 
 class RichDefaults<T> {
-    public int scalar = 7;
-    public string literal = "ok";
-    public string allocated = "o" + "k";
-    public DefaultItem owned = new DefaultItem(11);
-    public DefaultItem? borrowed = sharedDefaultItem;
-    public T? genericValue = null;
-    public DefaultLeaf<T> nested = new DefaultLeaf<T>();
-    public DefaultLeaf<T> emptyNested = {};
-    public DefaultPair pair = {3, 4};
-    public (int, int) tuple = {5, 6};
-    public DefaultBuckets buckets = {{7, 8, 9}};
+	public int scalar = 7;
+	public string literal = "ok";
+	public string allocated = "o" + "k";
+	public DefaultItem owned = new DefaultItem(11);
+	public DefaultItem? borrowed = sharedDefaultItem;
+	public T? genericValue = null;
+	public DefaultLeaf<T> nested = new DefaultLeaf<T>();
+	public DefaultLeaf<T> emptyNested = {};
+	public DefaultPair pair = {3, 4};
+	public (int, int) tuple = {5, 6};
+	public DefaultBuckets buckets = {{7, 8, 9}};
 
-    public RichDefaults() {
-        assert(self.scalar == 7);
-        assert(self.literal.equals("ok"));
-        assert(self.allocated.equals("ok"));
-        assert(self.owned.id == 11);
-        assert(self.borrowed == sharedDefaultItem);
-        assert(self.genericValue == null);
-        assert(self.nested.marker == 5);
-        assert(self.nested.value == null);
-        assert(self.emptyNested.marker == 5);
-        assert(self.emptyNested.value == null);
-        assert(self.pair.left == 3 && self.pair.right == 4);
-        assert(self.tuple.0 == 5 && self.tuple.1 == 6);
-        assert(self.buckets.values[0] == 7);
-        assert(self.buckets.values[1] == 8);
-        assert(self.buckets.values[2] == 9);
-    }
+	public RichDefaults() {
+		assert(self.scalar == 7);
+		assert(self.literal.equals("ok"));
+		assert(self.allocated.equals("ok"));
+		assert(self.owned.id == 11);
+		assert(self.borrowed == sharedDefaultItem);
+		assert(self.genericValue == null);
+		assert(self.nested.marker == 5);
+		assert(self.nested.value == null);
+		assert(self.emptyNested.marker == 5);
+		assert(self.emptyNested.value == null);
+		assert(self.pair.left == 3 && self.pair.right == 4);
+		assert(self.tuple.0 == 5 && self.tuple.1 == 6);
+		assert(self.buckets.values[0] == 7);
+		assert(self.buckets.values[1] == 8);
+		assert(self.buckets.values[2] == 9);
+	}
 
-    public void __del__() { defaultOwnersDestroyed++; }
+	public void __del__() { defaultOwnersDestroyed++; }
 }
 
 void exerciseRichDefaults(int base) {
-    int baselineStrings = (int)__btrc_string_live_count();
-    int itemsDestroyed = defaultItemsDestroyed;
-    int leavesDestroyed = defaultLeavesDestroyed;
-    int ownersDestroyed = defaultOwnersDestroyed;
+	int baselineStrings = (int)__btrc_string_live_count();
+	int itemsDestroyed = defaultItemsDestroyed;
+	int leavesDestroyed = defaultLeavesDestroyed;
+	int ownersDestroyed = defaultOwnersDestroyed;
 
-    sharedDefaultItem = new DefaultItem(base);
-    RichDefaults<DefaultItem> value = new RichDefaults<DefaultItem>();
-    assert(value.scalar == 7);
-    assert(value.literal.equals("ok"));
-    assert(value.allocated.equals("ok"));
-    assert(value.owned.id == 11);
-    assert(value.borrowed == sharedDefaultItem);
-    assert(value.genericValue == null);
-    assert(value.nested.value == null);
-    assert(value.emptyNested.value == null);
-    assert(value.pair.left == 3 && value.pair.right == 4);
-    assert(value.tuple.0 == 5 && value.tuple.1 == 6);
-    assert(value.buckets.values[0] == 7);
-    assert(value.buckets.values[1] == 8);
-    assert(value.buckets.values[2] == 9);
-    assert(defaultItemsAlive == 2);
-    assert(defaultLeavesAlive == 2);
-    assert((int)__btrc_string_live_count() == baselineStrings + 1);
+	sharedDefaultItem = new DefaultItem(base);
+	RichDefaults<DefaultItem> value = new RichDefaults<DefaultItem>();
+	assert(value.scalar == 7);
+	assert(value.literal.equals("ok"));
+	assert(value.allocated.equals("ok"));
+	assert(value.owned.id == 11);
+	assert(value.borrowed == sharedDefaultItem);
+	assert(value.genericValue == null);
+	assert(value.nested.value == null);
+	assert(value.emptyNested.value == null);
+	assert(value.pair.left == 3 && value.pair.right == 4);
+	assert(value.tuple.0 == 5 && value.tuple.1 == 6);
+	assert(value.buckets.values[0] == 7);
+	assert(value.buckets.values[1] == 8);
+	assert(value.buckets.values[2] == 9);
+	assert(defaultItemsAlive == 2);
+	assert(defaultLeavesAlive == 2);
+	assert((int)__btrc_string_live_count() == baselineStrings + 1);
 
-    delete value;
-    assert(defaultOwnersDestroyed == ownersDestroyed + 1);
-    assert(defaultItemsAlive == 1);
-    assert(defaultItemsDestroyed == itemsDestroyed + 1);
-    assert(defaultLeavesAlive == 0);
-    assert(defaultLeavesDestroyed == leavesDestroyed + 2);
-    assert((int)__btrc_string_live_count() == baselineStrings);
+	delete value;
+	assert(defaultOwnersDestroyed == ownersDestroyed + 1);
+	assert(defaultItemsAlive == 1);
+	assert(defaultItemsDestroyed == itemsDestroyed + 1);
+	assert(defaultLeavesAlive == 0);
+	assert(defaultLeavesDestroyed == leavesDestroyed + 2);
+	assert((int)__btrc_string_live_count() == baselineStrings);
 
-    delete sharedDefaultItem;
-    assert(defaultItemsAlive == 0);
-    assert(defaultItemsDestroyed == itemsDestroyed + 2);
+	delete sharedDefaultItem;
+	assert(defaultItemsAlive == 0);
+	assert(defaultItemsDestroyed == itemsDestroyed + 2);
 }
 
 int main() {
-    exerciseRichDefaults(1000);
-    arc_test_allocation_checkpoint();
-    exerciseRichDefaults(2000);
-    assert(defaultItemsAlive == 0);
-    assert(defaultLeavesAlive == 0);
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	exerciseRichDefaults(1000);
+	arc_test_allocation_checkpoint();
+	exerciseRichDefaults(2000);
+	assert(defaultItemsAlive == 0);
+	assert(defaultLeavesAlive == 0);
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

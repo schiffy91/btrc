@@ -4,58 +4,38 @@ import std.toml;
 #include <assert.h>
 
 int main() {
-    string doc =
-        "name = \"desktop\"\n" +
-        "profile = 'work#main' # comment\n" +
-        "\n" +
-        "[displays]\n" +
-        "DP-1 = \"Left\"\n" +
-        "HDMI-1 = \"Right\"\n" +
-        "escaped = \"quote\\\"backslash\\\\tab\\tline\\n\"\n" +
-        "literal = 'quote\"backslash\\tab\\n'\n" +
-        "\n" +
-        "[[layout]]\n" +
-        "display = \"DP-1\"\n" +
-        "position = \"left-of\"\n" +
-        "\n" +
-        "[[layout]]\n" +
-        "display = \"HDMI-1\"\n" +
-        "position = \"right-of\"\n" +
-        "relative_to = \"DP-1\"\n" +
-        "\n" +
-        "[other]\n" +
-        "ignored = \"yes\"\n";
+	string doc = "name = \"desktop\"\n" + "profile = 'work#main' # comment\n" + "\n" + "[displays]\n" + "DP-1 = \"Left\"\n" + "HDMI-1 = \"Right\"\n" + "escaped = \"quote\\\"backslash\\\\tab\\tline\\n\"\n" + "literal = 'quote\"backslash\\tab\\n'\n" + "\n" + "[[layout]]\n" + "display = \"DP-1\"\n" + "position = \"left-of\"\n" + "\n" + "[[layout]]\n" + "display = \"HDMI-1\"\n" + "position = \"right-of\"\n" + "relative_to = \"DP-1\"\n" + "\n" + "[other]\n" + "ignored = \"yes\"\n";
 
-    var root = Toml.rootMap(doc);
-    assert(root.getOrDefault("name", "").equals("desktop"));
-    assert(root.getOrDefault("profile", "").equals("work#main"));
-    assert(root.getOrDefault("DP-1", "missing").equals("missing"));
+	var root = Toml.rootMap(doc);
+	assert(root.getOrDefault("name", "").equals("desktop"));
+	assert(root.getOrDefault("profile", "").equals("work#main"));
+	assert(root.getOrDefault("DP-1", "missing").equals("missing"));
 
-    // sectionMap: key/value pairs of [displays], with a fallback for misses.
-    var displays = Toml.sectionMap(doc, "displays");
-    assert(displays.getOrDefault("DP-1", "").equals("Left"));
-    assert(displays.getOrDefault("HDMI-1", "").equals("Right"));
-    assert(displays.getOrDefault("escaped", "").equals("quote\"backslash\\tab\tline\n"));
-    assert(displays.getOrDefault("literal", "").equals("quote\"backslash\\tab\\n"));
-    assert(displays.getOrDefault("missing", "fallback").equals("fallback"));
-    assert(Toml.value("token = 'a#b' # ok").equals("a#b"));
-    assert(Toml.value("token = \"a#b\" # ok").equals("a#b"));
+	// sectionMap: key/value pairs of [displays], with a fallback for misses.
+	var displays = Toml.sectionMap(doc, "displays");
+	assert(displays.getOrDefault("DP-1", "").equals("Left"));
+	assert(displays.getOrDefault("HDMI-1", "").equals("Right"));
+	assert(displays.getOrDefault("escaped", "").equals("quote\"backslash\\tab\tline\n"));
+	assert(displays.getOrDefault("literal", "").equals("quote\"backslash\\tab\\n"));
+	assert(displays.getOrDefault("missing", "fallback").equals("fallback"));
+	assert(Toml.value("token = 'a#b' # ok").equals("a#b"));
+	assert(Toml.value("token = \"a#b\" # ok").equals("a#b"));
 
-    // tableArrayBlocks: one map per [[layout]] occurrence, in order.
-    var layout = Toml.tableArrayBlocks(doc, "layout");
-    assert(layout.len == 2);
-    assert(layout.get(0).getOrDefault("display", "").equals("DP-1"));
-    assert(layout.get(0).getOrDefault("position", "").equals("left-of"));
-    assert(layout.get(1).getOrDefault("display", "").equals("HDMI-1"));
-    assert(layout.get(1).getOrDefault("relative_to", "").equals("DP-1"));
+	// tableArrayBlocks: one map per [[layout]] occurrence, in order.
+	var layout = Toml.tableArrayBlocks(doc, "layout");
+	assert(layout.len == 2);
+	assert(layout.get(0).getOrDefault("display", "").equals("DP-1"));
+	assert(layout.get(0).getOrDefault("position", "").equals("left-of"));
+	assert(layout.get(1).getOrDefault("display", "").equals("HDMI-1"));
+	assert(layout.get(1).getOrDefault("relative_to", "").equals("DP-1"));
 
-    // A [section] ends the array — the trailing [other] never bleeds in.
-    assert(layout.get(1).getOrDefault("ignored", "none").equals("none"));
+	// A [section] ends the array — the trailing [other] never bleeds in.
+	assert(layout.get(1).getOrDefault("ignored", "none").equals("none"));
 
-    // No matching table-array yields an empty vector.
-    var audio = Toml.tableArrayBlocks(doc, "audio");
-    assert(audio.len == 0);
+	// No matching table-array yields an empty vector.
+	var audio = Toml.tableArrayBlocks(doc, "audio");
+	assert(audio.len == 0);
 
-    print("PASS");
-    return 0;
+	print("PASS");
+	return 0;
 }

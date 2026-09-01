@@ -2,18 +2,18 @@
 #include <assert.h>
 
 int main() {
-    bool t = true;
-    bool f = false;
-    assert(f"{t}".equals("true"));
-    assert(f"{f}".equals("false"));
+	bool t = true;
+	bool f = false;
+	assert(f"{t}".equals("true"));
+	assert(f"{f}".equals("false"));
 
-    // a comparison expression is also a bool
-    assert(f"{1 < 2}".equals("true"));
-    assert(f"{3 == 4}".equals("false"));
+	// a comparison expression is also a bool
+	assert(f"{1 < 2}".equals("true"));
+	assert(f"{3 == 4}".equals("false"));
 
-    // bool interpolation mixed with surrounding text
-    assert(f"ok={t} bad={f}".equals("ok=true bad=false"));
+	// bool interpolation mixed with surrounding text
+	assert(f"ok={t} bad={f}".equals("ok=true bad=false"));
 
-    print("PASS: test_fstring_interp_bool");
-    return 0;
+	print("PASS: test_fstring_interp_bool");
+	return 0;
 }

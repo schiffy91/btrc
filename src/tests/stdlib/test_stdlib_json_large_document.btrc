@@ -6,68 +6,56 @@ import std.strings;
 #include <assert.h>
 
 class JsonClosureFixture {
-    class string storePath(int index) {
-        return "/nix/store/"
-            + Strings.padLeft(Strings.fromInt(index), 4, '0')
-            + "-semu-runtime-dependency";
-    }
+	class string storePath(int index) { return "/nix/store/" + Strings.padLeft(Strings.fromInt(index), 4, '0') + "-semu-runtime-dependency"; }
 
-    class JsonValue build(int count) {
-        JsonValue closure = JsonValue.makeObject();
-        string registration = Strings.repeat("0123456789abcdef", 32);
-        for (int index = 0; index < count; index++) {
-            string path = JsonClosureFixture.storePath(index);
-            JsonValue references = JsonValue.makeArray();
-            references.push(JsonValue.makeString(
-                JsonClosureFixture.storePath((index + 1) % count)));
-            references.push(JsonValue.makeString(
-                JsonClosureFixture.storePath((index + 7) % count)));
-            references.push(JsonValue.makeString(
-                JsonClosureFixture.storePath((index + 31) % count)));
+	class JsonValue build(int count) {
+		JsonValue closure = JsonValue.makeObject();
+		string registration = Strings.repeat("0123456789abcdef", 32);
+		for (int index = 0; index < count; index++) {
+			string path = JsonClosureFixture.storePath(index);
+			JsonValue references = JsonValue.makeArray();
+			references.push(JsonValue.makeString(JsonClosureFixture.storePath((index + 1) % count)));
+			references.push(JsonValue.makeString(JsonClosureFixture.storePath((index + 7) % count)));
+			references.push(JsonValue.makeString(JsonClosureFixture.storePath((index + 31) % count)));
 
-            JsonValue entry = JsonValue.makeObject();
-            entry.set("path", JsonValue.makeString(path));
-            entry.set("narHash", JsonValue.makeString(
-                "sha256-0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"));
-            entry.set("narSize", JsonValue.makeInt(1048576 + index));
-            entry.set("references", references);
-            entry.set("registration", JsonValue.makeString(registration));
-            closure.set(path, entry);
-        }
-        return closure;
-    }
+			JsonValue entry = JsonValue.makeObject();
+			entry.set("path", JsonValue.makeString(path));
+			entry.set("narHash", JsonValue.makeString("sha256-0123456789abcdefghijklmnopqrstuvwxyzABCDEFG"));
+			entry.set("narSize", JsonValue.makeInt(1048576 + index));
+			entry.set("references", references);
+			entry.set("registration", JsonValue.makeString(registration));
+			closure.set(path, entry);
+		}
+		return closure;
+	}
 }
 
 int main() {
-    JsonValue closure = JsonClosureFixture.build(700);
-    string document = closure.document();
-    assert(closure.size() == 700);
-    assert(document.len() == 635603);
-    assert(document.startsWith(
-        "{\n  \"/nix/store/0000-semu-runtime-dependency\": {\n"));
-    assert(document.endsWith("\n}\n"));
-    assert(document.indexOf("/nix/store/0000-semu-runtime-dependency")
-        < document.indexOf("/nix/store/0001-semu-runtime-dependency"));
-    assert(document.indexOf("/nix/store/0001-semu-runtime-dependency")
-        < document.indexOf("/nix/store/0699-semu-runtime-dependency"));
+	JsonValue closure = JsonClosureFixture.build(700);
+	string document = closure.document();
+	assert(closure.size() == 700);
+	assert(document.len() == 635603);
+	assert(document.startsWith("{\n  \"/nix/store/0000-semu-runtime-dependency\": {\n"));
+	assert(document.endsWith("\n}\n"));
+	assert(document.indexOf("/nix/store/0000-semu-runtime-dependency") < document.indexOf("/nix/store/0001-semu-runtime-dependency"));
+	assert(document.indexOf("/nix/store/0001-semu-runtime-dependency") < document.indexOf("/nix/store/0699-semu-runtime-dependency"));
 
-    JsonValue prettyRoundTrip = JsonValue.parse(document);
-    assert(!prettyRoundTrip.isError());
-    assert(prettyRoundTrip.size() == 700);
-    assert(prettyRoundTrip.document().equals(document));
-    JsonValue last = prettyRoundTrip.get(
-        "/nix/store/0699-semu-runtime-dependency");
-    assert(last.get("narSize").asInt() == 1049275);
-    assert(last.get("references").size() == 3);
-    assert(last.get("registration").asString().len() == 512);
+	JsonValue prettyRoundTrip = JsonValue.parse(document);
+	assert(!prettyRoundTrip.isError());
+	assert(prettyRoundTrip.size() == 700);
+	assert(prettyRoundTrip.document().equals(document));
+	JsonValue last = prettyRoundTrip.get("/nix/store/0699-semu-runtime-dependency");
+	assert(last.get("narSize").asInt() == 1049275);
+	assert(last.get("references").size() == 3);
+	assert(last.get("registration").asString().len() == 512);
 
-    string compact = closure.stringify();
-    JsonValue compactRoundTrip = JsonValue.parse(compact);
-    assert(!compactRoundTrip.isError());
-    assert(compactRoundTrip.stringify().equals(compact));
-    assert(compactRoundTrip.document().equals(document));
+	string compact = closure.stringify();
+	JsonValue compactRoundTrip = JsonValue.parse(compact);
+	assert(!compactRoundTrip.isError());
+	assert(compactRoundTrip.stringify().equals(compact));
+	assert(compactRoundTrip.document().equals(document));
 
-    print(f"entries={closure.size()} bytes={document.len()}");
-    print("PASS: test_stdlib_json_large_document");
-    return 0;
+	print(f"entries={closure.size()} bytes={document.len()}");
+	print("PASS: test_stdlib_json_large_document");
+	return 0;
 }

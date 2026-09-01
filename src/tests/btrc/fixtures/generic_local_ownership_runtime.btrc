@@ -3,136 +3,130 @@
 int genericLocalAlive = 0;
 
 class GenericLocalItem {
-    public int id;
+	public int id;
 
-    public GenericLocalItem(int id) {
-        self.id = id;
-        genericLocalAlive++;
-    }
+	public GenericLocalItem(int id) {
+		self.id = id;
+		genericLocalAlive++;
+	}
 
-    public void __del__() { genericLocalAlive--; }
+	public void __del__() { genericLocalAlive--; }
 }
 
 class GenericLocalHarness<T> {
-    public void normalExit(int id) {
-        GenericLocalItem local = new GenericLocalItem(id);
-        assert(local.id == id);
-        assert(genericLocalAlive == 1);
-    }
+	public void normalExit(int id) {
+		GenericLocalItem local = new GenericLocalItem(id);
+		assert(local.id == id);
+		assert(genericLocalAlive == 1);
+	}
 
-    public int earlyReturn(int id) {
-        GenericLocalItem local = new GenericLocalItem(id);
-        return local.id;
-    }
+	public int earlyReturn(int id) {
+		GenericLocalItem local = new GenericLocalItem(id);
+		return local.id;
+	}
 
-    public void caughtThrow(int id) {
-        try {
-            GenericLocalItem local = new GenericLocalItem(id);
-            assert(local.id == id);
-            throw "generic local throw";
-        } catch (string message) {
-            assert(message != null);
-        }
-        assert(genericLocalAlive == 0);
-    }
+	public void caughtThrow(int id) {
+		try {
+			GenericLocalItem local = new GenericLocalItem(id);
+			assert(local.id == id);
+			throw "generic local throw";
+		} catch (string message) {
+			assert(message != null);
+		}
+		assert(genericLocalAlive == 0);
+	}
 
-    public GenericLocalItem transfer<U>(U marker, int id) {
-        assert(sizeof(marker) != (size_t)0);
-        GenericLocalItem local = new GenericLocalItem(id);
-        return local;
-    }
+	public GenericLocalItem transfer<U>(U marker, int id) {
+		assert(sizeof(marker) != (size_t)0);
+		GenericLocalItem local = new GenericLocalItem(id);
+		return local;
+	}
 
-    public void explicitRelease(int id) {
-        GenericLocalItem local = new GenericLocalItem(id);
-        release local;
-        assert(local == null);
-        assert(genericLocalAlive == 0);
-    }
+	public void explicitRelease(int id) {
+		GenericLocalItem local = new GenericLocalItem(id);
+		release local;
+		assert(local == null);
+		assert(genericLocalAlive == 0);
+	}
 
-    public void explicitDelete(int id) {
-        GenericLocalItem local = new GenericLocalItem(id);
-        delete local;
-        assert(local == null);
-        assert(genericLocalAlive == 0);
-    }
+	public void explicitDelete(int id) {
+		GenericLocalItem local = new GenericLocalItem(id);
+		delete local;
+		assert(local == null);
+		assert(genericLocalAlive == 0);
+	}
 }
 
 class GenericBorrowedFieldHarness<T> {
-    public GenericLocalItem saved;
+	public GenericLocalItem saved;
 
-    public GenericBorrowedFieldHarness(GenericLocalItem saved) {
-        self.saved = saved;
-    }
+	public GenericBorrowedFieldHarness(GenericLocalItem saved) { self.saved = saved; }
 
-    public void saveRestore(GenericLocalItem replacement) {
-        GenericLocalItem previous = self.saved;
-        int previousId = previous.id;
-        self.saved = replacement;
-        assert(previous.id == previousId);
-        self.saved = previous;
-    }
+	public void saveRestore(GenericLocalItem replacement) {
+		GenericLocalItem previous = self.saved;
+		int previousId = previous.id;
+		self.saved = replacement;
+		assert(previous.id == previousId);
+		self.saved = previous;
+	}
 }
 
 class BorrowedPropertyHarness {
-    public GenericLocalItem saved { get; set; }
+	public GenericLocalItem saved { get; set; }
 
-    public BorrowedPropertyHarness(GenericLocalItem saved) {
-        self.saved = saved;
-    }
+	public BorrowedPropertyHarness(GenericLocalItem saved) { self.saved = saved; }
 
-    public void saveRestore(GenericLocalItem replacement) {
-        GenericLocalItem previous = self.saved;
-        int previousId = previous.id;
-        self.saved = replacement;
-        assert(previous.id == previousId);
-        self.saved = previous;
-    }
+	public void saveRestore(GenericLocalItem replacement) {
+		GenericLocalItem previous = self.saved;
+		int previousId = previous.id;
+		self.saved = replacement;
+		assert(previous.id == previousId);
+		self.saved = previous;
+	}
 }
 
 int main() {
-    GenericLocalHarness<int> harness = new GenericLocalHarness<int>();
-    for (int i = 0; i < 32; i++) {
-        harness.normalExit(i);
-        assert(genericLocalAlive == 0);
+	GenericLocalHarness<int> harness = new GenericLocalHarness<int>();
+	for (int i = 0; i < 32; i++) {
+		harness.normalExit(i);
+		assert(genericLocalAlive == 0);
 
-        assert(harness.earlyReturn(i) == i);
-        assert(genericLocalAlive == 0);
+		assert(harness.earlyReturn(i) == i);
+		assert(genericLocalAlive == 0);
 
-        harness.caughtThrow(i);
-        assert(genericLocalAlive == 0);
+		harness.caughtThrow(i);
+		assert(genericLocalAlive == 0);
 
-        GenericLocalItem transferred = harness.transfer("marker", i);
-        assert(genericLocalAlive == 1);
-        assert(transferred.id == i);
-        delete transferred;
-        assert(genericLocalAlive == 0);
+		GenericLocalItem transferred = harness.transfer("marker", i);
+		assert(genericLocalAlive == 1);
+		assert(transferred.id == i);
+		delete transferred;
+		assert(genericLocalAlive == 0);
 
-        harness.explicitRelease(i);
-        harness.explicitDelete(i);
-    }
-    delete harness;
-    assert(genericLocalAlive == 0);
+		harness.explicitRelease(i);
+		harness.explicitDelete(i);
+	}
+	delete harness;
+	assert(genericLocalAlive == 0);
 
-    GenericBorrowedFieldHarness<int> fieldHarness =
-        new GenericBorrowedFieldHarness<int>(new GenericLocalItem(100));
-    for (int i = 0; i < 32; i++) {
-        fieldHarness.saveRestore(new GenericLocalItem(200 + i));
-        assert(genericLocalAlive == 1);
-        assert(fieldHarness.saved.id == 100);
-    }
-    delete fieldHarness;
-    assert(genericLocalAlive == 0);
+	GenericBorrowedFieldHarness<int> fieldHarness = new GenericBorrowedFieldHarness<int> (new GenericLocalItem(100));
+	for (int i = 0; i < 32; i++) {
+		fieldHarness.saveRestore(new GenericLocalItem(200 + i));
+		assert(genericLocalAlive == 1);
+		assert(fieldHarness.saved.id == 100);
+	}
+	delete fieldHarness;
+	assert(genericLocalAlive == 0);
 
-    BorrowedPropertyHarness propertyHarness =
-        new BorrowedPropertyHarness(new GenericLocalItem(300));
-    for (int i = 0; i < 32; i++) {
-        propertyHarness.saveRestore(new GenericLocalItem(400 + i));
-        assert(genericLocalAlive == 1);
-        assert(propertyHarness.saved.id == 300);
-    }
-    delete propertyHarness;
-    assert(genericLocalAlive == 0);
+	BorrowedPropertyHarness propertyHarness = new BorrowedPropertyHarness(new GenericLocalItem(300));
+	for (int i = 0; i < 32; i++) {
+		propertyHarness.saveRestore(new GenericLocalItem(400 + i));
+		assert(genericLocalAlive == 1);
+		assert(propertyHarness.saved.id == 300);
+	}
+	delete propertyHarness;
+	assert(genericLocalAlive == 0);
 
-    print("PASS: generic local ownership runtime");
-    return 0;
+	print("PASS: generic local ownership runtime");
+	return 0;
 }

@@ -2,15 +2,15 @@
 
 // Trailing comma after the last rich variant (grammar [ ',' ]).
 enum class Shape {
-    Circle(double r),
-    Point,
+	Circle(double r),
+	Point,
 }
 
 int main() {
-    Shape p = Shape.Point();
-    Shape c = Shape.Circle(2.0);
-    assert(p.tag == Shape.Point);
-    assert(c.tag == Shape.Circle);
-    print("PASS: test_rich_enum_trailing_comma");
-    return 0;
+	Shape p = Shape.Point();
+	Shape c = Shape.Circle(2.0);
+	assert(p.tag == Shape.Point);
+	assert(c.tag == Shape.Circle);
+	print("PASS: test_rich_enum_trailing_comma");
+	return 0;
 }

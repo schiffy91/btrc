@@ -8,26 +8,26 @@ import std.list;
 #include <stdio.h>
 
 int main() {
-    List<string> l = new List<string>();
-    l.pushBack("a");
-    l.pushBack("b");
-    l.pushBack("c");
+	List<string> l = new List<string>();
+	l.pushBack("a");
+	l.pushBack("b");
+	l.pushBack("c");
 
-    /* set the middle node via O(n) traversal */
-    l.set(1, "z");
-    assert(strcmp(l.get(0), "a") == 0);
-    assert(strcmp(l.get(1), "z") == 0);
-    assert(strcmp(l.get(2), "c") == 0);
+	/* set the middle node via O(n) traversal */
+	l.set(1, "z");
+	assert(strcmp(l.get(0), "a") == 0);
+	assert(strcmp(l.get(1), "z") == 0);
+	assert(strcmp(l.get(2), "c") == 0);
 
-    /* indexOf / contains walk the node chain with string equality */
-    assert(l.indexOf("z") == 1);
-    assert(l.indexOf("a") == 0);
-    assert(l.indexOf("missing") == -1);
-    assert(l.contains("a"));
-    assert(l.contains("c"));
-    assert(!l.contains("b"));
+	/* indexOf / contains walk the node chain with string equality */
+	assert(l.indexOf("z") == 1);
+	assert(l.indexOf("a") == 0);
+	assert(l.indexOf("missing") == -1);
+	assert(l.contains("a"));
+	assert(l.contains("c"));
+	assert(!l.contains("b"));
 
-    l.free();
-    printf("PASS: test_list_get_set_indexof\n");
-    return 0;
+	l.free();
+	printf("PASS: test_list_get_set_indexof\n");
+	return 0;
 }

@@ -4,67 +4,67 @@ int fifoTrace = 0;
 int fifoObjectsAlive = 0;
 
 class FifoLeaf {
-    public int id;
+	public int id;
 
-    public FifoLeaf(int id) {
-        self.id = id;
-        fifoObjectsAlive++;
-    }
+	public FifoLeaf(int id) {
+		self.id = id;
+		fifoObjectsAlive++;
+	}
 
-    public void __del__() {
-        fifoTrace = fifoTrace * 10 + self.id;
-        fifoObjectsAlive--;
-    }
+	public void __del__() {
+		fifoTrace = fifoTrace * 10 + self.id;
+		fifoObjectsAlive--;
+	}
 }
 
 class ThrowingChild {
-    public int id;
-    public FifoLeaf leaf;
+	public int id;
+	public FifoLeaf leaf;
 
-    public ThrowingChild(int id, int leafId) {
-        self.id = id;
-        self.leaf = new FifoLeaf(leafId);
-        fifoObjectsAlive++;
-    }
+	public ThrowingChild(int id, int leafId) {
+		self.id = id;
+		self.leaf = new FifoLeaf(leafId);
+		fifoObjectsAlive++;
+	}
 
-    public void __del__() {
-        fifoTrace = fifoTrace * 10 + self.id;
-        fifoObjectsAlive--;
-        if (self.id == 2) { throw "first child failure"; }
-        throw "second child failure";
-    }
+	public void __del__() {
+		fifoTrace = fifoTrace * 10 + self.id;
+		fifoObjectsAlive--;
+		if (self.id == 2) { throw "first child failure"; }
+		throw "second child failure";
+	}
 }
 
 class FifoOwner {
-    public ThrowingChild first;
-    public ThrowingChild second;
+	public ThrowingChild first;
+	public ThrowingChild second;
 
-    public FifoOwner() {
-        self.first = new ThrowingChild(2, 4);
-        self.second = new ThrowingChild(3, 5);
-        fifoObjectsAlive++;
-    }
+	public FifoOwner() {
+		self.first = new ThrowingChild(2, 4);
+		self.second = new ThrowingChild(3, 5);
+		fifoObjectsAlive++;
+	}
 
-    public void __del__() {
-        fifoTrace = fifoTrace * 10 + 1;
-        fifoObjectsAlive--;
-    }
+	public void __del__() {
+		fifoTrace = fifoTrace * 10 + 1;
+		fifoObjectsAlive--;
+	}
 }
 
 int main() {
-    bool caughtFirst = false;
-    try {
-        FifoOwner owner = new FifoOwner();
-        delete owner;
-        assert(false);
-    } catch (string error) {
-        caughtFirst = error.equals("first child failure");
-    }
+	bool caughtFirst = false;
+	try {
+		FifoOwner owner = new FifoOwner();
+		delete owner;
+		assert(false);
+	} catch (string error) {
+		caughtFirst = error.equals("first child failure");
+	}
 
-    /* Both throwing hooks finish their compiler-owned finalization. New work
+	/* Both throwing hooks finish their compiler-owned finalization. New work
      * is appended after already queued siblings, and the first error wins. */
-    assert(caughtFirst);
-    assert(fifoTrace == 12345);
-    assert(fifoObjectsAlive == 0);
-    return 0;
+	assert(caughtFirst);
+	assert(fifoTrace == 12345);
+	assert(fifoObjectsAlive == 0);
+	return 0;
 }

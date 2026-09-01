@@ -1,123 +1,87 @@
-#include <assert.h>
-
 import std.image;
 import std.native_ui;
 
+#include <assert.h>
+
 int main() {
-    Image artwork = Image(2, 2);
-    artwork.setRGBA(0, 0, 10, 20, 30, 255);
+	Image artwork = Image(2, 2);
+	artwork.setRGBA(0, 0, 10, 20, 30, 255);
 
-    NativeUiElement tree = NativeUiElement
-        .column("library")
-        .className("library-root")
-        .style("padding: 8px; gap: 12px")
-        .child(NativeUiElement.text("status", "Two albums"))
-        .child(NativeUiElement
-            .grid("albums")
-            .child(NativeUiElement
-                .button("album:first", "First")
-                .style("border-radius: 8px")
-                .child(NativeUiElement.image(
-                    "album-art:first", artwork, "First album")
-                    .imageRevision(7ULL))));
+	NativeUiElement tree = NativeUiElement.column("library").className("library-root").style("padding: 8px; gap: 12px").child(NativeUiElement.text("status", "Two albums")).child(NativeUiElement.grid("albums").child(NativeUiElement.button("album:first", "First").style("border-radius: 8px").child(NativeUiElement.image("album-art:first", artwork, "First album").imageRevision(7ULL))));
 
-    assert(tree.kind() == NATIVE_UI_COLUMN);
-    assert(tree.id() == "library");
-    assert(tree.cssClass() == "library-root");
-    assert(tree.inlineStyle() == "padding: 8px; gap: 12px");
-    assert(tree.styleError().ok());
-    assert(tree.childCount() == 2);
-    assert(tree.childAt(1).kind() == NATIVE_UI_GRID);
-    NativeUiElement button = tree.childAt(1).childAt(0);
-    assert(button.kind() == NATIVE_UI_BUTTON);
-    assert(button.contentText() == "First");
-    assert(button.childAt(0).contentImage() == artwork);
-    assert(button.childAt(0).contentImageRevision() == 7ULL);
-    assert(button.childAt(0).imageAlt() == "First album");
+	assert(tree.kind() == NATIVE_UI_COLUMN);
+	assert(tree.id() == "library");
+	assert(tree.cssClass() == "library-root");
+	assert(tree.inlineStyle() == "padding: 8px; gap: 12px");
+	assert(tree.styleError().ok());
+	assert(tree.childCount() == 2);
+	assert(tree.childAt(1).kind() == NATIVE_UI_GRID);
+	NativeUiElement button = tree.childAt(1).childAt(0);
+	assert(button.kind() == NATIVE_UI_BUTTON);
+	assert(button.contentText() == "First");
+	assert(button.childAt(0).contentImage() == artwork);
+	assert(button.childAt(0).contentImageRevision() == 7ULL);
+	assert(button.childAt(0).imageAlt() == "First album");
 
-    NativeUiElement query = NativeUiElement.textInput(
-        "library-query", "caf\xc3\xa9", "Search albums", 64)
-        .className("library-query")
-        .style("height: 40px; border-radius: 6px");
-    assert(query.kind() == NATIVE_UI_TEXT_INPUT);
-    assert(query.id() == "library-query");
-    assert(query.contentText() == "caf\xc3\xa9");
-    assert(query.placeholderText() == "Search albums");
-    assert(query.textInputMaxBytes() == 64);
-    assert(query.styleError().ok());
+	NativeUiElement query = NativeUiElement.textInput("library-query", "caf\xc3\xa9", "Search albums", 64).className("library-query").style("height: 40px; border-radius: 6px");
+	assert(query.kind() == NATIVE_UI_TEXT_INPUT);
+	assert(query.id() == "library-query");
+	assert(query.contentText() == "caf\xc3\xa9");
+	assert(query.placeholderText() == "Search albums");
+	assert(query.textInputMaxBytes() == 64);
+	assert(query.styleError().ok());
 
-    NativeUiElement rejected = NativeUiElement
-        .text("unsafe", "No browser CSS")
-        .style("position: fixed");
-    assert(!rejected.styleError().ok());
-    assert(rejected.styleError().code()
-        == NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY);
-    assert(rejected.styleError().property() == "position");
+	NativeUiElement rejected = NativeUiElement.text("unsafe", "No browser CSS").style("position: fixed");
+	assert(!rejected.styleError().ok());
+	assert(rejected.styleError().code() == NATIVE_UI_STYLE_UNSUPPORTED_PROPERTY);
+	assert(rejected.styleError().property() == "position");
 
-    NativeUiStyleSheet sheet = NativeUiStyleSheet()
-        .rule("library-root", "background-color: #f6f6f8; padding: 8px")
-        .rule("album-card", "border-radius: 8px; color: #202024");
-    assert(sheet.ok());
-    assert(sheet.ruleCount() == 2);
-    assert(sheet.classNameAt(1) == "album-card");
-    assert(sheet.cssFor("album-card")
-        == "border-radius: 8px; color: #202024");
-    assert(sheet.cssFor("missing").isEmpty());
-    NativeUiStyleSheet duplicateSheet = NativeUiStyleSheet()
-        .rule("album-card", "padding: 4px")
-        .rule("album-card", "padding: 8px");
-    assert(!duplicateSheet.ok());
-    assert(duplicateSheet.issue().code() == NATIVE_UI_STYLE_DUPLICATE_RULE);
-    NativeUiStyleSheet invalidSheet = NativeUiStyleSheet()
-        .rule("browser descendant", "padding: 8px");
-    assert(!invalidSheet.ok());
-    assert(invalidSheet.issue().code() == NATIVE_UI_STYLE_INVALID_SELECTOR);
+	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("library-root", "background-color: #f6f6f8; padding: 8px").rule("album-card", "border-radius: 8px; color: #202024");
+	assert(sheet.ok());
+	assert(sheet.ruleCount() == 2);
+	assert(sheet.classNameAt(1) == "album-card");
+	assert(sheet.cssFor("album-card") == "border-radius: 8px; color: #202024");
+	assert(sheet.cssFor("missing").isEmpty());
+	NativeUiStyleSheet duplicateSheet = NativeUiStyleSheet().rule("album-card", "padding: 4px").rule("album-card", "padding: 8px");
+	assert(!duplicateSheet.ok());
+	assert(duplicateSheet.issue().code() == NATIVE_UI_STYLE_DUPLICATE_RULE);
+	NativeUiStyleSheet invalidSheet = NativeUiStyleSheet().rule("browser descendant", "padding: 8px");
+	assert(!invalidSheet.ok());
+	assert(invalidSheet.issue().code() == NATIVE_UI_STYLE_INVALID_SELECTOR);
 
-    NativeUiVirtualGrid virtualLayout = NativeUiVirtualGrid(
-        2000, 4, 180, 1984);
-    NativeUiElement virtualGrid = NativeUiElement
-        .virtualGrid("virtual-albums", virtualLayout)
-        .child(NativeUiElement.button("album:1984", "Album 1984"))
-        .child(NativeUiElement.button("album:1985", "Album 1985"));
-    assert(virtualGrid.kind() == NATIVE_UI_VIRTUAL_GRID);
-    assert(virtualGrid.virtualGridDescriptor() != null);
-    NativeUiVirtualGrid resolvedLayout = virtualGrid.virtualGridDescriptor();
-    assert(resolvedLayout.ok());
-    assert(resolvedLayout.totalCount() == 2000);
-    assert(resolvedLayout.columns() == 4);
-    assert(resolvedLayout.rowHeight() == 180);
-    assert(resolvedLayout.firstDataIndex() == 1984);
-    assert(!NativeUiVirtualGrid(4, 0, 180, 0).ok());
-    assert(NativeUiVirtualGrid(4, 0, 180, 0).issue().code()
-        == NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS);
+	NativeUiVirtualGrid virtualLayout = NativeUiVirtualGrid(2000, 4, 180, 1984);
+	NativeUiElement virtualGrid = NativeUiElement.virtualGrid("virtual-albums", virtualLayout).child(NativeUiElement.button("album:1984", "Album 1984")).child(NativeUiElement.button("album:1985", "Album 1985"));
+	assert(virtualGrid.kind() == NATIVE_UI_VIRTUAL_GRID);
+	assert(virtualGrid.virtualGridDescriptor() != null);
+	NativeUiVirtualGrid resolvedLayout = virtualGrid.virtualGridDescriptor();
+	assert(resolvedLayout.ok());
+	assert(resolvedLayout.totalCount() == 2000);
+	assert(resolvedLayout.columns() == 4);
+	assert(resolvedLayout.rowHeight() == 180);
+	assert(resolvedLayout.firstDataIndex() == 1984);
+	assert(!NativeUiVirtualGrid(4, 0, 180, 0).ok());
+	assert(NativeUiVirtualGrid(4, 0, 180, 0).issue().code() == NATIVE_UI_VIRTUAL_GRID_INVALID_COLUMNS);
 
-    NativeUiViewportMetrics viewport = NativeUiViewportMetrics(
-        800, 600, 0, 240);
-    NativeUiScrollDelta delta = NativeUiScrollDelta(0, 120);
-    NativeUiEvent scrolled = NativeUiEvent.scrolled(
-        "albums", viewport, delta);
-    assert(scrolled.kind() == NATIVE_UI_SCROLLED);
-    assert(scrolled.elementId() == "albums");
-    assert(scrolled.viewport().width() == 800);
-    assert(scrolled.viewport().height() == 600);
-    assert(scrolled.viewport().scrollY() == 240);
-    assert(scrolled.scroll().x() == 0);
-    assert(scrolled.scroll().y() == 120);
+	NativeUiViewportMetrics viewport = NativeUiViewportMetrics(800, 600, 0, 240);
+	NativeUiScrollDelta delta = NativeUiScrollDelta(0, 120);
+	NativeUiEvent scrolled = NativeUiEvent.scrolled("albums", viewport, delta);
+	assert(scrolled.kind() == NATIVE_UI_SCROLLED);
+	assert(scrolled.elementId() == "albums");
+	assert(scrolled.viewport().width() == 800);
+	assert(scrolled.viewport().height() == 600);
+	assert(scrolled.viewport().scrollY() == 240);
+	assert(scrolled.scroll().x() == 0);
+	assert(scrolled.scroll().y() == 120);
 
-    assert(NativeUiEvent.clicked("album:first").kind()
-        == NATIVE_UI_CLICKED);
-    assert(NativeUiEvent.hoverEntered("album:first").kind()
-        == NATIVE_UI_HOVER_ENTERED);
-    assert(NativeUiEvent.hoverLeft("album:first").kind()
-        == NATIVE_UI_HOVER_LEFT);
-    assert(NativeUiEvent.viewportChanged("albums", viewport).kind()
-        == NATIVE_UI_VIEWPORT_CHANGED);
-    NativeUiEvent changed = NativeUiEvent.valueChanged(
-        "library-query", "new query");
-    assert(changed.kind() == NATIVE_UI_VALUE_CHANGED);
-    assert(changed.elementId() == "library-query");
-    assert(changed.value() == "new query");
+	assert(NativeUiEvent.clicked("album:first").kind() == NATIVE_UI_CLICKED);
+	assert(NativeUiEvent.hoverEntered("album:first").kind() == NATIVE_UI_HOVER_ENTERED);
+	assert(NativeUiEvent.hoverLeft("album:first").kind() == NATIVE_UI_HOVER_LEFT);
+	assert(NativeUiEvent.viewportChanged("albums", viewport).kind() == NATIVE_UI_VIEWPORT_CHANGED);
+	NativeUiEvent changed = NativeUiEvent.valueChanged("library-query", "new query");
+	assert(changed.kind() == NATIVE_UI_VALUE_CHANGED);
+	assert(changed.elementId() == "library-query");
+	assert(changed.value() == "new query");
 
-    print("PASS: native UI values");
-    return 0;
+	print("PASS: native UI values");
+	return 0;
 }

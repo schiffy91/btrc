@@ -6,12 +6,12 @@ import std.console;
 #include <assert.h>
 
 int main() {
-    Console.write("a");        // no newline
-    Console.write("b");        // -> "ab" so far, still no newline
-    Console.writeLine("c");    // -> "ab" then "c\n"
-    Console.log("d");          // -> "d\n"
-    Console.error("to-stderr"); // stderr only; absent from the stdout golden
+	Console.write("a");        // no newline
+	Console.write("b");        // -> "ab" so far, still no newline
+	Console.writeLine("c");    // -> "ab" then "c\n"
+	Console.log("d");          // -> "d\n"
+	Console.error("to-stderr"); // stderr only; absent from the stdout golden
 
-    print("PASS: test_stdlib_console");
-    return 0;
+	print("PASS: test_stdlib_console");
+	return 0;
 }

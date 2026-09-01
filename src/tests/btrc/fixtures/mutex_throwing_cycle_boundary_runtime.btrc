@@ -8,64 +8,64 @@ int throwingMutexDestroyed = 0;
 bool throwFromMutexCycle = false;
 
 class ThrowingMutexCycleNode {
-    public ThrowingMutexCycleNode next;
+	public ThrowingMutexCycleNode next;
 
-    public ThrowingMutexCycleNode() {
-        self.next = null;
-        throwingMutexAlive++;
-    }
+	public ThrowingMutexCycleNode() {
+		self.next = null;
+		throwingMutexAlive++;
+	}
 
-    public void __del__() {
-        throwingMutexAlive--;
-        throwingMutexDestroyed++;
-        if (throwFromMutexCycle) {
-            throw "mutex cycle hook failure";
-        }
-    }
+	public void __del__() {
+		throwingMutexAlive--;
+		throwingMutexDestroyed++;
+		if (throwFromMutexCycle) {
+			throw "mutex cycle hook failure";
+		}
+	}
 }
 
 ThrowingMutexCycleNode makeThrowingMutexCycle() {
-    ThrowingMutexCycleNode first = new ThrowingMutexCycleNode();
-    ThrowingMutexCycleNode second = new ThrowingMutexCycleNode();
-    first.next = second;
-    second.next = first;
-    return first;
+	ThrowingMutexCycleNode first = new ThrowingMutexCycleNode();
+	ThrowingMutexCycleNode second = new ThrowingMutexCycleNode();
+	first.next = second;
+	second.next = first;
+	return first;
 }
 
 void warmMutexBoundary() {
-    try {
-        ThrowingMutexCycleNode root = makeThrowingMutexCycle();
-        Mutex<ThrowingMutexCycleNode> owner = Mutex(root);
-        release root;
-        owner.destroy();
-    } catch (string error) {
-        assert(false);
-    }
+	try {
+		ThrowingMutexCycleNode root = makeThrowingMutexCycle();
+		Mutex<ThrowingMutexCycleNode> owner = Mutex(root);
+		release root;
+		owner.destroy();
+	} catch (string error) {
+		assert(false);
+	}
 }
 
 int main() {
-    warmMutexBoundary();
-    assert(throwingMutexAlive == 0);
-    assert(throwingMutexDestroyed == 2);
+	warmMutexBoundary();
+	assert(throwingMutexAlive == 0);
+	assert(throwingMutexDestroyed == 2);
 
-    bool caught = false;
-    try {
-        throwFromMutexCycle = true;
-        arc_test_allocation_checkpoint();
-        ThrowingMutexCycleNode root = makeThrowingMutexCycle();
-        Mutex<ThrowingMutexCycleNode> owner = Mutex(root);
-        release root;
-        owner.destroy();
-        assert(false);
-    } catch (string error) {
-        caught = error.equals("mutex cycle hook failure");
-    }
+	bool caught = false;
+	try {
+		throwFromMutexCycle = true;
+		arc_test_allocation_checkpoint();
+		ThrowingMutexCycleNode root = makeThrowingMutexCycle();
+		Mutex<ThrowingMutexCycleNode> owner = Mutex(root);
+		release root;
+		owner.destroy();
+		assert(false);
+	} catch (string error) {
+		caught = error.equals("mutex cycle hook failure");
+	}
 
-    assert(caught);
-    assert(throwingMutexAlive == 0);
-    assert(throwingMutexDestroyed == 4);
-    /* Final destruction may rethrow only after freeing the boxed value,
+	assert(caught);
+	assert(throwingMutexAlive == 0);
+	assert(throwingMutexDestroyed == 4);
+	/* Final destruction may rethrow only after freeing the boxed value,
      * copied type context, and mutex handle. */
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

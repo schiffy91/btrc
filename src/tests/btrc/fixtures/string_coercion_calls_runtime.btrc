@@ -9,223 +9,189 @@ int callRenderCalls = 0;
 int callConversionOrder = 0;
 
 class CallToken {
-    public int value;
+	public int value;
 
-    public CallToken(int value) {
-        self.value = value;
-        callTokensAlive++;
-    }
+	public CallToken(int value) {
+		self.value = value;
+		callTokensAlive++;
+	}
 
-    public void __del__() {
-        callTokensAlive--;
-        callTokensDestroyed++;
-    }
+	public void __del__() {
+		callTokensAlive--;
+		callTokensDestroyed++;
+	}
 
-    public string toString() {
-        callRenderCalls++;
-        callConversionOrder = callConversionOrder * 10 + self.value % 10;
-        return self.value.toString();
-    }
+	public string toString() {
+		callRenderCalls++;
+		callConversionOrder = callConversionOrder * 10 + self.value % 10;
+		return self.value.toString();
+	}
 }
 
 class InheritedCallToken extends CallToken {
-    public InheritedCallToken(int value) {
-        self.value = value;
-        callTokensAlive++;
-    }
+	public InheritedCallToken(int value) {
+		self.value = value;
+		callTokensAlive++;
+	}
 }
 
 int parseCallText(string value) { return value.toInt(); }
 
-void observeCallText(string value, int expected) {
-    assert(parseCallText(value) == expected);
+void observeCallText(string value, int expected) { assert(parseCallText(value) == expected); }
+
+void observeNamedText(string first, string second, int firstExpected, int secondExpected) {
+	assert(parseCallText(first) == firstExpected);
+	assert(parseCallText(second) == secondExpected);
 }
 
-void observeNamedText(
-    string first,
-    string second,
-    int firstExpected,
-    int secondExpected
-) {
-    assert(parseCallText(first) == firstExpected);
-    assert(parseCallText(second) == secondExpected);
-}
+void observeDefaultText(string value = new CallToken(303)) { assert(parseCallText(value) == 303); }
 
-void observeDefaultText(string value = new CallToken(303)) {
-    assert(parseCallText(value) == 303);
-}
-
-void observeKeptText(keep string value) {
-    assert(parseCallText(value) > 0);
-}
+void observeKeptText(keep string value) { assert(parseCallText(value) > 0); }
 
 class CallTextBox {
-    public string text;
+	public string text;
 
-    public CallTextBox(string text) { self.text = text; }
+	public CallTextBox(string text) { self.text = text; }
 }
 
 class CallbackFieldBox {
-    public __fn_ptr<int, string> callback;
+	public __fn_ptr<int, string> callback;
 
-    public CallbackFieldBox(__fn_ptr<int, string> callback) {
-        self.callback = callback;
-    }
+	public CallbackFieldBox(__fn_ptr<int, string> callback) { self.callback = callback; }
 }
 
 class StringRightOperator {
-    public int offset;
+	public int offset;
 
-    public StringRightOperator(int offset) { self.offset = offset; }
+	public StringRightOperator(int offset) { self.offset = offset; }
 
-    public int __add__(string right) {
-        return self.offset + right.toInt();
-    }
+	public int __add__(string right) { return self.offset + right.toInt(); }
 }
 
 class FStringProjectionOwner {
-    public string text;
+	public string text;
 
-    public FStringProjectionOwner(string text) { self.text = text; }
+	public FStringProjectionOwner(string text) { self.text = text; }
 }
 
 int mutateFStringProjection(FStringProjectionOwner owner, int replacement) {
-    owner.text = replacement.toString();
-    return replacement;
+	owner.text = replacement.toString();
+	return replacement;
 }
 
-string renderFStringProjection(
-    FStringProjectionOwner owner,
-    int replacement
-) {
-    return f"{owner.text}:{mutateFStringProjection(owner, replacement)}";
-}
+string renderFStringProjection(FStringProjectionOwner owner, int replacement) { return f"{owner.text}:{mutateFStringProjection(owner, replacement)}"; }
 
 class GenericCallHarness<T> {
-    public T marker;
+	public T marker;
 
-    public GenericCallHarness(T marker) { self.marker = marker; }
+	public GenericCallHarness(T marker) { self.marker = marker; }
 
-    public int invoke(CallToken token) {
-        __fn_ptr<int, string> callback = parseCallText;
-        return callback(token);
-    }
+	public int invoke(CallToken token) {
+		__fn_ptr<int, string> callback = parseCallText;
+		return callback(token);
+	}
 
-    public string renderProjection(
-        FStringProjectionOwner owner,
-        int replacement
-    ) {
-        return f"{owner.text}:{mutateFStringProjection(owner, replacement)}";
-    }
+	public string renderProjection(FStringProjectionOwner owner, int replacement) { return f"{owner.text}:{mutateFStringProjection(owner, replacement)}"; }
 }
 
 void exerciseFStringProjectionLifetime(int base) {
-    {
-        FStringProjectionOwner owner =
-            new FStringProjectionOwner(base.toString());
-        string rendered = renderFStringProjection(owner, base + 1);
-        string expected = f"{base}:{base + 1}";
-        assert(rendered.equals(expected));
-        assert(owner.text.toInt() == base + 1);
-    }
-    {
-        FStringProjectionOwner owner =
-            new FStringProjectionOwner((base + 2).toString());
-        GenericCallHarness<int> harness =
-            new GenericCallHarness<int>(17);
-        string rendered = harness.renderProjection(owner, base + 3);
-        string expected = f"{base + 2}:{base + 3}";
-        assert(rendered.equals(expected));
-        assert(owner.text.toInt() == base + 3);
-    }
+	{
+		FStringProjectionOwner owner = new FStringProjectionOwner(base.toString());
+		string rendered = renderFStringProjection(owner, base + 1);
+		string expected = f"{base}:{base + 1}";
+		assert(rendered.equals(expected));
+		assert(owner.text.toInt() == base + 1);
+	}
+	{
+		FStringProjectionOwner owner = new FStringProjectionOwner((base + 2).toString());
+		GenericCallHarness<int> harness = new GenericCallHarness<int> (17);
+		string rendered = harness.renderProjection(owner, base + 3);
+		string expected = f"{base + 2}:{base + 3}";
+		assert(rendered.equals(expected));
+		assert(owner.text.toInt() == base + 3);
+	}
 }
 
 void exerciseCallTargets(int base) {
-    int calls = callRenderCalls;
-    int destroyed = callTokensDestroyed;
+	int calls = callRenderCalls;
+	int destroyed = callTokensDestroyed;
 
-    exerciseFStringProjectionLifetime(base + 100);
+	exerciseFStringProjectionLifetime(base + 100);
 
-    observeCallText(new CallToken(base + 1), base + 1);
-    observeCallText(new InheritedCallToken(base + 2), base + 2);
+	observeCallText(new CallToken(base + 1), base + 1);
+	observeCallText(new InheritedCallToken(base + 2), base + 2);
 
-    callConversionOrder = 0;
-    observeNamedText(
-        second=new CallToken(base + 2),
-        first=new CallToken(base + 1),
-        secondExpected=base + 2,
-        firstExpected=base + 1
-    );
-    assert(callConversionOrder == 21);
-    callConversionOrder = 0;
+	callConversionOrder = 0;
+	observeNamedText(second=new CallToken(base + 2), first=new CallToken(base + 1), secondExpected=base + 2, firstExpected=base + 1);
+	assert(callConversionOrder == 21);
+	callConversionOrder = 0;
 
-    observeDefaultText();
-    observeKeptText(new CallToken(base + 4));
+	observeDefaultText();
+	observeKeptText(new CallToken(base + 4));
 
-    {
-        CallTextBox box = new CallTextBox(new CallToken(base + 6));
-        assert(parseCallText(box.text) == base + 6);
-    }
+	{
+		CallTextBox box = new CallTextBox(new CallToken(base + 6));
+		assert(parseCallText(box.text) == base + 6);
+	}
 
-    int immediate = ((string value) => value.toInt())(
-        new CallToken(base + 7));
-    assert(immediate == base + 7);
+	int immediate = ((string value) => value.toInt())(new CallToken(base + 7));
+	assert(immediate == base + 7);
 
-    __fn_ptr<int, string> callback = parseCallText;
-    int callbackResult = callback(new CallToken(base + 8));
-    assert(callbackResult == base + 8);
+	__fn_ptr<int, string> callback = parseCallText;
+	int callbackResult = callback(new CallToken(base + 8));
+	assert(callbackResult == base + 8);
 
-    {
-        CallbackFieldBox callbacks = new CallbackFieldBox(parseCallText);
-        int fieldResult = callbacks.callback(new CallToken(base + 9));
-        assert(fieldResult == base + 9);
-    }
+	{
+		CallbackFieldBox callbacks = new CallbackFieldBox(parseCallText);
+		int fieldResult = callbacks.callback(new CallToken(base + 9));
+		assert(fieldResult == base + 9);
+	}
 
-    __fn_ptr<int, string> first = parseCallText;
-    __fn_ptr<int, string> second = parseCallText;
-    int complexResult = (true ? first : second)(new CallToken(base + 10));
-    assert(complexResult == base + 10);
+	__fn_ptr<int, string> first = parseCallText;
+	__fn_ptr<int, string> second = parseCallText;
+	int complexResult = (true ? first : second)(new CallToken(base + 10));
+	assert(complexResult == base + 10);
 
-    int offset = 11;
-    var captured = (string value) => value.toInt() + offset;
-    int capturedResult = captured(new CallToken(base + 11));
-    assert(capturedResult == base + 22);
+	int offset = 11;
+	var captured = (string value) => value.toInt() + offset;
+	int capturedResult = captured(new CallToken(base + 11));
+	assert(capturedResult == base + 22);
 
-    {
-        StringRightOperator number = new StringRightOperator(12);
-        int operatorResult = number + new CallToken(base + 12);
-        assert(operatorResult == base + 24);
-    }
+	{
+		StringRightOperator number = new StringRightOperator(12);
+		int operatorResult = number + new CallToken(base + 12);
+		assert(operatorResult == base + 24);
+	}
 
-    assert((base + 13).toString().equals(new CallToken(base + 13)));
+	assert((base + 13).toString().equals(new CallToken(base + 13)));
 
-    {
-        GenericCallHarness<int> generic = new GenericCallHarness<int>(14);
-        int genericResult = generic.invoke(new CallToken(base + 14));
-        assert(genericResult == base + 14);
-    }
+	{
+		GenericCallHarness<int> generic = new GenericCallHarness<int>(14);
+		int genericResult = generic.invoke(new CallToken(base + 14));
+		assert(genericResult == base + 14);
+	}
 
-    print(new CallToken(base + 15));
-    string rendered = f"<{new CallToken(base + 16)}>";
-    string expected = f"<{base + 16}>";
-    assert(rendered.equals(expected));
+	print(new CallToken(base + 15));
+	string rendered = f"<{new CallToken(base + 16)}>";
+	string expected = f"<{base + 16}>";
+	assert(rendered.equals(expected));
 
-    assert(callRenderCalls == calls + 17);
-    assert(callTokensAlive == 0);
-    assert(callTokensDestroyed == destroyed + 17);
+	assert(callRenderCalls == calls + 17);
+	assert(callTokensAlive == 0);
+	assert(callTokensDestroyed == destroyed + 17);
 }
 
 int main() {
-    exerciseCallTargets(1000);
-    assert(callTokensAlive == 0);
-    assert(callRenderCalls == 17);
-    assert(callTokensDestroyed == 17);
+	exerciseCallTargets(1000);
+	assert(callTokensAlive == 0);
+	assert(callRenderCalls == 17);
+	assert(callTokensDestroyed == 17);
 
-    arc_test_allocation_checkpoint();
-    exerciseCallTargets(2000);
-    assert(callTokensAlive == 0);
-    assert(callRenderCalls == 34);
-    assert(callTokensDestroyed == 34);
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	arc_test_allocation_checkpoint();
+	exerciseCallTargets(2000);
+	assert(callTokensAlive == 0);
+	assert(callRenderCalls == 34);
+	assert(callTokensDestroyed == 34);
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

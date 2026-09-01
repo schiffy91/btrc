@@ -4,47 +4,53 @@
 #include <assert.h>
 
 class Money {
-    public int x;
-    public Money(int x) { self.x = x; }
+	public int x;
+	public Money(int x) { self.x = x; }
 
-    public bool __lt__(Money o) { return self.x < o.x; }
-    public bool __gt__(Money o) { return self.x > o.x; }
-    public bool __le__(Money o) { return self.x <= o.x; }
-    public bool __ge__(Money o) { return self.x >= o.x; }
-    public bool __ne__(Money o) { return self.x != o.x; }
+	public bool __lt__(Money o) { return self.x < o.x; }
 
-    public Money __mul__(Money o) { return Money(self.x * o.x); }
-    public Money __div__(Money o) { return Money(self.x / o.x); }
-    public Money __mod__(Money o) { return Money(self.x % o.x); }
+	public bool __gt__(Money o) { return self.x > o.x; }
+
+	public bool __le__(Money o) { return self.x <= o.x; }
+
+	public bool __ge__(Money o) { return self.x >= o.x; }
+
+	public bool __ne__(Money o) { return self.x != o.x; }
+
+	public Money __mul__(Money o) { return Money(self.x * o.x); }
+
+	public Money __div__(Money o) { return Money(self.x / o.x); }
+
+	public Money __mod__(Money o) { return Money(self.x % o.x); }
 }
 
 int main() {
-    Money a = Money(1);
-    Money b = Money(2);
-    Money c = Money(3);
+	Money a = Money(1);
+	Money b = Money(2);
+	Money c = Money(3);
 
-    // comparison operators
-    assert(a < b);
-    assert(!(b < a));
-    assert(c > b);
-    assert(!(b > c));
-    assert(c >= c);
-    assert(c >= b);
-    assert(a <= b);
-    assert(c <= c);
-    assert(a != b);
-    assert(!(c != c));
+	// comparison operators
+	assert(a < b);
+	assert(!(b < a));
+	assert(c > b);
+	assert(!(b > c));
+	assert(c >= c);
+	assert(c >= b);
+	assert(a <= b);
+	assert(c <= c);
+	assert(a != b);
+	assert(!(c != c));
 
-    // arithmetic operators
-    Money prod = Money(2) * Money(5);
-    assert(prod.x == 10);
+	// arithmetic operators
+	Money prod = Money(2) * Money(5);
+	assert(prod.x == 10);
 
-    Money quot = Money(9) / Money(2);
-    assert(quot.x == 4);
+	Money quot = Money(9) / Money(2);
+	assert(quot.x == 4);
 
-    Money rem = Money(7) % Money(3);
-    assert(rem.x == 1);
+	Money rem = Money(7) % Money(3);
+	assert(rem.x == 1);
 
-    print("PASS: test_operator_compare_arith");
-    return 0;
+	print("PASS: test_operator_compare_arith");
+	return 0;
 }

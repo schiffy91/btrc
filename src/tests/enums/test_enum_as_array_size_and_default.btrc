@@ -5,20 +5,18 @@
 enum Sizes { SMALL = 4 };
 enum Color { RED, GREEN, BLUE };
 
-int pick(Color c = GREEN) {
-    return c;
-}
+int pick(Color c = GREEN) { return c; }
 
 int main() {
-    int buf[SMALL];
-    for (int i = 0; i < SMALL; i++) {
-        buf[i] = i * 2;
-    }
-    assert(buf[0] == 0);
-    assert(buf[3] == 6);
+	int buf[SMALL];
+	for (int i = 0; i < SMALL; i++) {
+		buf[i] = i * 2;
+	}
+	assert(buf[0] == 0);
+	assert(buf[3] == 6);
 
-    assert(pick() == GREEN);
-    assert(pick(BLUE) == BLUE);
-    print("PASS: test_enum_as_array_size_and_default");
-    return 0;
+	assert(pick() == GREEN);
+	assert(pick(BLUE) == BLUE);
+	print("PASS: test_enum_as_array_size_and_default");
+	return 0;
 }

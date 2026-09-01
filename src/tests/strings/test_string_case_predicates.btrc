@@ -2,23 +2,23 @@
 #include <assert.h>
 
 int main() {
-    // isUpper / isLower
-    assert("ABC".isUpper());
-    assert(!"Abc".isUpper());
-    assert("abc".isLower());
-    assert(!"abC".isLower());
+	// isUpper / isLower
+	assert("ABC".isUpper());
+	assert(!"Abc".isUpper());
+	assert("abc".isLower());
+	assert(!"abC".isLower());
 
-    // isAlnum and its alias isAlnumStr (same helper, both names compile)
-    assert("abc123".isAlnum());
-    assert(!"abc 1".isAlnum());
-    assert("abc123".isAlnumStr());
-    assert(!"abc 1".isAlnumStr());
+	// isAlnum and its alias isAlnumStr (same helper, both names compile)
+	assert("abc123".isAlnum());
+	assert(!"abc 1".isAlnum());
+	assert("abc123".isAlnumStr());
+	assert(!"abc 1".isAlnumStr());
 
-    // Empty string is false for every predicate here.
-    assert("".isUpper() == false);
-    assert("".isLower() == false);
-    assert("".isAlnum() == false);
+	// Empty string is false for every predicate here.
+	assert("".isUpper() == false);
+	assert("".isLower() == false);
+	assert("".isAlnum() == false);
 
-    print("PASS: test_string_case_predicates");
-    return 0;
+	print("PASS: test_string_case_predicates");
+	return 0;
 }

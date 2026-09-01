@@ -6,35 +6,32 @@ import std.map;
 #include <stdio.h>
 
 class Box {
-    public int v;
-    public Box(int v) {
-        self.v = v;
-    }
-    public int doubled() {
-        return self.v * 2;
-    }
+	public int v;
+	public Box(int v) { self.v = v; }
+
+	public int doubled() { return self.v * 2; }
 }
 
 int main() {
-    Map<string, Box> m = {};
-    m.put("a", new Box(7));
-    m.put("b", new Box(3));
+	Map<string, Box> m = {};
+	m.put("a", new Box(7));
+	m.put("b", new Box(3));
 
-    /* retrieved instances are usable: field read + method call */
-    assert(m.get("a").v == 7);
-    assert(m.get("b").doubled() == 6);
+	/* retrieved instances are usable: field read + method call */
+	assert(m.get("a").v == 7);
+	assert(m.get("b").doubled() == 6);
 
-    assert(m.has("a"));
-    assert(m.has("b"));
-    assert(!m.has("c"));
-    assert(m.size() == 2);
+	assert(m.has("a"));
+	assert(m.has("b"));
+	assert(!m.has("c"));
+	assert(m.size() == 2);
 
-    /* overwriting a key replaces the stored instance */
-    m.put("a", new Box(11));
-    assert(m.get("a").v == 11);
-    assert(m.size() == 2);
+	/* overwriting a key replaces the stored instance */
+	m.put("a", new Box(11));
+	assert(m.get("a").v == 11);
+	assert(m.size() == 2);
 
-    m.free();
-    printf("PASS: test_map_class_values\n");
-    return 0;
+	m.free();
+	printf("PASS: test_map_class_values\n");
+	return 0;
 }

@@ -3,19 +3,19 @@
 // Reassigning a rich enum variable to a different variant overwrites the
 // union; re-read tag and new payload.
 enum class Shape {
-    Circle(double r),
-    Rect(double w, double h)
+	Circle(double r),
+	Rect(double w, double h)
 }
 
 int main() {
-    Shape s = Shape.Circle(5.0);
-    assert(s.tag == Shape.Circle);
-    assert(s.data.Circle.r == 5.0);
+	Shape s = Shape.Circle(5.0);
+	assert(s.tag == Shape.Circle);
+	assert(s.data.Circle.r == 5.0);
 
-    s = Shape.Rect(3.0, 4.0);
-    assert(s.tag == Shape.Rect);
-    assert(s.data.Rect.w == 3.0);
-    assert(s.data.Rect.h == 4.0);
-    print("PASS: test_rich_enum_variant_reassign");
-    return 0;
+	s = Shape.Rect(3.0, 4.0);
+	assert(s.tag == Shape.Rect);
+	assert(s.data.Rect.w == 3.0);
+	assert(s.data.Rect.h == 4.0);
+	print("PASS: test_rich_enum_variant_reassign");
+	return 0;
 }

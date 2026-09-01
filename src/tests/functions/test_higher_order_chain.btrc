@@ -5,27 +5,23 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    Vector<int> xs = [1, 2, 3, 4, 5, 6];
+	Vector<int> xs = [1, 2, 3, 4, 5, 6];
 
-    // filter evens, square them
-    Vector<int> r = xs.filter((int x) => x % 2 == 0).map((int x) => x * x);
-    assert(r.len == 3);
-    assert(r.get(0) == 4);
-    assert(r.get(1) == 16);
-    assert(r.get(2) == 36);
+	// filter evens, square them
+	Vector<int> r = xs.filter((int x) => x % 2 == 0).map((int x) => x * x);
+	assert(r.len == 3);
+	assert(r.get(0) == 4);
+	assert(r.get(1) == 16);
+	assert(r.get(2) == 36);
 
-    // full pipeline collapsing to a scalar: 2^2 + 4^2 + 6^2 = 56
-    int s = xs.filter((int x) => x % 2 == 0)
-              .map((int x) => x * x)
-              .reduce(0, (int a, int b) => a + b);
-    assert(s == 56);
+	// full pipeline collapsing to a scalar: 2^2 + 4^2 + 6^2 = 56
+	int s = xs.filter((int x) => x % 2 == 0).map((int x) => x * x).reduce(0, (int a, int b) => a + b);
+	assert(s == 56);
 
-    // chain that filters everything out -> empty -> reduce returns init
-    int empty = xs.filter((int x) => x > 100)
-                  .map((int x) => x)
-                  .reduce(7, (int a, int b) => a + b);
-    assert(empty == 7);
+	// chain that filters everything out -> empty -> reduce returns init
+	int empty = xs.filter((int x) => x > 100).map((int x) => x).reduce(7, (int a, int b) => a + b);
+	assert(empty == 7);
 
-    print("PASS: test_higher_order_chain");
-    return 0;
+	print("PASS: test_higher_order_chain");
+	return 0;
 }

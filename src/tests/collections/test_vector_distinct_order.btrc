@@ -6,31 +6,31 @@ import std.vector;
 #include <stdio.h>
 
 int main() {
-    Vector<int> v = [3, 1, 3, 2, 1, 2];
-    Vector<int> d = v.distinct();
+	Vector<int> v = [3, 1, 3, 2, 1, 2];
+	Vector<int> d = v.distinct();
 
-    /* first occurrences in order: 3, 1, 2 */
-    assert(d.size() == 3);
-    assert(d.get(0) == 3);
-    assert(d.get(1) == 1);
-    assert(d.get(2) == 2);
+	/* first occurrences in order: 3, 1, 2 */
+	assert(d.size() == 3);
+	assert(d.get(0) == 3);
+	assert(d.get(1) == 1);
+	assert(d.get(2) == 2);
 
-    /* original is unchanged */
-    assert(v.size() == 6);
-    assert(v.get(0) == 3);
+	/* original is unchanged */
+	assert(v.size() == 6);
+	assert(v.get(0) == 3);
 
-    /* distinct of an already-unique vector is identical in order */
-    Vector<int> u = [5, 4, 6];
-    Vector<int> du = u.distinct();
-    assert(du.size() == 3);
-    assert(du.get(0) == 5);
-    assert(du.get(1) == 4);
-    assert(du.get(2) == 6);
+	/* distinct of an already-unique vector is identical in order */
+	Vector<int> u = [5, 4, 6];
+	Vector<int> du = u.distinct();
+	assert(du.size() == 3);
+	assert(du.get(0) == 5);
+	assert(du.get(1) == 4);
+	assert(du.get(2) == 6);
 
-    v.free();
-    d.free();
-    u.free();
-    du.free();
-    printf("PASS: test_vector_distinct_order\n");
-    return 0;
+	v.free();
+	d.free();
+	u.free();
+	du.free();
+	printf("PASS: test_vector_distinct_order\n");
+	return 0;
 }

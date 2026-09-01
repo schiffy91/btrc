@@ -11,161 +11,155 @@ int bindOwnerAlive = 0;
 int bindOwnerHooks = 0;
 
 class WarmMutexPayload {
-    public int value;
+	public int value;
 
-    public WarmMutexPayload(int value) {
-        self.value = value;
-    }
+	public WarmMutexPayload(int value) { self.value = value; }
 }
 
 class WarmMutexGuard {
-    public void __del__() {
-        WarmMutexPayload first = new WarmMutexPayload(1);
-        Mutex<WarmMutexPayload> owner = Mutex(first);
-        release first;
-        WarmMutexPayload second = new WarmMutexPayload(2);
-        owner.set(second);
-        release second;
-        owner.destroy();
-    }
+	public void __del__() {
+		WarmMutexPayload first = new WarmMutexPayload(1);
+		Mutex<WarmMutexPayload> owner = Mutex(first);
+		release first;
+		WarmMutexPayload second = new WarmMutexPayload(2);
+		owner.set(second);
+		release second;
+		owner.destroy();
+	}
 }
 
 class ConstructorRetainFailure {
-    public ConstructorRetainFailure() {
-        constructorRetainAlive++;
-    }
+	public ConstructorRetainFailure() { constructorRetainAlive++; }
 
-    public void __del__() {
-        constructorRetainAlive--;
-        constructorRetainHooks++;
-        Mutex<ConstructorRetainFailure> rejected = Mutex(self);
-        rejected.destroy();
-        assert(false);
-    }
+	public void __del__() {
+		constructorRetainAlive--;
+		constructorRetainHooks++;
+		Mutex<ConstructorRetainFailure> rejected = Mutex(self);
+		rejected.destroy();
+		assert(false);
+	}
 }
 
 class SetRetainFailure {
-    public Mutex<SetRetainFailure> target;
+	public Mutex<SetRetainFailure> target;
 
-    public SetRetainFailure() {
-        self.target = new Mutex<SetRetainFailure>(null);
-        setRetainAlive++;
-    }
+	public SetRetainFailure() {
+		self.target = new Mutex<SetRetainFailure>(null);
+		setRetainAlive++;
+	}
 
-    public void __del__() {
-        setRetainAlive--;
-        setRetainHooks++;
-        self.target.set(self);
-        assert(false);
-    }
+	public void __del__() {
+		setRetainAlive--;
+		setRetainHooks++;
+		self.target.set(self);
+		assert(false);
+	}
 }
 
 class BindOwnerPayload {
-    public BindOwnerPayload() {
-        bindOwnerAlive++;
-    }
+	public BindOwnerPayload() { bindOwnerAlive++; }
 
-    public void __del__() {
-        bindOwnerAlive--;
-        bindOwnerHooks++;
-    }
+	public void __del__() {
+		bindOwnerAlive--;
+		bindOwnerHooks++;
+	}
 }
 
 class BindOwnerSource {
-    public Mutex<BindOwnerPayload> target;
+	public Mutex<BindOwnerPayload> target;
 
-    public BindOwnerSource() {
-        BindOwnerPayload value = new BindOwnerPayload();
-        self.target = Mutex(value);
-        release value;
-    }
+	public BindOwnerSource() {
+		BindOwnerPayload value = new BindOwnerPayload();
+		self.target = Mutex(value);
+		release value;
+	}
 }
 
 class BindOwnerFailure {
-    public BindOwnerSource source;
-    public Mutex<BindOwnerPayload> target;
+	public BindOwnerSource source;
+	public Mutex<BindOwnerPayload> target;
 
-    public BindOwnerFailure(BindOwnerSource source) {
-        self.source = source;
-        self.target = new Mutex<BindOwnerPayload>(null);
-    }
+	public BindOwnerFailure(BindOwnerSource source) {
+		self.source = source;
+		self.target = new Mutex<BindOwnerPayload>(null);
+	}
 
-    public void __del__() {
-        /* The source take succeeds, but the destination is DESTROYING. The
+	public void __del__() {
+		/* The source take succeeds, but the destination is DESTROYING. The
          * failed bind must terminally clean the now-external moved handle. */
-        self.target = self.source.target;
-        assert(false);
-    }
+		self.target = self.source.target;
+		assert(false);
+	}
 }
 
 void warmNestedMutexGuards() {
-    try {
-        WarmMutexGuard value = new WarmMutexGuard();
-        delete value;
-    } catch (string error) {
-        assert(false);
-    }
+	try {
+		WarmMutexGuard value = new WarmMutexGuard();
+		delete value;
+	} catch (string error) {
+		assert(false);
+	}
 }
 
 bool rejectConstructorRetain() {
-    bool caught = false;
-    try {
-        ConstructorRetainFailure value = new ConstructorRetainFailure();
-        delete value;
-        assert(false);
-    } catch (string error) {
-        caught = error.equals("cannot retain destroying managed object");
-    }
-    assert(constructorRetainAlive == 0);
-    assert(constructorRetainHooks == 1);
-    return caught;
+	bool caught = false;
+	try {
+		ConstructorRetainFailure value = new ConstructorRetainFailure();
+		delete value;
+		assert(false);
+	} catch (string error) {
+		caught = error.equals("cannot retain destroying managed object");
+	}
+	assert(constructorRetainAlive == 0);
+	assert(constructorRetainHooks == 1);
+	return caught;
 }
 
 bool rejectSetRetain() {
-    bool caught = false;
-    try {
-        SetRetainFailure value = new SetRetainFailure();
-        delete value;
-        assert(false);
-    } catch (string error) {
-        caught = error.equals("cannot retain destroying managed object");
-    }
-    assert(setRetainAlive == 0);
-    assert(setRetainHooks == 1);
-    return caught;
+	bool caught = false;
+	try {
+		SetRetainFailure value = new SetRetainFailure();
+		delete value;
+		assert(false);
+	} catch (string error) {
+		caught = error.equals("cannot retain destroying managed object");
+	}
+	assert(setRetainAlive == 0);
+	assert(setRetainHooks == 1);
+	return caught;
 }
 
 bool rejectBindOwner() {
-    int hooksBefore = bindOwnerHooks;
-    bool caught = false;
-    try {
-        BindOwnerSource source = new BindOwnerSource();
-        BindOwnerFailure value = new BindOwnerFailure(source);
-        release source;
-        delete value;
-        assert(false);
-    } catch (string error) {
-        caught = error.equals("cannot retain destroying managed object");
-    }
-    assert(bindOwnerAlive == 0);
-    assert(bindOwnerHooks == hooksBefore + 1);
-    return caught;
+	int hooksBefore = bindOwnerHooks;
+	bool caught = false;
+	try {
+		BindOwnerSource source = new BindOwnerSource();
+		BindOwnerFailure value = new BindOwnerFailure(source);
+		release source;
+		delete value;
+		assert(false);
+	} catch (string error) {
+		caught = error.equals("cannot retain destroying managed object");
+	}
+	assert(bindOwnerAlive == 0);
+	assert(bindOwnerHooks == hooksBefore + 1);
+	return caught;
 }
 
 int main() {
-    warmNestedMutexGuards();
-    assert(rejectBindOwner());
+	warmNestedMutexGuards();
+	assert(rejectBindOwner());
 
-    arc_test_allocation_checkpoint();
-    assert(rejectConstructorRetain());
-    assert(arc_test_allocation_delta() == 0);
+	arc_test_allocation_checkpoint();
+	assert(rejectConstructorRetain());
+	assert(arc_test_allocation_delta() == 0);
 
-    arc_test_allocation_checkpoint();
-    assert(rejectSetRetain());
-    assert(arc_test_allocation_delta() == 0);
+	arc_test_allocation_checkpoint();
+	assert(rejectSetRetain());
+	assert(arc_test_allocation_delta() == 0);
 
-    arc_test_allocation_checkpoint();
-    assert(rejectBindOwner());
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	arc_test_allocation_checkpoint();
+	assert(rejectBindOwner());
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

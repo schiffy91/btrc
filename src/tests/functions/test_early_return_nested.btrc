@@ -2,37 +2,37 @@
 #include <assert.h>
 
 int firstOver(int lim) {
-    for (int i = 0; i < 100; i = i + 1) {
-        if (i > lim) {
-            return i;   // return from inside loop+if
-        }
-    }
-    return -1;
+	for (int i = 0; i < 100; i = i + 1) {
+		if (i > lim) {
+			return i;   // return from inside loop+if
+		}
+	}
+	return -1;
 }
 
 // return buried inside nested loops + branches
 int findPair(int target) {
-    for (int i = 1; i <= 9; i = i + 1) {
-        for (int j = 1; j <= 9; j = j + 1) {
-            if (i != j) {
-                if (i * j == target) {
-                    return i * 10 + j;
-                }
-            }
-        }
-    }
-    return 0;
+	for (int i = 1; i <= 9; i = i + 1) {
+		for (int j = 1; j <= 9; j = j + 1) {
+			if (i != j) {
+				if (i * j == target) {
+					return i * 10 + j;
+				}
+			}
+		}
+	}
+	return 0;
 }
 
 int main() {
-    assert(firstOver(5) == 6);
-    assert(firstOver(0) == 1);
-    assert(firstOver(200) == -1);   // loop exhausts, fall-through return
+	assert(firstOver(5) == 6);
+	assert(firstOver(0) == 1);
+	assert(firstOver(200) == -1);   // loop exhausts, fall-through return
 
-    // 2*6 == 12, first hit scanning i=1.. is i=2,j=6 -> 26
-    assert(findPair(12) == 26);
-    assert(findPair(1000) == 0);
+	// 2*6 == 12, first hit scanning i=1.. is i=2,j=6 -> 26
+	assert(findPair(12) == 26);
+	assert(findPair(1000) == 0);
 
-    print("PASS: test_early_return_nested");
-    return 0;
+	print("PASS: test_early_return_nested");
+	return 0;
 }

@@ -3,67 +3,65 @@
 int alive = 0;
 
 class Token {
-    public int value;
+	public int value;
 
-    public Token(int value) {
-        self.value = value;
-        alive++;
-    }
+	public Token(int value) {
+		self.value = value;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 int nestedReturn(bool fail) {
-    Token token = new Token(7);
-    Thread<int> thread = spawn(() => {
-        int index = 0;
-        while (index < 2) {
-            switch (index) {
-                case 0: {
-                    index = index + 1;
-                    break;
-                }
-                default: {
-                    try {
-                        if (fail) { throw "requested"; }
-                        if (token.value == 7) { return token.value + 1; }
-                    } catch (string error) {
-                        if (error.equals("requested")) {
-                            return token.value + 2;
-                        }
-                        return -1;
-                    }
-                    return -2;
-                }
-            }
-        }
-        return -3;
-    });
-    return thread.join();
+	Token token = new Token(7);
+	Thread<int> thread = spawn(() => {
+			int index = 0;
+			while (index < 2) {
+				switch (index) {
+					case 0: {
+						index = index + 1;
+						break;
+					}
+					default: {
+						try {
+							if (fail) { throw "requested"; }
+							if (token.value == 7) { return token.value + 1; }
+						} catch (string error) {
+							if (error.equals("requested")) {
+								return token.value + 2;
+							}
+							return -1;
+						}
+						return -2;
+					}
+				}
+			}
+			return -3;
+		});
+	return thread.join();
 }
 
 int conditionalSpawn(bool takeLeft) {
-    Token left = new Token(11);
-    Token right = new Token(22);
-    Thread<int> thread = takeLeft
-        ? spawn(() => { return left.value; })
-        : spawn(() => { return right.value; });
-    return thread.join();
+	Token left = new Token(11);
+	Token right = new Token(22);
+	Thread<int> thread = takeLeft
+		? spawn(() => { return left.value; })
+		: spawn(() => { return right.value; });
+	return thread.join();
 }
 
 int main() {
-    assert(nestedReturn(false) == 8);
-    assert(alive == 0);
-    assert(nestedReturn(true) == 9);
-    assert(alive == 0);
+	assert(nestedReturn(false) == 8);
+	assert(alive == 0);
+	assert(nestedReturn(true) == 9);
+	assert(alive == 0);
 
-    assert(conditionalSpawn(false) == 22);
-    assert(alive == 0);
-    assert(conditionalSpawn(true) == 11);
-    assert(alive == 0);
+	assert(conditionalSpawn(false) == 22);
+	assert(alive == 0);
+	assert(conditionalSpawn(true) == 11);
+	assert(alive == 0);
 
-    print("PASS: test_thread_nested_return_cleanup");
-    return 0;
+	print("PASS: test_thread_nested_return_cleanup");
+	return 0;
 }

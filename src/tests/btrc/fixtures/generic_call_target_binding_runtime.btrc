@@ -1,139 +1,109 @@
 #include <assert.h>
 
 class Base {
-    public int id;
+	public int id;
 
-    public Base(int id) {
-        self.id = id;
-    }
+	public Base(int id) { self.id = id; }
 }
 
 class Derived extends Base {
-    public Derived(int id) {
-        self.id = id;
-    }
+	public Derived(int id) { self.id = id; }
 }
 
 class Sized<A> {
-    public size_t width;
+	public size_t width;
 
-    public Sized(A value, size_t width = sizeof(A)) {
-        self.width = width;
-    }
+	public Sized(A value, size_t width = sizeof(A)) { self.width = width; }
 
-    public size_t defaultWidth(size_t width = sizeof(A)) {
-        return width;
-    }
+	public size_t defaultWidth(size_t width = sizeof(A)) { return width; }
 }
 
 class Pair<A> {
-    public int firstId;
-    public int secondId;
+	public int firstId;
+	public int secondId;
 
-    public Pair(A first, A second) {
-        self.firstId = first.id;
-        self.secondId = second.id;
-    }
+	public Pair(A first, A second) {
+		self.firstId = first.id;
+		self.secondId = second.id;
+	}
 }
 
-int joinValues(Base first, Base second, int bonus = 3) {
-    return first.id * 100 + second.id * 10 + bonus;
-}
+int joinValues(Base first, Base second, int bonus = 3) { return first.id * 100 + second.id * 10 + bonus; }
 
 class StaticCalls {
-    class int join(Base first, Base second, int bonus = 4) {
-        return first.id * 100 + second.id * 10 + bonus;
-    }
+	class int join(Base first, Base second, int bonus = 4) { return first.id * 100 + second.id * 10 + bonus; }
 }
 
 class Receiver {
-    public Receiver() {}
+	public Receiver() {}
 
-    public int join(Base first, Base second, int bonus = 5) {
-        return first.id * 100 + second.id * 10 + bonus;
-    }
+	public int join(Base first, Base second, int bonus = 5) { return first.id * 100 + second.id * 10 + bonus; }
 }
 
 class Factory<T> {
-    public Sized<T> bareSize(T value) {
-        return Sized(value);
-    }
+	public Sized<T> bareSize(T value) { return Sized(value); }
 
-    public Sized<T> newSize(T value) {
-        return new Sized<T>(value);
-    }
+	public Sized<T> newSize(T value) { return new Sized<T> (value); }
 
-    public size_t methodSize(Sized<T> value) {
-        return value.defaultWidth();
-    }
+	public size_t methodSize(Sized<T> value) { return value.defaultWidth(); }
 
-    public Pair<Base> barePair(Derived left, Derived right) {
-        return Pair(second=right, first=left);
-    }
+	public Pair<Base> barePair(Derived left, Derived right) { return Pair(second=right, first=left); }
 
-    public Pair<Base> newPair(Derived left, Derived right) {
-        return new Pair<Base>(second=right, first=left);
-    }
+	public Pair<Base> newPair(Derived left, Derived right) { return new Pair<Base> (second=right, first=left); }
 
-    public int freeCall(Derived left, Derived right) {
-        return joinValues(second=right, first=left);
-    }
+	public int freeCall(Derived left, Derived right) { return joinValues(second=right, first=left); }
 
-    public int staticCall(Derived left, Derived right) {
-        return StaticCalls.join(second=right, first=left);
-    }
+	public int staticCall(Derived left, Derived right) { return StaticCalls.join(second=right, first=left); }
 
-    public int instanceCall(Receiver receiver, Derived left, Derived right) {
-        return receiver.join(second=right, first=left);
-    }
+	public int instanceCall(Receiver receiver, Derived left, Derived right) { return receiver.join(second=right, first=left); }
 }
 
 int main() {
-    Factory<int> factory = new Factory<int>();
-    Derived left = new Derived(1);
-    Derived right = new Derived(2);
-    Receiver receiver = new Receiver();
+	Factory<int> factory = new Factory<int>();
+	Derived left = new Derived(1);
+	Derived right = new Derived(2);
+	Receiver receiver = new Receiver();
 
-    Sized<int> bareSize = factory.bareSize(7);
-    Sized<int> newSize = factory.newSize(8);
-    Sized<int> directBareSize = Sized(9);
-    Sized<int> directNewSize = new Sized<int>(10);
-    assert(bareSize.width == sizeof(int));
-    assert(newSize.width == sizeof(int));
-    assert(directBareSize.width == sizeof(int));
-    assert(directNewSize.width == sizeof(int));
-    assert(factory.methodSize(bareSize) == sizeof(int));
-    assert(bareSize.defaultWidth() == sizeof(int));
+	Sized<int> bareSize = factory.bareSize(7);
+	Sized<int> newSize = factory.newSize(8);
+	Sized<int> directBareSize = Sized(9);
+	Sized<int> directNewSize = new Sized<int>(10);
+	assert(bareSize.width == sizeof(int));
+	assert(newSize.width == sizeof(int));
+	assert(directBareSize.width == sizeof(int));
+	assert(directNewSize.width == sizeof(int));
+	assert(factory.methodSize(bareSize) == sizeof(int));
+	assert(bareSize.defaultWidth() == sizeof(int));
 
-    Pair<Base> barePair = factory.barePair(left, right);
-    Pair<Base> newPair = factory.newPair(left, right);
-    Pair<Base> directBarePair = Pair(second=right, first=left);
-    Pair<Base> directNewPair = new Pair<Base>(second=right, first=left);
-    assert(barePair.firstId == 1);
-    assert(barePair.secondId == 2);
-    assert(newPair.firstId == 1);
-    assert(newPair.secondId == 2);
-    assert(directBarePair.firstId == 1);
-    assert(directBarePair.secondId == 2);
-    assert(directNewPair.firstId == 1);
-    assert(directNewPair.secondId == 2);
+	Pair<Base> barePair = factory.barePair(left, right);
+	Pair<Base> newPair = factory.newPair(left, right);
+	Pair<Base> directBarePair = Pair(second=right, first=left);
+	Pair<Base> directNewPair = new Pair<Base>(second=right, first=left);
+	assert(barePair.firstId == 1);
+	assert(barePair.secondId == 2);
+	assert(newPair.firstId == 1);
+	assert(newPair.secondId == 2);
+	assert(directBarePair.firstId == 1);
+	assert(directBarePair.secondId == 2);
+	assert(directNewPair.firstId == 1);
+	assert(directNewPair.secondId == 2);
 
-    assert(factory.freeCall(left, right) == 123);
-    assert(factory.staticCall(left, right) == 124);
-    assert(factory.instanceCall(receiver, left, right) == 125);
+	assert(factory.freeCall(left, right) == 123);
+	assert(factory.staticCall(left, right) == 124);
+	assert(factory.instanceCall(receiver, left, right) == 125);
 
-    delete directNewPair;
-    delete directBarePair;
-    delete newPair;
-    delete barePair;
-    delete directNewSize;
-    delete directBareSize;
-    delete newSize;
-    delete bareSize;
-    delete receiver;
-    delete right;
-    delete left;
-    delete factory;
-    print("PASS: generic call target binding");
-    return 0;
+	delete directNewPair;
+	delete directBarePair;
+	delete newPair;
+	delete barePair;
+	delete directNewSize;
+	delete directBareSize;
+	delete newSize;
+	delete bareSize;
+	delete receiver;
+	delete right;
+	delete left;
+	delete factory;
+	print("PASS: generic call target binding");
+	return 0;
 }

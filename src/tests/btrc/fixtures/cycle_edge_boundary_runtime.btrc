@@ -5,61 +5,59 @@ int cycleNodesAlive = 0;
 /* A minimal collection-shaped generic keeps this no-stdlib fixture focused on
  * the public collection boundary pass rather than the bundled stdlib. */
 class Vector<T> {
-    public T* data;
-    public int len;
+	public T* data;
+	public int len;
 
-    public Vector() {
-        self.data = (T*)calloc(2, sizeof(T));
-        self.len = 0;
-    }
+	public Vector() {
+		self.data = (T*)calloc(2, sizeof(T));
+		self.len = 0;
+	}
 
-    public void push(T value) {
-        if (self.len >= 2) { exit(2); }
-        keep value;
-        self.data[self.len] = value;
-        self.len++;
-    }
+	public void push(T value) {
+		if (self.len >= 2) { exit(2); }
+		keep value;
+		self.data[self.len] = value;
+		self.len++;
+	}
 
-    public void clear() {
-        for (int i = 0; i < self.len; i++) {
-            release self.data[i];
-        }
-        self.len = 0;
-    }
+	public void clear() {
+		for (int i = 0; i < self.len; i++) {
+			release self.data[i];
+		}
+		self.len = 0;
+	}
 
-    public void __del__() { free(self.data); }
+	public void __del__() { free(self.data); }
 }
 
 class CycleNode {
-    public CycleNode? next;
+	public CycleNode? next;
 
-    public CycleNode() {
-        self.next = null;
-        cycleNodesAlive++;
-    }
+	public CycleNode() {
+		self.next = null;
+		cycleNodesAlive++;
+	}
 
-    public void __del__() {
-        cycleNodesAlive--;
-    }
+	public void __del__() { cycleNodesAlive--; }
 }
 
 int main() {
-    Vector<CycleNode?> roots = new Vector<CycleNode?>();
-    {
-        CycleNode first = new CycleNode();
-        CycleNode second = new CycleNode();
-        first.next = second;
-        second.next = first;
-        roots.push(first);
-        roots.push(second);
-    }
+	Vector<CycleNode?> roots = new Vector<CycleNode?>();
+	{
+		CycleNode first = new CycleNode();
+		CycleNode second = new CycleNode();
+		first.next = second;
+		second.next = first;
+		roots.push(first);
+		roots.push(second);
+	}
 
-    assert(cycleNodesAlive == 2);
-    /* Vector.clear contains edge replacement but no ordinary ARC release.
+	assert(cycleNodesAlive == 2);
+	/* Vector.clear contains edge replacement but no ordinary ARC release.
      * Its public collection boundary must force the sub-threshold cycle now,
      * rather than deferring collection until main exits. */
-    roots.clear();
-    assert(cycleNodesAlive == 0);
-    print("PASS: edge-only cycle boundary");
-    return 0;
+	roots.clear();
+	assert(cycleNodesAlive == 0);
+	print("PASS: edge-only cycle boundary");
+	return 0;
 }

@@ -4,34 +4,36 @@
 #include <assert.h>
 
 class Builder {
-    public int n;
-    public string log;
-    public Builder() {
-        self.n = 0;
-        self.log = "";
-    }
-    public Builder add(int x) {
-        self.n = self.n + x;
-        return self;
-    }
-    public Builder tag(string t) {
-        self.log = self.log + t;
-        return self;
-    }
+	public int n;
+	public string log;
+	public Builder() {
+		self.n = 0;
+		self.log = "";
+	}
+
+	public Builder add(int x) {
+		self.n = self.n + x;
+		return self;
+	}
+
+	public Builder tag(string t) {
+		self.log = self.log + t;
+		return self;
+	}
 }
 
 int main() {
-    Builder b = Builder();
-    assert(b.add(1).add(2).add(3).n == 6);
+	Builder b = Builder();
+	assert(b.add(1).add(2).add(3).n == 6);
 
-    // chaining keeps mutating the same instance
-    assert(b.n == 6);
+	// chaining keeps mutating the same instance
+	assert(b.n == 6);
 
-    // mixed-method chain ending in a different field read
-    Builder b2 = Builder();
-    assert(b2.add(10).tag("x").add(5).tag("y").log == "xy");
-    assert(b2.n == 15);
+	// mixed-method chain ending in a different field read
+	Builder b2 = Builder();
+	assert(b2.add(10).tag("x").add(5).tag("y").log == "xy");
+	assert(b2.n == 15);
 
-    print("PASS: test_instance_method_chain");
-    return 0;
+	print("PASS: test_instance_method_chain");
+	return 0;
 }

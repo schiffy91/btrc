@@ -6,28 +6,28 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    // Leading delimiter -> leading empty segment preserved
-    Vector<string> lead = Strings.split(",a", ",");
-    assert(lead.size() == 2);
-    assert(lead[0].equals(""));
-    assert(lead[1].equals("a"));
+	// Leading delimiter -> leading empty segment preserved
+	Vector<string> lead = Strings.split(",a", ",");
+	assert(lead.size() == 2);
+	assert(lead[0].equals(""));
+	assert(lead[1].equals("a"));
 
-    // Trailing delimiter -> trailing empty segment preserved
-    Vector<string> trail = Strings.split("a,", ",");
-    assert(trail.size() == 2);
-    assert(trail[0].equals("a"));
-    assert(trail[1].equals(""));
+	// Trailing delimiter -> trailing empty segment preserved
+	Vector<string> trail = Strings.split("a,", ",");
+	assert(trail.size() == 2);
+	assert(trail[0].equals("a"));
+	assert(trail[1].equals(""));
 
-    // Just the delimiter -> two empty segments
-    Vector<string> only = Strings.split(",", ",");
-    assert(only.size() == 2);
-    assert(only[0].equals(""));
-    assert(only[1].equals(""));
+	// Just the delimiter -> two empty segments
+	Vector<string> only = Strings.split(",", ",");
+	assert(only.size() == 2);
+	assert(only[0].equals(""));
+	assert(only[1].equals(""));
 
-    Vector<string> empty = Strings.split("", ",");
-    assert(empty.size() == 1);
-    assert(empty[0].equals(""));
+	Vector<string> empty = Strings.split("", ",");
+	assert(empty.size() == 1);
+	assert(empty[0].equals(""));
 
-    print("PASS: test_string_split_edge_delims");
-    return 0;
+	print("PASS: test_string_split_edge_delims");
+	return 0;
 }

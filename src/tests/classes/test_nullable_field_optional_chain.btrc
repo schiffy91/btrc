@@ -4,28 +4,28 @@
 #include <assert.h>
 
 class Node {
-    public Node? next;
-    public int v;
-    public Node(int v) { self.v = v; }
+	public Node? next;
+	public int v;
+	public Node(int v) { self.v = v; }
 }
 
 int main() {
-    Node n = Node(10);
+	Node n = Node(10);
 
-    // next is null by default: ?. short-circuits, ?? supplies the fallback
-    assert((n.next?.v ?? -1) == -1);
+	// next is null by default: ?. short-circuits, ?? supplies the fallback
+	assert((n.next?.v ?? -1) == -1);
 
-    // link a second node and read through the chain
-    n.next = Node(20);
-    assert((n.next?.v ?? -1) == 20);
+	// link a second node and read through the chain
+	n.next = Node(20);
+	assert((n.next?.v ?? -1) == 20);
 
-    // two-deep optional chain, tail still null
-    assert((n.next?.next?.v ?? -7) == -7);
+	// two-deep optional chain, tail still null
+	assert((n.next?.next?.v ?? -7) == -7);
 
-    // complete the chain
-    n.next.next = Node(30);
-    assert((n.next?.next?.v ?? -7) == 30);
+	// complete the chain
+	n.next.next = Node(30);
+	assert((n.next?.next?.v ?? -7) == 30);
 
-    print("PASS: test_nullable_field_optional_chain");
-    return 0;
+	print("PASS: test_nullable_field_optional_chain");
+	return 0;
 }

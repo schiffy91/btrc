@@ -4,26 +4,27 @@
 #include <assert.h>
 
 class Base {
-    public int x;
-    public Base(int x) { self.x = x; }
-    public Base __add__(Base o) { return Base(self.x + o.x); }
+	public int x;
+	public Base(int x) { self.x = x; }
+
+	public Base __add__(Base o) { return Base(self.x + o.x); }
 }
 
 class Sub extends Base {
-    public Sub(int x) { self.x = x; }
+	public Sub(int x) { self.x = x; }
 }
 
 int main() {
-    Sub a = Sub(2);
-    Sub b = Sub(3);
-    // The inherited __add__ is used; the result is a Base.
-    Base c = a + b;
-    assert(c.x == 5);
+	Sub a = Sub(2);
+	Sub b = Sub(3);
+	// The inherited __add__ is used; the result is a Base.
+	Base c = a + b;
+	assert(c.x == 5);
 
-    Base d = Base(10);
-    Base e = d + c;
-    assert(e.x == 15);
+	Base d = Base(10);
+	Base e = d + c;
+	assert(e.x == 15);
 
-    print("PASS: test_inherited_operator_overload");
-    return 0;
+	print("PASS: test_inherited_operator_overload");
+	return 0;
 }

@@ -6,21 +6,19 @@ import std.jsonx;
 #include <assert.h>
 
 int main() {
-    string escapedKeys =
-        "{\"a\\\"b\":\"quote\",\"path\\\\key\":\"slash\"}";
-    assert(Json.getString(escapedKeys, "a\"b").equals("quote"));
-    assert(Json.getString(escapedKeys, "path\\key").equals("slash"));
+	string escapedKeys = "{\"a\\\"b\":\"quote\",\"path\\\\key\":\"slash\"}";
+	assert(Json.getString(escapedKeys, "a\"b").equals("quote"));
+	assert(Json.getString(escapedKeys, "path\\key").equals("slash"));
 
-    string valueBeforeKey = "{\"note\":\"x\",\"x\":\"real\"}";
-    assert(Json.getString(valueBeforeKey, "x").equals("real"));
+	string valueBeforeKey = "{\"note\":\"x\",\"x\":\"real\"}";
+	assert(Json.getString(valueBeforeKey, "x").equals("real"));
 
-    string afterAnchor =
-        "{\"marker\":\"x\",\"x\":\"second\"}";
-    assert(Json.getStringAfter(afterAnchor, "marker", "x").equals("second"));
+	string afterAnchor = "{\"marker\":\"x\",\"x\":\"second\"}";
+	assert(Json.getStringAfter(afterAnchor, "marker", "x").equals("second"));
 
-    assert(Json.getString("{\"x\":\"unterminated}", "x").equals(""));
-    assert(Json.getString("{\"u\":\"\\u00e9\"}", "u").equals("\xc3\xa9"));
+	assert(Json.getString("{\"x\":\"unterminated}", "x").equals(""));
+	assert(Json.getString("{\"u\":\"\\u00e9\"}", "u").equals("\xc3\xa9"));
 
-    print("PASS: test_stdlib_jsonx_safety");
-    return 0;
+	print("PASS: test_stdlib_jsonx_safety");
+	return 0;
 }

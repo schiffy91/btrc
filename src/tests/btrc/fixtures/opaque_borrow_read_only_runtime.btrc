@@ -2,45 +2,43 @@
 #include <string.h>
 
 int inspect(void* value) {
-    unsigned char byte = 0;
-    memcpy(&byte, value, 1);
-    return (int)byte;
+	unsigned char byte = 0;
+	memcpy(&byte, value, 1);
+	return (int)byte;
 }
 
 int first(char* value) { return (unsigned char)value[0]; }
 
 class Box {
-    public int value;
-    public Box() { self.value = 7; }
+	public int value;
+	public Box() { self.value = 7; }
 }
 
 class BaseReader {
-    public int inspect(void* value) {
-        return (int)(*(unsigned char*)value);
-    }
+	public int inspect(void* value) { return (int)(*(unsigned char*)value); }
 
-    public int wrap(void* value) { return self.inspect(value); }
+	public int wrap(void* value) { return self.inspect(value); }
 }
 
 class ChildMutator extends BaseReader {
-    public int inspect(void* value) {
-        memset(value, 0, 1);
-        return 0;
-    }
+	public int inspect(void* value) {
+		memset(value, 0, 1);
+		return 0;
+	}
 }
 
 int main() {
-    Box owner = new Box();
-    (void)inspect((void*)owner);
-    string text = "abc";
-    assert(strlen(text) == (size_t)3);
-    assert(first((char*)text) == (int)'a');
-    ChildMutator reader = new ChildMutator();
-    assert(reader.wrap((void*)text) == (int)'a');
-    char* literalAlias = strstr((char*)"abc", "b");
-    assert(literalAlias != NULL && literalAlias[0] == 'b');
-    assert((void*)owner != NULL);
-    delete reader;
-    delete owner;
-    return 0;
+	Box owner = new Box();
+	(void)inspect((void*)owner);
+	string text = "abc";
+	assert(strlen(text) == (size_t)3);
+	assert(first((char*)text) == (int)'a');
+	ChildMutator reader = new ChildMutator();
+	assert(reader.wrap((void*)text) == (int)'a');
+	char* literalAlias = strstr((char*)"abc", "b");
+	assert(literalAlias != NULL && literalAlias[0] == 'b');
+	assert((void*)owner != NULL);
+	delete reader;
+	delete owner;
+	return 0;
 }

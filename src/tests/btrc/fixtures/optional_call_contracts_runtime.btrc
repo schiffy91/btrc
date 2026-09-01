@@ -4,87 +4,83 @@ int touches = 0;
 int alive = 0;
 
 class Item {
-    public Item() { alive += 1; }
-    public void __del__() { alive -= 1; }
+	public Item() { alive += 1; }
+
+	public void __del__() { alive -= 1; }
 }
 
 class Box {
-    public int value;
+	public int value;
 
-    public Box(int value) { self.value = value; }
+	public Box(int value) { self.value = value; }
 
-    public int add(int amount) { return self.value + amount; }
+	public int add(int amount) { return self.value + amount; }
 
-    public void touch(int amount) { touches += amount; }
+	public void touch(int amount) { touches += amount; }
 
-    public Box identity() { return self; }
+	public Box identity() { return self; }
 
-    public (int, int) pair() { return (self.value, 2); }
+	public(int, int) pair() { return (self.value, 2); }
 
-    public void consume(Item item) {
-        if (item != null) { touches += 1; }
-    }
+	public void consume(Item item) {
+		if (item != null) { touches += 1; }
+	}
 }
 
 class Keeper {
-    public void accept(keep Item item) {
-        if (item != null) { touches += 10; }
-    }
+	public void accept(keep Item item) {
+		if (item != null) { touches += 10; }
+	}
 }
 
 Box? select(bool present) {
-    receiverCalls += 1;
-    if (present) { return new Box(40); }
-    return null;
+	receiverCalls += 1;
+	if (present) { return new Box(40); }
+	return null;
 }
 
 int argument() {
-    argumentCalls += 1;
-    return 2;
+	argumentCalls += 1;
+	return 2;
 }
 
 int main() {
-    int missing = select(false)?.add(argument());
-    select(false)?.touch(argument());
-    Box? missingReference = select(false)?.identity();
-    (int, int) missingPair = select(false)?.pair();
-    select(false)?.consume(new Item());
-    if (missing != 0 || missingReference != null
-            || missingPair._0 != 0 || missingPair._1 != 0
-            || argumentCalls != 0 || alive != 0 || touches != 0) {
-        return 1;
-    }
+	int missing = select(false)?.add(argument());
+	select(false)?.touch(argument());
+	Box? missingReference = select(false)?.identity();
+	(int, int) missingPair = select(false)?.pair();
+	select(false)?.consume(new Item());
+	if (missing != 0 || missingReference != null || missingPair._0 != 0 || missingPair._1 != 0 || argumentCalls != 0 || alive != 0 || touches != 0) {
+		return 1;
+	}
 
-    int present = select(true)?.add(argument());
-    select(true)?.touch(argument());
-    Box? presentReference = select(true)?.identity();
-    (int, int) presentPair = select(true)?.pair();
-    select(true)?.consume(new Item());
-    if (present != 42 || presentReference == null
-            || presentPair._0 != 40 || presentPair._1 != 2
-            || receiverCalls != 10 || argumentCalls != 2
-            || alive != 0 || touches != 3) {
-        return 2;
-    }
+	int present = select(true)?.add(argument());
+	select(true)?.touch(argument());
+	Box? presentReference = select(true)?.identity();
+	(int, int) presentPair = select(true)?.pair();
+	select(true)?.consume(new Item());
+	if (present != 42 || presentReference == null || presentPair._0 != 40 || presentPair._1 != 2 || receiverCalls != 10 || argumentCalls != 2 || alive != 0 || touches != 3) {
+		return 2;
+	}
 
-    string? absentText = null;
-    string? presentText = "abc";
-    if (absentText?.len() != 0 || presentText?.len() != 3) { return 3; }
+	string? absentText = null;
+	string? presentText = "abc";
+	if (absentText?.len() != 0 || presentText?.len() != 3) { return 3; }
 
-    {
-        Keeper? absent = null;
-        Item skipped = new Item();
-        absent?.accept(skipped);
-        release skipped;
-    }
-    if (alive != 0 || touches != 3) { return 4; }
+	{
+		Keeper? absent = null;
+		Item skipped = new Item();
+		absent?.accept(skipped);
+		release skipped;
+	}
+	if (alive != 0 || touches != 3) { return 4; }
 
-    {
-        Keeper? keeper = new Keeper();
-        Item kept = new Item();
-        keeper?.accept(item = kept);
-        release kept;
-    }
-    if (alive != 0 || touches != 13) { return 5; }
-    return 0;
+	{
+		Keeper? keeper = new Keeper();
+		Item kept = new Item();
+		keeper?.accept(item = kept);
+		release kept;
+	}
+	if (alive != 0 || touches != 13) { return 5; }
+	return 0;
 }

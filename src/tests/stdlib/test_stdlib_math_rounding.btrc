@@ -6,39 +6,39 @@ import std.math;
 #include "../../stdlib/math.btrc"
 
 int main() {
-    // ceil rounds up toward +inf
-    assert(Math.fabs(Math.ceil(2.1f) - 3.0f) < 0.0001f);
-    assert(Math.fabs(Math.ceil(2.0f) - 2.0f) < 0.0001f);
-    assert(Math.fabs(Math.ceil(-2.1f) - (-2.0f)) < 0.0001f);
+	// ceil rounds up toward +inf
+	assert(Math.fabs(Math.ceil(2.1f) - 3.0f) < 0.0001f);
+	assert(Math.fabs(Math.ceil(2.0f) - 2.0f) < 0.0001f);
+	assert(Math.fabs(Math.ceil(-2.1f) - (-2.0f)) < 0.0001f);
 
-    // floor rounds down toward -inf
-    assert(Math.fabs(Math.floor(2.9f) - 2.0f) < 0.0001f);
-    assert(Math.fabs(Math.floor(2.0f) - 2.0f) < 0.0001f);
-    assert(Math.fabs(Math.floor(-2.1f) - (-3.0f)) < 0.0001f);
+	// floor rounds down toward -inf
+	assert(Math.fabs(Math.floor(2.9f) - 2.0f) < 0.0001f);
+	assert(Math.fabs(Math.floor(2.0f) - 2.0f) < 0.0001f);
+	assert(Math.fabs(Math.floor(-2.1f) - (-3.0f)) < 0.0001f);
 
-    // double helpers retain values that cannot round-trip through float
-    assert(Math.floorDouble(16777217.75) == 16777217.0);
-    assert(Math.floorDouble(-2.1) == -3.0);
-    assert(Math.ceilDouble(16777217.25) == 16777218.0);
-    assert(Math.ceilDouble(-2.1) == -2.0);
-    assert(Math.isFinite(0.0));
-    assert(Math.isFinite(16777217.75));
-    assert(Math.isFinite(Math.maximumFiniteFloat()));
-    assert(Math.maximumFiniteFloat() > 3.0e38);
-    assert(!Math.isFinite((double)INFINITY));
-    assert(!Math.isFinite((double)NAN));
+	// double helpers retain values that cannot round-trip through float
+	assert(Math.floorDouble(16777217.75) == 16777217.0);
+	assert(Math.floorDouble(-2.1) == -3.0);
+	assert(Math.ceilDouble(16777217.25) == 16777218.0);
+	assert(Math.ceilDouble(-2.1) == -2.0);
+	assert(Math.isFinite(0.0));
+	assert(Math.isFinite(16777217.75));
+	assert(Math.isFinite(Math.maximumFiniteFloat()));
+	assert(Math.maximumFiniteFloat() > 3.0e38);
+	assert(!Math.isFinite((double)INFINITY));
+	assert(!Math.isFinite((double)NAN));
 
-    // round returns int (cast of libc round)
-    assert(Math.round(2.4f) == 2);
-    assert(Math.round(2.5f) == 3);
-    assert(Math.round(2.6f) == 3);
-    assert(Math.round(-2.5f) == -3);
+	// round returns int (cast of libc round)
+	assert(Math.round(2.4f) == 2);
+	assert(Math.round(2.5f) == 3);
+	assert(Math.round(2.6f) == 3);
+	assert(Math.round(-2.5f) == -3);
 
-    // truncate drops the fractional part toward zero
-    assert(Math.truncate(2.9f) == 2);
-    assert(Math.truncate(-2.9f) == -2);
-    assert(Math.truncate(0.0f) == 0);
+	// truncate drops the fractional part toward zero
+	assert(Math.truncate(2.9f) == 2);
+	assert(Math.truncate(-2.9f) == -2);
+	assert(Math.truncate(0.0f) == 0);
 
-    print("PASS: test_stdlib_math_rounding");
-    return 0;
+	print("PASS: test_stdlib_math_rounding");
+	return 0;
 }

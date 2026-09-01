@@ -1,15 +1,13 @@
 #include <assert.h>
 
-(int, float, string, bool) make_quad() {
-    return (1, 2.5f, "x", true);
-}
+(int, float, string, bool) make_quad() { return (1, 2.5f, "x", true); }
 
 int main() {
-    (int, float, string, bool) t = make_quad();
-    assert(t._0 == 1);
-    assert(t._1 > 2.4f && t._1 < 2.6f);
-    assert(t._2 == "x");
-    assert(t._3 == true);
-    print("PASS: test_tuple_four_elements");
-    return 0;
+	(int, float, string, bool) t = make_quad();
+	assert(t._0 == 1);
+	assert(t._1 > 2.4f && t._1 < 2.6f);
+	assert(t._2 == "x");
+	assert(t._3 == true);
+	print("PASS: test_tuple_four_elements");
+	return 0;
 }

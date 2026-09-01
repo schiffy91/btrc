@@ -1,13 +1,13 @@
 int main() {
-    bool caught = false;
-    try {
-        Mutex<int> value = Mutex(7);
-        value.destroy();
-        throw "after destroy";
-    } catch (string error) {
-        caught = error == "after destroy";
-    }
-    assert(caught);
-    print("PASS");
-    return 0;
+	bool caught = false;
+	try {
+		Mutex<int> value = Mutex(7);
+		value.destroy();
+		throw "after destroy";
+	} catch (string error) {
+		caught = error == "after destroy";
+	}
+	assert(caught);
+	print("PASS");
+	return 0;
 }

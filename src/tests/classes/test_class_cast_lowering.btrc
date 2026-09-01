@@ -1,19 +1,19 @@
 #include <assert.h>
 
 class Animal {
-    public int value;
-    public Animal(int value) { self.value = value; }
+	public int value;
+	public Animal(int value) { self.value = value; }
 }
 
 class Dog {
-    public int value;
-    public Dog(int value) { self.value = value; }
+	public int value;
+	public Dog(int value) { self.value = value; }
 }
 
 int main() {
-    Dog dog = new Dog(42);
-    Animal animal = (Animal)dog;
-    assert(animal.value == 42);
-    print("PASS: test_class_cast_lowering");
-    return 0;
+	Dog dog = new Dog(42);
+	Animal animal = (Animal)dog;
+	assert(animal.value == 42);
+	print("PASS: test_class_cast_lowering");
+	return 0;
 }

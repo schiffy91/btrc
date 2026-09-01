@@ -2,20 +2,20 @@
 // break and continue inside `parallel for` (the analyzer must allow loop control
 // inside the parallel-for body).
 int main() {
-    int count = 0;
-    parallel for i in range(10) {
-        if (i == 5) { break; }
-        count = count + 1;
-    }
-    assert(count == 5);
+	int count = 0;
+	parallel for i in range(10) {
+		if (i == 5) { break; }
+		count = count + 1;
+	}
+	assert(count == 5);
 
-    int evens = 0;
-    parallel for j in range(10) {
-        if (j % 2 == 1) { continue; }
-        evens = evens + 1;
-    }
-    assert(evens == 5);
+	int evens = 0;
+	parallel for j in range(10) {
+		if (j % 2 == 1) { continue; }
+		evens = evens + 1;
+	}
+	assert(evens == 5);
 
-    print("PASS: test_parallel_for_break");
-    return 0;
+	print("PASS: test_parallel_for_break");
+	return 0;
 }

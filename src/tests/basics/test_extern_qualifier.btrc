@@ -7,11 +7,11 @@ int shared_counter = 5;
 extern int shared_counter;
 
 int main() {
-    // The extern-qualified declaration refers to the same object.
-    assert(shared_counter == 5);
-    shared_counter = shared_counter + 10;
-    assert(shared_counter == 15);
+	// The extern-qualified declaration refers to the same object.
+	assert(shared_counter == 5);
+	shared_counter = shared_counter + 10;
+	assert(shared_counter == 15);
 
-    print("PASS: test_extern_qualifier");
-    return 0;
+	print("PASS: test_extern_qualifier");
+	return 0;
 }

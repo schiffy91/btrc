@@ -4,27 +4,27 @@
 #include <assert.h>
 
 int main() {
-    bool flag = true;
+	bool flag = true;
 
-    // Ternary result concatenated with further string operands.
-    string r = (flag ? "a" : "b") + "c" + ("d" + "e");
-    assert(r == "acde");
+	// Ternary result concatenated with further string operands.
+	string r = (flag ? "a" : "b") + "c" + ("d" + "e");
+	assert(r == "acde");
 
-    // Right-grouped subexpression first.
-    string s = "x" + ("y" + ("z" + "!"));
-    assert(s == "xyz!");
+	// Right-grouped subexpression first.
+	string s = "x" + ("y" + ("z" + "!"));
+	assert(s == "xyz!");
 
-    // Concatenation feeding a ternary condition's branches.
-    string base = "v";
-    string out = (base + "1") == "v1" ? base + "-ok" : base + "-no";
-    assert(out == "v-ok");
+	// Concatenation feeding a ternary condition's branches.
+	string base = "v";
+	string out = (base + "1") == "v1" ? base + "-ok" : base + "-no";
+	assert(out == "v-ok");
 
-    // Build up across statements then compare.
-    string acc = "";
-    acc = acc + "1";
-    acc = acc + "2" + "3";
-    assert(acc == "123");
+	// Build up across statements then compare.
+	string acc = "";
+	acc = acc + "1";
+	acc = acc + "2" + "3";
+	assert(acc == "123");
 
-    print("PASS: test_string_concat_nested");
-    return 0;
+	print("PASS: test_string_concat_nested");
+	return 0;
 }

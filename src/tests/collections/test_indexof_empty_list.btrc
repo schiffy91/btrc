@@ -2,10 +2,10 @@ import std.vector;
 
 #include <stdio.h>
 int main() {
-    Vector<int> nums = [];
-    print(nums.indexOf(1));
-    print(nums.lastIndexOf(1));
-    nums.free();
-    printf("PASS: test_indexof_empty_list\n");
-    return 0;
+	Vector<int> nums = [];
+	print(nums.indexOf(1));
+	print(nums.lastIndexOf(1));
+	nums.free();
+	printf("PASS: test_indexof_empty_list\n");
+	return 0;
 }

@@ -5,52 +5,46 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 class Container {
-    public Obj held;
+	public Obj held;
 
-    public Container() {
-        self.held = null;
-    }
+	public Container() { self.held = null; }
 
-    public void store(keep Obj o) {
-        self.held = o;
-    }
+	public void store(keep Obj o) { self.held = o; }
 }
 
 int main() {
-    Container a = new Container();
-    Container b = new Container();
-    Obj n = new Obj(1);          // rc 1
-    assert(alive == 1);
+	Container a = new Container();
+	Container b = new Container();
+	Obj n = new Obj(1);          // rc 1
+	assert(alive == 1);
 
-    // Each field independently retains the shared object.
-    a.store(n);
-    b.store(n);
-    assert(a.held.id == 1);
-    assert(b.held.id == 1);
+	// Each field independently retains the shared object.
+	a.store(n);
+	b.store(n);
+	assert(a.held.id == 1);
+	assert(b.held.id == 1);
 
-    // Delete both containers: each destructor releases its held field once.
-    delete a;
-    delete b;
-    // n is still alive through its original local reference.
-    assert(alive == 1);
+	// Delete both containers: each destructor releases its held field once.
+	delete a;
+	delete b;
+	// n is still alive through its original local reference.
+	assert(alive == 1);
 
-    // Drop the remaining local owner; there are no hidden call-site aliases.
-    release n;
-    assert(alive == 0);
+	// Drop the remaining local owner; there are no hidden call-site aliases.
+	release n;
+	assert(alive == 0);
 
-    print("PASS: test_shared_object_two_containers");
-    return 0;
+	print("PASS: test_shared_object_two_containers");
+	return 0;
 }

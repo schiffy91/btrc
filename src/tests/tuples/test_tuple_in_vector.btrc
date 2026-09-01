@@ -3,13 +3,13 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    Vector<(int, string)> v = [];
-    v.push((1, "a"));
-    v.push((2, "b"));
-    assert(v.get(0)._0 == 1);
-    assert(v.get(0)._1 == "a");
-    assert(v.get(1)._0 == 2);
-    assert(v.get(1)._1 == "b");
-    print("PASS: test_tuple_in_vector");
-    return 0;
+	Vector<(int, string)> v = [];
+	v.push((1, "a"));
+	v.push((2, "b"));
+	assert(v.get(0)._0 == 1);
+	assert(v.get(0)._1 == "a");
+	assert(v.get(1)._0 == 2);
+	assert(v.get(1)._1 == "b");
+	print("PASS: test_tuple_in_vector");
+	return 0;
 }

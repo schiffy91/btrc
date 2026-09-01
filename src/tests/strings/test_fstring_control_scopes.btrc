@@ -1,32 +1,32 @@
 int calls = 0;
 
 int tick() {
-    calls++;
-    return calls;
+	calls++;
+	return calls;
 }
 
 int main() {
-    int loops = 0;
-    do {
-        loops++;
-    } while (loops < 2 && f"{tick()}".len() > 0);
-    assert(loops == 2);
-    assert(calls == 1);
+	int loops = 0;
+	do {
+		loops++;
+	} while (loops < 2 && f"{tick()}".len() > 0);
+	assert(loops == 2);
+	assert(calls == 1);
 
-    if (true) {
-        // The following else-if condition must remain unevaluated.
-    } else if (f"{tick()}".len() > 0) {
-        assert(false);
-    }
-    assert(calls == 1);
+	if (true) {
+		// The following else-if condition must remain unevaluated.
+	} else if (f"{tick()}".len() > 0) {
+		assert(false);
+	}
+	assert(calls == 1);
 
-    if (false) {
-        assert(false);
-    } else if (f"{tick()}".len() > 0) {
-        assert(calls == 2);
-    }
-    assert(calls == 2);
+	if (false) {
+		assert(false);
+	} else if (f"{tick()}".len() > 0) {
+		assert(calls == 2);
+	}
+	assert(calls == 2);
 
-    print("PASS");
-    return 0;
+	print("PASS");
+	return 0;
 }

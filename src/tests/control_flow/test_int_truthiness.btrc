@@ -3,43 +3,43 @@
 #include <assert.h>
 
 int main() {
-    // while on a bare int: counts down to zero
-    int n = 3;
-    int c = 0;
-    while (n) {
-        n--;
-        c++;
-    }
-    assert(c == 3);
-    assert(n == 0);
+	// while on a bare int: counts down to zero
+	int n = 3;
+	int c = 0;
+	while (n) {
+		n--;
+		c++;
+	}
+	assert(c == 3);
+	assert(n == 0);
 
-    // if on a bare int value
-    int flag = 7;
-    int branch = 0;
-    if (flag) {
-        branch = 1;
-    } else {
-        branch = 2;
-    }
-    assert(branch == 1);
+	// if on a bare int value
+	int flag = 7;
+	int branch = 0;
+	if (flag) {
+		branch = 1;
+	} else {
+		branch = 2;
+	}
+	assert(branch == 1);
 
-    int zero = 0;
-    if (zero) {
-        branch = 100;
-    } else {
-        branch = 200;
-    }
-    assert(branch == 200);
+	int zero = 0;
+	if (zero) {
+		branch = 100;
+	} else {
+		branch = 200;
+	}
+	assert(branch == 200);
 
-    // do-while on a bare int expression
-    int m = 5;
-    int iters = 0;
-    do {
-        m -= 2;
-        iters++;
-    } while (m > 0);
-    assert(iters == 3); // 5->3->1->-1
+	// do-while on a bare int expression
+	int m = 5;
+	int iters = 0;
+	do {
+		m -= 2;
+		iters++;
+	} while (m > 0);
+	assert(iters == 3); // 5->3->1->-1
 
-    print("PASS: test_int_truthiness");
-    return 0;
+	print("PASS: test_int_truthiness");
+	return 0;
 }

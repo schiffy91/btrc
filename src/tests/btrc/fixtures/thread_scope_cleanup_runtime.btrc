@@ -4,110 +4,108 @@ int alive = 0;
 int destroyed = 0;
 
 class Token {
-    public int value;
+	public int value;
 
-    public Token(int value) {
-        self.value = value;
-        alive++;
-    }
+	public Token(int value) {
+		self.value = value;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-        destroyed++;
-    }
+	public void __del__() {
+		alive--;
+		destroyed++;
+	}
 }
 
-string ownedText(string suffix) {
-    return "scope-" + suffix;
-}
+string ownedText(string suffix) { return "scope-" + suffix; }
 
 Thread<Token> transferredWorker() {
-    Thread<Token> worker = spawn(() => new Token(11));
-    return worker;
+	Thread<Token> worker = spawn(() => new Token(11));
+	return worker;
 }
 
 int cleanupBeforeReturn() {
-    Thread<Token> worker = spawn(() => new Token(21));
-    return 7;
+	Thread<Token> worker = spawn(() => new Token(21));
+	return 7;
 }
 
 void cleanupOnBreak() {
-    while (true) {
-        Thread<Token> worker = spawn(() => new Token(31));
-        break;
-    }
+	while (true) {
+		Thread<Token> worker = spawn(() => new Token(31));
+		break;
+	}
 }
 
 void cleanupOnContinue() {
-    int count = 0;
-    while (count < 1) {
-        count++;
-        Thread<Token> worker = spawn(() => new Token(41));
-        continue;
-    }
+	int count = 0;
+	while (count < 1) {
+		count++;
+		Thread<Token> worker = spawn(() => new Token(41));
+		continue;
+	}
 }
 
 void cleanupOnThrow() {
-    try {
-        Thread<Token> worker = spawn(() => new Token(51));
-        throw "expected";
-    } catch (string error) {
-        assert(error == "expected");
-    }
+	try {
+		Thread<Token> worker = spawn(() => new Token(51));
+		throw "expected";
+	} catch (string error) {
+		assert(error == "expected");
+	}
 }
 
 void cleanupCapturedOwner() {
-    Token source = new Token(61);
-    Thread<int> worker = spawn(() => source.value);
+	Token source = new Token(61);
+	Thread<int> worker = spawn(() => source.value);
 }
 
 int main() {
-    {
-        Thread<long double> scalar = spawn(() => (long double)3.25);
-    }
-    assert(alive == 0);
+	{
+		Thread<long double> scalar = spawn(() => (long double)3.25);
+	}
+	assert(alive == 0);
 
-    {
-        Thread<string> text = spawn(() => ownedText("text"));
-    }
-    assert(alive == 0);
+	{
+		Thread<string> text = spawn(() => ownedText("text"));
+	}
+	assert(alive == 0);
 
-    {
-        Thread<Token> object = spawn(() => new Token(1));
-    }
-    assert(alive == 0);
-    assert(destroyed == 1);
+	{
+		Thread<Token> object = spawn(() => new Token(1));
+	}
+	assert(alive == 0);
+	assert(destroyed == 1);
 
-    spawn(() => new Token(2));
-    assert(alive == 0);
-    assert(destroyed == 2);
+	spawn(() => new Token(2));
+	assert(alive == 0);
+	assert(destroyed == 2);
 
-    assert(cleanupBeforeReturn() == 7);
-    assert(alive == 0);
-    assert(destroyed == 3);
+	assert(cleanupBeforeReturn() == 7);
+	assert(alive == 0);
+	assert(destroyed == 3);
 
-    cleanupOnBreak();
-    assert(alive == 0);
-    assert(destroyed == 4);
+	cleanupOnBreak();
+	assert(alive == 0);
+	assert(destroyed == 4);
 
-    cleanupOnContinue();
-    assert(alive == 0);
-    assert(destroyed == 5);
+	cleanupOnContinue();
+	assert(alive == 0);
+	assert(destroyed == 5);
 
-    cleanupOnThrow();
-    assert(alive == 0);
-    assert(destroyed == 6);
+	cleanupOnThrow();
+	assert(alive == 0);
+	assert(destroyed == 6);
 
-    cleanupCapturedOwner();
-    assert(alive == 0);
-    assert(destroyed == 7);
+	cleanupCapturedOwner();
+	assert(alive == 0);
+	assert(destroyed == 7);
 
-    Thread<Token> transferred = transferredWorker();
-    Token result = transferred.join();
-    assert(alive == 1);
-    assert(result.value == 11);
-    delete result;
-    assert(alive == 0);
-    assert(destroyed == 8);
-    return 0;
+	Thread<Token> transferred = transferredWorker();
+	Token result = transferred.join();
+	assert(alive == 1);
+	assert(result.value == 11);
+	delete result;
+	assert(alive == 0);
+	assert(destroyed == 8);
+	return 0;
 }

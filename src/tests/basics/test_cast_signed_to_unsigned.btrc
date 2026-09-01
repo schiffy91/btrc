@@ -1,22 +1,22 @@
 #include <assert.h>
 
 int main() {
-    // casting a negative signed int to unsigned wraps modulo 2^32
-    int neg = -1;
-    assert((unsigned int)neg == 4294967295u);
+	// casting a negative signed int to unsigned wraps modulo 2^32
+	int neg = -1;
+	assert((unsigned int)neg == 4294967295u);
 
-    // -2 as a char, reinterpreted unsigned char, is 254
-    int n = -2;
-    assert((unsigned char)(char)n == 254);
+	// -2 as a char, reinterpreted unsigned char, is 254
+	int n = -2;
+	assert((unsigned char)(char)n == 254);
 
-    // negative long to unsigned long is a very large value
-    long lneg = -1;
-    assert((unsigned long)lneg > 1000000000ul);
+	// negative long to unsigned long is a very large value
+	long lneg = -1;
+	assert((unsigned long)lneg > 1000000000ul);
 
-    // -256 cast to unsigned char wraps to 0
-    int m = -256;
-    assert((unsigned char)m == 0);
+	// -256 cast to unsigned char wraps to 0
+	int m = -256;
+	assert((unsigned char)m == 0);
 
-    print("PASS: test_cast_signed_to_unsigned");
-    return 0;
+	print("PASS: test_cast_signed_to_unsigned");
+	return 0;
 }

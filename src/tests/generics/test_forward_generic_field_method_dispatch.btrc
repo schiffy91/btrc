@@ -5,31 +5,25 @@
 import std.vector;
 
 class Reader {
-    class int count(Bucket bucket) {
-        return bucket.entries.size();
-    }
+	class int count(Bucket bucket) { return bucket.entries.size(); }
 }
 
 class Entry {
-    public int value;
+	public int value;
 
-    public Entry(int value) {
-        self.value = value;
-    }
+	public Entry(int value) { self.value = value; }
 }
 
 class Bucket {
-    public Vector<Entry> entries;
+	public Vector<Entry> entries;
 
-    public Bucket() {
-        self.entries = [];
-    }
+	public Bucket() { self.entries = []; }
 }
 
 int main() {
-    Bucket bucket = Bucket();
-    bucket.entries.push(Entry(7));
-    print(f"count={Reader.count(bucket)} value={bucket.entries.get(0).value}");
-    print("PASS: test_forward_generic_field_method_dispatch");
-    return 0;
+	Bucket bucket = Bucket();
+	bucket.entries.push(Entry(7));
+	print(f"count={Reader.count(bucket)} value={bucket.entries.get(0).value}");
+	print("PASS: test_forward_generic_field_method_dispatch");
+	return 0;
 }

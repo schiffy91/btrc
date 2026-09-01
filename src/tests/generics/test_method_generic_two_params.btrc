@@ -7,22 +7,22 @@
 #include <string.h>
 
 class Conv {
-    public Conv() {}
-    public A pickFirst<A, B>(A a, B b) { return a; }
-    public B pickSecond<A, B>(A a, B b) { return b; }
+	public Conv() {}
+	public A pickFirst<A, B>(A a, B b) { return a; }
+	public B pickSecond<A, B>(A a, B b) { return b; }
 }
 
 int main() {
-    Conv c = Conv();
+	Conv c = Conv();
 
-    /* (A=int, B=string) */
-    assert(c.pickFirst(5, "x") == 5);
-    assert(strcmp(c.pickSecond(5, "x"), "x") == 0);
+	/* (A=int, B=string) */
+	assert(c.pickFirst(5, "x") == 5);
+	assert(strcmp(c.pickSecond(5, "x"), "x") == 0);
 
-    /* (A=string, B=int) -- the reversed combination monomorphizes separately */
-    assert(strcmp(c.pickFirst("y", 9), "y") == 0);
-    assert(c.pickSecond("y", 9) == 9);
+	/* (A=string, B=int) -- the reversed combination monomorphizes separately */
+	assert(strcmp(c.pickFirst("y", 9), "y") == 0);
+	assert(c.pickSecond("y", 9) == 9);
 
-    print("PASS: test_method_generic_two_params");
-    return 0;
+	print("PASS: test_method_generic_two_params");
+	return 0;
 }

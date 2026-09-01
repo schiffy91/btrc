@@ -4,28 +4,22 @@
 
 const int BASE = 100;
 
-int square(int x) {
-    return x * x;
-}
+int square(int x) { return x * x; }
 
-int f(int a, int b = BASE * 2 + 1) {
-    return a + b;
-}
+int f(int a, int b = BASE * 2 + 1) { return a + b; }
 
-int g(int a, int b = square(5)) {
-    return a + b;
-}
+int g(int a, int b = square(5)) { return a + b; }
 
 int main() {
-    // default used: 100*2+1 = 201, so 1+201 = 202
-    assert(f(1) == 202);
-    // default overridden
-    assert(f(1, 5) == 6);
+	// default used: 100*2+1 = 201, so 1+201 = 202
+	assert(f(1) == 202);
+	// default overridden
+	assert(f(1, 5) == 6);
 
-    // default is a function call: square(5) = 25, so 4+25 = 29
-    assert(g(4) == 29);
-    assert(g(4, 6) == 10);
+	// default is a function call: square(5) = 25, so 4+25 = 29
+	assert(g(4) == 29);
+	assert(g(4, 6) == 10);
 
-    print("PASS: test_default_param_expr");
-    return 0;
+	print("PASS: test_default_param_expr");
+	return 0;
 }

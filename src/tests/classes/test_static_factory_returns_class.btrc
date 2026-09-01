@@ -4,30 +4,26 @@
 #include <assert.h>
 
 class Point {
-    public int x;
-    public int y;
+	public int x;
+	public int y;
 
-    public Point(int x, int y) {
-        self.x = x;
-        self.y = y;
-    }
+	public Point(int x, int y) {
+		self.x = x;
+		self.y = y;
+	}
 
-    static Point origin() {
-        return Point(0, 0);
-    }
+	static Point origin() { return Point(0, 0); }
 
-    static Point of(int x, int y) {
-        return Point(x, y);
-    }
+	static Point of(int x, int y) { return Point(x, y); }
 }
 
 int main() {
-    Point o = Point.origin();
-    assert(o.x == 0 && o.y == 0);
+	Point o = Point.origin();
+	assert(o.x == 0 && o.y == 0);
 
-    Point p = Point.of(3, 4);
-    assert(p.x == 3 && p.y == 4);
+	Point p = Point.of(3, 4);
+	assert(p.x == 3 && p.y == 4);
 
-    print("PASS: test_static_factory_returns_class");
-    return 0;
+	print("PASS: test_static_factory_returns_class");
+	return 0;
 }

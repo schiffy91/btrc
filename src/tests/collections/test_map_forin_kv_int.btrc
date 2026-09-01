@@ -7,24 +7,24 @@ import std.map;
 #include <stdio.h>
 
 int main() {
-    Map<int, int> m = {1: 10, 2: 20, 3: 30};
+	Map<int, int> m = {1: 10, 2: 20, 3: 30};
 
-    int keySum = 0;
-    int valSum = 0;
-    int count = 0;
-    for k, v in m {
-        keySum += k;
-        valSum += v;
-        count += 1;
-        /* value must equal key * 10 for every entry */
-        assert(v == k * 10);
-    }
+	int keySum = 0;
+	int valSum = 0;
+	int count = 0;
+	for k, v in m {
+		keySum += k;
+		valSum += v;
+		count += 1;
+		/* value must equal key * 10 for every entry */
+		assert(v == k * 10);
+	}
 
-    assert(count == 3);
-    assert(keySum == 6);
-    assert(valSum == 60);
+	assert(count == 3);
+	assert(keySum == 6);
+	assert(valSum == 60);
 
-    m.free();
-    printf("PASS: test_map_forin_kv_int\n");
-    return 0;
+	m.free();
+	printf("PASS: test_map_forin_kv_int\n");
+	return 0;
 }

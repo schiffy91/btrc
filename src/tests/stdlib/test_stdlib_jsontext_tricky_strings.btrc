@@ -7,31 +7,31 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    // A value containing braces inside the string must not confuse fieldPath.
-    string json = "{\"a\":{\"k\":\"v}x{\"},\"b\":\"plain\"}";
-    assert(JsonText.fieldPath(json, ["a", "k"], "?").equals("v}x{"));
-    assert(JsonText.field(json, "b", "?").equals("plain"));
+	// A value containing braces inside the string must not confuse fieldPath.
+	string json = "{\"a\":{\"k\":\"v}x{\"},\"b\":\"plain\"}";
+	assert(JsonText.fieldPath(json, ["a", "k"], "?").equals("v}x{"));
+	assert(JsonText.field(json, "b", "?").equals("plain"));
 
-    // objectField returns the nested object whole (braces inside the value
-    // string are balanced correctly).
-    string inner = JsonText.objectField(json, "a");
-    assert(inner.contains("v}x{"));
-    assert(JsonText.field(inner, "k", "?").equals("v}x{"));
+	// objectField returns the nested object whole (braces inside the value
+	// string are balanced correctly).
+	string inner = JsonText.objectField(json, "a");
+	assert(inner.contains("v}x{"));
+	assert(JsonText.field(inner, "k", "?").equals("v}x{"));
 
-    // Escaped quote inside a value: stringEnd / field handle the \" without
-    // ending the string early.
-    string esc = "{\"q\":\"say \\\"hi\\\"\",\"n\":7}";
-    assert(JsonText.field(esc, "q", "?").equals("say \"hi\""));
-    assert(JsonText.intField(esc, "n", -1) == 7);
+	// Escaped quote inside a value: stringEnd / field handle the \" without
+	// ending the string early.
+	string esc = "{\"q\":\"say \\\"hi\\\"\",\"n\":7}";
+	assert(JsonText.field(esc, "q", "?").equals("say \"hi\""));
+	assert(JsonText.intField(esc, "n", -1) == 7);
 
-    // stringArray over an array whose elements contain commas and braces.
-    string arr = "{\"items\":[\"a,b\",\"c}d\",\"e\"]}";
-    Vector<string> items = JsonText.stringArray(arr, "items");
-    assert(items.len == 3);
-    assert(items.get(0).equals("a,b"));
-    assert(items.get(1).equals("c}d"));
-    assert(items.get(2).equals("e"));
+	// stringArray over an array whose elements contain commas and braces.
+	string arr = "{\"items\":[\"a,b\",\"c}d\",\"e\"]}";
+	Vector<string> items = JsonText.stringArray(arr, "items");
+	assert(items.len == 3);
+	assert(items.get(0).equals("a,b"));
+	assert(items.get(1).equals("c}d"));
+	assert(items.get(2).equals("e"));
 
-    print("PASS: test_stdlib_jsontext_tricky_strings");
-    return 0;
+	print("PASS: test_stdlib_jsontext_tricky_strings");
+	return 0;
 }

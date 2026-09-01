@@ -7,32 +7,32 @@ import std.datetime;
 #include <math.h>
 
 bool rejectsUnsupportedTimestamp(long long seconds) {
-    try {
-        DateTime.fromUnix(seconds);
-    } catch (string error) {
-        return error.contains("supported year range");
-    }
-    return false;
+	try {
+		DateTime.fromUnix(seconds);
+	} catch (string error) {
+		return error.contains("supported year range");
+	}
+	return false;
 }
 
 int main() {
-    /* Keep mutable test state out of a setjmp scope: this fixture checks the
+	/* Keep mutable test state out of a setjmp scope: this fixture checks the
      * DateTime range guard, not C longjmp volatility. */
-    assert(rejectsUnsupportedTimestamp(LLONG_MIN));
-    assert(rejectsUnsupportedTimestamp(LLONG_MAX));
+	assert(rejectsUnsupportedTimestamp(LLONG_MIN));
+	assert(rejectsUnsupportedTimestamp(LLONG_MAX));
 
-    /* These inputs previously reached an undefined floating-to-time_t cast.
+	/* These inputs previously reached an undefined floating-to-time_t cast.
      * Invalid/unportable sleep durations retain the no-op API contract. */
-    Timer.sleep(NAN);
-    Timer.sleep(INFINITY);
-    Timer.sleep(DBL_MAX);
+	Timer.sleep(NAN);
+	Timer.sleep(INFINITY);
+	Timer.sleep(DBL_MAX);
 
-    Timer timer = Timer();
-    timer.start();
-    Timer.sleepMillis(1);
-    timer.stop();
-    assert(timer.elapsedMillis() >= 0.0f);
+	Timer timer = Timer();
+	timer.start();
+	Timer.sleepMillis(1);
+	timer.stop();
+	assert(timer.elapsedMillis() >= 0.0f);
 
-    print("PASS: test_stdlib_datetime_safety");
-    return 0;
+	print("PASS: test_stdlib_datetime_safety");
+	return 0;
 }

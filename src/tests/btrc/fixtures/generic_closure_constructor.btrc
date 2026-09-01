@@ -3,23 +3,24 @@
 int constructorLeafAlive = 0;
 
 class ConstructorLeaf<T> {
-    public ConstructorLeaf() { constructorLeafAlive++; }
-    public void __del__() { constructorLeafAlive--; }
+	public ConstructorLeaf() { constructorLeafAlive++; }
+
+	public void __del__() { constructorLeafAlive--; }
 }
 
 class ConstructorSeed<T> {
-    public ConstructorSeed(ConstructorLeaf<T> supplied) {
-        if (supplied == null) {
-            ConstructorLeaf<T> local = new ConstructorLeaf<T>();
-            delete local;
-        }
-    }
+	public ConstructorSeed(ConstructorLeaf<T> supplied) {
+		if (supplied == null) {
+			ConstructorLeaf<T> local = new ConstructorLeaf<T>();
+			delete local;
+		}
+	}
 }
 
 int main() {
-    ConstructorSeed<int> seed = new ConstructorSeed<int>(null);
-    assert(constructorLeafAlive == 0);
-    delete seed;
-    print("PASS: constructor generic closure");
-    return 0;
+	ConstructorSeed<int> seed = new ConstructorSeed<int>(null);
+	assert(constructorLeafAlive == 0);
+	delete seed;
+	print("PASS: constructor generic closure");
+	return 0;
 }

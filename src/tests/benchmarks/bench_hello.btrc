@@ -2,6 +2,6 @@
 // core runtime remains small and dead-function elimination does not retain
 // unrelated declarations.
 int main() {
-    print("hello");
-    return 0;
+	print("hello");
+	return 0;
 }

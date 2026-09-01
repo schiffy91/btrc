@@ -1,23 +1,23 @@
 #include <assert.h>
 
 int main() {
-    // sizeof of an EXPRESSION / variable (value operand)
-    int x = 5;
-    assert(sizeof(x) == sizeof(int));
+	// sizeof of an EXPRESSION / variable (value operand)
+	int x = 5;
+	assert(sizeof(x) == sizeof(int));
 
-    double d = 1.0;
-    assert(sizeof(d) == (size_t)8);
+	double d = 1.0;
+	assert(sizeof(d) == (size_t)8);
 
-    // sizeof of a compound expression
-    assert(sizeof(x + 1) == sizeof(int));
+	// sizeof of a compound expression
+	assert(sizeof(x + 1) == sizeof(int));
 
-    char c = 'A';
-    assert(sizeof(c) == (size_t)1);
+	char c = 'A';
+	assert(sizeof(c) == (size_t)1);
 
-    // sizeof of a pointer expression
-    int* p = &x;
-    assert(sizeof(p) == sizeof(int*));
+	// sizeof of a pointer expression
+	int* p = &x;
+	assert(sizeof(p) == sizeof(int*));
 
-    print("PASS: test_sizeof_expr");
-    return 0;
+	print("PASS: test_sizeof_expr");
+	return 0;
 }

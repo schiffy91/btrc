@@ -6,158 +6,158 @@ import std.FileSystem;
 #include <assert.h>
 
 void putU32(Bytes bytes, int offset, long long value) {
-    bytes.set(offset, (int)(value & 255LL));
-    bytes.set(offset + 1, (int)((value >> 8) & 255LL));
-    bytes.set(offset + 2, (int)((value >> 16) & 255LL));
-    bytes.set(offset + 3, (int)((value >> 24) & 255LL));
+	bytes.set(offset, (int)(value & 255LL));
+	bytes.set(offset + 1, (int)((value >> 8) & 255LL));
+	bytes.set(offset + 2, (int)((value >> 16) & 255LL));
+	bytes.set(offset + 3, (int)((value >> 24) & 255LL));
 }
 
 int main() {
-    Image opaque = Image(3, 2);
-    opaque.setRGBA(0, 0, 10, 20, 30, 255);
-    opaque.setRGBA(1, 0, 40, 50, 60, 255);
-    opaque.setRGBA(2, 0, 70, 80, 90, 255);
-    opaque.setRGBA(0, 1, 110, 120, 130, 255);
-    opaque.setRGBA(1, 1, 140, 150, 160, 255);
-    opaque.setRGBA(2, 1, 170, 180, 190, 255);
+	Image opaque = Image(3, 2);
+	opaque.setRGBA(0, 0, 10, 20, 30, 255);
+	opaque.setRGBA(1, 0, 40, 50, 60, 255);
+	opaque.setRGBA(2, 0, 70, 80, 90, 255);
+	opaque.setRGBA(0, 1, 110, 120, 130, 255);
+	opaque.setRGBA(1, 1, 140, 150, 160, 255);
+	opaque.setRGBA(2, 1, 170, 180, 190, 255);
 
-    /* 3 * 3 bytes rounds to a 12-byte row: three padding bytes per row. */
-    Bytes bottomUp = ImageIO.encodeBmp(opaque, 24, false);
-    assert(bottomUp.length() == 54 + 12 * 2);
-    assert(bottomUp.get(22) == 2 && bottomUp.get(23) == 0);
-    /* Positive-height BMP stores the bottom logical row first, in BGR order. */
-    assert(bottomUp.get(54) == 130);
-    assert(bottomUp.get(55) == 120);
-    assert(bottomUp.get(56) == 110);
-    assert(bottomUp.get(63) == 0);
-    assert(bottomUp.get(64) == 0);
-    assert(bottomUp.get(65) == 0);
-    ImageLoad bottomDecoded = ImageIO.decodeBmp(bottomUp);
-    assert(bottomDecoded.ok());
-    assert(bottomDecoded.image.diff(opaque).exact());
+	/* 3 * 3 bytes rounds to a 12-byte row: three padding bytes per row. */
+	Bytes bottomUp = ImageIO.encodeBmp(opaque, 24, false);
+	assert(bottomUp.length() == 54 + 12 * 2);
+	assert(bottomUp.get(22) == 2 && bottomUp.get(23) == 0);
+	/* Positive-height BMP stores the bottom logical row first, in BGR order. */
+	assert(bottomUp.get(54) == 130);
+	assert(bottomUp.get(55) == 120);
+	assert(bottomUp.get(56) == 110);
+	assert(bottomUp.get(63) == 0);
+	assert(bottomUp.get(64) == 0);
+	assert(bottomUp.get(65) == 0);
+	ImageLoad bottomDecoded = ImageIO.decodeBmp(bottomUp);
+	assert(bottomDecoded.ok());
+	assert(bottomDecoded.image.diff(opaque).exact());
 
-    Bytes topDown = ImageIO.encodeBmp(opaque, 24, true);
-    assert(topDown.length() == bottomUp.length());
-    /* -2 as little-endian signed 32-bit height. */
-    assert(topDown.get(22) == 254);
-    assert(topDown.get(23) == 255);
-    assert(topDown.get(24) == 255);
-    assert(topDown.get(25) == 255);
-    /* Negative-height BMP stores the top logical row first. */
-    assert(topDown.get(54) == 30);
-    assert(topDown.get(55) == 20);
-    assert(topDown.get(56) == 10);
-    ImageLoad topDecoded = ImageIO.decodeBmp(topDown);
-    assert(topDecoded.ok());
-    assert(topDecoded.image.diff(opaque).exact());
+	Bytes topDown = ImageIO.encodeBmp(opaque, 24, true);
+	assert(topDown.length() == bottomUp.length());
+	/* -2 as little-endian signed 32-bit height. */
+	assert(topDown.get(22) == 254);
+	assert(topDown.get(23) == 255);
+	assert(topDown.get(24) == 255);
+	assert(topDown.get(25) == 255);
+	/* Negative-height BMP stores the top logical row first. */
+	assert(topDown.get(54) == 30);
+	assert(topDown.get(55) == 20);
+	assert(topDown.get(56) == 10);
+	ImageLoad topDecoded = ImageIO.decodeBmp(topDown);
+	assert(topDecoded.ok());
+	assert(topDecoded.image.diff(opaque).exact());
 
-    Image alpha = Image(2, 1);
-    alpha.setRGBA(0, 0, 1, 2, 3, 4);
-    alpha.setRGBA(1, 0, 250, 251, 252, 253);
-    Bytes rgba = ImageIO.encodeBmp(alpha, 32);
-    assert(rgba.length() == 70 + 8);
-    assert(rgba.get(10) == 70 && rgba.get(14) == 56);
-    assert(rgba.get(30) == 3); // BI_BITFIELDS
-    assert(rgba.get(54) == 0 && rgba.get(55) == 0 && rgba.get(56) == 255);
-    assert(rgba.get(70) == 3 && rgba.get(71) == 2);
-    assert(rgba.get(72) == 1 && rgba.get(73) == 4);
-    ImageLoad alphaDecoded = ImageIO.decodeBmp(rgba);
-    assert(alphaDecoded.ok());
-    assert(alphaDecoded.image.diff(alpha).exact());
-    assert(ImageIO.decode(rgba).ok());
-    assert(ImageIO.encodeBmp(alpha, 16).isEmpty());
+	Image alpha = Image(2, 1);
+	alpha.setRGBA(0, 0, 1, 2, 3, 4);
+	alpha.setRGBA(1, 0, 250, 251, 252, 253);
+	Bytes rgba = ImageIO.encodeBmp(alpha, 32);
+	assert(rgba.length() == 70 + 8);
+	assert(rgba.get(10) == 70 && rgba.get(14) == 56);
+	assert(rgba.get(30) == 3); // BI_BITFIELDS
+	assert(rgba.get(54) == 0 && rgba.get(55) == 0 && rgba.get(56) == 255);
+	assert(rgba.get(70) == 3 && rgba.get(71) == 2);
+	assert(rgba.get(72) == 1 && rgba.get(73) == 4);
+	ImageLoad alphaDecoded = ImageIO.decodeBmp(rgba);
+	assert(alphaDecoded.ok());
+	assert(alphaDecoded.image.diff(alpha).exact());
+	assert(ImageIO.decode(rgba).ok());
+	assert(ImageIO.encodeBmp(alpha, 16).isEmpty());
 
-    /* macOS sips emits a top-down 32-bit BITMAPV5HEADER with canonical BGRA
+	/* macOS sips emits a top-down 32-bit BITMAPV5HEADER with canonical BGRA
      * BI_BITFIELDS masks. It is uncompressed pixel data despite compression=3. */
-    Bytes bitfields = Bytes();
-    for (int i = 0; i < 14; i++) { bitfields.append(rgba.get(i)); }
-    ImageBinary.appendU32(bitfields, 124LL);
-    for (int i = 18; i < 70; i++) { bitfields.append(rgba.get(i)); }
-    for (int i = 0; i < 68; i++) { bitfields.append(0); }
-    for (int i = 70; i < rgba.length(); i++) { bitfields.append(rgba.get(i)); }
-    putU32(bitfields, 2, (long long)bitfields.length());
-    putU32(bitfields, 10, 138LL);
-    putU32(bitfields, 22, 4294967295LL); // top-down height -1
-    putU32(bitfields, 30, 3LL);          // BI_BITFIELDS
-    putU32(bitfields, 54, 16711680LL);   // red   0x00ff0000
-    putU32(bitfields, 58, 65280LL);      // green 0x0000ff00
-    putU32(bitfields, 62, 255LL);        // blue  0x000000ff
-    putU32(bitfields, 66, 4278190080LL); // alpha 0xff000000
-    ImageLoad bitfieldsDecoded = ImageIO.decodeBmp(bitfields);
-    assert(bitfieldsDecoded.ok());
-    assert(bitfieldsDecoded.image.diff(alpha).exact());
+	Bytes bitfields = Bytes();
+	for (int i = 0; i < 14; i++) { bitfields.append(rgba.get(i)); }
+	ImageBinary.appendU32(bitfields, 124LL);
+	for (int i = 18; i < 70; i++) { bitfields.append(rgba.get(i)); }
+	for (int i = 0; i < 68; i++) { bitfields.append(0); }
+	for (int i = 70; i < rgba.length(); i++) { bitfields.append(rgba.get(i)); }
+	putU32(bitfields, 2, (long long)bitfields.length());
+	putU32(bitfields, 10, 138LL);
+	putU32(bitfields, 22, 4294967295LL); // top-down height -1
+	putU32(bitfields, 30, 3LL);          // BI_BITFIELDS
+	putU32(bitfields, 54, 16711680LL);   // red   0x00ff0000
+	putU32(bitfields, 58, 65280LL);      // green 0x0000ff00
+	putU32(bitfields, 62, 255LL);        // blue  0x000000ff
+	putU32(bitfields, 66, 4278190080LL); // alpha 0xff000000
+	ImageLoad bitfieldsDecoded = ImageIO.decodeBmp(bitfields);
+	assert(bitfieldsDecoded.ok());
+	assert(bitfieldsDecoded.image.diff(alpha).exact());
 
-    Bytes alphaBitfields = rgba.slice(0, rgba.length());
-    putU32(alphaBitfields, 30, 6LL); // BI_ALPHABITFIELDS
-    assert(ImageIO.decodeBmp(alphaBitfields).image.diff(alpha).exact());
+	Bytes alphaBitfields = rgba.slice(0, rgba.length());
+	putU32(alphaBitfields, 30, 6LL); // BI_ALPHABITFIELDS
+	assert(ImageIO.decodeBmp(alphaBitfields).image.diff(alpha).exact());
 
-    Bytes noAlphaMask = rgba.slice(0, rgba.length());
-    putU32(noAlphaMask, 66, 0LL);
-    Image noAlphaExpected = Image(2, 1);
-    noAlphaExpected.setRGBA(0, 0, 1, 2, 3, 255);
-    noAlphaExpected.setRGBA(1, 0, 250, 251, 252, 255);
-    assert(ImageIO.decodeBmp(noAlphaMask).image.diff(noAlphaExpected).exact());
+	Bytes noAlphaMask = rgba.slice(0, rgba.length());
+	putU32(noAlphaMask, 66, 0LL);
+	Image noAlphaExpected = Image(2, 1);
+	noAlphaExpected.setRGBA(0, 0, 1, 2, 3, 255);
+	noAlphaExpected.setRGBA(1, 0, 250, 251, 252, 255);
+	assert(ImageIO.decodeBmp(noAlphaMask).image.diff(noAlphaExpected).exact());
 
-    /* A legacy 32-bit BI_RGB file carries BGRX pixels: the reserved byte must
+	/* A legacy 32-bit BI_RGB file carries BGRX pixels: the reserved byte must
      * not make otherwise valid images transparent. */
-    Bytes legacy = rgba.slice(0, 54);
-    for (int i = 70; i < rgba.length(); i++) { legacy.append(rgba.get(i)); }
-    putU32(legacy, 2, (long long)legacy.length());
-    putU32(legacy, 10, 54LL);
-    putU32(legacy, 14, 40LL);
-    putU32(legacy, 30, 0LL);
-    legacy.set(57, 0);
-    legacy.set(61, 0);
-    Image legacyExpected = Image(2, 1);
-    legacyExpected.setRGBA(0, 0, 1, 2, 3, 255);
-    legacyExpected.setRGBA(1, 0, 250, 251, 252, 255);
-    ImageLoad legacyDecoded = ImageIO.decodeBmp(legacy);
-    assert(legacyDecoded.ok());
-    assert(legacyDecoded.image.diff(legacyExpected).exact());
+	Bytes legacy = rgba.slice(0, 54);
+	for (int i = 70; i < rgba.length(); i++) { legacy.append(rgba.get(i)); }
+	putU32(legacy, 2, (long long)legacy.length());
+	putU32(legacy, 10, 54LL);
+	putU32(legacy, 14, 40LL);
+	putU32(legacy, 30, 0LL);
+	legacy.set(57, 0);
+	legacy.set(61, 0);
+	Image legacyExpected = Image(2, 1);
+	legacyExpected.setRGBA(0, 0, 1, 2, 3, 255);
+	legacyExpected.setRGBA(1, 0, 250, 251, 252, 255);
+	ImageLoad legacyDecoded = ImageIO.decodeBmp(legacy);
+	assert(legacyDecoded.ok());
+	assert(legacyDecoded.image.diff(legacyExpected).exact());
 
-    /* BITMAPINFOHEADER stores its three BI_BITFIELDS masks immediately after
+	/* BITMAPINFOHEADER stores its three BI_BITFIELDS masks immediately after
      * the 40-byte DIB header. With no alpha mask, the fourth pixel byte is X. */
-    Bytes infoBitfields = rgba.slice(0, 54);
-    for (int i = 54; i < 66; i++) { infoBitfields.append(rgba.get(i)); }
-    for (int i = 70; i < rgba.length(); i++) { infoBitfields.append(rgba.get(i)); }
-    putU32(infoBitfields, 2, (long long)infoBitfields.length());
-    putU32(infoBitfields, 10, 66LL);
-    putU32(infoBitfields, 14, 40LL);
-    putU32(infoBitfields, 30, 3LL);
-    ImageLoad infoDecoded = ImageIO.decodeBmp(infoBitfields);
-    assert(infoDecoded.ok());
-    assert(infoDecoded.image.diff(legacyExpected).exact());
-    Bytes masksBehindPixels = infoBitfields.slice(0, infoBitfields.length());
-    putU32(masksBehindPixels, 10, 60LL);
-    assert(!ImageIO.decodeBmp(masksBehindPixels).ok());
+	Bytes infoBitfields = rgba.slice(0, 54);
+	for (int i = 54; i < 66; i++) { infoBitfields.append(rgba.get(i)); }
+	for (int i = 70; i < rgba.length(); i++) { infoBitfields.append(rgba.get(i)); }
+	putU32(infoBitfields, 2, (long long)infoBitfields.length());
+	putU32(infoBitfields, 10, 66LL);
+	putU32(infoBitfields, 14, 40LL);
+	putU32(infoBitfields, 30, 3LL);
+	ImageLoad infoDecoded = ImageIO.decodeBmp(infoBitfields);
+	assert(infoDecoded.ok());
+	assert(infoDecoded.image.diff(legacyExpected).exact());
+	Bytes masksBehindPixels = infoBitfields.slice(0, infoBitfields.length());
+	putU32(masksBehindPixels, 10, 60LL);
+	assert(!ImageIO.decodeBmp(masksBehindPixels).ok());
 
-    Bytes truncated = rgba.slice(0, rgba.length() - 1);
-    assert(!ImageIO.decodeBmp(truncated).ok());
-    Bytes compressed = rgba.slice(0, rgba.length());
-    putU32(compressed, 30, 1LL);
-    assert(!ImageIO.decodeBmp(compressed).ok());
-    Bytes hugeWidth = rgba.slice(0, rgba.length());
-    putU32(hugeWidth, 18, 2147483647LL);
-    assert(!ImageIO.decodeBmp(hugeWidth).ok());
-    Bytes impossibleHeight = rgba.slice(0, rgba.length());
-    putU32(impossibleHeight, 22, 2147483648LL);
-    assert(!ImageIO.decodeBmp(impossibleHeight).ok());
-    Bytes shortDeclaration = rgba.slice(0, rgba.length());
-    putU32(shortDeclaration, 2, 54LL);
-    assert(!ImageIO.decodeBmp(shortDeclaration).ok());
-    Bytes badOffset = rgba.slice(0, rgba.length());
-    putU32(badOffset, 10, 12LL);
-    assert(!ImageIO.decodeBmp(badOffset).ok());
+	Bytes truncated = rgba.slice(0, rgba.length() - 1);
+	assert(!ImageIO.decodeBmp(truncated).ok());
+	Bytes compressed = rgba.slice(0, rgba.length());
+	putU32(compressed, 30, 1LL);
+	assert(!ImageIO.decodeBmp(compressed).ok());
+	Bytes hugeWidth = rgba.slice(0, rgba.length());
+	putU32(hugeWidth, 18, 2147483647LL);
+	assert(!ImageIO.decodeBmp(hugeWidth).ok());
+	Bytes impossibleHeight = rgba.slice(0, rgba.length());
+	putU32(impossibleHeight, 22, 2147483648LL);
+	assert(!ImageIO.decodeBmp(impossibleHeight).ok());
+	Bytes shortDeclaration = rgba.slice(0, rgba.length());
+	putU32(shortDeclaration, 2, 54LL);
+	assert(!ImageIO.decodeBmp(shortDeclaration).ok());
+	Bytes badOffset = rgba.slice(0, rgba.length());
+	putU32(badOffset, 10, 12LL);
+	assert(!ImageIO.decodeBmp(badOffset).ok());
 
-    string dir = FileSystem.tempDir("btrc_image_bmp");
-    assert(FileSystem.isDir(dir));
-    string path = PathTools.join(dir, "evidence.bmp");
-    assert(ImageIO.saveBmp(alpha, path, 32));
-    ImageLoad loaded = ImageIO.loadBmp(path);
-    assert(loaded.ok());
-    assert(loaded.image.diff(alpha).exact());
-    FileSystem.removeRecursive(dir);
+	string dir = FileSystem.tempDir("btrc_image_bmp");
+	assert(FileSystem.isDir(dir));
+	string path = PathTools.join(dir, "evidence.bmp");
+	assert(ImageIO.saveBmp(alpha, path, 32));
+	ImageLoad loaded = ImageIO.loadBmp(path);
+	assert(loaded.ok());
+	assert(loaded.image.diff(alpha).exact());
+	FileSystem.removeRecursive(dir);
 
-    print("PASS: test_stdlib_image_bmp");
-    return 0;
+	print("PASS: test_stdlib_image_bmp");
+	return 0;
 }

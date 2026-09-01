@@ -2,6 +2,4 @@
    function. Tests header dedup/ordering across the splice boundary. */
 #include <math.h>
 
-double mag(double x, double y) {
-    return sqrt(x * x + y * y);
-}
+double mag(double x, double y) { return sqrt(x * x + y * y); }

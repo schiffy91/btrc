@@ -6,52 +6,52 @@ import std.jsonx;
 #include <string.h>
 
 int main() {
-    var profile = JsonObject();
-    profile.setString("name", "Ada");
-    profile.setInt("age", 36);
-    profile.setBool("admin", true);
+	var profile = JsonObject();
+	profile.setString("name", "Ada");
+	profile.setInt("age", 36);
+	profile.setBool("admin", true);
 
-    assert(profile.has("name"));
-    assert(!profile.has("missing"));
-    assert(strcmp(profile.getString("name", "?"), "Ada") == 0);
-    assert(profile.getInt("age", 0) == 36);
-    assert(profile.getBool("admin", false) == true);
-    assert(profile.getInt("missing", -1) == -1);
-    assert(profile.getBool("missing", true) == true);
+	assert(profile.has("name"));
+	assert(!profile.has("missing"));
+	assert(strcmp(profile.getString("name", "?"), "Ada") == 0);
+	assert(profile.getInt("age", 0) == 36);
+	assert(profile.getBool("admin", false) == true);
+	assert(profile.getInt("missing", -1) == -1);
+	assert(profile.getBool("missing", true) == true);
 
-    var parsedProfile = JsonObject.parse(profile.stringify());
-    assert(strcmp(parsedProfile.getString("name", "?"), "Ada") == 0);
-    assert(parsedProfile.getInt("age", 0) == 36);
-    assert(parsedProfile.getBool("admin", false) == true);
+	var parsedProfile = JsonObject.parse(profile.stringify());
+	assert(strcmp(parsedProfile.getString("name", "?"), "Ada") == 0);
+	assert(parsedProfile.getInt("age", 0) == 36);
+	assert(parsedProfile.getBool("admin", false) == true);
 
-    var escaped = JsonObject();
-    escaped.setString("path", "a\"b\\c");
-    var parsedEscaped = JsonObject.parse(escaped.stringify());
-    assert(strcmp(parsedEscaped.getString("path", "?"), "a\"b\\c") == 0);
-    escaped.setString("control", "a\tb\rc");
-    var controls = JsonObject.parse(escaped.stringify());
-    assert(strcmp(controls.getString("control", "?"), "a\tb\rc") == 0);
-    assert(controls.stringify().contains("\\t"));
-    assert(controls.stringify().contains("\\r"));
-    assert(JsonObject.parse("{\"n\":\"oops\"}").getInt("n", -7) == -7);
-    assert(JsonText.intField("{\"n\":\"\"}", "n", -8) == -8);
-    assert(JsonText.intField("{\"n\":\"oops\"}", "n", -9) == -9);
+	var escaped = JsonObject();
+	escaped.setString("path", "a\"b\\c");
+	var parsedEscaped = JsonObject.parse(escaped.stringify());
+	assert(strcmp(parsedEscaped.getString("path", "?"), "a\"b\\c") == 0);
+	escaped.setString("control", "a\tb\rc");
+	var controls = JsonObject.parse(escaped.stringify());
+	assert(strcmp(controls.getString("control", "?"), "a\tb\rc") == 0);
+	assert(controls.stringify().contains("\\t"));
+	assert(controls.stringify().contains("\\r"));
+	assert(JsonObject.parse("{\"n\":\"oops\"}").getInt("n", -7) == -7);
+	assert(JsonText.intField("{\"n\":\"\"}", "n", -8) == -8);
+	assert(JsonText.intField("{\"n\":\"oops\"}", "n", -9) == -9);
 
-    string nested = "{\"nodes\":[{\"name\":\"inner\",\"args\":{\"state\":\"nested\"}}],\"name\":\"outer\",\"args\":{\"name\":\"arg\"},\"default\":[\"final\"]}";
-    assert(JsonText.field(nested, "name", "?").equals("outer"));
-    assert(JsonText.argsObject(nested).get("name").equals("arg"));
-    assert(JsonText.stringArray(nested, "default").get(0).equals("final"));
-    var nodes = JsonText.objectArray(nested, "nodes");
-    assert(nodes.len == 1);
-    assert(JsonText.field(nodes.get(0), "name", "?").equals("inner"));
-    assert(JsonText.objectPath(nested, ["args"]).contains("\"name\""));
-    assert(JsonText.fieldPath(nested, ["args", "name"], "?").equals("arg"));
-    assert(JsonText.fieldPath(nested, ["missing", "name"], "?").equals("?"));
-    assert(Json.str("a\"b\\c").equals("\"a\\\"b\\\\c\""));
-    assert(Json.getString("{\"content\":\"hi\\nthere\"}", "content").equals("hi\nthere"));
-    assert(Json.getStringAfter("{\"message\":{\"content\":\"nested\"}}", "message", "content").equals("nested"));
-    assert(Json.getString("{\"content\": false}", "content").equals(""));
+	string nested = "{\"nodes\":[{\"name\":\"inner\",\"args\":{\"state\":\"nested\"}}],\"name\":\"outer\",\"args\":{\"name\":\"arg\"},\"default\":[\"final\"]}";
+	assert(JsonText.field(nested, "name", "?").equals("outer"));
+	assert(JsonText.argsObject(nested).get("name").equals("arg"));
+	assert(JsonText.stringArray(nested, "default").get(0).equals("final"));
+	var nodes = JsonText.objectArray(nested, "nodes");
+	assert(nodes.len == 1);
+	assert(JsonText.field(nodes.get(0), "name", "?").equals("inner"));
+	assert(JsonText.objectPath(nested, ["args"]).contains("\"name\""));
+	assert(JsonText.fieldPath(nested, ["args", "name"], "?").equals("arg"));
+	assert(JsonText.fieldPath(nested, ["missing", "name"], "?").equals("?"));
+	assert(Json.str("a\"b\\c").equals("\"a\\\"b\\\\c\""));
+	assert(Json.getString("{\"content\":\"hi\\nthere\"}", "content").equals("hi\nthere"));
+	assert(Json.getStringAfter("{\"message\":{\"content\":\"nested\"}}", "message", "content").equals("nested"));
+	assert(Json.getString("{\"content\": false}", "content").equals(""));
 
-    print("PASS: test_stdlib_json");
-    return 0;
+	print("PASS: test_stdlib_json");
+	return 0;
 }

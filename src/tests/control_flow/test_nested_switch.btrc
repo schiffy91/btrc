@@ -3,29 +3,26 @@
 #include <assert.h>
 
 int dispatch(int a, int b) {
-    int r = -1;
-    switch (a) {
-        case 1:
-            switch (b) {
-                case 2:
-                    r = 12;
-                    break; // breaks inner switch only
-                default:
-                    r = 10;
-            }
-            r += 1000; // proves inner break did NOT exit the outer switch case
-            break;
-        default:
-            r = 0;
-    }
-    return r;
+	int r = -1;
+	switch (a) {
+		case 1:
+			switch (b) {
+			case 2: r = 12;
+			break; // breaks inner switch only
+			default: r = 10;
+		}
+		r += 1000; // proves inner break did NOT exit the outer switch case
+		break;
+		default: r = 0;
+	}
+	return r;
 }
 
 int main() {
-    assert(dispatch(1, 2) == 1012); // inner 12, then + 1000
-    assert(dispatch(1, 9) == 1010); // inner default 10, then + 1000
-    assert(dispatch(5, 0) == 0);    // outer default
+	assert(dispatch(1, 2) == 1012); // inner 12, then + 1000
+	assert(dispatch(1, 9) == 1010); // inner default 10, then + 1000
+	assert(dispatch(5, 0) == 0);    // outer default
 
-    print("PASS: test_nested_switch");
-    return 0;
+	print("PASS: test_nested_switch");
+	return 0;
 }

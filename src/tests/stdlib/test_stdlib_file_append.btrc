@@ -10,43 +10,43 @@ import std.io;
 #include <assert.h>
 
 int main() {
-    string dir = FileSystem.tempDir("btrc_file_append");
-    assert(FileSystem.isDir(dir));
+	string dir = FileSystem.tempDir("btrc_file_append");
+	assert(FileSystem.isDir(dir));
 
-    // --- Append preserves existing content ---
-    string path = PathTools.join(dir, "log.txt");
-    assert(Path.writeAll(path, "line1\n"));
+	// --- Append preserves existing content ---
+	string path = PathTools.join(dir, "log.txt");
+	assert(Path.writeAll(path, "line1\n"));
 
-    File f = File(path, "a");
-    assert(f.ok());
-    assert(f.write("line2\n"));     // raw write, no extra newline
-    assert(f.writeLine("line3"));   // adds the trailing newline
-    f.close();
+	File f = File(path, "a");
+	assert(f.ok());
+	assert(f.write("line2\n"));     // raw write, no extra newline
+	assert(f.writeLine("line3"));   // adds the trailing newline
+	f.close();
 
-    // line1 must still be there: append did not truncate it.
-    string back = Path.readAll(path);
-    assert(back.equals("line1\nline2\nline3\n"));
+	// line1 must still be there: append did not truncate it.
+	string back = Path.readAll(path);
+	assert(back.equals("line1\nline2\nline3\n"));
 
-    // --- Append to a NON-existent path creates it ---
-    string fresh = PathTools.join(dir, "fresh.txt");
-    assert(!FileSystem.exists(fresh));
-    File g = File(fresh, "a");
-    assert(g.ok());                 // "a" creates the file
-    assert(g.write("created"));
-    g.close();
-    assert(FileSystem.exists(fresh));
-    assert(Path.readAll(fresh).equals("created"));
+	// --- Append to a NON-existent path creates it ---
+	string fresh = PathTools.join(dir, "fresh.txt");
+	assert(!FileSystem.exists(fresh));
+	File g = File(fresh, "a");
+	assert(g.ok());                 // "a" creates the file
+	assert(g.write("created"));
+	g.close();
+	assert(FileSystem.exists(fresh));
+	assert(Path.readAll(fresh).equals("created"));
 
-    // --- A second append session continues to accumulate ---
-    File h = File(fresh, "a");
-    assert(h.ok());
-    assert(h.write(" then more"));
-    h.close();
-    assert(Path.readAll(fresh).equals("created then more"));
+	// --- A second append session continues to accumulate ---
+	File h = File(fresh, "a");
+	assert(h.ok());
+	assert(h.write(" then more"));
+	h.close();
+	assert(Path.readAll(fresh).equals("created then more"));
 
-    FileSystem.removeRecursive(dir);
-    assert(!FileSystem.exists(dir));
+	FileSystem.removeRecursive(dir);
+	assert(!FileSystem.exists(dir));
 
-    print("PASS: test_stdlib_file_append");
-    return 0;
+	print("PASS: test_stdlib_file_append");
+	return 0;
 }

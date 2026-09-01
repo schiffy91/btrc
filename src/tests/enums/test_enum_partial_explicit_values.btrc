@@ -5,10 +5,10 @@
 enum E { A = 5, B, C = 10, D };
 
 int main() {
-    assert(A == 5);
-    assert(B == 6);
-    assert(C == 10);
-    assert(D == 11);
-    print("PASS: test_enum_partial_explicit_values");
-    return 0;
+	assert(A == 5);
+	assert(B == 6);
+	assert(C == 10);
+	assert(D == 11);
+	print("PASS: test_enum_partial_explicit_values");
+	return 0;
 }

@@ -6,9 +6,9 @@
 enum Color { RED, GREEN, BLUE };
 
 int main() {
-    Color c = BLUE;
-    string s = f"v={c}";
-    assert(strcmp(s, "v=2") == 0);
-    print("PASS: test_enum_in_fstring_raw");
-    return 0;
+	Color c = BLUE;
+	string s = f"v={c}";
+	assert(strcmp(s, "v=2") == 0);
+	print("PASS: test_enum_in_fstring_raw");
+	return 0;
 }

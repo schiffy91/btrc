@@ -11,75 +11,69 @@ import std.vector;
 #include <assert.h>
 
 class Pairs<K, V> implements Iterable {
-    private Vector<K> keys;
-    private Vector<V> vals;
+	private Vector<K> keys;
+	private Vector<V> vals;
 
-    public Pairs() {
-        self.keys = [];
-        self.vals = [];
-    }
+	public Pairs() {
+		self.keys = [];
+		self.vals = [];
+	}
 
-    public void add(K k, V v) {
-        self.keys.push(k);
-        self.vals.push(v);
-    }
+	public void add(K k, V v) {
+		self.keys.push(k);
+		self.vals.push(v);
+	}
 
-    public int iterLen() {
-        return self.keys.size();
-    }
+	public int iterLen() { return self.keys.size(); }
 
-    public K iterGet(int i) {
-        return self.keys.get(i);
-    }
+	public K iterGet(int i) { return self.keys.get(i); }
 
-    public V iterValueAt(int i) {
-        return self.vals.get(i);
-    }
+	public V iterValueAt(int i) { return self.vals.get(i); }
 }
 
 int main() {
-    Pairs<string, int> p = Pairs();
-    p.add("a", 1);
-    p.add("b", 2);
-    p.add("c", 3);
+	Pairs<string, int> p = Pairs();
+	p.add("a", 1);
+	p.add("b", 2);
+	p.add("c", 3);
 
-    // Plain two-variable iteration: key binds via iterGet, value via iterValueAt.
-    int sum = 0;
-    string concat = "";
-    for k, v in p {
-        concat += k;
-        sum += v;
-    }
-    assert(sum == 6);                       // 1 + 2 + 3
-    assert(strcmp(concat, "abc") == 0);     // visited in insertion order
+	// Plain two-variable iteration: key binds via iterGet, value via iterValueAt.
+	int sum = 0;
+	string concat = "";
+	for k, v in p {
+		concat += k;
+		sum += v;
+	}
+	assert(sum == 6);                       // 1 + 2 + 3
+	assert(strcmp(concat, "abc") == 0);     // visited in insertion order
 
-    // break binds correctly over the user-defined iterValueAt path:
-    // stop as soon as the value reaches 2.
-    int seen = 0;
-    string before = "";
-    for k, v in p {
-        if (v == 2) {
-            break;
-        }
-        before += k;
-        seen += 1;
-    }
-    assert(seen == 1);                      // only the "a"/1 entry processed
-    assert(strcmp(before, "a") == 0);
+	// break binds correctly over the user-defined iterValueAt path:
+	// stop as soon as the value reaches 2.
+	int seen = 0;
+	string before = "";
+	for k, v in p {
+		if (v == 2) {
+			break;
+		}
+		before += k;
+		seen += 1;
+	}
+	assert(seen == 1);                      // only the "a"/1 entry processed
+	assert(strcmp(before, "a") == 0);
 
-    // continue binds correctly: skip even values, accumulate the rest.
-    int oddSum = 0;
-    string oddKeys = "";
-    for k, v in p {
-        if (v % 2 == 0) {
-            continue;
-        }
-        oddSum += v;
-        oddKeys += k;
-    }
-    assert(oddSum == 4);                    // 1 + 3
-    assert(strcmp(oddKeys, "ac") == 0);     // "b"/2 skipped
+	// continue binds correctly: skip even values, accumulate the rest.
+	int oddSum = 0;
+	string oddKeys = "";
+	for k, v in p {
+		if (v % 2 == 0) {
+			continue;
+		}
+		oddSum += v;
+		oddKeys += k;
+	}
+	assert(oddSum == 4);                    // 1 + 3
+	assert(strcmp(oddKeys, "ac") == 0);     // "b"/2 skipped
 
-    print("PASS: test_forin_custom_iterable_kv");
-    return 0;
+	print("PASS: test_forin_custom_iterable_kv");
+	return 0;
 }

@@ -1,16 +1,14 @@
 #include <assert.h>
 
 class Point {
-    public (int, int) pos;
-    public Point() {
-        self.pos = (3, 4);
-    }
+	public (int, int) pos;
+	public Point() { self.pos = (3, 4); }
 }
 
 int main() {
-    Point p = new Point();
-    assert(p.pos._0 == 3);
-    assert(p.pos._1 == 4);
-    print("PASS: test_tuple_class_field");
-    return 0;
+	Point p = new Point();
+	assert(p.pos._0 == 3);
+	assert(p.pos._1 == 4);
+	print("PASS: test_tuple_class_field");
+	return 0;
 }

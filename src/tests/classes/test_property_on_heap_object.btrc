@@ -4,27 +4,25 @@
 #include <assert.h>
 
 class Box {
-    private int w;
+	private int w;
 
-    public Box(int w) {
-        self.w = w;
-    }
+	public Box(int w) { self.w = w; }
 
-    public int width {
-        get { return self.w; }
-        set { self.w = value; }
-    }
+	public int width {
+		get { return self.w; }
+		set { self.w = value; }
+	}
 }
 
 int main() {
-    Box b = new Box(3);
-    assert(b.width == 3);
+	Box b = new Box(3);
+	assert(b.width == 3);
 
-    b.width = 10;
-    assert(b.width == 10);
+	b.width = 10;
+	assert(b.width == 10);
 
-    delete b;
+	delete b;
 
-    print("PASS: test_property_on_heap_object");
-    return 0;
+	print("PASS: test_property_on_heap_object");
+	return 0;
 }

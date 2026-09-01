@@ -6,26 +6,26 @@
 #include <stdint.h>
 
 int main() {
-    // cast of a unary negation
-    double d = 5.9;
-    assert((int)-d == -5);
+	// cast of a unary negation
+	double d = 5.9;
+	assert((int)-d == -5);
 
-    // cast of a dereference
-    int x = 7;
-    int* p = &x;
-    assert((long)*p == 7);
+	// cast of a dereference
+	int x = 7;
+	int* p = &x;
+	assert((long)*p == 7);
 
-    // cast of a bitwise complement: ~0 is all-ones, narrowed to char is -1
-    assert((char)~0 == -1);
+	// cast of a bitwise complement: ~0 is all-ones, narrowed to char is -1
+	assert((char)~0 == -1);
 
-    // cast of a logical not
-    bool b = false;
-    assert((int)!b == 1);
+	// cast of a logical not
+	bool b = false;
+	assert((int)!b == 1);
 
-    // cast of an address-of through C's portable signed pointer-width carrier;
-    // const makes the type syntax explicit while '&' remains the unary operand
-    assert((const intptr_t)&x != (intptr_t)0);
+	// cast of an address-of through C's portable signed pointer-width carrier;
+	// const makes the type syntax explicit while '&' remains the unary operand
+	assert((const intptr_t)&x != (intptr_t)0);
 
-    print("PASS: test_cast_followed_by_unary");
-    return 0;
+	print("PASS: test_cast_followed_by_unary");
+	return 0;
 }

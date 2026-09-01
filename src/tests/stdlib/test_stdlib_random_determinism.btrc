@@ -8,51 +8,51 @@ import std.vector;
 #include "../../stdlib/random.btrc"
 
 int main() {
-    Random rng = new Random();
+	Random rng = new Random();
 
-    // randint: same seed reproduces the sequence.
-    rng.seed(7);
-    Vector<int> run1 = [];
-    for i in range(20) { run1.push(rng.randint(0, 1000)); }
-    rng.seed(7);
-    for i in range(20) {
-        int v = rng.randint(0, 1000);
-        assert(v == run1.get(i));
-        assert(v >= 0 && v <= 1000);
-    }
+	// randint: same seed reproduces the sequence.
+	rng.seed(7);
+	Vector<int> run1 = [];
+	for i in range(20) { run1.push(rng.randint(0, 1000)); }
+	rng.seed(7);
+	for i in range(20) {
+		int v = rng.randint(0, 1000);
+		assert(v == run1.get(i));
+		assert(v >= 0 && v <= 1000);
+	}
 
-    // These distinct seeds produce distinct first values in the fixed PCG
-    // stream, proving the seed drives the sequence rather than being ignored.
-    rng.seed(7);
-    int firstAt7 = rng.randint(0, 1000000);
-    rng.seed(8);
-    int firstAt8 = rng.randint(0, 1000000);
-    assert(firstAt7 != firstAt8);
+	// These distinct seeds produce distinct first values in the fixed PCG
+	// stream, proving the seed drives the sequence rather than being ignored.
+	rng.seed(7);
+	int firstAt7 = rng.randint(0, 1000000);
+	rng.seed(8);
+	int firstAt8 = rng.randint(0, 1000000);
+	assert(firstAt7 != firstAt8);
 
-    // random(): same seed reproduces the float sequence exactly.
-    rng.seed(123);
-    Vector<float> floats = [];
-    for i in range(10) { floats.push(rng.random()); }
-    rng.seed(123);
-    for i in range(10) {
-        float r = rng.random();
-        assert(r == floats.get(i));
-        assert(r >= 0.0f && r < 1.0f);
-    }
+	// random(): same seed reproduces the float sequence exactly.
+	rng.seed(123);
+	Vector<float> floats = [];
+	for i in range(10) { floats.push(rng.random()); }
+	rng.seed(123);
+	for i in range(10) {
+		float r = rng.random();
+		assert(r == floats.get(i));
+		assert(r >= 0.0f && r < 1.0f);
+	}
 
-    // uniform(): same seed reproduces, and stays in range.
-    rng.seed(55);
-    Vector<float> uni = [];
-    for i in range(10) { uni.push(rng.uniform(5.0f, 10.0f)); }
-    rng.seed(55);
-    for i in range(10) {
-        float u = rng.uniform(5.0f, 10.0f);
-        assert(u == uni.get(i));
-        assert(u >= 5.0f && u <= 10.0f);
-    }
+	// uniform(): same seed reproduces, and stays in range.
+	rng.seed(55);
+	Vector<float> uni = [];
+	for i in range(10) { uni.push(rng.uniform(5.0f, 10.0f)); }
+	rng.seed(55);
+	for i in range(10) {
+		float u = rng.uniform(5.0f, 10.0f);
+		assert(u == uni.get(i));
+		assert(u >= 5.0f && u <= 10.0f);
+	}
 
-    delete rng;
+	delete rng;
 
-    print("PASS: test_stdlib_random_determinism");
-    return 0;
+	print("PASS: test_stdlib_random_determinism");
+	return 0;
 }

@@ -2,69 +2,67 @@
 
 struct VisibilityProbe { int value; };
 
-void fillVisibilityProbe(struct VisibilityProbe* probe) {
-    probe->value = 42;
-}
+void fillVisibilityProbe(struct VisibilityProbe* probe) { probe->value = 42; }
 
 int mutateParameter(int value) {
-    try {
-        value = 41;
-        throw "parameter";
-    } catch (string message) {
-        assert(message.equals("parameter"));
-        value++;
-    }
-    return value;
+	try {
+		value = 41;
+		throw "parameter";
+	} catch (string message) {
+		assert(message.equals("parameter"));
+		value++;
+	}
+	return value;
 }
 
 int main() {
-    assert(mutateParameter(0) == 42);
+	assert(mutateParameter(0) == 42);
 
-    int loopValue = 0;
-    for (int i = 0; i < 1; i++) {
-        try {
-            i = 7;
-            throw "loop";
-        } catch (string loopMessage) {
-            assert(loopMessage.equals("loop"));
-            loopValue = i;
-        }
-    }
-    assert(loopValue == 7);
+	int loopValue = 0;
+	for (int i = 0; i < 1; i++) {
+		try {
+			i = 7;
+			throw "loop";
+		} catch (string loopMessage) {
+			assert(loopMessage.equals("loop"));
+			loopValue = i;
+		}
+	}
+	assert(loopValue == 7);
 
-    int captured = 3;
-    var closure = () => {
-        try {
-            captured = 8;
-            throw "lambda";
-        } catch (string lambdaMessage) {
-            assert(lambdaMessage.equals("lambda"));
-        }
-        return captured;
-    };
-    assert(closure() == 8);
+	int captured = 3;
+	var closure = () => {
+		try {
+			captured = 8;
+			throw "lambda";
+		} catch (string lambdaMessage) {
+			assert(lambdaMessage.equals("lambda"));
+		}
+		return captured;
+	};
+	assert(closure() == 8);
 
-    int threadCapture = 5;
-    Thread<int> worker = spawn(() => {
-        try {
-            threadCapture = 9;
-            throw "thread";
-        } catch (string threadMessage) {
-            assert(threadMessage.equals("thread"));
-        }
-        return threadCapture;
-    });
-    assert(worker.join() == 9);
+	int threadCapture = 5;
+	Thread<int> worker = spawn(() => {
+			try {
+				threadCapture = 9;
+				throw "thread";
+			} catch (string threadMessage) {
+				assert(threadMessage.equals("thread"));
+			}
+			return threadCapture;
+		});
+	assert(worker.join() == 9);
 
-    try {
-        struct VisibilityProbe probe;
-        fillVisibilityProbe(&probe);
-        assert(probe.value == 42);
-    } catch (string probeMessage) {
-        assert(!probeMessage.equals(""));
-        assert(false);
-    }
+	try {
+		struct VisibilityProbe probe;
+		fillVisibilityProbe(&probe);
+		assert(probe.value == 42);
+	} catch (string probeMessage) {
+		assert(!probeMessage.equals(""));
+		assert(false);
+	}
 
-    print("PASS: test_exception_setjmp_volatile_contexts");
-    return 0;
+	print("PASS: test_exception_setjmp_volatile_contexts");
+	return 0;
 }

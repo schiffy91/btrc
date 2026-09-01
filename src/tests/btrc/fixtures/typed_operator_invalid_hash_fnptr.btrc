@@ -1,7 +1,7 @@
 int identity(int value) { return value; }
 
 int main() {
-    __fn_ptr<int, int> callback = identity;
-    uint value = __btrc_hash(callback);
-    return (int)value;
+	__fn_ptr<int, int> callback = identity;
+	uint value = __btrc_hash(callback);
+	return (int)value;
 }

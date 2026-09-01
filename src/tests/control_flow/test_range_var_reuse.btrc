@@ -6,36 +6,37 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    int a = 0;
+	int a = 0;
 
-    for i in range(3) {
-        a += i; // 0 + 1 + 2 = 3
-    }
-    for i in range(3) {
-        a += i; // another 3
-    }
-    assert(a == 6);
+	for i in range(3) {
+		a += i; // 0 + 1 + 2 = 3
+	}
 
-    // reuse the same name once more, this time over a collection
-    Vector<int> v = [10, 20, 30];
-    int total = 0;
-    for i in range(2) {
-        total += i; // 0 + 1
-    }
-    for i in v {
-        total += i; // 10 + 20 + 30
-    }
-    assert(total == 61); // 1 + 60
+	for i in range(3) {
+		a += i; // another 3
+	}
+	assert(a == 6);
 
-    // a third reuse in a c-for to confirm distinct declarations coexist
-    int prod = 1;
-    for (int i = 1; i <= 3; i++) {
-        prod *= i;
-    }
-    assert(prod == 6);
+	// reuse the same name once more, this time over a collection
+	Vector<int> v = [10, 20, 30];
+	int total = 0;
+	for i in range(2) {
+		total += i; // 0 + 1
+	}
+	for i in v {
+		total += i; // 10 + 20 + 30
+	}
+	assert(total == 61); // 1 + 60
 
-    v.free();
+	// a third reuse in a c-for to confirm distinct declarations coexist
+	int prod = 1;
+	for (int i = 1; i <= 3; i++) {
+		prod *= i;
+	}
+	assert(prod == 6);
 
-    print("PASS: test_range_var_reuse");
-    return 0;
+	v.free();
+
+	print("PASS: test_range_var_reuse");
+	return 0;
 }

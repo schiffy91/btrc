@@ -9,56 +9,52 @@ int box_alive = 0;
 int obj_alive = 0;
 
 class Thing {
-    public int x;
+	public int x;
 
-    public Thing(int x) {
-        self.x = x;
-        obj_alive++;
-    }
+	public Thing(int x) {
+		self.x = x;
+		obj_alive++;
+	}
 
-    public void __del__() {
-        obj_alive--;
-    }
+	public void __del__() { obj_alive--; }
 }
 
 class Holder<T> {
-    public T val;
+	public T val;
 
-    public Holder() {
-        self.val = null;
-        box_alive++;
-    }
+	public Holder() {
+		self.val = null;
+		box_alive++;
+	}
 
-    public void __del__() {
-        box_alive--;
-    }
+	public void __del__() { box_alive--; }
 }
 
 int main() {
-    // Direct delete of a generic instance: runs Holder<Thing> __del__.
-    Holder<Thing> h = new Holder<Thing>();
-    assert(box_alive == 1);
+	// Direct delete of a generic instance: runs Holder<Thing> __del__.
+	Holder<Thing> h = new Holder<Thing>();
+	assert(box_alive == 1);
 
-    Thing t = new Thing(5);
-    h.val = t;
-    assert(obj_alive == 1);
+	Thing t = new Thing(5);
+	h.val = t;
+	assert(obj_alive == 1);
 
-    // delete runs the mangled generic destructor (box_alive--); the contained
-    // value is NOT released (documented).
-    delete h;
-    assert(box_alive == 0);
-    assert(obj_alive == 1);
+	// delete runs the mangled generic destructor (box_alive--); the contained
+	// value is NOT released (documented).
+	delete h;
+	assert(box_alive == 0);
+	assert(obj_alive == 1);
 
-    delete t;
-    assert(obj_alive == 0);
+	delete t;
+	assert(obj_alive == 0);
 
-    // Scope-exit auto-release variant of a generic instance.
-    {
-        Holder<Thing> g = new Holder<Thing>();
-        assert(box_alive == 1);
-    }
-    assert(box_alive == 0);
+	// Scope-exit auto-release variant of a generic instance.
+	{
+		Holder<Thing> g = new Holder<Thing>();
+		assert(box_alive == 1);
+	}
+	assert(box_alive == 0);
 
-    print("PASS: test_generic_instance_destructor");
-    return 0;
+	print("PASS: test_generic_instance_destructor");
+	return 0;
 }

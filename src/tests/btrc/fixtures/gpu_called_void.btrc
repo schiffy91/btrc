@@ -1,11 +1,10 @@
-@gpu
-void doubleValues(int[] values) {
-    int index = gpu_id();
-    values[index] *= 2;
+@gpu void doubleValues(int[] values) {
+	int index = gpu_id();
+	values[index] *= 2;
 }
 
 int main() {
-    int[] values = {1, 2};
-    doubleValues(values);
-    return values[0] == 2 && values[1] == 4 ? 0 : 1;
+	int[] values = {1, 2};
+	doubleValues(values);
+	return values[0] == 2 && values[1] == 4 ? 0 : 1;
 }

@@ -8,24 +8,24 @@ import std.json;
 #include <assert.h>
 
 int main() {
-    JsonObject o = JsonObject();
-    o.setString("name", "x");      /* quoted path */
-    o.setRaw("nums", "[1,2,3]");   /* raw path: array literal, no quotes */
+	JsonObject o = JsonObject();
+	o.setString("name", "x");      /* quoted path */
+	o.setRaw("nums", "[1,2,3]");   /* raw path: array literal, no quotes */
 
-    string s = o.stringify();
-    /* The raw fragment appears verbatim, NOT wrapped in quotes. */
-    assert(s.contains("\"nums\":[1,2,3]"));
-    /* The string value IS quoted. */
-    assert(s.contains("\"name\":\"x\""));
-    /* The raw value is not quoted: the quoted form must be absent. */
-    assert(!s.contains("\"nums\":\"[1,2,3]\""));
+	string s = o.stringify();
+	/* The raw fragment appears verbatim, NOT wrapped in quotes. */
+	assert(s.contains("\"nums\":[1,2,3]"));
+	/* The string value IS quoted. */
+	assert(s.contains("\"name\":\"x\""));
+	/* The raw value is not quoted: the quoted form must be absent. */
+	assert(!s.contains("\"nums\":\"[1,2,3]\""));
 
-    /* A nested object literal also survives raw. */
-    JsonObject o2 = JsonObject();
-    o2.setRaw("obj", "{\"k\":1}");
-    string s2 = o2.stringify();
-    assert(s2.contains("\"obj\":{\"k\":1}"));
+	/* A nested object literal also survives raw. */
+	JsonObject o2 = JsonObject();
+	o2.setRaw("obj", "{\"k\":1}");
+	string s2 = o2.stringify();
+	assert(s2.contains("\"obj\":{\"k\":1}"));
 
-    print("PASS: test_stdlib_json_setraw");
-    return 0;
+	print("PASS: test_stdlib_json_setraw");
+	return 0;
 }

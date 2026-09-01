@@ -8,35 +8,35 @@
 #include <assert.h>
 
 int main() {
-    // (a) finally-only: try throws "first", finally throws "from-finally";
-    //     the finally's throw overrides the pending rethrow of "first".
-    string got = "";
-    try {
-        try {
-            throw "first";
-        } finally {
-            throw "from-finally";
-        }
-    } catch (string e) {
-        got = e;
-    }
-    assert(got.equals("from-finally"));
+	// (a) finally-only: try throws "first", finally throws "from-finally";
+	//     the finally's throw overrides the pending rethrow of "first".
+	string got = "";
+	try {
+		try {
+			throw "first";
+		} finally {
+			throw "from-finally";
+		}
+	} catch (string e) {
+		got = e;
+	}
+	assert(got.equals("from-finally"));
 
-    // (b) try body completes normally, finally throws -> outer catches it.
-    int ran = 0;
-    string got2 = "";
-    try {
-        try {
-            ran = 1;
-        } finally {
-            throw "fin2";
-        }
-    } catch (string e) {
-        got2 = e;
-    }
-    assert(ran == 1);
-    assert(got2.equals("fin2"));
+	// (b) try body completes normally, finally throws -> outer catches it.
+	int ran = 0;
+	string got2 = "";
+	try {
+		try {
+			ran = 1;
+		} finally {
+			throw "fin2";
+		}
+	} catch (string e) {
+		got2 = e;
+	}
+	assert(ran == 1);
+	assert(got2.equals("fin2"));
 
-    print("PASS: test_exceptions_throw_from_finally");
-    return 0;
+	print("PASS: test_exceptions_throw_from_finally");
+	return 0;
 }

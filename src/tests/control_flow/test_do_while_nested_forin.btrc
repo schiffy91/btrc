@@ -3,36 +3,36 @@
 #include <assert.h>
 
 int accumulate() {
-    int total = 0;
-    int round = 0;
-    do {
-        for i in range(3) {
-            total += i; // 0 + 1 + 2 = 3 per round
-        }
-        round++;
-    } while (round < 2);
-    // do-while as the all-paths tail before a return value
-    return total;
+	int total = 0;
+	int round = 0;
+	do {
+		for i in range(3) {
+			total += i; // 0 + 1 + 2 = 3 per round
+		}
+		round++;
+	} while (round < 2);
+	// do-while as the all-paths tail before a return value
+	return total;
 }
 
 int main() {
-    int total = accumulate();
-    assert(total == 6); // two rounds of 3
+	int total = accumulate();
+	assert(total == 6); // two rounds of 3
 
-    // do-while with a while nested inside
-    int outer = 0;
-    int steps = 0;
-    do {
-        int j = 0;
-        while (j < 3) {
-            steps++;
-            j++;
-        }
-        outer++;
-    } while (outer < 2);
-    assert(steps == 6);
-    assert(outer == 2);
+	// do-while with a while nested inside
+	int outer = 0;
+	int steps = 0;
+	do {
+		int j = 0;
+		while (j < 3) {
+			steps++;
+			j++;
+		}
+		outer++;
+	} while (outer < 2);
+	assert(steps == 6);
+	assert(outer == 2);
 
-    print("PASS: test_do_while_nested_forin");
-    return 0;
+	print("PASS: test_do_while_nested_forin");
+	return 0;
 }

@@ -3,31 +3,31 @@
 int unwindCount = 0;
 
 void descendAndThrow(int depth) {
-    if (depth == 0) { throw "grown-frame"; }
-    try {
-        descendAndThrow(depth - 1);
-    } finally {
-        unwindCount++;
-    }
+	if (depth == 0) { throw "grown-frame"; }
+	try {
+		descendAndThrow(depth - 1);
+	} finally {
+		unwindCount++;
+	}
 }
 
 int main() {
-    string escaped = "";
-    try {
-        descendAndThrow(80);
-    } catch (string outer) {
-        assert(outer.equals("grown-frame"));
-        try {
-            throw "nested-message";
-        } catch (string inner) {
-            assert(inner.equals("nested-message"));
-        }
-        assert(outer.equals("grown-frame"));
-        escaped = outer;
-    }
+	string escaped = "";
+	try {
+		descendAndThrow(80);
+	} catch (string outer) {
+		assert(outer.equals("grown-frame"));
+		try {
+			throw "nested-message";
+		} catch (string inner) {
+			assert(inner.equals("nested-message"));
+		}
+		assert(outer.equals("grown-frame"));
+		escaped = outer;
+	}
 
-    assert(unwindCount == 80);
-    assert(escaped.equals("grown-frame"));
-    print("PASS: test_exception_runtime_frames");
-    return 0;
+	assert(unwindCount == 80);
+	assert(escaped.equals("grown-frame"));
+	print("PASS: test_exception_runtime_frames");
+	return 0;
 }

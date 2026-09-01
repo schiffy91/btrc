@@ -7,27 +7,27 @@ import std.map;
 #include <stdio.h>
 
 int main() {
-    Map<string, int> m = {"a": 1};
+	Map<string, int> m = {"a": 1};
 
-    /* subscript read of an existing key */
-    int x = m["a"];
-    assert(x == 1);
+	/* subscript read of an existing key */
+	int x = m["a"];
+	assert(x == 1);
 
-    /* subscript write overwrites an existing key */
-    m["a"] = 5;
-    assert(m["a"] == 5);
-    assert(m.size() == 1);
+	/* subscript write overwrites an existing key */
+	m["a"] = 5;
+	assert(m["a"] == 5);
+	assert(m.size() == 1);
 
-    /* subscript write inserts a new key */
-    m["b"] = 9;
-    assert(m["b"] == 9);
-    assert(m.size() == 2);
+	/* subscript write inserts a new key */
+	m["b"] = 9;
+	assert(m["b"] == 9);
+	assert(m.size() == 2);
 
-    /* the original lookup API agrees with subscript */
-    assert(m.get("a") == 5);
-    assert(m.get("b") == 9);
+	/* the original lookup API agrees with subscript */
+	assert(m.get("a") == 5);
+	assert(m.get("b") == 9);
 
-    m.free();
-    printf("PASS: test_map_subscript\n");
-    return 0;
+	m.free();
+	printf("PASS: test_map_subscript\n");
+	return 0;
 }

@@ -6,26 +6,27 @@
 #include <assert.h>
 
 class Base {
-    public int kind() { return 1; }
-    public int describe() { return self.kind() * 10; }
+	public int kind() { return 1; }
+
+	public int describe() { return self.kind() * 10; }
 }
 
 class Sub extends Base {
-    public int kind() { return 2; }
+	public int kind() { return 2; }
 }
 
 int main() {
-    Base b = Base();
-    assert(b.kind() == 1);
-    assert(b.describe() == 10);
+	Base b = Base();
+	assert(b.kind() == 1);
+	assert(b.describe() == 10);
 
-    Sub s = Sub();
-    // Sub.kind is overridden, and calling it directly reflects that.
-    assert(s.kind() == 2);
-    // But the INHERITED describe() body calls self.kind() statically,
-    // binding to Base.kind -> 1 * 10 == 10 (not 2 * 10).
-    assert(s.describe() == 10);
+	Sub s = Sub();
+	// Sub.kind is overridden, and calling it directly reflects that.
+	assert(s.kind() == 2);
+	// But the INHERITED describe() body calls self.kind() statically,
+	// binding to Base.kind -> 1 * 10 == 10 (not 2 * 10).
+	assert(s.describe() == 10);
 
-    print("PASS: test_inheritance_inherited_method_self_dispatch");
-    return 0;
+	print("PASS: test_inheritance_inherited_method_self_dispatch");
+	return 0;
 }

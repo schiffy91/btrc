@@ -5,27 +5,27 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    // collection method call
-    Vector<int> v = [3, 1, 2];
-    assert(f"max={v.max()}".equals("max=3"));
-    v.free();
+	// collection method call
+	Vector<int> v = [3, 1, 2];
+	assert(f"max={v.max()}".equals("max=3"));
+	v.free();
 
-    // ternary inside the interpolation
-    int x = 5;
-    assert(f"{(x > 0) ? "pos" : "neg"}".equals("pos"));
+	// ternary inside the interpolation
+	int x = 5;
+	assert(f"{(x > 0) ? "pos" : "neg"}".equals("pos"));
 
-    // method-of-method chain
-    string s = "hello";
-    assert(f"{s.toUpper().substring(0, 2)}".equals("HE"));
+	// method-of-method chain
+	string s = "hello";
+	assert(f"{s.toUpper().substring(0, 2)}".equals("HE"));
 
-    // non-null nullable interpolates as its value
-    string? maybe = "hi";
-    assert(f"v={maybe}".equals("v=hi"));
+	// non-null nullable interpolates as its value
+	string? maybe = "hi";
+	assert(f"v={maybe}".equals("v=hi"));
 
-    // f-string result as an operand of + concatenation
-    int a = 1;
-    assert((f"a={a}" + "!").equals("a=1!"));
+	// f-string result as an operand of + concatenation
+	int a = 1;
+	assert((f"a={a}" + "!").equals("a=1!"));
 
-    print("PASS: test_fstring_complex_expr");
-    return 0;
+	print("PASS: test_fstring_complex_expr");
+	return 0;
 }

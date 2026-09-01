@@ -6,46 +6,40 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 class Container {
-    public Obj held;
+	public Obj held;
 
-    public Container() {
-        self.held = null;
-    }
+	public Container() { self.held = null; }
 
-    public void store(keep Obj o) {
-        self.held = o;
-    }
+	public void store(keep Obj o) { self.held = o; }
 }
 
 int main() {
-    Container c = new Container();
-    try {
-        Obj n = new Obj(1);   // rc 1, managed in try scope
-        c.store(n);           // field retains n; call guard is then released
-        throw "boom";
-    } catch (string e) {
-        // try-scope cleanup releases the managed n once on unwind.
-    }
+	Container c = new Container();
+	try {
+		Obj n = new Obj(1);   // rc 1, managed in try scope
+		c.store(n);           // field retains n; call guard is then released
+		throw "boom";
+	} catch (string e) {
+		// try-scope cleanup releases the managed n once on unwind.
+	}
 
-    // The throw unwinds the try scope, and combined with deleting the
-    // container the refcount nets out to zero: the object is fully released
-    // exactly once -- no double-free, no leak.
-    delete c;
-    assert(alive == 0);
+	// The throw unwinds the try scope, and combined with deleting the
+	// container the refcount nets out to zero: the object is fully released
+	// exactly once -- no double-free, no leak.
+	delete c;
+	assert(alive == 0);
 
-    print("PASS: test_keep_and_throw");
-    return 0;
+	print("PASS: test_keep_and_throw");
+	return 0;
 }

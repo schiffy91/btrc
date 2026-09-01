@@ -3,27 +3,28 @@
 #include <assert.h>
 
 class Acc<T> {
-    public T sum;
-    public Acc(T zero) { self.sum = zero; }
-    public Acc<T> add(T x) {
-        self.sum = self.sum + x;
-        return self;
-    }
+	public T sum;
+	public Acc(T zero) { self.sum = zero; }
+
+	public Acc<T> add(T x) {
+		self.sum = self.sum + x;
+		return self;
+	}
 }
 
 int main() {
-    Acc<int> ai = Acc(0);
-    assert(ai.add(1).add(2).add(3).sum == 6);
+	Acc<int> ai = Acc(0);
+	assert(ai.add(1).add(2).add(3).sum == 6);
 
-    Acc<double> ad = Acc(0.0);
-    double s = ad.add(1.5).add(2.5).sum;
-    assert(s > 3.99 && s < 4.01);
+	Acc<double> ad = Acc(0.0);
+	double s = ad.add(1.5).add(2.5).sum;
+	assert(s > 3.99 && s < 4.01);
 
-    // chaining keeps mutating the same monomorphized instance
-    Acc<int> running = Acc(100);
-    running.add(1);
-    assert(running.add(2).add(3).sum == 106);
+	// chaining keeps mutating the same monomorphized instance
+	Acc<int> running = Acc(100);
+	running.add(1);
+	assert(running.add(2).add(3).sum == 106);
 
-    print("PASS: test_generic_method_chain");
-    return 0;
+	print("PASS: test_generic_method_chain");
+	return 0;
 }

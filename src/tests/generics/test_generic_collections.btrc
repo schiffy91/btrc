@@ -9,44 +9,46 @@ import std.vector;
 #include <string.h>
 
 class Bag<T> {
-    public Vector<T> items;
-    public Bag() { self.items = []; }
+	public Vector<T> items;
+	public Bag() { self.items = []; }
 
-    public void add(T x) { self.items.push(x); }
-    public T at(int i) { return self.items.get(i); }
-    public int size() { return self.items.len; }
+	public void add(T x) { self.items.push(x); }
 
-    /* for-in over the Vector<T> field */
-    public int countVia() {
-        int n = 0;
-        for it in self.items { n = n + 1; }
-        return n;
-    }
+	public T at(int i) { return self.items.get(i); }
 
-    /* concrete Vector<int> local + list literal + for-in inside a generic method */
-    public int localSum() {
-        Vector<int> tmp = [1, 2, 3];
-        int s = 0;
-        for v in tmp { s = s + v; }
-        return s;
-    }
+	public int size() { return self.items.len; }
+
+	/* for-in over the Vector<T> field */
+	public int countVia() {
+		int n = 0;
+		for it in self.items { n = n + 1; }
+		return n;
+	}
+
+	/* concrete Vector<int> local + list literal + for-in inside a generic method */
+	public int localSum() {
+		Vector<int> tmp = [1, 2, 3];
+		int s = 0;
+		for v in tmp { s = s + v; }
+		return s;
+	}
 }
 
 int main() {
-    Bag<int> bi = Bag();
-    bi.add(10); bi.add(20); bi.add(30);
-    assert(bi.size() == 3);
-    assert(bi.at(2) == 30);
-    assert(bi.countVia() == 3);
-    assert(bi.localSum() == 6);
+	Bag<int> bi = Bag();
+	bi.add(10); bi.add(20); bi.add(30);
+	assert(bi.size() == 3);
+	assert(bi.at(2) == 30);
+	assert(bi.countVia() == 3);
+	assert(bi.localSum() == 6);
 
-    Bag<string> bs = Bag();
-    bs.add("x"); bs.add("y");
-    assert(bs.size() == 2);
-    assert(strcmp(bs.at(1), "y") == 0);
-    assert(bs.countVia() == 2);
-    assert(bs.localSum() == 6);
+	Bag<string> bs = Bag();
+	bs.add("x"); bs.add("y");
+	assert(bs.size() == 2);
+	assert(strcmp(bs.at(1), "y") == 0);
+	assert(bs.countVia() == 2);
+	assert(bs.localSum() == 6);
 
-    print("PASS: test_generic_collections");
-    return 0;
+	print("PASS: test_generic_collections");
+	return 0;
 }

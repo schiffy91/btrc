@@ -6,19 +6,19 @@ import std.FileSystem;
 #include <assert.h>
 
 int main() {
-    /* A token with a space AND an embedded single quote must be single-quoted
+	/* A token with a space AND an embedded single quote must be single-quoted
      * with the '\'' dance: a b'c -> 'a b'\''c' */
-    string q = PathTools.shellQuote("a b'c");
-    assert(!q.equals("a b'c"));               /* it WAS transformed */
-    assert(q.equals("'a b'\\''c'"));          /* exact escaped form */
-    assert((int)strlen(q) > (int)strlen("a b'c"));  /* longer after wrapping */
+	string q = PathTools.shellQuote("a b'c");
+	assert(!q.equals("a b'c"));               /* it WAS transformed */
+	assert(q.equals("'a b'\\''c'"));          /* exact escaped form */
+	assert((int)strlen(q) > (int)strlen("a b'c"));  /* longer after wrapping */
 
-    /* A simple safe token passes through verbatim (usable as-is). */
-    assert(PathTools.shellQuote("simple").equals("simple"));
+	/* A simple safe token passes through verbatim (usable as-is). */
+	assert(PathTools.shellQuote("simple").equals("simple"));
 
-    /* A path-like safe token (slashes/dots/dashes are safe) passes through. */
-    assert(PathTools.shellQuote("/usr/local/bin-1.0").equals("/usr/local/bin-1.0"));
+	/* A path-like safe token (slashes/dots/dashes are safe) passes through. */
+	assert(PathTools.shellQuote("/usr/local/bin-1.0").equals("/usr/local/bin-1.0"));
 
-    print("PASS: test_stdlib_path_shellquote");
-    return 0;
+	print("PASS: test_stdlib_path_shellquote");
+	return 0;
 }

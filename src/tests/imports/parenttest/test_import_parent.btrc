@@ -1,5 +1,4 @@
 import ../parenthelper/up.btrc
-
 #include <assert.h>
 
 // Parent-directory relative import: `import ../dir/file.btrc`. Every other
@@ -9,9 +8,9 @@ import ../parenthelper/up.btrc
 // test in imports/parenttest/ reaching into the sibling imports/parenthelper/
 // dir exercises the `..` segment hermetically.
 int main() {
-    assert(ParentHelper.value() == 42);
-    assert(ParentHelper.label().equals("from-parent-dir"));
+	assert(ParentHelper.value() == 42);
+	assert(ParentHelper.label().equals("from-parent-dir"));
 
-    print("PASS: test_import_parent");
-    return 0;
+	print("PASS: test_import_parent");
+	return 0;
 }

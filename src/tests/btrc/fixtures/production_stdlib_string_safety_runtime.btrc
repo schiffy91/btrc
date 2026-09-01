@@ -1,27 +1,27 @@
-#include <assert.h>
-#include <string.h>
-
 import std.console;
 import std.strings;
 import std.vector;
 
+#include <assert.h>
+#include <string.h>
+
 int main() {
-    string? missing = null;
-    Vector<string> values = ["a"];
-    values.push(missing);
-    values.push("c");
-    string joined = values.join(null);
-    assert(strcmp(joined, "ac") == 0);
+	string? missing = null;
+	Vector<string> values = ["a"];
+	values.push(missing);
+	values.push("c");
+	string joined = values.join(null);
+	assert(strcmp(joined, "ac") == 0);
 
-    Vector<string> nulls = [];
-    nulls.push(missing);
-    nulls.push(missing);
-    string separated = nulls.join(",");
-    assert(strcmp(separated, ",") == 0);
+	Vector<string> nulls = [];
+	nulls.push(missing);
+	nulls.push(missing);
+	string separated = nulls.join(",");
+	assert(strcmp(separated, ",") == 0);
 
-    assert(Strings.checkedLength(missing) == 0);
-    string repeated = "ignored".repeat(0);
-    assert(strcmp(repeated, "") == 0);
-    Console.writeLine(missing);
-    return 0;
+	assert(Strings.checkedLength(missing) == 0);
+	string repeated = "ignored".repeat(0);
+	assert(strcmp(repeated, "") == 0);
+	Console.writeLine(missing);
+	return 0;
 }

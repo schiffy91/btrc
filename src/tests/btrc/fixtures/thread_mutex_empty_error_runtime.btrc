@@ -8,83 +8,77 @@ int emptyBoundaryHooks = 0;
 bool throwEmptyBoundaryError = false;
 
 class EmptyBoundaryNode {
-    public EmptyBoundaryNode() {
-        emptyBoundaryAlive++;
-    }
+	public EmptyBoundaryNode() { emptyBoundaryAlive++; }
 
-    public void __del__() {
-        emptyBoundaryAlive--;
-        emptyBoundaryHooks++;
-        if (throwEmptyBoundaryError) { throw ""; }
-    }
+	public void __del__() {
+		emptyBoundaryAlive--;
+		emptyBoundaryHooks++;
+		if (throwEmptyBoundaryError) { throw ""; }
+	}
 }
 
 bool destroyEmptyMutexValue() {
-    EmptyBoundaryNode root = new EmptyBoundaryNode();
-    Mutex<EmptyBoundaryNode> owner = Mutex(root);
-    release root;
-    bool caughtEmpty = false;
-    try {
-        owner.destroy();
-        assert(false);
-    } catch (string error) {
-        caughtEmpty = error.equals("");
-    }
-    return caughtEmpty;
+	EmptyBoundaryNode root = new EmptyBoundaryNode();
+	Mutex<EmptyBoundaryNode> owner = Mutex(root);
+	release root;
+	bool caughtEmpty = false;
+	try {
+		owner.destroy();
+		assert(false);
+	} catch (string error) {
+		caughtEmpty = error.equals("");
+	}
+	return caughtEmpty;
 }
 
 bool discardEmptyThreadResult() {
-    bool caughtEmpty = false;
-    try {
-        {
-            Thread<EmptyBoundaryNode> worker = spawn(
-                () => new EmptyBoundaryNode()
-            );
-        }
-        assert(false);
-    } catch (string error) {
-        caughtEmpty = error.equals("");
-    }
-    return caughtEmpty;
+	bool caughtEmpty = false;
+	try {
+		{
+			Thread<EmptyBoundaryNode> worker = spawn(() => new EmptyBoundaryNode());
+		}
+		assert(false);
+	} catch (string error) {
+		caughtEmpty = error.equals("");
+	}
+	return caughtEmpty;
 }
 
 void warmEmptyBoundaries() {
-    throwEmptyBoundaryError = false;
-    try {
-        EmptyBoundaryNode root = new EmptyBoundaryNode();
-        Mutex<EmptyBoundaryNode> owner = Mutex(root);
-        release root;
-        owner.destroy();
-    } catch (string error) {
-        assert(false);
-    }
-    try {
-        {
-            Thread<EmptyBoundaryNode> worker = spawn(
-                () => new EmptyBoundaryNode()
-            );
-        }
-    } catch (string error) {
-        assert(false);
-    }
+	throwEmptyBoundaryError = false;
+	try {
+		EmptyBoundaryNode root = new EmptyBoundaryNode();
+		Mutex<EmptyBoundaryNode> owner = Mutex(root);
+		release root;
+		owner.destroy();
+	} catch (string error) {
+		assert(false);
+	}
+	try {
+		{
+			Thread<EmptyBoundaryNode> worker = spawn(() => new EmptyBoundaryNode());
+		}
+	} catch (string error) {
+		assert(false);
+	}
 }
 
 int main() {
-    warmEmptyBoundaries();
-    assert(emptyBoundaryAlive == 0);
-    assert(emptyBoundaryHooks == 2);
+	warmEmptyBoundaries();
+	assert(emptyBoundaryAlive == 0);
+	assert(emptyBoundaryHooks == 2);
 
-    throwEmptyBoundaryError = true;
-    arc_test_allocation_checkpoint();
-    assert(destroyEmptyMutexValue());
-    assert(emptyBoundaryAlive == 0);
-    assert(emptyBoundaryHooks == 3);
-    assert(arc_test_allocation_delta() == 0);
+	throwEmptyBoundaryError = true;
+	arc_test_allocation_checkpoint();
+	assert(destroyEmptyMutexValue());
+	assert(emptyBoundaryAlive == 0);
+	assert(emptyBoundaryHooks == 3);
+	assert(arc_test_allocation_delta() == 0);
 
-    arc_test_allocation_checkpoint();
-    assert(discardEmptyThreadResult());
-    assert(emptyBoundaryAlive == 0);
-    assert(emptyBoundaryHooks == 4);
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	arc_test_allocation_checkpoint();
+	assert(discardEmptyThreadResult());
+	assert(emptyBoundaryAlive == 0);
+	assert(emptyBoundaryHooks == 4);
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

@@ -8,55 +8,47 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 class Box<T> {
-    public T item;
+	public T item;
 
-    public Box() {
-        self.item = null;
-    }
+	public Box() { self.item = null; }
 
-    public void put(T x) {
-        self.item = x;
-    }
+	public void put(T x) { self.item = x; }
 }
 
 class Owner {
-    public Box<Obj> box;
+	public Box<Obj> box;
 
-    public Owner() {
-        self.box = new Box<Obj>();
-    }
+	public Owner() { self.box = new Box<Obj> (); }
 }
 
 int main() {
-    Owner owner = new Owner();
-    Obj o = new Obj(7);          // rc 1
-    owner.box.put(o);            // stored in the generic field (no retain)
-    assert(owner.box.item.id == 7);
-    assert(alive == 1);
+	Owner owner = new Owner();
+	Obj o = new Obj(7);          // rc 1
+	owner.box.put(o);            // stored in the generic field (no retain)
+	assert(owner.box.item.id == 7);
+	assert(alive == 1);
 
-    // Deleting the owner frees the Box<Obj> struct but does NOT release the
-    // contained Obj -- it survives and is still reachable via the local handle.
-    delete owner;
-    assert(alive == 1);
-    assert(o.id == 7);
+	// Deleting the owner frees the Box<Obj> struct but does NOT release the
+	// contained Obj -- it survives and is still reachable via the local handle.
+	delete owner;
+	assert(alive == 1);
+	assert(o.id == 7);
 
-    // The contained object must be released manually.
-    delete o;
-    assert(alive == 0);
+	// The contained object must be released manually.
+	delete o;
+	assert(alive == 0);
 
-    print("PASS: test_generic_field_destructor");
-    return 0;
+	print("PASS: test_generic_field_destructor");
+	return 0;
 }

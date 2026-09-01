@@ -2,9 +2,9 @@ import std.vector;
 
 #include <stdio.h>
 int main() {
-    Vector<string> words = ["only"];
-    print(words.join("-"));
-    words.free();
-    printf("PASS: test_join_single\n");
-    return 0;
+	Vector<string> words = ["only"];
+	print(words.join("-"));
+	words.free();
+	printf("PASS: test_join_single\n");
+	return 0;
 }

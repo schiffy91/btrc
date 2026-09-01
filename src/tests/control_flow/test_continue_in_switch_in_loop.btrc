@@ -4,34 +4,30 @@
 #include <assert.h>
 
 int main() {
-    int sum = 0;
-    for i in range(5) {
-        switch (i) {
-            case 2:
-                continue; // jumps to next loop iteration, skipping sum += i
-            default:
-                break;     // exits the switch only
-        }
-        sum += i;
-    }
-    // i == 2 skipped: 0 + 1 + 3 + 4
-    assert(sum == 8);
+	int sum = 0;
+	for i in range(5) {
+		switch (i) {
+			case 2: continue; // jumps to next loop iteration, skipping sum += i
+			default: break;     // exits the switch only
+		}
+		sum += i;
+	}
+	// i == 2 skipped: 0 + 1 + 3 + 4
+	assert(sum == 8);
 
-    // continue inside switch inside a while loop
-    int n = 0;
-    int total = 0;
-    while (n < 5) {
-        n++;
-        switch (n) {
-            case 3:
-                continue; // skips total += n for n == 3
-            default:
-                break;
-        }
-        total += n;
-    }
-    assert(total == 12); // 1+2+4+5
+	// continue inside switch inside a while loop
+	int n = 0;
+	int total = 0;
+	while (n < 5) {
+		n++;
+		switch (n) {
+			case 3: continue; // skips total += n for n == 3
+			default: break;
+		}
+		total += n;
+	}
+	assert(total == 12); // 1+2+4+5
 
-    print("PASS: test_continue_in_switch_in_loop");
-    return 0;
+	print("PASS: test_continue_in_switch_in_loop");
+	return 0;
 }

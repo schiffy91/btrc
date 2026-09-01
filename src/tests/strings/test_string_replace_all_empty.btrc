@@ -4,21 +4,21 @@
 #include <assert.h>
 
 int main() {
-    // Replace-all of a single char
-    assert("aaa".replace("a", "b").equals("bbb"));
+	// Replace-all of a single char
+	assert("aaa".replace("a", "b").equals("bbb"));
 
-    // Multiple non-adjacent occurrences
-    assert("a.b.c".replace(".", "-").equals("a-b-c"));
+	// Multiple non-adjacent occurrences
+	assert("a.b.c".replace(".", "-").equals("a-b-c"));
 
-    // Empty needle is a no-op
-    assert("abc".replace("", "X").equals("abc"));
+	// Empty needle is a no-op
+	assert("abc".replace("", "X").equals("abc"));
 
-    // Replace-all with empty replacement deletes every match
-    assert("xxx".replace("x", "").equals(""));
+	// Replace-all with empty replacement deletes every match
+	assert("xxx".replace("x", "").equals(""));
 
-    // Non-overlapping multi-char needle
-    assert("aaaa".replace("aa", "b").equals("bb"));
+	// Non-overlapping multi-char needle
+	assert("aaaa".replace("aa", "b").equals("bb"));
 
-    print("PASS: test_string_replace_all_empty");
-    return 0;
+	print("PASS: test_string_replace_all_empty");
+	return 0;
 }

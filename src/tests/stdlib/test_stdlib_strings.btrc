@@ -6,62 +6,62 @@ import std.vector;
 #include <string.h>
 
 int main() {
-    /* built-in string methods */
-    string s = "Hello, World";
-    assert(s.len() == 12);
-    assert(s.substring(0, 5).equals("Hello"));
-    assert(s.indexOf("World") == 7);
-    assert(s.startsWith("Hello"));
-    assert(s.endsWith("World"));
-    assert(s.contains("o, W"));
-    assert(s.toUpper().equals("HELLO, WORLD"));
-    assert(s.toLower().equals("hello, world"));
-    assert("  hi  ".trim().equals("hi"));
-    assert("".isEmpty());
-    assert(!s.isEmpty());
+	/* built-in string methods */
+	string s = "Hello, World";
+	assert(s.len() == 12);
+	assert(s.substring(0, 5).equals("Hello"));
+	assert(s.indexOf("World") == 7);
+	assert(s.startsWith("Hello"));
+	assert(s.endsWith("World"));
+	assert(s.contains("o, W"));
+	assert(s.toUpper().equals("HELLO, WORLD"));
+	assert(s.toLower().equals("hello, world"));
+	assert("  hi  ".trim().equals("hi"));
+	assert("".isEmpty());
+	assert(!s.isEmpty());
 
-    /* Strings static transforms */
-    assert(Strings.repeat("ab", 3).equals("ababab"));
-    assert(Strings.replace("a.b.c", ".", "-").equals("a-b-c"));
-    assert(Strings.capitalize("hello").equals("Hello"));
-    assert(Strings.title("hello world").equals("Hello World"));
-    assert(Strings.swapCase("Hello").equals("hELLO"));
-    assert(Strings.padLeft("7", 3, '0').equals("007"));
-    assert(Strings.padRight("7", 3, '.').equals("7.."));
-    assert(Strings.lstrip("  x").equals("x"));
-    assert(Strings.rstrip("x  ").equals("x"));
-    assert(Strings.removePrefix("foobar", "foo").equals("bar"));
+	/* Strings static transforms */
+	assert(Strings.repeat("ab", 3).equals("ababab"));
+	assert(Strings.replace("a.b.c", ".", "-").equals("a-b-c"));
+	assert(Strings.capitalize("hello").equals("Hello"));
+	assert(Strings.title("hello world").equals("Hello World"));
+	assert(Strings.swapCase("Hello").equals("hELLO"));
+	assert(Strings.padLeft("7", 3, '0').equals("007"));
+	assert(Strings.padRight("7", 3, '.').equals("7.."));
+	assert(Strings.lstrip("  x").equals("x"));
+	assert(Strings.rstrip("x  ").equals("x"));
+	assert(Strings.removePrefix("foobar", "foo").equals("bar"));
 
-    /* analysis */
-    assert(Strings.count("aXbXc", "X") == 2);
-    assert(Strings.find("hello", "ll", 0) == 2);
-    assert(Strings.find("hello", "", 5) == 5);
-    assert(Strings.find("hello", "", 6) == -1);
-    assert(Strings.rfind("a.b.c", ".") == 3);
-    assert(Strings.compare("a", "b") < 0);
-    assert(Strings.lessThan("apple", "banana"));
-    assert(Strings.isDigitStr("123") && !Strings.isDigitStr("12a"));
-    assert(Strings.isAlphaStr("abc") && !Strings.isAlphaStr("ab1"));
-    assert(Strings.isBlank("   ") && !Strings.isBlank(" x "));
+	/* analysis */
+	assert(Strings.count("aXbXc", "X") == 2);
+	assert(Strings.find("hello", "ll", 0) == 2);
+	assert(Strings.find("hello", "", 5) == 5);
+	assert(Strings.find("hello", "", 6) == -1);
+	assert(Strings.rfind("a.b.c", ".") == 3);
+	assert(Strings.compare("a", "b") < 0);
+	assert(Strings.lessThan("apple", "banana"));
+	assert(Strings.isDigitStr("123") && !Strings.isDigitStr("12a"));
+	assert(Strings.isAlphaStr("abc") && !Strings.isAlphaStr("ab1"));
+	assert(Strings.isBlank("   ") && !Strings.isBlank(" x "));
 
-    /* numeric conversion */
-    assert(Strings.toInt("  -42 ") == -42);
-    assert(Strings.toInt("999999999999999999") == 2147483647);
-    assert(Strings.toInt("-999999999999999999") == -2147483647 - 1);
-    assert(Strings.fromInt(123).equals("123"));
+	/* numeric conversion */
+	assert(Strings.toInt("  -42 ") == -42);
+	assert(Strings.toInt("999999999999999999") == 2147483647);
+	assert(Strings.toInt("-999999999999999999") == -2147483647 - 1);
+	assert(Strings.fromInt(123).equals("123"));
 
-    /* char classifiers */
-    assert(Strings.isDigit('5') && !Strings.isDigit('x'));
-    assert(Strings.isAlpha('x') && !Strings.isAlpha('5'));
-    assert(Strings.isAlnum('9') && Strings.isAlnum('a') && !Strings.isAlnum(' '));
-    assert(Strings.isSpace(' ') && Strings.isSpace('\t') && !Strings.isSpace('a'));
+	/* char classifiers */
+	assert(Strings.isDigit('5') && !Strings.isDigit('x'));
+	assert(Strings.isAlpha('x') && !Strings.isAlpha('5'));
+	assert(Strings.isAlnum('9') && Strings.isAlnum('a') && !Strings.isAlnum(' '));
+	assert(Strings.isSpace(' ') && Strings.isSpace('\t') && !Strings.isSpace('a'));
 
-    /* split + join round-trip */
-    Vector<string> parts = Strings.split("a,b,c", ",");
-    assert(parts.len == 3);
-    assert(parts.get(1).equals("b"));
-    assert(Strings.join(parts, "-").equals("a-b-c"));
+	/* split + join round-trip */
+	Vector<string> parts = Strings.split("a,b,c", ",");
+	assert(parts.len == 3);
+	assert(parts.get(1).equals("b"));
+	assert(Strings.join(parts, "-").equals("a-b-c"));
 
-    print("PASS: test_stdlib_strings");
-    return 0;
+	print("PASS: test_stdlib_strings");
+	return 0;
 }

@@ -6,40 +6,40 @@
 int calls = 0;
 
 bool bump() {
-    calls = calls + 1;
-    return true;
+	calls = calls + 1;
+	return true;
 }
 
 int main() {
-    // || short-circuits when LHS is true -> bump() never called.
-    calls = 0;
-    bool r1 = true || bump();
-    assert(r1 == true);
-    assert(calls == 0);
+	// || short-circuits when LHS is true -> bump() never called.
+	calls = 0;
+	bool r1 = true || bump();
+	assert(r1 == true);
+	assert(calls == 0);
 
-    // && short-circuits when LHS is false -> bump() never called.
-    calls = 0;
-    bool r2 = false && bump();
-    assert(r2 == false);
-    assert(calls == 0);
+	// && short-circuits when LHS is false -> bump() never called.
+	calls = 0;
+	bool r2 = false && bump();
+	assert(r2 == false);
+	assert(calls == 0);
 
-    // When NOT short-circuited, the RHS does run exactly once.
-    calls = 0;
-    bool r3 = false || bump();
-    assert(r3 == true);
-    assert(calls == 1);
+	// When NOT short-circuited, the RHS does run exactly once.
+	calls = 0;
+	bool r3 = false || bump();
+	assert(r3 == true);
+	assert(calls == 1);
 
-    calls = 0;
-    bool r4 = true && bump();
-    assert(r4 == true);
-    assert(calls == 1);
+	calls = 0;
+	bool r4 = true && bump();
+	assert(r4 == true);
+	assert(calls == 1);
 
-    // Chained: only enough operands to decide are evaluated.
-    calls = 0;
-    bool r5 = true || bump() || bump();
-    assert(r5 == true);
-    assert(calls == 0);
+	// Chained: only enough operands to decide are evaluated.
+	calls = 0;
+	bool r5 = true || bump() || bump();
+	assert(r5 == true);
+	assert(calls == 0);
 
-    print("PASS: test_short_circuit_effects");
-    return 0;
+	print("PASS: test_short_circuit_effects");
+	return 0;
 }

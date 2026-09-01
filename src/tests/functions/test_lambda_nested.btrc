@@ -4,18 +4,18 @@
 #include <assert.h>
 
 int main() {
-    int a = 10;
+	int a = 10;
 
-    var outer = (int x) => {
-        int b = x + a;                  // inner-local derived from param + capture
-        var inner = (int y) => y + b;   // inner captures b
-        return inner(100);
-    };
+	var outer = (int x) => {
+		int b = x + a;                  // inner-local derived from param + capture
+		var inner = (int y) => y + b;   // inner captures b
+		return inner(100);
+	};
 
-    assert(outer(5) == 115);    // b = 5+10=15; inner(100)=115
-    assert(outer(0) == 110);    // b = 0+10=10; inner(100)=110
-    assert(outer(20) == 130);   // b = 20+10=30; inner(100)=130
+	assert(outer(5) == 115);    // b = 5+10=15; inner(100)=115
+	assert(outer(0) == 110);    // b = 0+10=10; inner(100)=110
+	assert(outer(20) == 130);   // b = 20+10=30; inner(100)=130
 
-    print("PASS: test_lambda_nested");
-    return 0;
+	print("PASS: test_lambda_nested");
+	return 0;
 }

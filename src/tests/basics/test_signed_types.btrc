@@ -1,20 +1,20 @@
 #include <assert.h>
 
 int main() {
-    // signed keyword as a base type
-    signed int a = -5;
-    assert(a == -5);
+	// signed keyword as a base type
+	signed int a = -5;
+	assert(a == -5);
 
-    signed char c = -1;
-    assert(c == -1);
+	signed char c = -1;
+	assert(c == -1);
 
-    signed short s = -1000;
-    assert(s == -1000);
+	signed short s = -1000;
+	assert(s == -1000);
 
-    // signed arithmetic preserves sign
-    signed int b = a * 3;
-    assert(b == -15);
+	// signed arithmetic preserves sign
+	signed int b = a * 3;
+	assert(b == -15);
 
-    print("PASS: test_signed_types");
-    return 0;
+	print("PASS: test_signed_types");
+	return 0;
 }

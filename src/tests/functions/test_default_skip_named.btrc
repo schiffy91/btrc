@@ -2,42 +2,38 @@
 // parameter, for both a free function and a method with field side effects.
 #include <assert.h>
 
-int mix(int a, int b = 2, int c = 3) {
-    return a + b * 10 + c * 100;
-}
+int mix(int a, int b = 2, int c = 3) { return a + b * 10 + c * 100; }
 
 class Counter {
-    public int log;
+	public int log;
 
-    public Counter() {
-        self.log = 0;
-    }
+	public Counter() { self.log = 0; }
 
-    // defaulted middle param; records into a field as a side effect
-    public int step(int a, int b = 2, int c = 3) {
-        self.log = self.log + a + b + c;
-        return a + b * 10 + c * 100;
-    }
+	// defaulted middle param; records into a field as a side effect
+	public int step(int a, int b = 2, int c = 3) {
+		self.log = self.log + a + b + c;
+		return a + b * 10 + c * 100;
+	}
 }
 
 int main() {
-    // skip the middle defaulted param via named arg
-    assert(mix(1, c=4) == 421);
-    // all named, scrambled
-    assert(mix(c=5, a=6, b=7) == 576);
-    // skip both b and c
-    assert(mix(9) == 329);
+	// skip the middle defaulted param via named arg
+	assert(mix(1, c=4) == 421);
+	// all named, scrambled
+	assert(mix(c=5, a=6, b=7) == 576);
+	// skip both b and c
+	assert(mix(9) == 329);
 
-    Counter k = new Counter();
-    // skip b, name c: a=1, b=2(default), c=4 -> 1 + 20 + 400 = 421; log += 7
-    assert(k.step(1, c=4) == 421);
-    assert(k.log == 7);
-    // skip b and c entirely: a=5 -> 5 + 20 + 300 = 325; log += 10
-    assert(k.step(5) == 325);
-    assert(k.log == 17);
+	Counter k = new Counter();
+	// skip b, name c: a=1, b=2(default), c=4 -> 1 + 20 + 400 = 421; log += 7
+	assert(k.step(1, c=4) == 421);
+	assert(k.log == 7);
+	// skip b and c entirely: a=5 -> 5 + 20 + 300 = 325; log += 10
+	assert(k.step(5) == 325);
+	assert(k.log == 17);
 
-    delete k;
+	delete k;
 
-    print("PASS: test_default_skip_named");
-    return 0;
+	print("PASS: test_default_skip_named");
+	return 0;
 }

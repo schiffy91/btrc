@@ -9,49 +9,49 @@ import std.vector;
 #include <stdio.h>
 
 int main() {
-    /* count: equality via strcmp */
-    Vector<string> v = ["x", "x", "y", "y", "z"];
-    assert(v.count("x") == 2);
-    assert(v.count("z") == 1);
-    assert(v.count("q") == 0);
+	/* count: equality via strcmp */
+	Vector<string> v = ["x", "x", "y", "y", "z"];
+	assert(v.count("x") == 2);
+	assert(v.count("z") == 1);
+	assert(v.count("q") == 0);
 
-    /* distinct: first-occurrence dedup over strings */
-    Vector<string> uq = v.distinct();
-    assert(uq.size() == 3);
-    assert(uq.get(0) == "x");
-    assert(uq.get(1) == "y");
-    assert(uq.get(2) == "z");
-    /* original is unchanged */
-    assert(v.size() == 5);
+	/* distinct: first-occurrence dedup over strings */
+	Vector<string> uq = v.distinct();
+	assert(uq.size() == 3);
+	assert(uq.get(0) == "x");
+	assert(uq.get(1) == "y");
+	assert(uq.get(2) == "z");
+	/* original is unchanged */
+	assert(v.size() == 5);
 
-    /* sorted: non-mutating lexicographic sort */
-    Vector<string> w = ["cherry", "apple", "banana"];
-    Vector<string> srt = w.sorted();
-    assert(srt.size() == 3);
-    assert(srt.get(0) == "apple");
-    assert(srt.get(1) == "banana");
-    assert(srt.get(2) == "cherry");
-    /* original order preserved */
-    assert(w.get(0) == "cherry");
-    assert(w.get(1) == "apple");
-    assert(w.get(2) == "banana");
+	/* sorted: non-mutating lexicographic sort */
+	Vector<string> w = ["cherry", "apple", "banana"];
+	Vector<string> srt = w.sorted();
+	assert(srt.size() == 3);
+	assert(srt.get(0) == "apple");
+	assert(srt.get(1) == "banana");
+	assert(srt.get(2) == "cherry");
+	/* original order preserved */
+	assert(w.get(0) == "cherry");
+	assert(w.get(1) == "apple");
+	assert(w.get(2) == "banana");
 
-    /* removeAll: drop every element equal to the argument */
-    Vector<string> r = ["a", "b", "a", "c"];
-    r.removeAll("a");
-    assert(r.size() == 2);
-    assert(r.get(0) == "b");
-    assert(r.get(1) == "c");
-    /* removing an absent value is a no-op */
-    r.removeAll("zzz");
-    assert(r.size() == 2);
+	/* removeAll: drop every element equal to the argument */
+	Vector<string> r = ["a", "b", "a", "c"];
+	r.removeAll("a");
+	assert(r.size() == 2);
+	assert(r.get(0) == "b");
+	assert(r.get(1) == "c");
+	/* removing an absent value is a no-op */
+	r.removeAll("zzz");
+	assert(r.size() == 2);
 
-    v.free();
-    uq.free();
-    w.free();
-    srt.free();
-    r.free();
+	v.free();
+	uq.free();
+	w.free();
+	srt.free();
+	r.free();
 
-    printf("PASS: test_vector_string_comparison_methods\n");
-    return 0;
+	printf("PASS: test_vector_string_comparison_methods\n");
+	return 0;
 }

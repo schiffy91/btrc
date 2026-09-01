@@ -5,8 +5,8 @@ int declarationValue = 7;
 extern int foreignDefault(int value = declarationValue);
 
 int main() {
-    int declarationValue = 99;
-    assert(foreignDefault() == 7);
-    assert(declarationValue == 99);
-    return 0;
+	int declarationValue = 99;
+	assert(foreignDefault() == 7);
+	assert(declarationValue == 99);
+	return 0;
 }

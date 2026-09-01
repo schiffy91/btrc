@@ -8,297 +8,268 @@ int mutexFieldPayloadHooks = 0;
 int mutexSelfAlive = 0;
 int mutexSelfHooks = 0;
 
-Mutex<int> defaultMutexSource() {
-    return Mutex(41);
-}
+Mutex<int> defaultMutexSource() { return Mutex(41); }
 
 class MutexFieldPayload {
-    public MutexFieldPayload() {
-        mutexFieldPayloadAlive++;
-    }
+	public MutexFieldPayload() { mutexFieldPayloadAlive++; }
 
-    public void __del__() {
-        mutexFieldPayloadAlive--;
-        mutexFieldPayloadHooks++;
-    }
+	public void __del__() {
+		mutexFieldPayloadAlive--;
+		mutexFieldPayloadHooks++;
+	}
 }
 
 class MutexFieldOwner {
-    public Mutex<MutexFieldPayload> stored;
+	public Mutex<MutexFieldPayload> stored;
 
-    public MutexFieldOwner() {
-        MutexFieldPayload value = new MutexFieldPayload();
-        self.stored = Mutex(value);
-        release value;
-    }
+	public MutexFieldOwner() {
+		MutexFieldPayload value = new MutexFieldPayload();
+		self.stored = Mutex(value);
+		release value;
+	}
 }
 
 class ReassignedMutexFieldOwner {
-    public Mutex<MutexFieldPayload> stored;
+	public Mutex<MutexFieldPayload> stored;
 
-    public ReassignedMutexFieldOwner() {
-        MutexFieldPayload value = new MutexFieldPayload();
-        self.stored = Mutex(value);
-        release value;
-    }
+	public ReassignedMutexFieldOwner() {
+		MutexFieldPayload value = new MutexFieldPayload();
+		self.stored = Mutex(value);
+		release value;
+	}
 
-    public void replace() {
-        MutexFieldPayload value = new MutexFieldPayload();
-        self.stored = Mutex(value);
-        release value;
-    }
+	public void replace() {
+		MutexFieldPayload value = new MutexFieldPayload();
+		self.stored = Mutex(value);
+		release value;
+	}
 
-    public void moveFrom(ReassignedMutexFieldOwner source) {
-        self.stored = source.stored;
-    }
+	public void moveFrom(ReassignedMutexFieldOwner source) { self.stored = source.stored; }
 
-    public void moveToSelf() {
-        self.stored = self.stored;
-    }
+	public void moveToSelf() { self.stored = self.stored; }
 }
 
 class ScalarMutexFieldOwner {
-    public Mutex<int> stored;
+	public Mutex<int> stored;
 
-    public ScalarMutexFieldOwner(int value) {
-        self.stored = Mutex(value);
-    }
+	public ScalarMutexFieldOwner(int value) { self.stored = Mutex(value); }
 
-    public void moveFrom(ScalarMutexFieldOwner source) {
-        self.stored = source.stored;
-    }
+	public void moveFrom(ScalarMutexFieldOwner source) { self.stored = source.stored; }
 
-    public void moveToSelf() {
-        self.stored = self.stored;
-    }
+	public void moveToSelf() { self.stored = self.stored; }
 }
 
 class DefaultMutexFieldOwner {
-    public Mutex<int> stored = defaultMutexSource();
+	public Mutex<int> stored = defaultMutexSource();
 
-    public DefaultMutexFieldOwner() {}
+	public DefaultMutexFieldOwner() {}
 }
 
 class ManualDestroyMutexFieldOwner {
-    public Mutex<MutexFieldPayload> stored;
+	public Mutex<MutexFieldPayload> stored;
 
-    public ManualDestroyMutexFieldOwner() {
-        MutexFieldPayload value = new MutexFieldPayload();
-        self.stored = Mutex(value);
-        release value;
-    }
+	public ManualDestroyMutexFieldOwner() {
+		MutexFieldPayload value = new MutexFieldPayload();
+		self.stored = Mutex(value);
+		release value;
+	}
 
-    public void __del__() {
-        self.stored.destroy();
-    }
+	public void __del__() { self.stored.destroy(); }
 }
 
 class AbandonedMutexFieldOwner {
-    public Mutex<MutexFieldPayload> stored;
+	public Mutex<MutexFieldPayload> stored;
 
-    public AbandonedMutexFieldOwner() {
-        MutexFieldPayload value = new MutexFieldPayload();
-        self.stored = Mutex(value);
-        release value;
-        throw "mutex field constructor failure";
-    }
+	public AbandonedMutexFieldOwner() {
+		MutexFieldPayload value = new MutexFieldPayload();
+		self.stored = Mutex(value);
+		release value;
+		throw "mutex field constructor failure";
+	}
 }
 
 class GenericMutexFieldOwner<T> {
-    public Mutex<T> stored;
+	public Mutex<T> stored;
 
-    public GenericMutexFieldOwner(T value) {
-        self.stored = Mutex(value);
-    }
+	public GenericMutexFieldOwner(T value) { self.stored = Mutex(value); }
 }
 
 class WarmFieldCycleNode {
-    public WarmFieldCycleNode next;
+	public WarmFieldCycleNode next;
 
-    public WarmFieldCycleNode() {
-        self.next = null;
-    }
+	public WarmFieldCycleNode() { self.next = null; }
 
-    public void __del__() {}
+	public void __del__() {}
 }
 
 class MutexSelfOwner {
-    public Mutex<MutexSelfOwner> stored;
+	public Mutex<MutexSelfOwner> stored;
 
-    public MutexSelfOwner() {
-        self.stored = new Mutex<MutexSelfOwner>(null);
-        self.stored.set(self);
-        mutexSelfAlive++;
-    }
+	public MutexSelfOwner() {
+		self.stored = new Mutex<MutexSelfOwner>(null);
+		self.stored.set(self);
+		mutexSelfAlive++;
+	}
 
-    public void __del__() {
-        mutexSelfAlive--;
-        mutexSelfHooks++;
-    }
+	public void __del__() {
+		mutexSelfAlive--;
+		mutexSelfHooks++;
+	}
 }
 
 void warmMutexFieldCallbacks() {
-    /* Allocation checkpoints compare transient ownership resources, so warm
+	/* Allocation checkpoints compare transient ownership resources, so warm
      * the reusable try stack and first frame before taking a baseline. */
-    try {
-        throw "warm mutex field try state";
-    } catch (string error) {
-        assert(error.equals("warm mutex field try state"));
-    }
+	try {
+		throw "warm mutex field try state";
+	} catch (string error) {
+		assert(error.equals("warm mutex field try state"));
+	}
 
-    /* Warm the nested guarded callbacks and destroyed-object tracking used by
+	/* Warm the nested guarded callbacks and destroyed-object tracking used by
      * partial-construction cleanup; both retain reusable process state. */
-    try {
-        AbandonedMutexFieldOwner abandoned =
-            new AbandonedMutexFieldOwner();
-        delete abandoned;
-        assert(false);
-    } catch (string error) {
-        assert(error.equals("mutex field constructor failure"));
-    }
+	try {
+		AbandonedMutexFieldOwner abandoned = new AbandonedMutexFieldOwner();
+		delete abandoned;
+		assert(false);
+	} catch (string error) {
+		assert(error.equals("mutex field constructor failure"));
+	}
 
-    MutexFieldPayload value = new MutexFieldPayload();
-    Mutex<MutexFieldPayload> owner = Mutex(value);
-    release value;
-    owner.destroy();
+	MutexFieldPayload value = new MutexFieldPayload();
+	Mutex<MutexFieldPayload> owner = Mutex(value);
+	release value;
+	owner.destroy();
 
-    WarmFieldCycleNode first = new WarmFieldCycleNode();
-    WarmFieldCycleNode second = new WarmFieldCycleNode();
-    first.next = second;
-    second.next = first;
-    release first;
-    release second;
+	WarmFieldCycleNode first = new WarmFieldCycleNode();
+	WarmFieldCycleNode second = new WarmFieldCycleNode();
+	first.next = second;
+	second.next = first;
+	release first;
+	release second;
 }
 
 int main() {
-    warmMutexFieldCallbacks();
-    assert(mutexFieldPayloadAlive == 0);
-    assert(mutexFieldPayloadHooks == 2);
+	warmMutexFieldCallbacks();
+	assert(mutexFieldPayloadAlive == 0);
+	assert(mutexFieldPayloadHooks == 2);
 
-    DefaultMutexFieldOwner defaultOwner =
-        new DefaultMutexFieldOwner();
-    /* A returned default value transfers one ARC reference into the field. */
-    assert(defaultOwner.stored.get() == 41);
-    delete defaultOwner;
+	DefaultMutexFieldOwner defaultOwner = new DefaultMutexFieldOwner();
+	/* A returned default value transfers one ARC reference into the field. */
+	assert(defaultOwner.stored.get() == 41);
+	delete defaultOwner;
 
-    arc_test_allocation_checkpoint();
-    MutexFieldOwner owner = new MutexFieldOwner();
-    assert(mutexFieldPayloadAlive == 1);
-    delete owner;
+	arc_test_allocation_checkpoint();
+	MutexFieldOwner owner = new MutexFieldOwner();
+	assert(mutexFieldPayloadAlive == 1);
+	delete owner;
 
-    /* Class-owned Mutex handles are valid persistent fields. Terminal class
+	/* Class-owned Mutex handles are valid persistent fields. Terminal class
      * cleanup must consume the handle before freeing the containing object. */
-    assert(mutexFieldPayloadAlive == 0);
-    assert(mutexFieldPayloadHooks == 3);
-    assert(arc_test_allocation_delta() == 0);
+	assert(mutexFieldPayloadAlive == 0);
+	assert(mutexFieldPayloadHooks == 3);
+	assert(arc_test_allocation_delta() == 0);
 
-    int hooksBeforeReplace = mutexFieldPayloadHooks;
-    arc_test_allocation_checkpoint();
-    ReassignedMutexFieldOwner reassigned = new ReassignedMutexFieldOwner();
-    assert(mutexFieldPayloadAlive == 1);
-    reassigned.replace();
+	int hooksBeforeReplace = mutexFieldPayloadHooks;
+	arc_test_allocation_checkpoint();
+	ReassignedMutexFieldOwner reassigned = new ReassignedMutexFieldOwner();
+	assert(mutexFieldPayloadAlive == 1);
+	reassigned.replace();
 
-    /* Rebinding an owning field must commit the new handle and consume the old
+	/* Rebinding an owning field must commit the new handle and consume the old
      * one exactly once. The replacement remains owned until terminal cleanup. */
-    assert(mutexFieldPayloadAlive == 1);
-    assert(mutexFieldPayloadHooks == hooksBeforeReplace + 1);
-    delete reassigned;
-    assert(mutexFieldPayloadAlive == 0);
-    assert(mutexFieldPayloadHooks == hooksBeforeReplace + 2);
-    assert(arc_test_allocation_delta() == 0);
+	assert(mutexFieldPayloadAlive == 1);
+	assert(mutexFieldPayloadHooks == hooksBeforeReplace + 1);
+	delete reassigned;
+	assert(mutexFieldPayloadAlive == 0);
+	assert(mutexFieldPayloadHooks == hooksBeforeReplace + 2);
+	assert(arc_test_allocation_delta() == 0);
 
-    int hooksBeforeMove = mutexFieldPayloadHooks;
-    arc_test_allocation_checkpoint();
-    ReassignedMutexFieldOwner moveTarget =
-        new ReassignedMutexFieldOwner();
-    ReassignedMutexFieldOwner moveSource =
-        new ReassignedMutexFieldOwner();
-    moveTarget.moveToSelf();
-    assert(mutexFieldPayloadAlive == 2);
-    assert(mutexFieldPayloadHooks == hooksBeforeMove);
-    moveTarget.moveFrom(moveSource);
+	int hooksBeforeMove = mutexFieldPayloadHooks;
+	arc_test_allocation_checkpoint();
+	ReassignedMutexFieldOwner moveTarget = new ReassignedMutexFieldOwner();
+	ReassignedMutexFieldOwner moveSource = new ReassignedMutexFieldOwner();
+	moveTarget.moveToSelf();
+	assert(mutexFieldPayloadAlive == 2);
+	assert(mutexFieldPayloadHooks == hooksBeforeMove);
+	moveTarget.moveFrom(moveSource);
 
-    /* Cross-owner assignment aliases the source handle while consuming the
+	/* Cross-owner assignment aliases the source handle while consuming the
      * destination's previous handle. Either alias may then release its share. */
-    assert(mutexFieldPayloadAlive == 1);
-    assert(mutexFieldPayloadHooks == hooksBeforeMove + 1);
-    moveSource.stored.destroy();
-    delete moveSource;
-    assert(mutexFieldPayloadAlive == 1);
-    delete moveTarget;
-    assert(mutexFieldPayloadAlive == 0);
-    assert(mutexFieldPayloadHooks == hooksBeforeMove + 2);
-    assert(arc_test_allocation_delta() == 0);
+	assert(mutexFieldPayloadAlive == 1);
+	assert(mutexFieldPayloadHooks == hooksBeforeMove + 1);
+	moveSource.stored.destroy();
+	delete moveSource;
+	assert(mutexFieldPayloadAlive == 1);
+	delete moveTarget;
+	assert(mutexFieldPayloadAlive == 0);
+	assert(mutexFieldPayloadHooks == hooksBeforeMove + 2);
+	assert(arc_test_allocation_delta() == 0);
 
-    arc_test_allocation_checkpoint();
-    ScalarMutexFieldOwner scalarTarget =
-        new ScalarMutexFieldOwner(1);
-    ScalarMutexFieldOwner scalarSource =
-        new ScalarMutexFieldOwner(2);
-    scalarTarget.moveToSelf();
-    scalarTarget.moveFrom(scalarSource);
-    assert(scalarTarget.stored.get() == 2);
-    scalarSource.stored.destroy();
-    delete scalarSource;
-    delete scalarTarget;
-    assert(arc_test_allocation_delta() == 0);
+	arc_test_allocation_checkpoint();
+	ScalarMutexFieldOwner scalarTarget = new ScalarMutexFieldOwner(1);
+	ScalarMutexFieldOwner scalarSource = new ScalarMutexFieldOwner(2);
+	scalarTarget.moveToSelf();
+	scalarTarget.moveFrom(scalarSource);
+	assert(scalarTarget.stored.get() == 2);
+	scalarSource.stored.destroy();
+	delete scalarSource;
+	delete scalarTarget;
+	assert(arc_test_allocation_delta() == 0);
 
-    int hooksBeforeManualDestroy = mutexFieldPayloadHooks;
-    arc_test_allocation_checkpoint();
-    ManualDestroyMutexFieldOwner manual =
-        new ManualDestroyMutexFieldOwner();
-    delete manual;
+	int hooksBeforeManualDestroy = mutexFieldPayloadHooks;
+	arc_test_allocation_checkpoint();
+	ManualDestroyMutexFieldOwner manual = new ManualDestroyMutexFieldOwner();
+	delete manual;
 
-    /* A source hook may explicitly destroy its field. Compiler-owned terminal
+	/* A source hook may explicitly destroy its field. Compiler-owned terminal
      * cleanup must observe the cleared slot instead of double-freeing it. */
-    assert(mutexFieldPayloadAlive == 0);
-    assert(mutexFieldPayloadHooks == hooksBeforeManualDestroy + 1);
-    assert(arc_test_allocation_delta() == 0);
+	assert(mutexFieldPayloadAlive == 0);
+	assert(mutexFieldPayloadHooks == hooksBeforeManualDestroy + 1);
+	assert(arc_test_allocation_delta() == 0);
 
-    int hooksBeforeAbandon = mutexFieldPayloadHooks;
-    arc_test_allocation_checkpoint();
-    bool abandonedCaught = false;
-    try {
-        AbandonedMutexFieldOwner abandoned =
-            new AbandonedMutexFieldOwner();
-        delete abandoned;
-        assert(false);
-    } catch (string error) {
-        abandonedCaught = error.equals("mutex field constructor failure");
-    }
+	int hooksBeforeAbandon = mutexFieldPayloadHooks;
+	arc_test_allocation_checkpoint();
+	bool abandonedCaught = false;
+	try {
+		AbandonedMutexFieldOwner abandoned = new AbandonedMutexFieldOwner();
+		delete abandoned;
+		assert(false);
+	} catch (string error) {
+		abandonedCaught = error.equals("mutex field constructor failure");
+	}
 
-    /* Constructor unwind owns the partially initialized object and must run
+	/* Constructor unwind owns the partially initialized object and must run
      * the same exact field cleanup before preserving the original exception. */
-    assert(abandonedCaught);
-    assert(mutexFieldPayloadAlive == 0);
-    assert(mutexFieldPayloadHooks == hooksBeforeAbandon + 1);
-    assert(arc_test_allocation_delta() == 0);
+	assert(abandonedCaught);
+	assert(mutexFieldPayloadAlive == 0);
+	assert(mutexFieldPayloadHooks == hooksBeforeAbandon + 1);
+	assert(arc_test_allocation_delta() == 0);
 
-    int hooksBeforeGeneric = mutexFieldPayloadHooks;
-    arc_test_allocation_checkpoint();
-    MutexFieldPayload genericPayload = new MutexFieldPayload();
-    GenericMutexFieldOwner<MutexFieldPayload> genericOwner =
-        new GenericMutexFieldOwner<MutexFieldPayload>(genericPayload);
-    release genericPayload;
-    assert(mutexFieldPayloadAlive == 1);
-    delete genericOwner;
+	int hooksBeforeGeneric = mutexFieldPayloadHooks;
+	arc_test_allocation_checkpoint();
+	MutexFieldPayload genericPayload = new MutexFieldPayload();
+	GenericMutexFieldOwner<MutexFieldPayload> genericOwner = new GenericMutexFieldOwner<MutexFieldPayload> (genericPayload);
+	release genericPayload;
+	assert(mutexFieldPayloadAlive == 1);
+	delete genericOwner;
 
-    /* Monomorphized owners obey the same hidden-handle ownership contract as
+	/* Monomorphized owners obey the same hidden-handle ownership contract as
      * concrete classes; type substitution must not bypass terminal cleanup. */
-    assert(mutexFieldPayloadAlive == 0);
-    assert(mutexFieldPayloadHooks == hooksBeforeGeneric + 1);
-    assert(arc_test_allocation_delta() == 0);
+	assert(mutexFieldPayloadAlive == 0);
+	assert(mutexFieldPayloadHooks == hooksBeforeGeneric + 1);
+	assert(arc_test_allocation_delta() == 0);
 
-    arc_test_allocation_checkpoint();
-    MutexSelfOwner selfOwned = new MutexSelfOwner();
-    assert(mutexSelfAlive == 1);
-    release selfOwned;
+	arc_test_allocation_checkpoint();
+	MutexSelfOwner selfOwned = new MutexSelfOwner();
+	assert(mutexSelfAlive == 1);
+	release selfOwned;
 
-    /* The Mutex's managed value is owned by its containing class. Binding a
+	/* The Mutex's managed value is owned by its containing class. Binding a
      * live Mutex<Self> must therefore be a collectible internal edge rather
      * than an immortal hidden root. */
-    assert(mutexSelfAlive == 0);
-    assert(mutexSelfHooks == 1);
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	assert(mutexSelfAlive == 0);
+	assert(mutexSelfHooks == 1);
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

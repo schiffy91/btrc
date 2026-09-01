@@ -2,23 +2,23 @@
 #include <assert.h>
 
 int main() {
-    string s = "hello";
-    assert(s[0] == 'h');
-    assert(s[4] == 'o');
-    assert((int)s[1] == 101);
+	string s = "hello";
+	assert(s[0] == 'h');
+	assert(s[4] == 'o');
+	assert((int)s[1] == 101);
 
-    // subscript and charAt agree
-    assert(s[2] == s.charAt(2));
+	// subscript and charAt agree
+	assert(s[2] == s.charAt(2));
 
-    // iterate by index and compare
-    int count = 0;
-    for i in range(s.len()) {
-        if (s[i] == 'l') {
-            count = count + 1;
-        }
-    }
-    assert(count == 2);
+	// iterate by index and compare
+	int count = 0;
+	for i in range(s.len()) {
+		if (s[i] == 'l') {
+			count = count + 1;
+		}
+	}
+	assert(count == 2);
 
-    print("PASS: test_string_subscript_char");
-    return 0;
+	print("PASS: test_string_subscript_char");
+	return 0;
 }

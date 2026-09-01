@@ -7,49 +7,47 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 // Free-function factory with keep-return.
 keep Obj makeKept(int id) {
-    Obj o = new Obj(id);
-    return o;
+	Obj o = new Obj(id);
+	return o;
 }
 
 class Factory {
-    // Method with keep-return.
-    public keep Obj produce(int id) {
-        Obj o = new Obj(id);
-        return o;
-    }
+	// Method with keep-return.
+	public keep Obj produce(int id) {
+		Obj o = new Obj(id);
+		return o;
+	}
 }
 
 int main() {
-    // Free function keep-return: caller owns the returned object.
-    Obj a = makeKept(7);
-    assert(a.id == 7);
-    assert(alive == 1);
-    delete a;
-    assert(alive == 0);
+	// Free function keep-return: caller owns the returned object.
+	Obj a = makeKept(7);
+	assert(a.id == 7);
+	assert(alive == 1);
+	delete a;
+	assert(alive == 0);
 
-    // Method keep-return.
-    Factory f = new Factory();
-    Obj b = f.produce(9);
-    assert(b.id == 9);
-    assert(alive == 1);
-    delete b;
-    assert(alive == 0);
-    delete f;
+	// Method keep-return.
+	Factory f = new Factory();
+	Obj b = f.produce(9);
+	assert(b.id == 9);
+	assert(alive == 1);
+	delete b;
+	assert(alive == 0);
+	delete f;
 
-    print("PASS: test_keep_return");
-    return 0;
+	print("PASS: test_keep_return");
+	return 0;
 }

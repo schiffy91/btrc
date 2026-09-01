@@ -1,103 +1,99 @@
-#include <assert.h>
-
 import std.map;
 import std.vector;
+
+#include <assert.h>
 
 int itemsAlive = 0;
 int boxesAlive = 0;
 
 class Item {
-    public int id;
+	public int id;
 
-    public Item(int id) {
-        self.id = id;
-        itemsAlive++;
-    }
+	public Item(int id) {
+		self.id = id;
+		itemsAlive++;
+	}
 
-    public void __del__() {
-        itemsAlive--;
-    }
+	public void __del__() { itemsAlive--; }
 }
 
 class Box<T> {
-    public T value;
+	public T value;
 
-    public Box(T value) {
-        self.value = value;
-        boxesAlive++;
-    }
+	public Box(T value) {
+		self.value = value;
+		boxesAlive++;
+	}
 
-    public void __del__() {
-        boxesAlive--;
-    }
+	public void __del__() { boxesAlive--; }
 }
 
 void exerciseVectorLiteral(int base) {
-    Vector<Item> values = [
-        new Item(base),
-        new Item(base + 1),
-        new Item(base + 2),
-    ];
-    assert(values.len == 3);
-    assert(itemsAlive == 3);
+	Vector<Item> values = [
+		new Item(base),
+		new Item(base + 1),
+		new Item(base + 2),
+	];
+	assert(values.len == 3);
+	assert(itemsAlive == 3);
 }
 
 void exerciseMapLiteral(int base) {
-    Map<Item, Item> values = {
-        new Item(base): new Item(base + 1),
-        new Item(base + 2): new Item(base + 3),
-    };
-    assert(values.len == 2);
-    assert(itemsAlive == 4);
+	Map<Item, Item> values = {
+		new Item(base): new Item(base + 1),
+		new Item(base + 2): new Item(base + 3),
+	};
+	assert(values.len == 2);
+	assert(itemsAlive == 4);
 }
 
 void exerciseNestedGenericLiteral(int base) {
-    Vector<Box<Item>> values = [
-        new Box<Item>(new Item(base)),
-        new Box<Item>(new Item(base + 1)),
-    ];
-    assert(values.len == 2);
-    assert(boxesAlive == 2);
-    assert(itemsAlive == 2);
+	Vector<Box<Item>> values = [
+		new Box<Item>(new Item(base)),
+		new Box<Item>(new Item(base + 1)),
+	];
+	assert(values.len == 2);
+	assert(boxesAlive == 2);
+	assert(itemsAlive == 2);
 }
 
 void exerciseNestedVectorLiteral(int base) {
-    Vector<Vector<Item>> values = [
-        [],
-        [new Item(base)],
-        [new Item(base + 1), new Item(base + 2)],
-    ];
-    assert(values.len == 3);
-    assert(itemsAlive == 3);
+	Vector<Vector<Item>> values = [
+		[],
+		[new Item(base)],
+		[new Item(base + 1), new Item(base + 2)],
+	];
+	assert(values.len == 3);
+	assert(itemsAlive == 3);
 }
 
 void exerciseNestedMapLiteral(int base) {
-    Vector<Map<Item, Item>> values = [
-        {},
-        {new Item(base): new Item(base + 1)},
-    ];
-    assert(values.len == 2);
-    assert(itemsAlive == 2);
+	Vector<Map<Item, Item>> values = [
+		{},
+		{new Item(base): new Item(base + 1)},
+	];
+	assert(values.len == 2);
+	assert(itemsAlive == 2);
 }
 
 int main() {
-    for (int iteration = 0; iteration < 32; iteration++) {
-        int base = iteration * 100;
-        exerciseVectorLiteral(base);
-        assert(itemsAlive == 0);
+	for (int iteration = 0; iteration < 32; iteration++) {
+		int base = iteration * 100;
+		exerciseVectorLiteral(base);
+		assert(itemsAlive == 0);
 
-        exerciseMapLiteral(base + 10);
-        assert(itemsAlive == 0);
+		exerciseMapLiteral(base + 10);
+		assert(itemsAlive == 0);
 
-        exerciseNestedGenericLiteral(base + 20);
-        assert(itemsAlive == 0);
-        assert(boxesAlive == 0);
+		exerciseNestedGenericLiteral(base + 20);
+		assert(itemsAlive == 0);
+		assert(boxesAlive == 0);
 
-        exerciseNestedVectorLiteral(base + 30);
-        assert(itemsAlive == 0);
+		exerciseNestedVectorLiteral(base + 30);
+		assert(itemsAlive == 0);
 
-        exerciseNestedMapLiteral(base + 40);
-        assert(itemsAlive == 0);
-    }
-    return 0;
+		exerciseNestedMapLiteral(base + 40);
+		assert(itemsAlive == 0);
+	}
+	return 0;
 }

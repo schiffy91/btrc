@@ -6,51 +6,49 @@ import std.array;
 #include <assert.h>
 
 class Tracked {
-    public int id;
+	public int id;
 
-    public Tracked(int id) {
-        self.id = id;
-        print(f"create {id}");
-    }
+	public Tracked(int id) {
+		self.id = id;
+		print(f"create {id}");
+	}
 
-    public void __del__() {
-        print(f"destroy {self.id}");
-    }
+	public void __del__() { print(f"destroy {self.id}"); }
 }
 
 void fillArray(Array<Tracked> arr) {
-    for (int i = 0; i < 3; i++) {
-        Tracked t = new Tracked(i);
-        arr.set(i, t);
-    }
-    /* Each t is released here — the Array's reference must keep it alive. */
+	for (int i = 0; i < 3; i++) {
+		Tracked t = new Tracked(i);
+		arr.set(i, t);
+	}
+	/* Each t is released here — the Array's reference must keep it alive. */
 }
 
 void replaceMiddle(Array<Tracked> arr) {
-    Tracked nine = new Tracked(9);
-    arr.set(1, nine);
-    /* set() releases the replaced element — "destroy 1" prints above. */
+	Tracked nine = new Tracked(9);
+	arr.set(1, nine);
+	/* set() releases the replaced element — "destroy 1" prints above. */
 }
 
 int main() {
-    Array<Tracked> arr = Array(3);
-    fillArray(arr);
-    print("after fill");
-    for (int i = 0; i < 3; i++) {
-        assert(arr.get(i).id == i);
-        print(arr.get(i).id);
-    }
+	Array<Tracked> arr = Array(3);
+	fillArray(arr);
+	print("after fill");
+	for (int i = 0; i < 3; i++) {
+		assert(arr.get(i).id == i);
+		print(arr.get(i).id);
+	}
 
-    replaceMiddle(arr);
-    print("after replace");
-    assert(arr.get(0).id == 0);
-    assert(arr.get(1).id == 9);
-    assert(arr.get(2).id == 2);
+	replaceMiddle(arr);
+	print("after replace");
+	assert(arr.get(0).id == 0);
+	assert(arr.get(1).id == 9);
+	assert(arr.get(2).id == 2);
 
-    /* free() releases all elements — destroys 0, 9, 2 in order. */
-    arr.free();
-    assert(arr.isEmpty());
+	/* free() releases all elements — destroys 0, 9, 2 in order. */
+	arr.free();
+	assert(arr.isEmpty());
 
-    print("PASS: test_stdlib_array_arc");
-    return 0;
+	print("PASS: test_stdlib_array_arc");
+	return 0;
 }

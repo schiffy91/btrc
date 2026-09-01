@@ -6,41 +6,41 @@
 #include <assert.h>
 
 int main() {
-    // Non-capturing lambda that throws on a negative argument.
-    var f = (int x) => {
-        if (x < 0) { throw "neg"; }
-        return x * 2;
-    };
-    assert(f(5) == 10);   // normal return path through the lifted function
+	// Non-capturing lambda that throws on a negative argument.
+	var f = (int x) => {
+		if (x < 0) { throw "neg"; }
+		return x * 2;
+	};
+	assert(f(5) == 10);   // normal return path through the lifted function
 
-    int caught = 0;
-    try {
-        int b = f(-1);    // throw crosses the lifted-lambda frame
-        assert(b == 0);   // unreachable
-    } catch (string e) {
-        caught = 1;
-        assert(e.equals("neg"));
-    }
-    assert(caught == 1);
+	int caught = 0;
+	try {
+		int b = f(-1);    // throw crosses the lifted-lambda frame
+		assert(b == 0);   // unreachable
+	} catch (string e) {
+		caught = 1;
+		assert(e.equals("neg"));
+	}
+	assert(caught == 1);
 
-    // Capturing lambda that throws an f-string built from the captured value.
-    int limit = 7;
-    var g = (int x) => {
-        if (x > limit) { throw f"over {limit}: {x}"; }
-        return x;
-    };
-    assert(g(3) == 3);
+	// Capturing lambda that throws an f-string built from the captured value.
+	int limit = 7;
+	var g = (int x) => {
+		if (x > limit) { throw f"over {limit}: {x}"; }
+		return x;
+	};
+	assert(g(3) == 3);
 
-    int caught2 = 0;
-    try {
-        int c = g(20);
-        assert(c == 0);   // unreachable
-    } catch (string e) {
-        caught2 = 1;
-        assert(e.equals("over 7: 20"));
-    }
-    assert(caught2 == 1);
+	int caught2 = 0;
+	try {
+		int c = g(20);
+		assert(c == 0);   // unreachable
+	} catch (string e) {
+		caught2 = 1;
+		assert(e.equals("over 7: 20"));
+	}
+	assert(caught2 == 1);
 
-    print("PASS: test_exceptions_throw_from_lambda");
-    return 0;
+	print("PASS: test_exceptions_throw_from_lambda");
+	return 0;
 }

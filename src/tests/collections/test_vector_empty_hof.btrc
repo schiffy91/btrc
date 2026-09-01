@@ -8,36 +8,30 @@ import std.vector;
 
 int counter = 0;
 
-bool isPos(int x) {
-    return x > 0;
-}
+bool isPos(int x) { return x > 0; }
 
-int add(int acc, int x) {
-    return acc + x;
-}
+int add(int acc, int x) { return acc + x; }
 
-void bump(int x) {
-    counter += 1;
-}
+void bump(int x) { counter += 1; }
 
 int main() {
-    Vector<int> e = [];
+	Vector<int> e = [];
 
-    assert(e.all(isPos) == true);
-    assert(e.any(isPos) == false);
-    assert(e.sum() == 0);
-    assert(e.reduce(7, add) == 7);
+	assert(e.all(isPos) == true);
+	assert(e.any(isPos) == false);
+	assert(e.sum() == 0);
+	assert(e.reduce(7, add) == 7);
 
-    Vector<int> f = e.filter(isPos);
-    assert(f.isEmpty());
-    assert(f.size() == 0);
+	Vector<int> f = e.filter(isPos);
+	assert(f.isEmpty());
+	assert(f.size() == 0);
 
-    /* forEach over empty must not invoke the callback nor crash */
-    e.forEach(bump);
-    assert(counter == 0);
+	/* forEach over empty must not invoke the callback nor crash */
+	e.forEach(bump);
+	assert(counter == 0);
 
-    e.free();
-    f.free();
-    printf("PASS: test_vector_empty_hof\n");
-    return 0;
+	e.free();
+	f.free();
+	printf("PASS: test_vector_empty_hof\n");
+	return 0;
 }

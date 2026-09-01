@@ -2,33 +2,35 @@
  * that field into a Vector<U> via a mapping function. Combines field-of-T
  * collections with a method-level type param producing a different element
  * type. */
+import std.vector;
+
 #include <assert.h>
 #include <string.h>
-import std.vector;
 
 double scaleInt(int x) { return (double)x + 0.5; }
 
 class Bag<T> {
-    public Vector<T> items;
-    public Bag() { self.items = []; }
-    public void add(T x) { self.items.push(x); }
-    public Vector<U> mapAll<U>(__fn_ptr<U, T> f) {
-        Vector<U> out = [];
-        for it in self.items { out.push(f(it)); }
-        return out;
-    }
+	public Vector<T> items;
+	public Bag() { self.items = []; }
+
+	public void add(T x) { self.items.push(x); }
+	public Vector<U> mapAll<U>(__fn_ptr<U, T> f) {
+		Vector<U> out = [];
+		for it in self.items { out.push(f(it)); }
+		return out;
+	}
 }
 
 int main() {
-    Bag<int> b = new Bag<int>();
-    b.add(1);
-    b.add(2);
-    b.add(3);
-    Vector<double> mapped = b.mapAll(scaleInt);
-    assert(mapped.len == 3);
-    assert(mapped.get(0) == 1.5);
-    assert(mapped.get(2) == 3.5);
+	Bag<int> b = new Bag<int>();
+	b.add(1);
+	b.add(2);
+	b.add(3);
+	Vector<double> mapped = b.mapAll(scaleInt);
+	assert(mapped.len == 3);
+	assert(mapped.get(0) == 1.5);
+	assert(mapped.get(2) == 3.5);
 
-    print("PASS: test_generic_field_collection_transform");
-    return 0;
+	print("PASS: test_generic_field_collection_transform");
+	return 0;
 }

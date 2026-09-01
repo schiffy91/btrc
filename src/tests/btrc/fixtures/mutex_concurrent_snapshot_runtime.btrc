@@ -1,43 +1,43 @@
 #include <assert.h>
 
 struct Pair {
-    unsigned long long left;
-    unsigned long long right;
+	unsigned long long left;
+	unsigned long long right;
 };
 
 int main() {
-    Pair initial = {0ULL, 0ULL};
-    Mutex<Pair> shared = Mutex(initial);
+	Pair initial = {0ULL, 0ULL};
+	Mutex<Pair> shared = Mutex(initial);
 
-    Thread<int> first = spawn(() => {
-        for (int i = 1; i <= 2000; i++) {
-            unsigned long long value = (unsigned long long)i;
-            Pair next = {value, value};
-            shared.set(next);
-        }
-        return 0;
-    });
-    Thread<int> second = spawn(() => {
-        for (int i = 1; i <= 2000; i++) {
-            unsigned long long value = (unsigned long long)(i + 10000);
-            Pair next = {value, value};
-            shared.set(next);
-        }
-        return 0;
-    });
-    Thread<int> reader = spawn(() => {
-        for (int i = 0; i < 4000; i++) {
-            Pair snapshot = shared.get();
-            assert(snapshot.left == snapshot.right);
-        }
-        return 0;
-    });
+	Thread<int> first = spawn(() => {
+			for (int i = 1; i <= 2000; i++) {
+				unsigned long long value = (unsigned long long)i;
+				Pair next = {value, value};
+				shared.set(next);
+			}
+			return 0;
+		});
+	Thread<int> second = spawn(() => {
+			for (int i = 1; i <= 2000; i++) {
+				unsigned long long value = (unsigned long long)(i + 10000);
+				Pair next = {value, value};
+				shared.set(next);
+			}
+			return 0;
+		});
+	Thread<int> reader = spawn(() => {
+			for (int i = 0; i < 4000; i++) {
+				Pair snapshot = shared.get();
+				assert(snapshot.left == snapshot.right);
+			}
+			return 0;
+		});
 
-    first.join();
-    second.join();
-    reader.join();
-    Pair final = shared.get();
-    assert(final.left == final.right);
-    shared.destroy();
-    return 0;
+	first.join();
+	second.join();
+	reader.join();
+	Pair final = shared.get();
+	assert(final.left == final.right);
+	shared.destroy();
+	return 0;
 }

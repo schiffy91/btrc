@@ -3,63 +3,59 @@
 int trace = 0;
 
 int observe(int value) {
-    trace = trace * 10 + value;
-    return value;
+	trace = trace * 10 + value;
+	return value;
 }
 
 enum class Packet {
-    Pair(int left, int right = left + 1),
-    Ordered(
-        int first,
-        int second = observe(first + 1),
-        int third = observe(second + 1)
-    )
+	Pair(int left, int right = left + 1),
+	Ordered(
+		int first,
+		int second = observe(first + 1),
+		int third = observe(second + 1)
+	)
 }
 
 class Maker<T> {
-    public Packet reversed(int seed) {
-        return Packet.Pair(right=seed + 1, left=seed);
-    }
+	public Packet reversed(int seed) { return Packet.Pair(right=seed + 1, left=seed); }
 
-    public Packet defaulted(int seed) {
-        return Packet.Ordered(first=observe(seed));
-    }
+	public Packet defaulted(int seed) { return Packet.Ordered(first=observe(seed)); }
 }
 
 int main() {
-    trace = 0;
-    Packet reversed = Packet.Pair(right=observe(2), left=observe(1));
-    assert(trace == 21);
-    assert(reversed.data.Pair.left == 1);
-    assert(reversed.data.Pair.right == 2);
+	trace = 0;
+	Packet reversed = Packet.Pair(right=observe(2), left=observe(1));
+	assert(trace == 21);
+	assert(reversed.data.Pair.left == 1);
+	assert(reversed.data.Pair.right == 2);
 
-    trace = 0;
-    Packet mixed = Packet.Ordered(observe(1), third=observe(3));
-    assert(trace == 132);
-    assert(mixed.data.Ordered.first == 1);
-    assert(mixed.data.Ordered.second == 2);
-    assert(mixed.data.Ordered.third == 3);
+	trace = 0;
+	Packet mixed = Packet.Ordered(observe(1), third=observe(3));
+	assert(trace == 132);
+	assert(mixed.data.Ordered.first == 1);
+	assert(mixed.data.Ordered.second == 2);
+	assert(mixed.data.Ordered.third == 3);
 
-    trace = 0;
-    Packet defaults = Packet.Ordered(first=observe(4));
-    assert(trace == 456);
-    assert(defaults.data.Ordered.first == 4);
-    assert(defaults.data.Ordered.second == 5);
-    assert(defaults.data.Ordered.third == 6);
+	trace = 0;
+	Packet defaults = Packet.Ordered(first=observe(4));
+	assert(trace == 456);
+	assert(defaults.data.Ordered.first == 4);
+	assert(defaults.data.Ordered.second == 5);
+	assert(defaults.data.Ordered.third == 6);
 
-    Maker<int> maker = new Maker<int>();
-    Packet genericReversed = maker.reversed(7);
-    assert(genericReversed.data.Pair.left == 7);
-    assert(genericReversed.data.Pair.right == 8);
+	Maker<int> maker = new Maker<int>();
+	Packet genericReversed = maker.reversed(7);
+	assert(genericReversed.data.Pair.left == 7);
+	assert(genericReversed.data.Pair.right == 8);
 
-    trace = 0;
-    Packet genericDefaults = maker.defaulted(6);
-    assert(trace == 678);
-    assert(genericDefaults.data.Ordered.first == 6);
-    assert(genericDefaults.data.Ordered.second == 7);
-    assert(genericDefaults.data.Ordered.third == 8);
+	trace = 0;
+	Packet genericDefaults = maker.defaulted(6);
+	assert(trace == 678);
+	assert(genericDefaults.data.Ordered.first == 6);
+	assert(genericDefaults.data.Ordered.second == 7);
+	assert(genericDefaults.data.Ordered.third == 8);
 
-    delete maker;
-    print("PASS: test_rich_enum_named_defaults");
-    return 0;
+	delete maker;
+	print("PASS: test_rich_enum_named_defaults");
+	return 0;
 }

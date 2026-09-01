@@ -3,15 +3,15 @@
 
 // Rich enum public toString result interpolated in an f-string.
 enum class Dir {
-    North,
-    South
+	North,
+	South
 }
 
 int main() {
-    Dir d = Dir.South();
-    string name = d.toString();
-    string m = f"dir={name}";
-    assert(strcmp(m, "dir=South") == 0);
-    print("PASS: test_rich_enum_tostring_in_fstring");
-    return 0;
+	Dir d = Dir.South();
+	string name = d.toString();
+	string m = f"dir={name}";
+	assert(strcmp(m, "dir=South") == 0);
+	print("PASS: test_rich_enum_tostring_in_fstring");
+	return 0;
 }

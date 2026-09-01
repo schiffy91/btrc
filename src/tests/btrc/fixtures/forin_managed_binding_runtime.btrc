@@ -5,258 +5,236 @@ int sequencesAlive = 0;
 int pairsAlive = 0;
 
 class Item {
-    public int id;
+	public int id;
 
-    public Item(int id) {
-        self.id = id;
-        itemsAlive++;
-    }
+	public Item(int id) {
+		self.id = id;
+		itemsAlive++;
+	}
 
-    public void __del__() {
-        itemsAlive--;
-    }
+	public void __del__() { itemsAlive--; }
 }
 
 class ItemSequence {
-    public Item first;
-    public Item second;
-    public Item third;
+	public Item first;
+	public Item second;
+	public Item third;
 
-    public ItemSequence(int base) {
-        sequencesAlive++;
-        self.first = new Item(base);
-        self.second = new Item(base + 1);
-        self.third = new Item(base + 2);
-    }
+	public ItemSequence(int base) {
+		sequencesAlive++;
+		self.first = new Item(base);
+		self.second = new Item(base + 1);
+		self.third = new Item(base + 2);
+	}
 
-    public int iterLen() { return 3; }
+	public int iterLen() { return 3; }
 
-    public Item iterGet(int index) {
-        if (index == 0) { return self.first; }
-        if (index == 1) { return self.second; }
-        return self.third;
-    }
+	public Item iterGet(int index) {
+		if (index == 0) { return self.first; }
+		if (index == 1) { return self.second; }
+		return self.third;
+	}
 
-    public void __del__() {
-        sequencesAlive--;
-    }
+	public void __del__() { sequencesAlive--; }
 }
 
 class PairSequence {
-    public Item key0;
-    public Item key1;
-    public Item value0;
-    public Item value1;
+	public Item key0;
+	public Item key1;
+	public Item value0;
+	public Item value1;
 
-    public PairSequence(int base) {
-        pairsAlive++;
-        self.key0 = new Item(base);
-        self.key1 = new Item(base + 1);
-        self.value0 = new Item(base + 10);
-        self.value1 = new Item(base + 11);
-    }
+	public PairSequence(int base) {
+		pairsAlive++;
+		self.key0 = new Item(base);
+		self.key1 = new Item(base + 1);
+		self.value0 = new Item(base + 10);
+		self.value1 = new Item(base + 11);
+	}
 
-    public int iterLen() { return 2; }
+	public int iterLen() { return 2; }
 
-    public Item iterGet(int index) {
-        if (index == 0) { return self.key0; }
-        return self.key1;
-    }
+	public Item iterGet(int index) {
+		if (index == 0) { return self.key0; }
+		return self.key1;
+	}
 
-    public Item iterValueAt(int index) {
-        if (index == 0) { return self.value0; }
-        return self.value1;
-    }
+	public Item iterValueAt(int index) {
+		if (index == 0) { return self.value0; }
+		return self.value1;
+	}
 
-    public void __del__() {
-        pairsAlive--;
-    }
+	public void __del__() { pairsAlive--; }
 }
 
-ItemSequence makeItems(int base) {
-    return new ItemSequence(base);
-}
+ItemSequence makeItems(int base) { return new ItemSequence(base); }
 
-PairSequence makePairs(int base) {
-    return new PairSequence(base);
-}
+PairSequence makePairs(int base) { return new PairSequence(base); }
 
 int exhaustItems(int base) {
-    int sum = 0;
-    for item in makeItems(base) {
-        sum += item.id;
-    }
-    assert(itemsAlive == 0);
-    assert(sequencesAlive == 0);
-    return sum;
+	int sum = 0;
+	for item in makeItems(base) { sum += item.id; }
+	assert(itemsAlive == 0);
+	assert(sequencesAlive == 0);
+	return sum;
 }
 
 int breakItems(int base) {
-    int first = -1;
-    for item in makeItems(base) {
-        first = item.id;
-        break;
-    }
-    assert(itemsAlive == 0);
-    assert(sequencesAlive == 0);
-    return first;
+	int first = -1;
+	for item in makeItems(base) {
+		first = item.id;
+		break;
+	}
+	assert(itemsAlive == 0);
+	assert(sequencesAlive == 0);
+	return first;
 }
 
 int continueItems(int base) {
-    int sum = 0;
-    for item in makeItems(base) {
-        if (item.id == base + 1) { continue; }
-        sum += item.id;
-    }
-    assert(itemsAlive == 0);
-    assert(sequencesAlive == 0);
-    return sum;
+	int sum = 0;
+	for item in makeItems(base) {
+		if (item.id == base + 1) { continue; }
+		sum += item.id;
+	}
+	assert(itemsAlive == 0);
+	assert(sequencesAlive == 0);
+	return sum;
 }
 
 int returnFromItems(int base) {
-    for item in makeItems(base) {
-        return item.id;
-    }
-    return -1;
+	for item in makeItems(base) { return item.id; }
+	return -1;
 }
 
 void throwFromItems(int base) {
-    try {
-        for item in makeItems(base) {
-            if (item.id == base + 1) { throw "managed binding failure"; }
-        }
-        assert(false);
-    } catch (string error) {
-        assert(error.equals("managed binding failure"));
-    }
-    assert(itemsAlive == 0);
-    assert(sequencesAlive == 0);
+	try {
+		for item in makeItems(base) {
+			if (item.id == base + 1) { throw "managed binding failure"; }
+		}
+		assert(false);
+	} catch (string error) {
+		assert(error.equals("managed binding failure"));
+	}
+	assert(itemsAlive == 0);
+	assert(sequencesAlive == 0);
 }
 
 int borrowedItems(ItemSequence sequence) {
-    int sum = 0;
-    for item in sequence {
-        sum += item.id;
-    }
-    assert(itemsAlive == 3);
-    assert(sequencesAlive == 1);
-    return sum;
+	int sum = 0;
+	for item in sequence {
+		sum += item.id;
+	}
+	assert(itemsAlive == 3);
+	assert(sequencesAlive == 1);
+	return sum;
 }
 
 int nestedItems(int base) {
-    int sum = 0;
-    for outer in makeItems(base) {
-        for inner in makeItems(base + 10) {
-            if (inner.id == base + 11) { continue; }
-            sum += outer.id + inner.id;
-            if (inner.id == base + 12) { break; }
-        }
-        assert(itemsAlive == 3);
-        assert(sequencesAlive == 1);
-    }
-    assert(itemsAlive == 0);
-    assert(sequencesAlive == 0);
-    return sum;
+	int sum = 0;
+	for outer in makeItems(base) {
+		for inner in makeItems(base + 10) {
+			if (inner.id == base + 11) { continue; }
+			sum += outer.id + inner.id;
+			if (inner.id == base + 12) { break; }
+		}
+		assert(itemsAlive == 3);
+		assert(sequencesAlive == 1);
+	}
+	assert(itemsAlive == 0);
+	assert(sequencesAlive == 0);
+	return sum;
 }
 
 int consumePairs(int base) {
-    int sum = 0;
-    for key, value in makePairs(base) {
-        sum += key.id + value.id;
-    }
-    assert(itemsAlive == 0);
-    assert(pairsAlive == 0);
-    return sum;
+	int sum = 0;
+	for key, value in makePairs(base) { sum += key.id + value.id; }
+	assert(itemsAlive == 0);
+	assert(pairsAlive == 0);
+	return sum;
 }
 
 void throwFromPairs(int base) {
-    try {
-        for key, value in makePairs(base) {
-            assert(key.id >= base);
-            assert(value.id >= base + 10);
-            throw "pair binding failure";
-        }
-        assert(false);
-    } catch (string error) {
-        assert(error.equals("pair binding failure"));
-    }
-    assert(itemsAlive == 0);
-    assert(pairsAlive == 0);
+	try {
+		for key, value in makePairs(base) {
+			assert(key.id >= base);
+			assert(value.id >= base + 10);
+			throw "pair binding failure";
+		}
+		assert(false);
+	} catch (string error) {
+		assert(error.equals("pair binding failure"));
+	}
+	assert(itemsAlive == 0);
+	assert(pairsAlive == 0);
 }
 
 class GenericBindingRunner<T> {
-    public int exhaust(int base) {
-        int sum = 0;
-        for item in makeItems(base) {
-            sum += item.id;
-        }
-        assert(itemsAlive == 0);
-        assert(sequencesAlive == 0);
-        return sum;
-    }
+	public int exhaust(int base) {
+		int sum = 0;
+		for item in makeItems(base) { sum += item.id; }
+		assert(itemsAlive == 0);
+		assert(sequencesAlive == 0);
+		return sum;
+	}
 
-    public int earlyReturn(int base) {
-        for item in makeItems(base) {
-            return item.id;
-        }
-        return -1;
-    }
+	public int earlyReturn(int base) {
+		for item in makeItems(base) { return item.id; }
+		return -1;
+	}
 
-    public void throwFromLoop(int base) {
-        try {
-            for item in makeItems(base) {
-                if (item.id == base + 2) { throw "generic binding failure"; }
-            }
-            assert(false);
-        } catch (string error) {
-            assert(error.equals("generic binding failure"));
-        }
-        assert(itemsAlive == 0);
-        assert(sequencesAlive == 0);
-    }
+	public void throwFromLoop(int base) {
+		try {
+			for item in makeItems(base) {
+				if (item.id == base + 2) { throw "generic binding failure"; }
+			}
+			assert(false);
+		} catch (string error) {
+			assert(error.equals("generic binding failure"));
+		}
+		assert(itemsAlive == 0);
+		assert(sequencesAlive == 0);
+	}
 
-    public int pairs(int base) {
-        int sum = 0;
-        for key, value in makePairs(base) {
-            sum += key.id + value.id;
-        }
-        assert(itemsAlive == 0);
-        assert(pairsAlive == 0);
-        return sum;
-    }
+	public int pairs(int base) {
+		int sum = 0;
+		for key, value in makePairs(base) { sum += key.id + value.id; }
+		assert(itemsAlive == 0);
+		assert(pairsAlive == 0);
+		return sum;
+	}
 }
 
 int main() {
-    GenericBindingRunner<int> runner = new GenericBindingRunner<int>();
-    for (int iteration = 0; iteration < 24; iteration++) {
-        int base = iteration * 100;
-        assert(exhaustItems(base) == base * 3 + 3);
-        assert(breakItems(base) == base);
-        assert(continueItems(base) == base * 2 + 2);
-        assert(returnFromItems(base) == base);
-        assert(itemsAlive == 0);
-        assert(sequencesAlive == 0);
-        throwFromItems(base);
-        assert(nestedItems(base) > 0);
-        assert(consumePairs(base) == base * 4 + 22);
-        throwFromPairs(base);
+	GenericBindingRunner<int> runner = new GenericBindingRunner<int>();
+	for (int iteration = 0; iteration < 24; iteration++) {
+		int base = iteration * 100;
+		assert(exhaustItems(base) == base * 3 + 3);
+		assert(breakItems(base) == base);
+		assert(continueItems(base) == base * 2 + 2);
+		assert(returnFromItems(base) == base);
+		assert(itemsAlive == 0);
+		assert(sequencesAlive == 0);
+		throwFromItems(base);
+		assert(nestedItems(base) > 0);
+		assert(consumePairs(base) == base * 4 + 22);
+		throwFromPairs(base);
 
-        ItemSequence borrowed = new ItemSequence(base);
-        assert(borrowedItems(borrowed) == base * 3 + 3);
-        assert(itemsAlive == 3);
-        assert(sequencesAlive == 1);
-        delete borrowed;
-        assert(itemsAlive == 0);
-        assert(sequencesAlive == 0);
+		ItemSequence borrowed = new ItemSequence(base);
+		assert(borrowedItems(borrowed) == base * 3 + 3);
+		assert(itemsAlive == 3);
+		assert(sequencesAlive == 1);
+		delete borrowed;
+		assert(itemsAlive == 0);
+		assert(sequencesAlive == 0);
 
-        assert(runner.exhaust(base) == base * 3 + 3);
-        assert(runner.earlyReturn(base) == base);
-        assert(itemsAlive == 0);
-        runner.throwFromLoop(base);
-        assert(runner.pairs(base) == base * 4 + 22);
-        assert(itemsAlive == 0);
-        assert(sequencesAlive == 0);
-        assert(pairsAlive == 0);
-    }
-    return 0;
+		assert(runner.exhaust(base) == base * 3 + 3);
+		assert(runner.earlyReturn(base) == base);
+		assert(itemsAlive == 0);
+		runner.throwFromLoop(base);
+		assert(runner.pairs(base) == base * 4 + 22);
+		assert(itemsAlive == 0);
+		assert(sequencesAlive == 0);
+		assert(pairsAlive == 0);
+	}
+	return 0;
 }

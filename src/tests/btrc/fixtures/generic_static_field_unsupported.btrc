@@ -1,6 +1,6 @@
 class GenericStaticField<T> {
-    class int count = 0;
-    public GenericStaticField() {}
+	class int count = 0;
+	public GenericStaticField() {}
 }
 
 int main() { return 0; }

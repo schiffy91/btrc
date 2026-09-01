@@ -2,11 +2,11 @@ import std.map;
 
 #include <stdio.h>
 int main() {
-    Map<string, int> m = {};
-    m.put("x", 10);
-    m.put("y", 20);
-    if (m.containsValue(10)) { print("found 10"); }
-    if (!m.containsValue(99)) { print("no 99"); }
-    printf("PASS: test_containsValue\n");
-    return 0;
+	Map<string, int> m = {};
+	m.put("x", 10);
+	m.put("y", 20);
+	if (m.containsValue(10)) { print("found 10"); }
+	if (!m.containsValue(99)) { print("no 99"); }
+	printf("PASS: test_containsValue\n");
+	return 0;
 }

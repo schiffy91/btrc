@@ -4,9 +4,9 @@ import std.math
 
 // `import std.X` — single stdlib module, the sole import in the file.
 int main() {
-    assert(Math.abs(-7) == 7);
-    assert(Math.max(3, 9) == 9);
-    assert(Math.min(3, 9) == 3);
-    print("PASS: test_import_std_single");
-    return 0;
+	assert(Math.abs(-7) == 7);
+	assert(Math.max(3, 9) == 9);
+	assert(Math.min(3, 9) == 3);
+	print("PASS: test_import_std_single");
+	return 0;
 }

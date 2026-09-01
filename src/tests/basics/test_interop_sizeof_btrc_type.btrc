@@ -3,25 +3,25 @@
 // sizeof on a btrc class type: the class lowers to a C struct (typedef'd to its
 // bare name), so sizeof(ClassName) is well-formed in the emitted C.
 class Vec {
-    public int x;
-    public int y;
-    public Vec(int x, int y) { self.x = x; self.y = y; }
+	public int x;
+	public int y;
+	public Vec(int x, int y) { self.x = x; self.y = y; }
 }
 
 class Big {
-    public int a;
-    public int b;
-    public int c;
-    public int d;
-    public Big() { self.a = 0; self.b = 0; self.c = 0; self.d = 0; }
+	public int a;
+	public int b;
+	public int c;
+	public int d;
+	public Big() { self.a = 0; self.b = 0; self.c = 0; self.d = 0; }
 }
 
 int main() {
-    // A class with two int fields is at least two ints wide.
-    assert(sizeof(Vec) >= (size_t)2 * sizeof(int));
-    // A class with four int fields is at least as wide as the two-field one.
-    assert(sizeof(Big) >= sizeof(Vec));
+	// A class with two int fields is at least two ints wide.
+	assert(sizeof(Vec) >= (size_t)2 * sizeof(int));
+	// A class with four int fields is at least as wide as the two-field one.
+	assert(sizeof(Big) >= sizeof(Vec));
 
-    print("PASS: test_interop_sizeof_btrc_type");
-    return 0;
+	print("PASS: test_interop_sizeof_btrc_type");
+	return 0;
 }

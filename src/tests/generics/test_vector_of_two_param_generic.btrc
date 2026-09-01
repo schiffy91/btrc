@@ -2,29 +2,32 @@
  * Vector<Pair<int, string>>. The existing collection-of-user-generic tests all
  * use a single-param Box<int>; this verifies multi-param mangling of a generic
  * element inside the push/get path. */
-#include <assert.h>
-#include <string.h>
 import std.vector;
 
+#include <assert.h>
+#include <string.h>
+
 class Pair<A, B> {
-    public A a;
-    public B b;
-    public Pair(A x, B y) { self.a = x; self.b = y; }
-    public A getA() { return self.a; }
-    public B getB() { return self.b; }
+	public A a;
+	public B b;
+	public Pair(A x, B y) { self.a = x; self.b = y; }
+
+	public A getA() { return self.a; }
+
+	public B getB() { return self.b; }
 }
 
 int main() {
-    Vector<Pair<int, string>> v = [];
-    v.push(new Pair<int, string>(1, "one"));
-    v.push(new Pair<int, string>(2, "two"));
+	Vector<Pair<int, string>> v = [];
+	v.push(new Pair<int, string>(1, "one"));
+	v.push(new Pair<int, string>(2, "two"));
 
-    assert(v.len == 2);
-    assert(v.get(0).getA() == 1);
-    assert(strcmp(v.get(0).getB(), "one") == 0);
-    assert(v.get(1).getA() == 2);
-    assert(strcmp(v.get(1).getB(), "two") == 0);
+	assert(v.len == 2);
+	assert(v.get(0).getA() == 1);
+	assert(strcmp(v.get(0).getB(), "one") == 0);
+	assert(v.get(1).getA() == 2);
+	assert(strcmp(v.get(1).getB(), "two") == 0);
 
-    print("PASS: test_vector_of_two_param_generic");
-    return 0;
+	print("PASS: test_vector_of_two_param_generic");
+	return 0;
 }

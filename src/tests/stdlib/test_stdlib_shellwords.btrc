@@ -10,46 +10,46 @@ import std.process;
 #include <assert.h>
 
 int main() {
-    // Empty string must be quoted to '' (a bare empty word would vanish).
-    assert(ShellWords.quote("").equals("''"));
+	// Empty string must be quoted to '' (a bare empty word would vanish).
+	assert(ShellWords.quote("").equals("''"));
 
-    // A safe arg (alnum + a few punctuation) passes through verbatim.
-    assert(ShellWords.quote("safe-arg_1.2/x:y=z,+a").equals("safe-arg_1.2/x:y=z,+a"));
+	// A safe arg (alnum + a few punctuation) passes through verbatim.
+	assert(ShellWords.quote("safe-arg_1.2/x:y=z,+a").equals("safe-arg_1.2/x:y=z,+a"));
 
-    // A space forces quoting.
-    assert(ShellWords.quote("a b").equals("'a b'"));
+	// A space forces quoting.
+	assert(ShellWords.quote("a b").equals("'a b'"));
 
-    // An embedded single quote becomes '\'' inside the single-quoted form:
-    // a'b -> 'a'\''b'
-    assert(ShellWords.quote("a'b").equals("'a'\\''b'"));
+	// An embedded single quote becomes '\'' inside the single-quoted form:
+	// a'b -> 'a'\''b'
+	assert(ShellWords.quote("a'b").equals("'a'\\''b'"));
 
-    // envAssignment quotes the value half.
-    assert(ShellWords.envAssignment("FOO=bar").equals("FOO=bar"));
-    assert(ShellWords.envAssignment("FOO=a b").equals("FOO='a b'"));
-    assert(ShellWords.envAssignment("PATH_X=/a/b").equals("PATH_X=/a/b"));
+	// envAssignment quotes the value half.
+	assert(ShellWords.envAssignment("FOO=bar").equals("FOO=bar"));
+	assert(ShellWords.envAssignment("FOO=a b").equals("FOO='a b'"));
+	assert(ShellWords.envAssignment("PATH_X=/a/b").equals("PATH_X=/a/b"));
 
-    // Missing '=' throws.
-    bool noEq = false;
-    try {
-        ShellWords.envAssignment("NOEQ");
-    } catch (string e) {
-        noEq = e.contains("invalid environment assignment");
-    }
-    assert(noEq);
+	// Missing '=' throws.
+	bool noEq = false;
+	try {
+		ShellWords.envAssignment("NOEQ");
+	} catch (string e) {
+		noEq = e.contains("invalid environment assignment");
+	}
+	assert(noEq);
 
-    // A leading-digit (invalid) variable name throws.
-    bool badName = false;
-    try {
-        ShellWords.envAssignment("1BAD=x");
-    } catch (string e) {
-        badName = e.contains("invalid environment variable name");
-    }
-    assert(badName);
+	// A leading-digit (invalid) variable name throws.
+	bool badName = false;
+	try {
+		ShellWords.envAssignment("1BAD=x");
+	} catch (string e) {
+		badName = e.contains("invalid environment variable name");
+	}
+	assert(badName);
 
-    // redact masks the sensitive substring; an empty sensitive arg is a no-op.
-    assert(ShellWords.redact("pw=secret done", "secret").equals("pw=*** done"));
-    assert(ShellWords.redact("nothing", "").equals("nothing"));
+	// redact masks the sensitive substring; an empty sensitive arg is a no-op.
+	assert(ShellWords.redact("pw=secret done", "secret").equals("pw=*** done"));
+	assert(ShellWords.redact("nothing", "").equals("nothing"));
 
-    print("PASS: test_stdlib_shellwords");
-    return 0;
+	print("PASS: test_stdlib_shellwords");
+	return 0;
 }

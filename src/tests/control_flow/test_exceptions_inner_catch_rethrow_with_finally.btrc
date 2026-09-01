@@ -9,27 +9,27 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    Vector<string> log = [];
-    try {
-        try {
-            throw "a";
-        } catch (string e) {
-            assert(e.equals("a"));
-            log.push("inner-catch");
-            throw "b";                 // re-throw from within the catch
-        } finally {
-            log.push("inner-fin");     // SKIPPED: the in-catch throw escapes first
-        }
-    } catch (string o) {
-        assert(o.equals("b"));         // outer catches the re-thrown value
-        log.push("outer-catch");
-    }
-    // inner-fin does not run; the recorded order is inner-catch then outer-catch.
-    assert(log.len == 2);
-    assert(log[0].equals("inner-catch"));
-    assert(log[1].equals("outer-catch"));
-    log.free();
+	Vector<string> log = [];
+	try {
+		try {
+			throw "a";
+		} catch (string e) {
+			assert(e.equals("a"));
+			log.push("inner-catch");
+			throw "b";                 // re-throw from within the catch
+		} finally {
+			log.push("inner-fin");     // SKIPPED: the in-catch throw escapes first
+		}
+	} catch (string o) {
+		assert(o.equals("b"));         // outer catches the re-thrown value
+		log.push("outer-catch");
+	}
+	// inner-fin does not run; the recorded order is inner-catch then outer-catch.
+	assert(log.len == 2);
+	assert(log[0].equals("inner-catch"));
+	assert(log[1].equals("outer-catch"));
+	log.free();
 
-    print("PASS: test_exceptions_inner_catch_rethrow_with_finally");
-    return 0;
+	print("PASS: test_exceptions_inner_catch_rethrow_with_finally");
+	return 0;
 }

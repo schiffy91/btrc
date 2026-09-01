@@ -10,31 +10,31 @@ import std.vector;
 enum Color { RED, GREEN, BLUE };
 
 int main() {
-    Vector<Color> v = [];
-    v.push(RED);
-    v.push(BLUE);
+	Vector<Color> v = [];
+	v.push(RED);
+	v.push(BLUE);
 
-    assert(v.size() == 2);
-    assert(v.contains(BLUE));
-    assert(v.contains(RED));
-    assert(!v.contains(GREEN));
-    assert(v.indexOf(RED) == 0);
-    assert(v.indexOf(BLUE) == 1);
-    assert(v.indexOf(GREEN) == -1);
-    assert(v.get(0) == RED);
+	assert(v.size() == 2);
+	assert(v.contains(BLUE));
+	assert(v.contains(RED));
+	assert(!v.contains(GREEN));
+	assert(v.indexOf(RED) == 0);
+	assert(v.indexOf(BLUE) == 1);
+	assert(v.indexOf(GREEN) == -1);
+	assert(v.get(0) == RED);
 
-    /* Set dedups identical enum values */
-    Set<Color> s = {};
-    s.add(GREEN);
-    s.add(GREEN);
-    s.add(RED);
-    assert(s.size() == 2);
-    assert(s.contains(GREEN));
-    assert(s.contains(RED));
-    assert(!s.contains(BLUE));
+	/* Set dedups identical enum values */
+	Set<Color> s = {};
+	s.add(GREEN);
+	s.add(GREEN);
+	s.add(RED);
+	assert(s.size() == 2);
+	assert(s.contains(GREEN));
+	assert(s.contains(RED));
+	assert(!s.contains(BLUE));
 
-    v.free();
-    s.free();
-    printf("PASS: test_vector_of_enums\n");
-    return 0;
+	v.free();
+	s.free();
+	printf("PASS: test_vector_of_enums\n");
+	return 0;
 }

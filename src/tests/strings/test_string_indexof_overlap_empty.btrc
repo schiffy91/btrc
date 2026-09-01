@@ -2,21 +2,21 @@
 #include <assert.h>
 
 int main() {
-    // overlapping "aa" inside "aaa": first at 0, last at 1
-    assert("aaa".indexOf("aa") == 0);
-    assert("aaa".lastIndexOf("aa") == 1);
+	// overlapping "aa" inside "aaa": first at 0, last at 1
+	assert("aaa".indexOf("aa") == 0);
+	assert("aaa".lastIndexOf("aa") == 1);
 
-    // empty needle is found at index 0
-    assert("abc".indexOf("") == 0);
+	// empty needle is found at index 0
+	assert("abc".indexOf("") == 0);
 
-    // basic forward/backward distinction
-    assert("abcabc".indexOf("bc") == 1);
-    assert("abcabc".lastIndexOf("bc") == 4);
+	// basic forward/backward distinction
+	assert("abcabc".indexOf("bc") == 1);
+	assert("abcabc".lastIndexOf("bc") == 4);
 
-    // absent needle
-    assert("abc".indexOf("z") == -1);
-    assert("abc".lastIndexOf("z") == -1);
+	// absent needle
+	assert("abc".indexOf("z") == -1);
+	assert("abc".lastIndexOf("z") == -1);
 
-    print("PASS: test_string_indexof_overlap_empty");
-    return 0;
+	print("PASS: test_string_indexof_overlap_empty");
+	return 0;
 }

@@ -2,16 +2,16 @@
 #include <string.h>
 
 int main() {
-    long long signedValue = 9000000000LL;
-    unsigned int unsignedValue = 4000000000U;
-    unsigned long long widestValue = 18000000000ULL;
+	long long signedValue = 9000000000LL;
+	unsigned int unsignedValue = 4000000000U;
+	unsigned long long widestValue = 18000000000ULL;
 
-    assert(strcmp(signedValue.toString(), "9000000000") == 0);
-    assert(strcmp(unsignedValue.toString(), "4000000000") == 0);
-    assert(strcmp(widestValue.toString(), "18000000000") == 0);
+	assert(strcmp(signedValue.toString(), "9000000000") == 0);
+	assert(strcmp(unsignedValue.toString(), "4000000000") == 0);
+	assert(strcmp(widestValue.toString(), "18000000000") == 0);
 
-    string rendered = f"{signedValue}:{unsignedValue}:{widestValue}";
-    assert(strcmp(rendered, "9000000000:4000000000:18000000000") == 0);
-    print("PASS: test_wide_integer_strings");
-    return 0;
+	string rendered = f"{signedValue}:{unsignedValue}:{widestValue}";
+	assert(strcmp(rendered, "9000000000:4000000000:18000000000") == 0);
+	print("PASS: test_wide_integer_strings");
+	return 0;
 }

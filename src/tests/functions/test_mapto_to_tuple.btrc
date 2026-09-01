@@ -1,35 +1,32 @@
 // Vector.mapTo<U> projecting elements to a tuple element type, accessed via
 // the ._0 / ._1 / ._2 tuple fields.
 import std.vector;
+
 #include <assert.h>
 
-(int, int) withSquare(int x) {
-    return (x, x * x);
-}
+(int, int) withSquare(int x) { return (x, x * x); }
 
-(int, int, int) triple(int x) {
-    return (x, x + x, x * x * x);
-}
+(int, int, int) triple(int x) { return (x, x + x, x * x * x); }
 
 int main() {
-    Vector<int> xs = [1, 2, 3];
+	Vector<int> xs = [1, 2, 3];
 
-    Vector<(int, int)> ps = xs.mapTo(withSquare);
-    assert(ps.len == 3);
-    assert(ps.get(0)._0 == 1);
-    assert(ps.get(0)._1 == 1);
-    assert(ps.get(1)._0 == 2);
-    assert(ps.get(1)._1 == 4);
-    assert(ps.get(2)._0 == 3);
-    assert(ps.get(2)._1 == 9);
+	Vector<(int, int)> ps = xs.mapTo(withSquare);
+	assert(ps.len == 3);
+	assert(ps.get(0)._0 == 1);
+	assert(ps.get(0)._1 == 1);
+	assert(ps.get(1)._0 == 2);
+	assert(ps.get(1)._1 == 4);
+	assert(ps.get(2)._0 == 3);
+	assert(ps.get(2)._1 == 9);
 
-    // map to a three-element tuple
-    Vector<(int, int, int)> ts = xs.mapTo(triple);
-    assert(ts.get(1)._0 == 2);
-    assert(ts.get(1)._1 == 4);
-    assert(ts.get(1)._2 == 8);
-    assert(ts.get(2)._2 == 27);
+	// map to a three-element tuple
+	Vector<(int, int, int)> ts = xs.mapTo(triple);
+	assert(ts.get(1)._0 == 2);
+	assert(ts.get(1)._1 == 4);
+	assert(ts.get(1)._2 == 8);
+	assert(ts.get(2)._2 == 27);
 
-    print("PASS: test_mapto_to_tuple");
-    return 0;
+	print("PASS: test_mapto_to_tuple");
+	return 0;
 }

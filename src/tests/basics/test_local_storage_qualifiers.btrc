@@ -1,19 +1,17 @@
 #include <assert.h>
 
 int nextCount() {
-    static volatile int count = 0;
-    count++;
-    return count;
+	static volatile int count = 0;
+	count++;
+	return count;
 }
 
-void declareExternal() {
-    extern int external_only_declaration;
-}
+void declareExternal() { extern int external_only_declaration; }
 
 int main() {
-    declareExternal();
-    assert(nextCount() == 1);
-    assert(nextCount() == 2);
-    print("PASS: test_local_storage_qualifiers");
-    return 0;
+	declareExternal();
+	assert(nextCount() == 1);
+	assert(nextCount() == 2);
+	print("PASS: test_local_storage_qualifiers");
+	return 0;
 }

@@ -1,34 +1,34 @@
 #include <assert.h>
 // Mutex<T> over non-int payloads: a managed class value and a bool.
 class Box {
-    public int v;
-    public Box(int x) { self.v = x; }
+	public int v;
+	public Box(int x) { self.v = x; }
 }
 
 int main() {
-    // Managed values are retained by the mutex and by each get() snapshot.
-    Box b = new Box(7);
-    Mutex<Box> mb = Mutex(b);
-    Box got = mb.get();
-    assert(got.v == 7);
+	// Managed values are retained by the mutex and by each get() snapshot.
+	Box b = new Box(7);
+	Mutex<Box> mb = Mutex(b);
+	Box got = mb.get();
+	assert(got.v == 7);
 
-    Box b2 = new Box(99);
-    mb.set(b2);
-    Box got2 = mb.get();
-    assert(got2.v == 99);
-    mb.destroy();
-    release b;
-    release got;
-    release b2;
-    release got2;
+	Box b2 = new Box(99);
+	mb.set(b2);
+	Box got2 = mb.get();
+	assert(got2.v == 99);
+	mb.destroy();
+	release b;
+	release got;
+	release b2;
+	release got2;
 
-    // bool payload
-    Mutex<bool> mf = Mutex(true);
-    assert(mf.get() == true);
-    mf.set(false);
-    assert(mf.get() == false);
-    mf.destroy();
+	// bool payload
+	Mutex<bool> mf = Mutex(true);
+	assert(mf.get() == true);
+	mf.set(false);
+	assert(mf.get() == false);
+	mf.destroy();
 
-    print("PASS: test_mutex_class_and_bool");
-    return 0;
+	print("PASS: test_mutex_class_and_bool");
+	return 0;
 }

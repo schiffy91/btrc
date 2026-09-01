@@ -2,55 +2,49 @@
 #include <string.h>
 
 class Pair<A, B> {
-    public A first;
-    public B second;
-    public int code;
+	public A first;
+	public B second;
+	public int code;
 
-    public Pair(A first, B second, int code = 17) {
-        self.first = first;
-        self.second = second;
-        self.code = code;
-    }
+	public Pair(A first, B second, int code = 17) {
+		self.first = first;
+		self.second = second;
+		self.code = code;
+	}
 }
 
 class Maker<T> {
-    public Pair<T, int> make(T value) {
-        return Pair(second=42, first=value);
-    }
+	public Pair<T, int> make(T value) { return Pair(second=42, first=value); }
 
-    public Pair<T, int> makeDefault(T value) {
-        return Pair(value, 8);
-    }
+	public Pair<T, int> makeDefault(T value) { return Pair(value, 8); }
 }
 
 class Empty<T> {
-    public int marker = 7;
+	public int marker = 7;
 
-    public Empty() {}
+	public Empty() {}
 
-    public Empty<T> copy() {
-        return Empty();
-    }
+	public Empty<T> copy() { return Empty(); }
 }
 
 int main() {
-    Maker<string> maker = new Maker<string>();
-    Pair<string, int> pair = maker.make("answer");
-    assert(strcmp(pair.first, "answer") == 0);
-    assert(pair.second == 42);
-    assert(pair.code == 17);
-    Pair<string, int> defaultPair = maker.makeDefault("default");
-    assert(strcmp(defaultPair.first, "default") == 0);
-    assert(defaultPair.second == 8);
-    assert(defaultPair.code == 17);
-    Empty<int> empty = new Empty<int>();
-    Empty<int> copied = empty.copy();
-    assert(copied.marker == 7);
-    delete copied;
-    delete empty;
-    delete defaultPair;
-    delete pair;
-    delete maker;
-    print("PASS: cross-generic constructor");
-    return 0;
+	Maker<string> maker = new Maker<string>();
+	Pair<string, int> pair = maker.make("answer");
+	assert(strcmp(pair.first, "answer") == 0);
+	assert(pair.second == 42);
+	assert(pair.code == 17);
+	Pair<string, int> defaultPair = maker.makeDefault("default");
+	assert(strcmp(defaultPair.first, "default") == 0);
+	assert(defaultPair.second == 8);
+	assert(defaultPair.code == 17);
+	Empty<int> empty = new Empty<int>();
+	Empty<int> copied = empty.copy();
+	assert(copied.marker == 7);
+	delete copied;
+	delete empty;
+	delete defaultPair;
+	delete pair;
+	delete maker;
+	print("PASS: cross-generic constructor");
+	return 0;
 }

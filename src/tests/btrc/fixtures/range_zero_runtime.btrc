@@ -1,8 +1,6 @@
 int dynamicZero() { return 0; }
 
 int main() {
-    for value in range(0, 2, dynamicZero()) {
-        return value;
-    }
-    return 0;
+	for value in range(0, 2, dynamicZero()) { return value; }
+	return 0;
 }

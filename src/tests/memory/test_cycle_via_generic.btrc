@@ -8,43 +8,39 @@
 int node_count = 0;
 
 class Holder<T> {
-    public T val;
+	public T val;
 
-    public Holder() {
-        self.val = null;
-    }
+	public Holder() { self.val = null; }
 }
 
 class Node {
-    public int id;
-    public Holder<Node> link;
+	public int id;
+	public Holder<Node> link;
 
-    public Node(int id) {
-        self.id = id;
-        self.link = new Holder<Node>();
-        node_count++;
-    }
+	public Node(int id) {
+		self.id = id;
+		self.link = new Holder<Node>();
+		node_count++;
+	}
 
-    public void __del__() {
-        node_count--;
-    }
+	public void __del__() { node_count--; }
 }
 
 int main() {
-    {
-        Node a = new Node(1);
-        Node b = new Node(2);
-        assert(node_count == 2);
+	{
+		Node a = new Node(1);
+		Node b = new Node(2);
+		assert(node_count == 2);
 
-        // Cycle via the generic field: a.link.val -> b, b.link.val -> a.
-        a.link.val = b;
-        b.link.val = a;
-        assert(a.link.val.id == 2);
-        assert(b.link.val.id == 1);
-        // scope exit: the generic-mediated cycle is detected and collected.
-    }
-    assert(node_count == 0);
+		// Cycle via the generic field: a.link.val -> b, b.link.val -> a.
+		a.link.val = b;
+		b.link.val = a;
+		assert(a.link.val.id == 2);
+		assert(b.link.val.id == 1);
+		// scope exit: the generic-mediated cycle is detected and collected.
+	}
+	assert(node_count == 0);
 
-    print("PASS: test_cycle_via_generic");
-    return 0;
+	print("PASS: test_cycle_via_generic");
+	return 0;
 }

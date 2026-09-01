@@ -5,113 +5,102 @@ import std.vector;
 
 #include <assert.h>
 
-int throwingReturnValue() {
-    throw "return-value";
-}
+int throwingReturnValue() { throw "return-value"; }
 
 class Guard<T> {
-    public T value;
+	public T value;
 
-    public Guard(T value) {
-        self.value = value;
-    }
+	public Guard(T value) { self.value = value; }
 
-    public int classify(int input) {
-        int result = 0;
-        try {
-            switch (input) {
-                case 0:
-                    throw "zero";
-                default:
-                    result = input;
-                    break;
-            }
-        } catch (string message) {
-            result = message.equals("zero") ? 10 : -1;
-        } finally {
-            result++;
-        }
-        return result;
-    }
+	public int classify(int input) {
+		int result = 0;
+		try {
+			switch (input) {
+				case 0: throw "zero";
+				default: result = input;
+				break;
+			}
+		} catch (string message) {
+			result = message.equals("zero") ? 10 : -1;
+		} finally {
+			result++;
+		}
+		return result;
+	}
 
-    public int early() {
-        try {
-            return 7;
-        } catch (string message) {
-            return -1;
-        }
-    }
+	public int early() {
+		try {
+			return 7;
+		} catch (string message) {
+			return -1;
+		}
+	}
 
-    public int parallelSum(Vector<int> values) {
-        int total = 0;
-        parallel for value in values {
-            total += value;
-        }
-        return total;
-    }
+	public int parallelSum(Vector<int> values) {
+		int total = 0;
+		parallel for value in values {
+			total += value;
+		}
+		return total;
+	}
 
-    public string describe(string suffix) {
-        return f"{self.value}:{suffix}";
-    }
+	public string describe(string suffix) { return f"{self.value}:{suffix}"; }
 
-    public int escapeFrame() {
-        int finallyCount = 0;
-        int caught = 0;
-        try {
-            for i in range(1) {
-                try {
-                    break;
-                } finally {
-                    finallyCount++;
-                }
-            }
-            throw "after-generic-break";
-        } catch (string message) {
-            caught = message.equals("after-generic-break") ? 1 : 0;
-        }
-        return finallyCount * 10 + caught;
-    }
+	public int escapeFrame() {
+		int finallyCount = 0;
+		int caught = 0;
+		try {
+			for i in range(1) {
+				try {
+					break;
+				} finally {
+					finallyCount++;
+				}
+			}
+			throw "after-generic-break";
+		} catch (string message) {
+			caught = message.equals("after-generic-break") ? 1 : 0;
+		}
+		return finallyCount * 10 + caught;
+	}
 
-    public int caughtReturnExpression() {
-        try {
-            return throwingReturnValue();
-        } catch (string message) {
-            return message.equals("return-value") ? 23 : -1;
-        }
-    }
+	public int caughtReturnExpression() {
+		try {
+			return throwingReturnValue();
+		} catch (string message) {
+			return message.equals("return-value") ? 23 : -1;
+		}
+	}
 
-    public int steppedRange() {
-        int total = 0;
-        int down = -2;
-        for i in range(5, -2, down) {
-            total += i;
-        }
-        for i in range(-3, 4, 3) {
-            total += i;
-        }
-        return total;
-    }
+	public int steppedRange() {
+		int total = 0;
+		int down = -2;
+		for i in range(5, -2, down) { total += i; }
 
-    public int countChars(string text) {
-        int count = 0;
-        for ch in text {
-            count++;
-        }
-        return count;
-    }
+		for i in range(-3, 4, 3) { total += i; }
+		return total;
+	}
+
+	public int countChars(string text) {
+		int count = 0;
+		for ch in text {
+			count++;
+		}
+		return count;
+	}
 }
 
 int main() {
-    Guard<int> guard = new Guard<int>(42);
-    assert(guard.classify(0) == 11);
-    assert(guard.classify(2) == 3);
-    assert(guard.early() == 7);
-    assert(guard.parallelSum([1, 2, 3]) == 6);
-    assert(guard.describe("ready").equals("42:ready"));
-    assert(guard.escapeFrame() == 1);
-    assert(guard.caughtReturnExpression() == 23);
-    assert(guard.steppedRange() == 8);
-    assert(guard.countChars("abc") == 3);
-    print("PASS: test_generic_method_exceptions");
-    return 0;
+	Guard<int> guard = new Guard<int>(42);
+	assert(guard.classify(0) == 11);
+	assert(guard.classify(2) == 3);
+	assert(guard.early() == 7);
+	assert(guard.parallelSum([1, 2, 3]) == 6);
+	assert(guard.describe("ready").equals("42:ready"));
+	assert(guard.escapeFrame() == 1);
+	assert(guard.caughtReturnExpression() == 23);
+	assert(guard.steppedRange() == 8);
+	assert(guard.countChars("abc") == 3);
+	print("PASS: test_generic_method_exceptions");
+	return 0;
 }

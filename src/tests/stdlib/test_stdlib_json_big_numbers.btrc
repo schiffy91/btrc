@@ -6,36 +6,36 @@ import std.json;
 #include <assert.h>
 
 int main() {
-    // 2^53 is the largest integer a double represents exactly.
-    JsonValue big = JsonValue.parse("9007199254740992");
-    assert(big.isNumber());
-    assert(big.isInt());
-    assert(big.stringify().equals("9007199254740992"));
+	// 2^53 is the largest integer a double represents exactly.
+	JsonValue big = JsonValue.parse("9007199254740992");
+	assert(big.isNumber());
+	assert(big.isInt());
+	assert(big.stringify().equals("9007199254740992"));
 
-    // makeInt stringifies without a decimal point.
-    JsonValue mi = JsonValue.makeInt(1000000);
-    assert(mi.stringify().equals("1000000"));
-    assert(mi.isInt());
+	// makeInt stringifies without a decimal point.
+	JsonValue mi = JsonValue.makeInt(1000000);
+	assert(mi.stringify().equals("1000000"));
+	assert(mi.isInt());
 
-    // 10^11 round-trips through parse -> stringify.
-    JsonValue eleven = JsonValue.parse("100000000000");
-    assert(eleven.stringify().equals("100000000000"));
+	// 10^11 round-trips through parse -> stringify.
+	JsonValue eleven = JsonValue.parse("100000000000");
+	assert(eleven.stringify().equals("100000000000"));
 
-    // Negative zero parses as the integer 0.
-    JsonValue negZero = JsonValue.parse("-0");
-    assert(negZero.isNumber());
-    assert(negZero.asInt() == 0);
+	// Negative zero parses as the integer 0.
+	JsonValue negZero = JsonValue.parse("-0");
+	assert(negZero.isNumber());
+	assert(negZero.asInt() == 0);
 
-    // A negative large integer.
-    JsonValue negBig = JsonValue.parse("-2147483648");
-    assert(negBig.stringify().equals("-2147483648"));
+	// A negative large integer.
+	JsonValue negBig = JsonValue.parse("-2147483648");
+	assert(negBig.stringify().equals("-2147483648"));
 
-    // A float keeps a fractional representation and is NOT isInt.
-    JsonValue f = JsonValue.parse("1.5");
-    assert(f.isNumber());
-    assert(!f.isInt());
-    assert(f.asFloat() > 1.49 && f.asFloat() < 1.51);
+	// A float keeps a fractional representation and is NOT isInt.
+	JsonValue f = JsonValue.parse("1.5");
+	assert(f.isNumber());
+	assert(!f.isInt());
+	assert(f.asFloat() > 1.49 && f.asFloat() < 1.51);
 
-    print("PASS: test_stdlib_json_big_numbers");
-    return 0;
+	print("PASS: test_stdlib_json_big_numbers");
+	return 0;
 }

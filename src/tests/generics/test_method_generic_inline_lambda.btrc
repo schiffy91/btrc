@@ -4,19 +4,19 @@
 #include <assert.h>
 
 class Holder<T> {
-    public T value;
-    public Holder(T v) { self.value = v; }
-    public U transform<U>(__fn_ptr<U, T> fn) { return fn(self.value); }
+	public T value;
+	public Holder(T v) { self.value = v; }
+	public U transform<U>(__fn_ptr<U, T> fn) { return fn(self.value); }
 }
 
 int main() {
-    Holder<int> h = new Holder<int>(21);
-    int doubled = h.transform((int x) => x * 2);
-    assert(doubled == 42);
+	Holder<int> h = new Holder<int>(21);
+	int doubled = h.transform((int x) => x * 2);
+	assert(doubled == 42);
 
-    double shifted = h.transform((int x) => (double)x + 1.5);
-    assert(shifted == 22.5);
+	double shifted = h.transform((int x) => (double)x + 1.5);
+	assert(shifted == 22.5);
 
-    print("PASS: test_method_generic_inline_lambda");
-    return 0;
+	print("PASS: test_method_generic_inline_lambda");
+	return 0;
 }

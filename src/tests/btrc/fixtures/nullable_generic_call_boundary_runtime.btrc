@@ -6,77 +6,71 @@ typedef int[] IntArray;
 typedef __fn_ptr<void> CallbackAlias;
 
 class AliasItem {
-    public AliasItem() {}
+	public AliasItem() {}
 }
 
 typedef AliasItem ItemAlias;
 
 class BoundaryBox<T> {
-    public T* stored;
-    public T[]* arrays;
-    public T* pointer { get; set; }
-    public __fn_ptr<void, T*> callback;
+	public T* stored;
+	public T[]* arrays;
+	public T* pointer { get; set; }
+	public __fn_ptr<void, T*> callback;
 
-    public BoundaryBox(T* value) {
-        self.stored = value;
-        self.pointer = value;
-        self.arrays = null;
-    }
+	public BoundaryBox(T* value) {
+		self.stored = value;
+		self.pointer = value;
+		self.arrays = null;
+	}
 
-    public int side() { return 7; }
+	public int side() { return 7; }
 
-    public T* pick(T* value, int marker) {
-        assert(marker == 7);
-        assert(value == self.stored);
-        return value;
-    }
+	public T* pick(T* value, int marker) {
+		assert(marker == 7);
+		assert(value == self.stored);
+		return value;
+	}
 
-    public T* run() {
-        return self.pick(self.stored, self.side());
-    }
+	public T* run() { return self.pick(self.stored, self.side()); }
 
-    public T* assign(T* value) {
-        return self.pointer = value;
-    }
+	public T* assign(T* value) { return self.pointer = value; }
 
-    public void checkArray(T[]* value, int marker) {
-        assert(marker == 7);
-        assert(value == null);
-    }
+	public void checkArray(T[]* value, int marker) {
+		assert(marker == 7);
+		assert(value == null);
+	}
 
-    public void runArray() {
-        self.checkArray(self.arrays, self.side());
-    }
+	public void runArray() { self.checkArray(self.arrays, self.side()); }
 }
 
 int main() {
-    int value = 41;
-    int? slots[1];
-    slots[0] = &value;
+	int value = 41;
+	int? slots[1];
+	slots[0] = &value;
 
-    BoundaryBox<int?> box = new BoundaryBox<int?>(slots);
-    var picked = box.run();
-    var assigned = box.assign(slots);
-    assert(*picked[0] == 41);
-    assert(*assigned[0] == 41);
-    box.runArray();
+	BoundaryBox<int?> box = new BoundaryBox<int?>(slots);
+	var picked = box.run();
+	var assigned = box.assign(slots);
+	assert(*picked[0] == 41);
+	assert(*assigned[0] == 41);
+	box.runArray();
 
-    RawPointer? alias = null;
-    assert(alias == null);
-    TextAlias? textAlias = null;
-    IntArray? arrayAlias = null;
-    CallbackAlias? callbackAlias;
-    ItemAlias? itemAlias = null;
-    assert(textAlias == null);
-    assert(arrayAlias == null);
-    assert(sizeof(callbackAlias) == sizeof(CallbackAlias));
-    assert(itemAlias == null);
-    string? text = null;
-    string*? textSlot = null;
-    assert(text == null);
-    assert(textSlot == null);
+	RawPointer? alias = null;
+	assert(alias == null);
+	TextAlias? textAlias = null;
+	IntArray? arrayAlias = null;
+	CallbackAlias? callbackAlias;
+	ItemAlias? itemAlias = null;
+	assert(textAlias == null);
+	assert(arrayAlias == null);
+	assert(sizeof(callbackAlias) == sizeof(CallbackAlias));
+	assert(itemAlias == null);
+	string? text = null;
+	string*? textSlot = null;
+	assert(text == null);
+	assert(textSlot == null);
 
-    delete box;
-    print("PASS: nullable generic call boundaries");
-    return 0;
+	delete box;
+	print("PASS: nullable generic call boundaries");
+	return 0;
 }

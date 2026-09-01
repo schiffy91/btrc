@@ -4,81 +4,75 @@
 int alive = 0;
 
 class Resource {
-    public int id;
+	public int id;
 
-    public Resource(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Resource(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 class Manager {
-    public Resource res;
+	public Resource res;
 
-    public Manager() {
-        self.res = null;
-    }
+	public Manager() { self.res = null; }
 
-    public void setResource(keep Resource r) {
-        self.res = r;
-    }
+	public void setResource(keep Resource r) { self.res = r; }
 }
 
 // Factory function
 Resource createResource(int id) {
-    Resource r = new Resource(id);
-    return r;
+	Resource r = new Resource(id);
+	return r;
 }
 
 int main() {
-    // Test 1: new auto-manages, scope-exit releases
-    // The field owns its stored reference; keep guards only the call.
-    {
-        Manager m = new Manager();
-        Resource r = new Resource(1);
-        assert(alive == 1);
+	// Test 1: new auto-manages, scope-exit releases
+	// The field owns its stored reference; keep guards only the call.
+	{
+		Manager m = new Manager();
+		Resource r = new Resource(1);
+		assert(alive == 1);
 
-        // The field assignment retains r; the keep guard is released on return.
-        m.setResource(r);
-        assert(alive == 1);
+		// The field assignment retains r; the keep guard is released on return.
+		m.setResource(r);
+		assert(alive == 1);
 
-        // r's rc: 1 (local) + 1 (field) = 2
-        // delete m: destructor releases res field → r.rc = 1
-        delete m;
-        assert(alive == 1);
-        // m: NULL after delete → scope exit skips
-        // scope exit releases r's remaining local owner → destroy
-    }
-    assert(alive == 0); // r properly cleaned up
+		// r's rc: 1 (local) + 1 (field) = 2
+		// delete m: destructor releases res field → r.rc = 1
+		delete m;
+		assert(alive == 1);
+		// m: NULL after delete → scope exit skips
+		// scope exit releases r's remaining local owner → destroy
+	}
+	assert(alive == 0); // r properly cleaned up
 
-    // Test 2: delete sets var to NULL, scope exit skips null vars
-    {
-        Resource d = new Resource(2);
-        assert(alive == 1);
-        delete d;
-        assert(d == null);
-        assert(alive == 0);
-        // scope exit: d is NULL from delete → skip
-    }
+	// Test 2: delete sets var to NULL, scope exit skips null vars
+	{
+		Resource d = new Resource(2);
+		assert(alive == 1);
+		delete d;
+		assert(d == null);
+		assert(alive == 0);
+		// scope exit: d is NULL from delete → skip
+	}
 
-    // Test 3: keep/release explicit statements
-    Resource k = new Resource(3);
-    assert(alive == 1);
-    keep k;
-    // k's rc: 1 (new) + 1 (keep) = 2
-    release k;
-    // k's rc: 2 - 1 = 1, > 0 so not destroyed. k = NULL
-    assert(k == null);
-    assert(alive == 1); // not destroyed (rc=1, but unreachable via k)
+	// Test 3: keep/release explicit statements
+	Resource k = new Resource(3);
+	assert(alive == 1);
+	keep k;
+	// k's rc: 1 (new) + 1 (keep) = 2
+	release k;
+	// k's rc: 2 - 1 = 1, > 0 so not destroyed. k = NULL
+	assert(k == null);
+	assert(alive == 1); // not destroyed (rc=1, but unreachable via k)
 
-    // k is managed from new, but k=NULL → return release skips
-    // The resource leaks (rc=1 with no references) — expected behavior
-    // when using keep/release incorrectly
+	// k is managed from new, but k=NULL → return release skips
+	// The resource leaks (rc=1 with no references) — expected behavior
+	// when using keep/release incorrectly
 
-    print("PASS: test_auto_release");
-    return 0;
+	print("PASS: test_auto_release");
+	return 0;
 }

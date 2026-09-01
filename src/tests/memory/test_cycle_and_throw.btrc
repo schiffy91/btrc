@@ -7,44 +7,42 @@
 int node_count = 0;
 
 class Node {
-    public int id;
-    public Node next;
+	public int id;
+	public Node next;
 
-    public Node(int id) {
-        self.id = id;
-        self.next = null;
-        node_count++;
-    }
+	public Node(int id) {
+		self.id = id;
+		self.next = null;
+		node_count++;
+	}
 
-    public void __del__() {
-        node_count--;
-    }
+	public void __del__() { node_count--; }
 }
 
 int main() {
-    // Two-node cycle unwound by a throw.
-    try {
-        Node a = new Node(1);
-        Node b = new Node(2);
-        a.next = b;
-        b.next = a;
-        assert(node_count == 2);
-        throw "boom";
-    } catch (string e) {
-        // exception cleanup must reclaim the cycle.
-    }
-    assert(node_count == 0);
+	// Two-node cycle unwound by a throw.
+	try {
+		Node a = new Node(1);
+		Node b = new Node(2);
+		a.next = b;
+		b.next = a;
+		assert(node_count == 2);
+		throw "boom";
+	} catch (string e) {
+		// exception cleanup must reclaim the cycle.
+	}
+	assert(node_count == 0);
 
-    // Self-loop unwound by a throw.
-    try {
-        Node n = new Node(3);
-        n.next = n;
-        assert(node_count == 1);
-        throw "again";
-    } catch (string e) {
-    }
-    assert(node_count == 0);
+	// Self-loop unwound by a throw.
+	try {
+		Node n = new Node(3);
+		n.next = n;
+		assert(node_count == 1);
+		throw "again";
+	} catch (string e) {
+	}
+	assert(node_count == 0);
 
-    print("PASS: test_cycle_and_throw");
-    return 0;
+	print("PASS: test_cycle_and_throw");
+	return 0;
 }

@@ -7,102 +7,92 @@ int ordinaryHookCalls = 0;
 int genericHookCalls = 0;
 
 class LifetimeProbe {
-    public bool hookLocal;
+	public bool hookLocal;
 
-    public LifetimeProbe(bool hookLocal) {
-        self.hookLocal = hookLocal;
-        if (hookLocal) {
-            hookLocalsAlive += 1;
-            hookLocalsCreated += 1;
-        } else {
-            ownedChildrenAlive += 1;
-        }
-    }
+	public LifetimeProbe(bool hookLocal) {
+		self.hookLocal = hookLocal;
+		if (hookLocal) {
+			hookLocalsAlive += 1;
+			hookLocalsCreated += 1;
+		} else {
+			ownedChildrenAlive += 1;
+		}
+	}
 
-    public void __del__() {
-        if (self.hookLocal) {
-            hookLocalsAlive -= 1;
-            hookLocalsDestroyed += 1;
-        } else {
-            ownedChildrenAlive -= 1;
-            ownedChildrenDestroyed += 1;
-        }
-    }
+	public void __del__() {
+		if (self.hookLocal) {
+			hookLocalsAlive -= 1;
+			hookLocalsDestroyed += 1;
+		} else {
+			ownedChildrenAlive -= 1;
+			ownedChildrenDestroyed += 1;
+		}
+	}
 }
 
 class OrdinaryOwner {
-    public LifetimeProbe first;
-    public LifetimeProbe second;
+	public LifetimeProbe first;
+	public LifetimeProbe second;
 
-    public OrdinaryOwner() {
-        self.first = new LifetimeProbe(false);
-        self.second = new LifetimeProbe(false);
-    }
+	public OrdinaryOwner() {
+		self.first = new LifetimeProbe(false);
+		self.second = new LifetimeProbe(false);
+	}
 
-    public void __del__() {
-        ordinaryHookCalls += 1;
-        LifetimeProbe hookLocal = new LifetimeProbe(true);
-        return;
-    }
+	public void __del__() {
+		ordinaryHookCalls += 1;
+		LifetimeProbe hookLocal = new LifetimeProbe(true);
+		return;
+	}
 }
 
 class GenericOwner<T> {
-    public T marker;
-    public LifetimeProbe first;
-    public LifetimeProbe second;
+	public T marker;
+	public LifetimeProbe first;
+	public LifetimeProbe second;
 
-    public GenericOwner(T marker) {
-        self.marker = marker;
-        self.first = new LifetimeProbe(false);
-        self.second = new LifetimeProbe(false);
-    }
+	public GenericOwner(T marker) {
+		self.marker = marker;
+		self.first = new LifetimeProbe(false);
+		self.second = new LifetimeProbe(false);
+	}
 
-    public void __del__() {
-        genericHookCalls += 1;
-        LifetimeProbe hookLocal = new LifetimeProbe(true);
-        return;
-    }
+	public void __del__() {
+		genericHookCalls += 1;
+		LifetimeProbe hookLocal = new LifetimeProbe(true);
+		return;
+	}
 }
 
-bool lifecycleCountsMatch(int ownerHooks, int childrenDestroyed) {
-    return ownedChildrenAlive == 0
-        && ownedChildrenDestroyed == childrenDestroyed
-        && hookLocalsAlive == 0
-        && hookLocalsCreated == ownerHooks
-        && hookLocalsDestroyed == ownerHooks;
-}
+bool lifecycleCountsMatch(int ownerHooks, int childrenDestroyed) { return ownedChildrenAlive == 0 && ownedChildrenDestroyed == childrenDestroyed && hookLocalsAlive == 0 && hookLocalsCreated == ownerHooks && hookLocalsDestroyed == ownerHooks; }
 
 int main() {
-    OrdinaryOwner explicitOrdinary = new OrdinaryOwner();
-    delete explicitOrdinary;
-    if (ordinaryHookCalls != 1 || genericHookCalls != 0
-            || !lifecycleCountsMatch(1, 2)) {
-        return 11;
-    }
+	OrdinaryOwner explicitOrdinary = new OrdinaryOwner();
+	delete explicitOrdinary;
+	if (ordinaryHookCalls != 1 || genericHookCalls != 0 || !lifecycleCountsMatch(1, 2)) {
+		return 11;
+	}
 
-    {
-        OrdinaryOwner scopedOrdinary = new OrdinaryOwner();
-        if (scopedOrdinary == null) { return 12; }
-    }
-    if (ordinaryHookCalls != 2 || genericHookCalls != 0
-            || !lifecycleCountsMatch(2, 4)) {
-        return 13;
-    }
+	{
+		OrdinaryOwner scopedOrdinary = new OrdinaryOwner();
+		if (scopedOrdinary == null) { return 12; }
+	}
+	if (ordinaryHookCalls != 2 || genericHookCalls != 0 || !lifecycleCountsMatch(2, 4)) {
+		return 13;
+	}
 
-    GenericOwner<int> explicitGeneric = new GenericOwner<int>(17);
-    delete explicitGeneric;
-    if (ordinaryHookCalls != 2 || genericHookCalls != 1
-            || !lifecycleCountsMatch(3, 6)) {
-        return 14;
-    }
+	GenericOwner<int> explicitGeneric = new GenericOwner<int>(17);
+	delete explicitGeneric;
+	if (ordinaryHookCalls != 2 || genericHookCalls != 1 || !lifecycleCountsMatch(3, 6)) {
+		return 14;
+	}
 
-    {
-        GenericOwner<int> scopedGeneric = new GenericOwner<int>(23);
-        if (scopedGeneric.marker != 23) { return 15; }
-    }
-    if (ordinaryHookCalls != 2 || genericHookCalls != 2
-            || !lifecycleCountsMatch(4, 8)) {
-        return 16;
-    }
-    return 0;
+	{
+		GenericOwner<int> scopedGeneric = new GenericOwner<int>(23);
+		if (scopedGeneric.marker != 23) { return 15; }
+	}
+	if (ordinaryHookCalls != 2 || genericHookCalls != 2 || !lifecycleCountsMatch(4, 8)) {
+		return 16;
+	}
+	return 0;
 }

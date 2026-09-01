@@ -1,5 +1,3 @@
 class ImportedMessage {
-    class string value() {
-        return "bulk-import-ok";
-    }
+	class string value() { return "bulk-import-ok"; }
 }

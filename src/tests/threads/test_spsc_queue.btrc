@@ -1,39 +1,39 @@
 import std.spsc;
 
 int main() {
-    SpscQueue<int> queue = new SpscQueue<int>(3u);
-    int output = -1;
-    if (queue.tryPop(&output) || output != -1) { return 1; }
-    if (!queue.tryPush(1) || !queue.tryPush(2) || !queue.tryPush(3)) { return 2; }
-    if (queue.tryPush(4)) { return 3; }
-    if (!queue.tryPop(&output) || output != 1) { return 4; }
-    if (!queue.tryPush(4)) { return 5; }
-    if (!queue.tryPop(&output) || output != 2) { return 6; }
-    if (!queue.tryPop(&output) || output != 3) { return 7; }
-    if (!queue.tryPop(&output) || output != 4) { return 8; }
-    if (queue.tryPop(&output) || output != 4) { return 9; }
+	SpscQueue<int> queue = new SpscQueue<int>(3u);
+	int output = -1;
+	if (queue.tryPop(&output) || output != -1) { return 1; }
+	if (!queue.tryPush(1) || !queue.tryPush(2) || !queue.tryPush(3)) { return 2; }
+	if (queue.tryPush(4)) { return 3; }
+	if (!queue.tryPop(&output) || output != 1) { return 4; }
+	if (!queue.tryPush(4)) { return 5; }
+	if (!queue.tryPop(&output) || output != 2) { return 6; }
+	if (!queue.tryPop(&output) || output != 3) { return 7; }
+	if (!queue.tryPop(&output) || output != 4) { return 8; }
+	if (queue.tryPop(&output) || output != 4) { return 9; }
 
-    Thread<int> producer = spawn(() => {
-        for (int value = 0; value < 100000; value++) {
-            while (!queue.tryPush(value)) {}
-        }
-        return 0;
-    });
-    Thread<int> consumer = spawn(() => {
-        int expected = 0;
-        while (expected < 100000) {
-            int value = -1;
-            if (queue.tryPop(&value)) {
-                if (value != expected) { return 10; }
-                expected++;
-            }
-        }
-        return 0;
-    });
-    int producerResult = producer.join();
-    int consumerResult = consumer.join();
-    delete queue;
-    if (producerResult != 0 || consumerResult != 0) { return 11; }
-    print("PASS spsc_queue");
-    return 0;
+	Thread<int> producer = spawn(() => {
+			for (int value = 0; value < 100000; value++) {
+				while (!queue.tryPush(value)) {}
+			}
+			return 0;
+		});
+	Thread<int> consumer = spawn(() => {
+			int expected = 0;
+			while (expected < 100000) {
+				int value = -1;
+				if (queue.tryPop(&value)) {
+					if (value != expected) { return 10; }
+					expected++;
+				}
+			}
+			return 0;
+		});
+	int producerResult = producer.join();
+	int consumerResult = consumer.join();
+	delete queue;
+	if (producerResult != 0 || consumerResult != 0) { return 11; }
+	print("PASS spsc_queue");
+	return 0;
 }

@@ -8,93 +8,90 @@ int internalCycleChildHookCalls = 0;
 int internalCycleOwnerHookCalls = 0;
 
 class AbandonChild {
-    public int id;
+	public int id;
 
-    public AbandonChild(int id) {
-        self.id = id;
-        abandonChildrenAlive++;
-    }
+	public AbandonChild(int id) {
+		self.id = id;
+		abandonChildrenAlive++;
+	}
 
-    public void __del__() {
-        abandonChildTrace = abandonChildTrace * 10 + self.id;
-        abandonChildrenAlive--;
-        if (self.id == 1) { throw "child teardown failure"; }
-    }
+	public void __del__() {
+		abandonChildTrace = abandonChildTrace * 10 + self.id;
+		abandonChildrenAlive--;
+		if (self.id == 1) { throw "child teardown failure"; }
+	}
 }
 
 class PartialConstruction {
-    public AbandonChild first;
-    public AbandonChild second;
-    public AbandonChild neverInitialized;
+	public AbandonChild first;
+	public AbandonChild second;
+	public AbandonChild neverInitialized;
 
-    public PartialConstruction() {
-        self.first = new AbandonChild(1);
-        self.second = new AbandonChild(2);
-        throw "constructor failure";
-    }
+	public PartialConstruction() {
+		self.first = new AbandonChild(1);
+		self.second = new AbandonChild(2);
+		throw "constructor failure";
+	}
 
-    public void __del__() {
-        abandonedOwnerHookCalls++;
-        throw "failed construction ran source hook";
-    }
+	public void __del__() {
+		abandonedOwnerHookCalls++;
+		throw "failed construction ran source hook";
+	}
 }
 
 class InternalCycleChild {
-    public InternalCycleOwner owner;
+	public InternalCycleOwner owner;
 
-    public InternalCycleChild() {
-        self.owner = null;
-        internalCycleChildrenAlive++;
-    }
+	public InternalCycleChild() {
+		self.owner = null;
+		internalCycleChildrenAlive++;
+	}
 
-    public void __del__() {
-        internalCycleChildrenAlive--;
-        internalCycleChildHookCalls++;
-        throw "internal child teardown failure";
-    }
+	public void __del__() {
+		internalCycleChildrenAlive--;
+		internalCycleChildHookCalls++;
+		throw "internal child teardown failure";
+	}
 }
 
 class InternalCycleOwner {
-    public InternalCycleChild child;
+	public InternalCycleChild child;
 
-    public InternalCycleOwner() {
-        self.child = new InternalCycleChild();
-        self.child.owner = self;
-        throw "internal cycle constructor failure";
-    }
+	public InternalCycleOwner() {
+		self.child = new InternalCycleChild();
+		self.child.owner = self;
+		throw "internal cycle constructor failure";
+	}
 
-    public void __del__() {
-        internalCycleOwnerHookCalls++;
-    }
+	public void __del__() { internalCycleOwnerHookCalls++; }
 }
 
 int main() {
-    bool caughtConstructor = false;
-    try {
-        PartialConstruction value = new PartialConstruction();
-        assert(value == null);
-    } catch (string error) {
-        caughtConstructor = error.equals("constructor failure");
-    }
+	bool caughtConstructor = false;
+	try {
+		PartialConstruction value = new PartialConstruction();
+		assert(value == null);
+	} catch (string error) {
+		caughtConstructor = error.equals("constructor failure");
+	}
 
-    /* Failed construction abandons the object without exposing it to source
+	/* Failed construction abandons the object without exposing it to source
      * lifecycle code. A throwing child cannot prevent later fields draining. */
-    assert(caughtConstructor);
-    assert(abandonedOwnerHookCalls == 0);
-    assert(abandonChildTrace == 12);
-    assert(abandonChildrenAlive == 0);
+	assert(caughtConstructor);
+	assert(abandonedOwnerHookCalls == 0);
+	assert(abandonChildTrace == 12);
+	assert(abandonChildrenAlive == 0);
 
-    bool caughtInternalCycle = false;
-    try {
-        InternalCycleOwner value = new InternalCycleOwner();
-        assert(value == null);
-    } catch (string error) {
-        caughtInternalCycle = error.equals(
-            "internal cycle constructor failure");
-    }
-    assert(caughtInternalCycle);
-    assert(internalCycleOwnerHookCalls == 0);
-    assert(internalCycleChildHookCalls == 1);
-    assert(internalCycleChildrenAlive == 0);
-    return 0;
+	bool caughtInternalCycle = false;
+	try {
+		InternalCycleOwner value = new InternalCycleOwner();
+		assert(value == null);
+	} catch (string error) {
+		caughtInternalCycle = error.equals("internal cycle constructor failure");
+	}
+	assert(caughtInternalCycle);
+	assert(internalCycleOwnerHookCalls == 0);
+	assert(internalCycleChildHookCalls == 1);
+	assert(internalCycleChildrenAlive == 0);
+	return 0;
 }

@@ -4,27 +4,21 @@
 #include <assert.h>
 
 class Calc {
-    public int base;
+	public int base;
 
-    public Calc(int b) {
-        self.base = b;
-    }
+	public Calc(int b) { self.base = b; }
 
-    static int dbl(int x) {
-        return x * 2;
-    }
+	static int dbl(int x) { return x * 2; }
 
-    public int compute() {
-        return Calc.dbl(self.base);
-    }
+	public int compute() { return Calc.dbl(self.base); }
 }
 
 int main() {
-    Calc c = Calc(21);
-    assert(c.compute() == 42);
-    // the same static is still reachable from top-level
-    assert(Calc.dbl(5) == 10);
+	Calc c = Calc(21);
+	assert(c.compute() == 42);
+	// the same static is still reachable from top-level
+	assert(Calc.dbl(5) == 10);
 
-    print("PASS: test_static_called_from_instance_method");
-    return 0;
+	print("PASS: test_static_called_from_instance_method");
+	return 0;
 }

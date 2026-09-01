@@ -5,11 +5,11 @@
 enum Color { RED, GREEN, BLUE };
 
 int main() {
-    Color c = Color.GREEN;
-    assert(c == Color.GREEN);
-    assert(c == GREEN);
-    assert(Color.BLUE == 2);
-    assert(Color.RED == 0);
-    print("PASS: test_enum_qualified_member_access");
-    return 0;
+	Color c = Color.GREEN;
+	assert(c == Color.GREEN);
+	assert(c == GREEN);
+	assert(Color.BLUE == 2);
+	assert(Color.RED == 0);
+	print("PASS: test_enum_qualified_member_access");
+	return 0;
 }

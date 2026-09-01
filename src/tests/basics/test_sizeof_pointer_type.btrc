@@ -1,19 +1,19 @@
 #include <assert.h>
 
 int main() {
-    // sizeof applied to a POINTER TYPE operand (SizeofType, pointer_depth > 0)
-    assert(sizeof(int*) == sizeof(void*));
-    assert(sizeof(int**) == sizeof(int*));
+	// sizeof applied to a POINTER TYPE operand (SizeofType, pointer_depth > 0)
+	assert(sizeof(int*) == sizeof(void*));
+	assert(sizeof(int**) == sizeof(int*));
 
-    // all data pointers are the same width on a flat address space
-    assert(sizeof(char*) == sizeof(double*));
+	// all data pointers are the same width on a flat address space
+	assert(sizeof(char*) == sizeof(double*));
 
-    // a pointer is at least 4 bytes on any supported target
-    assert(sizeof(int*) >= (size_t)4);
+	// a pointer is at least 4 bytes on any supported target
+	assert(sizeof(int*) >= (size_t)4);
 
-    // pointer-to-pointer is still one pointer wide
-    assert(sizeof(char**) == sizeof(void*));
+	// pointer-to-pointer is still one pointer wide
+	assert(sizeof(char**) == sizeof(void*));
 
-    print("PASS: test_sizeof_pointer_type");
-    return 0;
+	print("PASS: test_sizeof_pointer_type");
+	return 0;
 }

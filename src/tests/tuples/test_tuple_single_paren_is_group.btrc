@@ -1,11 +1,11 @@
 #include <assert.h>
 
 int main() {
-    // A single parenthesized expression is grouping, NOT a 1-tuple.
-    int x = (5);
-    assert(x == 5);
-    int y = (3 + 4) * 2;
-    assert(y == 14);
-    print("PASS: test_tuple_single_paren_is_group");
-    return 0;
+	// A single parenthesized expression is grouping, NOT a 1-tuple.
+	int x = (5);
+	assert(x == 5);
+	int y = (3 + 4) * 2;
+	assert(y == 14);
+	print("PASS: test_tuple_single_paren_is_group");
+	return 0;
 }

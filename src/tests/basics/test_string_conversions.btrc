@@ -1,24 +1,24 @@
 #include <assert.h>
 
 int main() {
-    // toDouble
-    string s = "3.14";
-    double d = s.toDouble();
-    assert(d > 3.0);
+	// toDouble
+	string s = "3.14";
+	double d = s.toDouble();
+	assert(d > 3.0);
 
-    // toLong
-    string s2 = "99999";
-    long n = s2.toLong();
-    assert(n == 99999);
+	// toLong
+	string s2 = "99999";
+	long n = s2.toLong();
+	assert(n == 99999);
 
-    // toBool follows the built-in contract: only empty, "false", and "0"
-    // are false; other non-empty strings are true.
-    assert("true".toBool());
-    assert("yes".toBool());
-    assert(!"false".toBool());
-    assert(!"0".toBool());
-    assert(!"".toBool());
+	// toBool follows the built-in contract: only empty, "false", and "0"
+	// are false; other non-empty strings are true.
+	assert("true".toBool());
+	assert("yes".toBool());
+	assert(!"false".toBool());
+	assert(!"0".toBool());
+	assert(!"".toBool());
 
-    print("PASS: test_string_conversions");
-    return 0;
+	print("PASS: test_string_conversions");
+	return 0;
 }

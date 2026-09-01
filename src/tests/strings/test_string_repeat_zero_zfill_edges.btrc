@@ -2,20 +2,20 @@
 #include <assert.h>
 
 int main() {
-    // repeat with zero count -> empty string (no negative-malloc)
-    assert("ab".repeat(0).equals(""));
-    assert("ab".repeat(1).equals("ab"));
-    assert("ab".repeat(3).equals("ababab"));
+	// repeat with zero count -> empty string (no negative-malloc)
+	assert("ab".repeat(0).equals(""));
+	assert("ab".repeat(1).equals("ab"));
+	assert("ab".repeat(3).equals("ababab"));
 
-    // zfill keeps a leading '+' sign in front of the zero padding
-    assert("+7".zfill(5).equals("+0007"));
+	// zfill keeps a leading '+' sign in front of the zero padding
+	assert("+7".zfill(5).equals("+0007"));
 
-    // width <= len is a no-op
-    assert("12345".zfill(3).equals("12345"));
+	// width <= len is a no-op
+	assert("12345".zfill(3).equals("12345"));
 
-    // non-numeric content is still zero-padded on the left
-    assert("abc".zfill(5).equals("00abc"));
+	// non-numeric content is still zero-padded on the left
+	assert("abc".zfill(5).equals("00abc"));
 
-    print("PASS: test_string_repeat_zero_zfill_edges");
-    return 0;
+	print("PASS: test_string_repeat_zero_zfill_edges");
+	return 0;
 }

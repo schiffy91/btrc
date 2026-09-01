@@ -9,52 +9,50 @@ import std.vector;
 int alive = 0;
 
 class Obj {
-    public int v;
+	public int v;
 
-    public Obj(int v) {
-        self.v = v;
-        alive++;
-    }
+	public Obj(int v) {
+		self.v = v;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 int main() {
-    // break out of a loop holding an owned collection.
-    for i in range(3) {
-        Vector<Obj> v = {};
-        v.push(new Obj(i));
-        assert(alive == 1);
-        if (i == 1) {
-            break;
-        }
-    }
-    assert(alive == 0);
+	// break out of a loop holding an owned collection.
+	for i in range(3) {
+		Vector<Obj> v = {};
+		v.push(new Obj(i));
+		assert(alive == 1);
+		if (i == 1) {
+			break;
+		}
+	}
+	assert(alive == 0);
 
-    // continue from a loop holding an owned collection.
-    for i in range(3) {
-        Vector<Obj> v = {};
-        v.push(new Obj(i));
-        v.push(new Obj(i + 10));
-        assert(alive == 2);
-        continue;
-    }
-    assert(alive == 0);
+	// continue from a loop holding an owned collection.
+	for i in range(3) {
+		Vector<Obj> v = {};
+		v.push(new Obj(i));
+		v.push(new Obj(i + 10));
+		assert(alive == 2);
+		continue;
+	}
+	assert(alive == 0);
 
-    // while-loop break with a collection in the body.
-    int n = 0;
-    while (true) {
-        Vector<Obj> v = {};
-        v.push(new Obj(n));
-        n++;
-        if (n == 2) {
-            break;
-        }
-    }
-    assert(alive == 0);
+	// while-loop break with a collection in the body.
+	int n = 0;
+	while (true) {
+		Vector<Obj> v = {};
+		v.push(new Obj(n));
+		n++;
+		if (n == 2) {
+			break;
+		}
+	}
+	assert(alive == 0);
 
-    print("PASS: test_collection_loop_exit");
-    return 0;
+	print("PASS: test_collection_loop_exit");
+	return 0;
 }

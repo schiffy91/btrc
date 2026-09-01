@@ -1,34 +1,30 @@
 #include <assert.h>
 
 class Vec2 {
-    public int x;
-    public int y;
-    public Vec2(int x, int y) {
-        self.x = x;
-        self.y = y;
-    }
-    public Vec2 __add__(Vec2 o) {
-        return Vec2(self.x + o.x, self.y + o.y);
-    }
-    public int sum() {
-        return self.x + self.y;
-    }
+	public int x;
+	public int y;
+	public Vec2(int x, int y) {
+		self.x = x;
+		self.y = y;
+	}
+
+	public Vec2 __add__(Vec2 o) { return Vec2(self.x + o.x, self.y + o.y); }
+
+	public int sum() { return self.x + self.y; }
 }
 
-int take(Vec2 v) {
-    return v.x;
-}
+int take(Vec2 v) { return v.x; }
 
 int main() {
-    Vec2 a = Vec2(1, 2);
-    Vec2 b = Vec2(3, 4);
-    // member access on the overload-result temporary
-    assert((a + b).x == 4);
-    assert((a + b).y == 6);
-    // method call on the overload-result temporary
-    assert((a + b).sum() == 10);
-    // passing the overload-result temporary as a function argument
-    assert(take(a + b) == 4);
-    print("PASS: test_operator_result_in_expr");
-    return 0;
+	Vec2 a = Vec2(1, 2);
+	Vec2 b = Vec2(3, 4);
+	// member access on the overload-result temporary
+	assert((a + b).x == 4);
+	assert((a + b).y == 6);
+	// method call on the overload-result temporary
+	assert((a + b).sum() == 10);
+	// passing the overload-result temporary as a function argument
+	assert(take(a + b) == 4);
+	print("PASS: test_operator_result_in_expr");
+	return 0;
 }

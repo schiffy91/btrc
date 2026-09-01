@@ -4,22 +4,22 @@
 #include <assert.h>
 
 int main() {
-    // expression-body IIFE used as an initializer
-    int r = ((int x) => x * x)(6);
-    assert(r == 36);
+	// expression-body IIFE used as an initializer
+	int r = ((int x) => x * x)(6);
+	assert(r == 36);
 
-    // block-body IIFE called inline
-    int s = ((int k) => { return k + 3; })(4);
-    assert(s == 7);
+	// block-body IIFE called inline
+	int s = ((int k) => { return k + 3; })(4);
+	assert(s == 7);
 
-    // IIFE used directly inside a larger expression
-    int t = 1 + ((int x) => x * 2)(5);
-    assert(t == 11);
+	// IIFE used directly inside a larger expression
+	int t = 1 + ((int x) => x * 2)(5);
+	assert(t == 11);
 
-    // IIFE with multiple parameters
-    int u = ((int a, int b) => a * b + 1)(6, 7);
-    assert(u == 43);
+	// IIFE with multiple parameters
+	int u = ((int a, int b) => a * b + 1)(6, 7);
+	assert(u == 43);
 
-    print("PASS: test_lambda_iife");
-    return 0;
+	print("PASS: test_lambda_iife");
+	return 0;
 }

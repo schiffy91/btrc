@@ -1,21 +1,21 @@
 #include <assert.h>
 
 int main() {
-    // unsigned integer wraparound semantics
-    unsigned int u = 0;
-    u = u - 1;
-    assert(u > 2000000000u);
-    assert(u == 4294967295u);
+	// unsigned integer wraparound semantics
+	unsigned int u = 0;
+	u = u - 1;
+	assert(u > 2000000000u);
+	assert(u == 4294967295u);
 
-    // unsigned char wraps at 256
-    unsigned char b = 255;
-    b = b + 1;
-    assert(b == 0);
+	// unsigned char wraps at 256
+	unsigned char b = 255;
+	b = b + 1;
+	assert(b == 0);
 
-    // unsigned comparison vs signed view of the same bits
-    unsigned int big = 3000000000u;
-    assert(big > 2000000000u);
+	// unsigned comparison vs signed view of the same bits
+	unsigned int big = 3000000000u;
+	assert(big > 2000000000u);
 
-    print("PASS: test_unsigned_wrap");
-    return 0;
+	print("PASS: test_unsigned_wrap");
+	return 0;
 }

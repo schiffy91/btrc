@@ -7,33 +7,29 @@ import std.set;
 #include <stdio.h>
 
 int main() {
-    Set<int> s = {};
-    for i in range(50) {
-        s.add(i);
-    }
-    assert(s.size() == 50);
+	Set<int> s = {};
+	for i in range(50) { s.add(i); }
+	assert(s.size() == 50);
 
-    /* every key must still be present after multiple resizes */
-    for i in range(50) {
-        assert(s.contains(i));
-    }
-    /* a key never inserted must be absent */
-    assert(!s.contains(50));
-    assert(!s.contains(999));
+	/* every key must still be present after multiple resizes */
+	for i in range(50) { assert(s.contains(i)); }
+	/* a key never inserted must be absent */
+	assert(!s.contains(50));
+	assert(!s.contains(999));
 
-    /* remove one key; its neighbors must survive the backward-shift rehash */
-    s.remove(25);
-    assert(!s.contains(25));
-    assert(s.contains(24));
-    assert(s.contains(26));
-    assert(s.size() == 49);
+	/* remove one key; its neighbors must survive the backward-shift rehash */
+	s.remove(25);
+	assert(!s.contains(25));
+	assert(s.contains(24));
+	assert(s.contains(26));
+	assert(s.size() == 49);
 
-    /* re-adding the removed key restores it */
-    s.add(25);
-    assert(s.contains(25));
-    assert(s.size() == 50);
+	/* re-adding the removed key restores it */
+	s.add(25);
+	assert(s.contains(25));
+	assert(s.size() == 50);
 
-    s.free();
-    printf("PASS: test_set_resize_membership\n");
-    return 0;
+	s.free();
+	printf("PASS: test_set_resize_membership\n");
+	return 0;
 }

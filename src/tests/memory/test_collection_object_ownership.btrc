@@ -9,99 +9,97 @@ import std.vector;
 int live_items = 0;
 
 class OwnedItem {
-    public int id;
+	public int id;
 
-    public OwnedItem(int id) {
-        self.id = id;
-        live_items++;
-    }
+	public OwnedItem(int id) {
+		self.id = id;
+		live_items++;
+	}
 
-    public void __del__() {
-        live_items--;
-    }
+	public void __del__() { live_items--; }
 }
 
 Map<int, OwnedItem> makeMap() {
-    Map<int, OwnedItem> items = {};
-    for i in range(20) {
-        OwnedItem item = new OwnedItem(100 + i);
-        items.put(i, item);
-    }
-    assert(live_items == 20);
-    return items;
+	Map<int, OwnedItem> items = {};
+	for i in range(20) {
+		OwnedItem item = new OwnedItem(100 + i);
+		items.put(i, item);
+	}
+	assert(live_items == 20);
+	return items;
 }
 
 Set<OwnedItem> makeSet() {
-    Set<OwnedItem> items = new Set<OwnedItem>();
-    for i in range(20) {
-        OwnedItem item = new OwnedItem(200 + i);
-        items.add(item);
-    }
-    assert(live_items == 20);
-    return items;
+	Set<OwnedItem> items = new Set<OwnedItem>();
+	for i in range(20) {
+		OwnedItem item = new OwnedItem(200 + i);
+		items.add(item);
+	}
+	assert(live_items == 20);
+	return items;
 }
 
 List<OwnedItem> makeList() {
-    List<OwnedItem> items = new List<OwnedItem>();
-    OwnedItem first = new OwnedItem(300);
-    OwnedItem second = new OwnedItem(301);
-    items.push(first);
-    items.push(second);
-    assert(live_items == 2);
-    return items;
+	List<OwnedItem> items = new List<OwnedItem>();
+	OwnedItem first = new OwnedItem(300);
+	OwnedItem second = new OwnedItem(301);
+	items.push(first);
+	items.push(second);
+	assert(live_items == 2);
+	return items;
 }
 
 Vector<OwnedItem> makeVector() {
-    Vector<OwnedItem> items = [];
-    items.push(new OwnedItem(400));
-    items.push(new OwnedItem(401));
-    assert(live_items == 2);
-    return items;
+	Vector<OwnedItem> items = [];
+	items.push(new OwnedItem(400));
+	items.push(new OwnedItem(401));
+	assert(live_items == 2);
+	return items;
 }
 
 int main() {
-    Map<int, OwnedItem> mapItems = makeMap();
-    assert(live_items == 20);
-    assert(mapItems.get(3).id == 103);
+	Map<int, OwnedItem> mapItems = makeMap();
+	assert(live_items == 20);
+	assert(mapItems.get(3).id == 103);
 
-    OwnedItem replacement = new OwnedItem(500);
-    assert(live_items == 21);
-    mapItems.put(3, replacement);
-    assert(live_items == 20);
-    assert(mapItems.get(3).id == 500);
-    mapItems.remove(3);
-    assert(live_items == 20);
-    delete replacement;
-    assert(live_items == 19);
-    mapItems.free();
-    assert(live_items == 0);
+	OwnedItem replacement = new OwnedItem(500);
+	assert(live_items == 21);
+	mapItems.put(3, replacement);
+	assert(live_items == 20);
+	assert(mapItems.get(3).id == 500);
+	mapItems.remove(3);
+	assert(live_items == 20);
+	delete replacement;
+	assert(live_items == 19);
+	mapItems.free();
+	assert(live_items == 0);
 
-    Set<OwnedItem> setItems = makeSet();
-    assert(live_items == 20);
-    setItems.free();
-    assert(live_items == 0);
+	Set<OwnedItem> setItems = makeSet();
+	assert(live_items == 20);
+	setItems.free();
+	assert(live_items == 0);
 
-    List<OwnedItem> listItems = makeList();
-    assert(live_items == 2);
-    assert(listItems.get(0).id == 300);
-    OwnedItem popped = listItems.pop();
-    assert(popped.id == 301);
-    assert(live_items == 2);
-    listItems.free();
-    assert(live_items == 1);
-    delete popped;
-    assert(live_items == 0);
+	List<OwnedItem> listItems = makeList();
+	assert(live_items == 2);
+	assert(listItems.get(0).id == 300);
+	OwnedItem popped = listItems.pop();
+	assert(popped.id == 301);
+	assert(live_items == 2);
+	listItems.free();
+	assert(live_items == 1);
+	delete popped;
+	assert(live_items == 0);
 
-    Vector<OwnedItem> vectorItems = makeVector();
-    assert(live_items == 2);
-    OwnedItem poppedVector = vectorItems.pop();
-    assert(poppedVector.id == 401);
-    assert(live_items == 2);
-    vectorItems.free();
-    assert(live_items == 1);
-    delete poppedVector;
-    assert(live_items == 0);
+	Vector<OwnedItem> vectorItems = makeVector();
+	assert(live_items == 2);
+	OwnedItem poppedVector = vectorItems.pop();
+	assert(poppedVector.id == 401);
+	assert(live_items == 2);
+	vectorItems.free();
+	assert(live_items == 1);
+	delete poppedVector;
+	assert(live_items == 0);
 
-    print("PASS: test_collection_object_ownership");
-    return 0;
+	print("PASS: test_collection_object_ownership");
+	return 0;
 }

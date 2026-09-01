@@ -1,13 +1,12 @@
 #include <assert.h>
 
-@gpu
-float[] vectorAdd(float[] a, float[] b) {
-    int i = gpu_id();
-    return a[i] + b[i];
+@gpu float[] vectorAdd(float[] a, float[] b) {
+	int i = gpu_id();
+	return a[i] + b[i];
 }
 
 int main() {
-    assert(1 + 1 == 2);
-    print("PASS: test_gpu_basic_float_array");
-    return 0;
+	assert(1 + 1 == 2);
+	print("PASS: test_gpu_basic_float_array");
+	return 0;
 }

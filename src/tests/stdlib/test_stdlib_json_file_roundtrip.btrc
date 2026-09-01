@@ -8,31 +8,31 @@ import std.json;
 #include <assert.h>
 
 int main() {
-    string dir = FileSystem.tempDir("btrc_jsonf");
-    assert(FileSystem.isDir(dir));
-    string path = PathTools.join(dir, "o.json");
+	string dir = FileSystem.tempDir("btrc_jsonf");
+	assert(FileSystem.isDir(dir));
+	string path = PathTools.join(dir, "o.json");
 
-    /* Build an object and write it to disk. */
-    JsonObject o = JsonObject();
-    o.setInt("n", 42);
-    o.setString("s", "hi");
-    o.writeFile(path);
-    assert(FileSystem.isFile(path));
+	/* Build an object and write it to disk. */
+	JsonObject o = JsonObject();
+	o.setInt("n", 42);
+	o.setString("s", "hi");
+	o.writeFile(path);
+	assert(FileSystem.isFile(path));
 
-    /* Read it back as a single-level JsonObject. */
-    JsonObject back = JsonObject.readFile(path);
-    assert(back.getInt("n", -1) == 42);
-    assert(back.getString("s", "").equals("hi"));
+	/* Read it back as a single-level JsonObject. */
+	JsonObject back = JsonObject.readFile(path);
+	assert(back.getInt("n", -1) == 42);
+	assert(back.getString("s", "").equals("hi"));
 
-    /* Read the same file via the recursive JsonValue parser. */
-    JsonValue r = JsonValue.readFile(path);
-    assert(r.isObject());
-    assert(r.get("n").asInt() == 42);
-    assert(r.get("s").asString().equals("hi"));
+	/* Read the same file via the recursive JsonValue parser. */
+	JsonValue r = JsonValue.readFile(path);
+	assert(r.isObject());
+	assert(r.get("n").asInt() == 42);
+	assert(r.get("s").asString().equals("hi"));
 
-    FileSystem.removeRecursive(dir);
-    assert(!FileSystem.exists(dir));
+	FileSystem.removeRecursive(dir);
+	assert(!FileSystem.exists(dir));
 
-    print("PASS: test_stdlib_json_file_roundtrip");
-    return 0;
+	print("PASS: test_stdlib_json_file_roundtrip");
+	return 0;
 }

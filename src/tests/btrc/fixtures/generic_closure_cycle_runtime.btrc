@@ -3,26 +3,26 @@
 int cycleLinkAlive = 0;
 
 class CycleLink<T> {
-    public CycleLink<T> next;
+	public CycleLink<T> next;
 
-    public CycleLink() {
-        self.next = null;
-        cycleLinkAlive++;
-    }
+	public CycleLink() {
+		self.next = null;
+		cycleLinkAlive++;
+	}
 
-    public void __del__() { cycleLinkAlive--; }
+	public void __del__() { cycleLinkAlive--; }
 }
 
 void makeGenericCycle() {
-    CycleLink<int> first = new CycleLink<int>();
-    CycleLink<int> second = new CycleLink<int>();
-    first.next = second;
-    second.next = first;
+	CycleLink<int> first = new CycleLink<int>();
+	CycleLink<int> second = new CycleLink<int>();
+	first.next = second;
+	second.next = first;
 }
 
 int main() {
-    makeGenericCycle();
-    assert(cycleLinkAlive == 0);
-    print("PASS: generic cycle visitor runtime");
-    return 0;
+	makeGenericCycle();
+	assert(cycleLinkAlive == 0);
+	print("PASS: generic cycle visitor runtime");
+	return 0;
 }

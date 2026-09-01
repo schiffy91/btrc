@@ -4,23 +4,23 @@
 #include <assert.h>
 
 int main() {
-    __fn_ptr<int> callback = () => { return 1; };
-    try {
-        callback = () => { return 7; };
-    } catch (string message) {
-        assert(false);
-    }
+	__fn_ptr<int> callback = () => { return 1; };
+	try {
+		callback = () => { return 7; };
+	} catch (string message) {
+		assert(false);
+	}
 
-    assert(callback() == 7);
+	assert(callback() == 7);
 
-    bool caught = false;
-    try {
-        throw "after-lambda";
-    } catch (string message) {
-        caught = message.equals("after-lambda");
-    }
-    assert(caught);
+	bool caught = false;
+	try {
+		throw "after-lambda";
+	} catch (string message) {
+		caught = message.equals("after-lambda");
+	}
+	assert(caught);
 
-    print("PASS: test_lambda_try_context_isolation");
-    return 0;
+	print("PASS: test_lambda_try_context_isolation");
+	return 0;
 }

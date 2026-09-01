@@ -3,24 +3,25 @@
 #include <assert.h>
 
 class Box<T> {
-    public T v;
-    public Box(T x) { self.v = x; }
-    public T get() { return self.v; }
+	public T v;
+	public Box(T x) { self.v = x; }
+
+	public T get() { return self.v; }
 }
 
 int main() {
-    Box<float> bf = new Box<float>(3.5);
-    assert(bf.get() > 3.0);
-    assert(bf.get() < 4.0);
+	Box<float> bf = new Box<float>(3.5);
+	assert(bf.get() > 3.0);
+	assert(bf.get() < 4.0);
 
-    Box<bool> bb = new Box<bool>(true);
-    assert(bb.get() == true);
-    Box<bool> bb2 = new Box<bool>(false);
-    assert(bb2.get() == false);
+	Box<bool> bb = new Box<bool>(true);
+	assert(bb.get() == true);
+	Box<bool> bb2 = new Box<bool>(false);
+	assert(bb2.get() == false);
 
-    Box<char> bc = new Box<char>('z');
-    assert(bc.get() == 'z');
+	Box<char> bc = new Box<char>('z');
+	assert(bc.get() == 'z');
 
-    print("PASS: test_generic_scalar_types");
-    return 0;
+	print("PASS: test_generic_scalar_types");
+	return 0;
 }

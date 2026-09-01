@@ -7,9 +7,9 @@
 extern int shared_counter;
 
 int main() {
-    assert(shared_counter == 7);
-    shared_counter += 35;
-    assert(shared_counter == 42);
-    print("PASS: test_interop_extern_across_include");
-    return 0;
+	assert(shared_counter == 7);
+	shared_counter += 35;
+	assert(shared_counter == 42);
+	print("PASS: test_interop_extern_across_include");
+	return 0;
 }

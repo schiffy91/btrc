@@ -1,24 +1,23 @@
 #include <assert.h>
 #include <btrc_gpu.h>
 
-@gpu
-float[] clamp(float[] a, float low, float high) {
-    int i = gpu_id();
-    if (a[i] < low) {
-        return low;
-    } else if (a[i] > high) {
-        return high;
-    } else {
-        return a[i];
-    }
+@gpu float[] clamp(float[] a, float low, float high) {
+	int i = gpu_id();
+	if (a[i] < low) {
+		return low;
+	} else if (a[i] > high) {
+		return high;
+	} else {
+		return a[i];
+	}
 }
 
 int main() {
-    float values[] = {-2.0, 4.0, 15.0};
-    float[] out = clamp(values, 0.0, 10.0);
-    assert(out[0] == 0.0);
-    assert(out[1] == 4.0);
-    assert(out[2] == 10.0);
-    print("PASS: test_gpu_multiple_returns");
-    return 0;
+	float values[] = {-2.0, 4.0, 15.0};
+	float[] out = clamp(values, 0.0, 10.0);
+	assert(out[0] == 0.0);
+	assert(out[1] == 4.0);
+	assert(out[2] == 10.0);
+	print("PASS: test_gpu_multiple_returns");
+	return 0;
 }

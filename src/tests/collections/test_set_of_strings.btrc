@@ -2,11 +2,11 @@ import std.set;
 
 #include <stdio.h>
 int main() {
-    Set<string> s = {};
-    s.add("hello");
-    s.add("world");
-    s.add("hello");
-    print(s.size());
-    printf("PASS: test_set_of_strings\n");
-    return 0;
+	Set<string> s = {};
+	s.add("hello");
+	s.add("world");
+	s.add("hello");
+	print(s.size());
+	printf("PASS: test_set_of_strings\n");
+	return 0;
 }

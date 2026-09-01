@@ -2,13 +2,13 @@
 #include <string.h>
 
 int main() {
-    // Tuple field access as an f-string expr operand. Reference f-string
-    // lowering infers tuple element types as int, so use int elements.
-    (int, int) t = (2, 7);
-    string s = f"{t._0}-{t._1}";
-    assert(strcmp(s, "2-7") == 0);
-    string s2 = f"sum={t._0 + t._1}";
-    assert(strcmp(s2, "sum=9") == 0);
-    print("PASS: test_tuple_in_fstring");
-    return 0;
+	// Tuple field access as an f-string expr operand. Reference f-string
+	// lowering infers tuple element types as int, so use int elements.
+	(int, int) t = (2, 7);
+	string s = f"{t._0}-{t._1}";
+	assert(strcmp(s, "2-7") == 0);
+	string s2 = f"sum={t._0 + t._1}";
+	assert(strcmp(s2, "sum=9") == 0);
+	print("PASS: test_tuple_in_fstring");
+	return 0;
 }

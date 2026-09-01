@@ -5,28 +5,26 @@
 #include <assert.h>
 
 string repeat(string ch, int n) {
-    string s = "";
-    for (int i = 0; i < n; i = i + 1) { s = s + ch; }
-    return s;
+	string s = "";
+	for (int i = 0; i < n; i = i + 1) { s = s + ch; }
+	return s;
 }
 
-void thrower(string msg) {
-    throw msg;
-}
+void thrower(string msg) { throw msg; }
 
 int main() {
-    // A short message survives intact across the function boundary.
-    string shortMsg = repeat("y", 100);
-    int shortLen = -1;
-    try { thrower(shortMsg); } catch (string e) { shortLen = e.length(); }
-    assert(shortLen == 100);
+	// A short message survives intact across the function boundary.
+	string shortMsg = repeat("y", 100);
+	int shortLen = -1;
+	try { thrower(shortMsg); } catch (string e) { shortLen = e.length(); }
+	assert(shortLen == 100);
 
-    // A 2000-char message is truncated to the 1023-char boundary.
-    string longMsg = repeat("x", 2000);
-    int longLen = -1;
-    try { thrower(longMsg); } catch (string e) { longLen = e.length(); }
-    assert(longLen == 1023);
+	// A 2000-char message is truncated to the 1023-char boundary.
+	string longMsg = repeat("x", 2000);
+	int longLen = -1;
+	try { thrower(longMsg); } catch (string e) { longLen = e.length(); }
+	assert(longLen == 1023);
 
-    print("PASS: test_exceptions_long_message_truncation");
-    return 0;
+	print("PASS: test_exceptions_long_message_truncation");
+	return 0;
 }

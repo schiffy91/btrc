@@ -6,43 +6,43 @@ int secondCleanupCalls = 0;
 int thirdCleanupCalls = 0;
 
 class CleanupProbe {
-    public int id;
-    public bool throws;
+	public int id;
+	public bool throws;
 
-    public CleanupProbe(int id, bool throws) {
-        self.id = id;
-        self.throws = throws;
-    }
+	public CleanupProbe(int id, bool throws) {
+		self.id = id;
+		self.throws = throws;
+	}
 
-    public void __del__() {
-        cleanupTrace = cleanupTrace * 10 + self.id;
-        if (self.id == 1) { firstCleanupCalls++; }
-        if (self.id == 2) { secondCleanupCalls++; }
-        if (self.id == 3) { thirdCleanupCalls++; }
-        if (self.throws) { throw "cleanup failure"; }
-    }
+	public void __del__() {
+		cleanupTrace = cleanupTrace * 10 + self.id;
+		if (self.id == 1) { firstCleanupCalls++; }
+		if (self.id == 2) { secondCleanupCalls++; }
+		if (self.id == 3) { thirdCleanupCalls++; }
+		if (self.throws) { throw "cleanup failure"; }
+	}
 }
 
 void failAcrossFunctionBoundary() {
-    CleanupProbe first = new CleanupProbe(1, false);
-    CleanupProbe second = new CleanupProbe(2, true);
-    CleanupProbe third = new CleanupProbe(3, false);
-    assert(first.id + second.id + third.id == 6);
-    throw "primary failure";
+	CleanupProbe first = new CleanupProbe(1, false);
+	CleanupProbe second = new CleanupProbe(2, true);
+	CleanupProbe third = new CleanupProbe(3, false);
+	assert(first.id + second.id + third.id == 6);
+	throw "primary failure";
 }
 
 int main() {
-    try {
-        failAcrossFunctionBoundary();
-        assert(false);
-    } catch (string error) {
-        assert(error.equals("primary failure"));
-    }
+	try {
+		failAcrossFunctionBoundary();
+		assert(false);
+	} catch (string error) {
+		assert(error.equals("primary failure"));
+	}
 
-    assert(cleanupTrace == 321);
-    assert(firstCleanupCalls == 1);
-    assert(secondCleanupCalls == 1);
-    assert(thirdCleanupCalls == 1);
-    printf("PASS: cleanup reentrancy\n");
-    return 0;
+	assert(cleanupTrace == 321);
+	assert(firstCleanupCalls == 1);
+	assert(secondCleanupCalls == 1);
+	assert(thirdCleanupCalls == 1);
+	printf("PASS: cleanup reentrancy\n");
+	return 0;
 }

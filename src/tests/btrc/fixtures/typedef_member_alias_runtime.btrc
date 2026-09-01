@@ -4,83 +4,85 @@ int liveBoxes = 0;
 int liveCells = 0;
 
 class Box {
-    private int stored;
+	private int stored;
 
-    public Box(int initial) {
-        self.stored = initial;
-        liveBoxes++;
-    }
+	public Box(int initial) {
+		self.stored = initial;
+		liveBoxes++;
+	}
 
-    public void __del__() { liveBoxes--; }
+	public void __del__() { liveBoxes--; }
 
-    public int value {
-        get { return self.stored; }
-        set { self.stored = value; }
-    }
+	public int value {
+		get { return self.stored; }
+		set { self.stored = value; }
+	}
 
-    public int get(int index) { return self.stored + index; }
-    public void set(int index, int value) { self.stored = value - index; }
-    public int add(int delta) { return self.stored + delta; }
+	public int get(int index) { return self.stored + index; }
+
+	public void set(int index, int value) { self.stored = value - index; }
+
+	public int add(int delta) { return self.stored + delta; }
 }
 
 typedef Box FirstBox;
 typedef FirstBox BoxAlias;
 
 class Cell<T> {
-    private T stored;
+	private T stored;
 
-    public Cell(T initial) {
-        self.stored = initial;
-        liveCells++;
-    }
+	public Cell(T initial) {
+		self.stored = initial;
+		liveCells++;
+	}
 
-    public void __del__() { liveCells--; }
+	public void __del__() { liveCells--; }
 
-    public T value {
-        get { return self.stored; }
-        set { self.stored = value; }
-    }
+	public T value {
+		get { return self.stored; }
+		set { self.stored = value; }
+	}
 
-    public T get(int index) {
-        if (index < 0) { return self.stored; }
-        return self.stored;
-    }
+	public T get(int index) {
+		if (index < 0) { return self.stored; }
+		return self.stored;
+	}
 
-    public void set(int index, T value) {
-        if (index >= 0) { self.stored = value; }
-    }
+	public void set(int index, T value) {
+		if (index >= 0) { self.stored = value; }
+	}
 
-    public T read() { return self.stored; }
+	public T read() { return self.stored; }
 }
 
 typedef Cell<int> IntCell;
 typedef IntCell CellAlias;
 
 void exerciseBoxAlias() {
-    BoxAlias box = new Box(10);
-    assert(liveBoxes == 1);
-    box.value = 20;
-    assert(box.value == 20);
-    box[2] = 32;
-    assert(box[2] == 32);
-    assert(box.add(12) == 42);
+	BoxAlias box = new Box(10);
+	assert(liveBoxes == 1);
+	box.value = 20;
+	assert(box.value == 20);
+	box[2] = 32;
+	assert(box[2] == 32);
+	assert(box.add(12) == 42);
 }
 
 void exerciseGenericAlias() {
-    CellAlias cell = new Cell<int>(5);
-    assert(liveCells == 1);
-    cell.value = 7;
-    assert(cell.value == 7);
-    cell[0] = 9;
-    assert(cell[0] == 9);
-    assert(cell.read() == 9);
+	CellAlias cell = new Cell<int>(5);
+	assert(liveCells == 1);
+	cell.value = 7;
+	assert(cell.value == 7);
+	cell[0] = 9;
+	assert(cell[0] == 9);
+	assert(cell.read() == 9);
 }
 
 int main() {
-    assert(liveBoxes == 0 && liveCells == 0);
-    exerciseBoxAlias();
-    assert(liveBoxes == 0);
-    exerciseGenericAlias();
-    assert(liveCells == 0);
-    return 0;
+	assert(liveBoxes == 0 && liveCells == 0);
+	exerciseBoxAlias();
+	assert(liveBoxes == 0);
+	exerciseGenericAlias();
+	assert(liveCells == 0);
+	return 0;
 }

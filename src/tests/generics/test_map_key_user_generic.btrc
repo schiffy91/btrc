@@ -2,32 +2,34 @@
  * The corpus tests user generics as Vector elements, Set members, and Map
  * VALUES, but never as a Map KEY -- this exercises __btrc_hash / __btrc_eq over
  * a monomorphized user-generic struct pointer on the key path. */
-#include <assert.h>
-#include <string.h>
 import std.map;
 
+#include <assert.h>
+#include <string.h>
+
 class Box<T> {
-    public T v;
-    public Box(T x) { self.v = x; }
-    public T get() { return self.v; }
+	public T v;
+	public Box(T x) { self.v = x; }
+
+	public T get() { return self.v; }
 }
 
 int main() {
-    Box<int> k1 = new Box<int>(1);
-    Box<int> k2 = new Box<int>(2);
+	Box<int> k1 = new Box<int>(1);
+	Box<int> k2 = new Box<int>(2);
 
-    Map<Box<int>, string> m = {};
-    m.put(k1, "one");
-    m.put(k2, "two");
+	Map<Box<int>, string> m = {};
+	m.put(k1, "one");
+	m.put(k2, "two");
 
-    assert(m.has(k1));
-    assert(m.has(k2));
-    assert(strcmp(m.get(k1), "one") == 0);
-    assert(strcmp(m.get(k2), "two") == 0);
+	assert(m.has(k1));
+	assert(m.has(k2));
+	assert(strcmp(m.get(k1), "one") == 0);
+	assert(strcmp(m.get(k2), "two") == 0);
 
-    /* a distinct, never-inserted key is absent */
-    assert(!m.has(new Box<int>(9)));
+	/* a distinct, never-inserted key is absent */
+	assert(!m.has(new Box<int>(9)));
 
-    print("PASS: test_map_key_user_generic");
-    return 0;
+	print("PASS: test_map_key_user_generic");
+	return 0;
 }

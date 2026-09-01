@@ -7,26 +7,26 @@ import std.list;
 #include <stdio.h>
 
 int main() {
-    List<int> l = new List<int>();
-    l.pushBack(1);
-    l.pushFront(0);
-    l.pushBack(2);
-    /* list is now 0, 1, 2 */
-    assert(l.front() == 0);
-    assert(l.back() == 2);
-    assert(l.size() == 3);
-    assert(l.get(0) == 0);
-    assert(l.get(1) == 1);
-    assert(l.get(2) == 2);
+	List<int> l = new List<int>();
+	l.pushBack(1);
+	l.pushFront(0);
+	l.pushBack(2);
+	/* list is now 0, 1, 2 */
+	assert(l.front() == 0);
+	assert(l.back() == 2);
+	assert(l.size() == 3);
+	assert(l.get(0) == 0);
+	assert(l.get(1) == 1);
+	assert(l.get(2) == 2);
 
-    /* pop from both ends */
-    assert(l.popFront() == 0);
-    assert(l.popBack() == 2);
-    assert(l.size() == 1);
-    assert(l.front() == 1);
-    assert(l.back() == 1);
+	/* pop from both ends */
+	assert(l.popFront() == 0);
+	assert(l.popBack() == 2);
+	assert(l.size() == 1);
+	assert(l.front() == 1);
+	assert(l.back() == 1);
 
-    l.free();
-    printf("PASS: test_list_deque\n");
-    return 0;
+	l.free();
+	printf("PASS: test_list_deque\n");
+	return 0;
 }

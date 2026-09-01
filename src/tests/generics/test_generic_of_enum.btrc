@@ -6,19 +6,21 @@
 enum Color { RED, GREEN, BLUE };
 
 class Box<T> {
-    public T v;
-    public Box(T x) { self.v = x; }
-    public T get() { return self.v; }
-    public void set(T x) { self.v = x; }
+	public T v;
+	public Box(T x) { self.v = x; }
+
+	public T get() { return self.v; }
+
+	public void set(T x) { self.v = x; }
 }
 
 int main() {
-    Box<Color> b = new Box<Color>(GREEN);
-    assert(b.get() == GREEN);
-    assert(b.get() != RED);
-    b.set(BLUE);
-    assert(b.get() == BLUE);
+	Box<Color> b = new Box<Color>(GREEN);
+	assert(b.get() == GREEN);
+	assert(b.get() != RED);
+	b.set(BLUE);
+	assert(b.get() == BLUE);
 
-    print("PASS: test_generic_of_enum");
-    return 0;
+	print("PASS: test_generic_of_enum");
+	return 0;
 }

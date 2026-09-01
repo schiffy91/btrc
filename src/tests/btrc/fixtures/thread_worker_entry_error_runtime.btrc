@@ -15,164 +15,164 @@ int entryResultAlive = 0;
 int entryResultHooks = 0;
 
 class EntryCapture {
-    public int id;
+	public int id;
 
-    public EntryCapture(int id) {
-        self.id = id;
-        entryCaptureAlive++;
-    }
+	public EntryCapture(int id) {
+		self.id = id;
+		entryCaptureAlive++;
+	}
 
-    public void __del__() {
-        entryCaptureAlive--;
-        entryCaptureHooks++;
-        if (throwCaptureCleanup && self.id == 1) {
-            throw "capture cleanup failure";
-        }
-    }
+	public void __del__() {
+		entryCaptureAlive--;
+		entryCaptureHooks++;
+		if (throwCaptureCleanup && self.id == 1) {
+			throw "capture cleanup failure";
+		}
+	}
 }
 
 class EntryDrainNode {
-    public int id;
-    public EntryDrainNode next;
+	public int id;
+	public EntryDrainNode next;
 
-    public EntryDrainNode(int id) {
-        self.id = id;
-        self.next = null;
-        entryDrainAlive++;
-    }
+	public EntryDrainNode(int id) {
+		self.id = id;
+		self.next = null;
+		entryDrainAlive++;
+	}
 
-    public void __del__() {
-        entryDrainAlive--;
-        entryDrainHooks++;
-        if (throwFinalDrain && self.id == 3) {
-            throw "final drain failure";
-        }
-    }
+	public void __del__() {
+		entryDrainAlive--;
+		entryDrainHooks++;
+		if (throwFinalDrain && self.id == 3) {
+			throw "final drain failure";
+		}
+	}
 }
 
 class EntryResult {
-    public int value;
+	public int value;
 
-    public EntryResult(int value) {
-        self.value = value;
-        entryResultAlive++;
-    }
+	public EntryResult(int value) {
+		self.value = value;
+		entryResultAlive++;
+	}
 
-    public void __del__() {
-        entryResultAlive--;
-        entryResultHooks++;
-        if (throwWorkerResult) {
-            throw "worker result failure";
-        }
-    }
+	public void __del__() {
+		entryResultAlive--;
+		entryResultHooks++;
+		if (throwWorkerResult) {
+			throw "worker result failure";
+		}
+	}
 }
 
 Thread<int> spawnEntryWorker() {
-    EntryCapture first = new EntryCapture(1);
-    EntryCapture second = new EntryCapture(2);
-    EntryDrainNode third = new EntryDrainNode(3);
-    EntryDrainNode fourth = new EntryDrainNode(4);
-    third.next = fourth;
-    fourth.next = third;
-    Thread<int> worker = spawn(() => {
-        int observed = first.id + second.id + third.id + fourth.id;
-        if (throwWorkerBody) {
-            throw "worker body failure";
-        }
-        return observed;
-    });
-    return worker;
+	EntryCapture first = new EntryCapture(1);
+	EntryCapture second = new EntryCapture(2);
+	EntryDrainNode third = new EntryDrainNode(3);
+	EntryDrainNode fourth = new EntryDrainNode(4);
+	third.next = fourth;
+	fourth.next = third;
+	Thread<int> worker = spawn(() => {
+			int observed = first.id + second.id + third.id + fourth.id;
+			if (throwWorkerBody) {
+				throw "worker body failure";
+			}
+			return observed;
+		});
+	return worker;
 }
 
 Thread<EntryResult> spawnResultWorker() {
-    EntryCapture first = new EntryCapture(1);
-    EntryCapture second = new EntryCapture(2);
-    Thread<EntryResult> worker = spawn(() => {
-        return new EntryResult(first.id + second.id);
-    });
-    return worker;
+	EntryCapture first = new EntryCapture(1);
+	EntryCapture second = new EntryCapture(2);
+	Thread<EntryResult> worker = spawn(() => {
+			return new EntryResult(first.id + second.id);
+		});
+	return worker;
 }
 
 bool catchJoinedError(string expected) {
-    Thread<int> worker = spawnEntryWorker();
-    bool caught = false;
-    try {
-        int result = worker.join();
-        assert(result == 10);
-    } catch (string error) {
-        caught = error.equals(expected);
-    }
-    return caught;
+	Thread<int> worker = spawnEntryWorker();
+	bool caught = false;
+	try {
+		int result = worker.join();
+		assert(result == 10);
+	} catch (string error) {
+		caught = error.equals(expected);
+	}
+	return caught;
 }
 
 bool catchFreedError(string expected) {
-    bool caught = false;
-    try {
-        {
-            Thread<EntryResult> worker = spawnResultWorker();
-        }
-    } catch (string error) {
-        caught = error.equals(expected);
-    }
-    return caught;
+	bool caught = false;
+	try {
+		{
+			Thread<EntryResult> worker = spawnResultWorker();
+		}
+	} catch (string error) {
+		caught = error.equals(expected);
+	}
+	return caught;
 }
 
 void assertAllReleased() {
-    assert(entryCaptureAlive == 0);
-    assert(entryDrainAlive == 0);
-    assert(entryResultAlive == 0);
+	assert(entryCaptureAlive == 0);
+	assert(entryDrainAlive == 0);
+	assert(entryResultAlive == 0);
 }
 
 int main() {
-    /* Warm process-lifetime runtime buffers before measuring ownership. */
-    assert(!catchJoinedError(""));
-    assert(!catchFreedError(""));
-    assertAllReleased();
-    assert(entryCaptureHooks == 4);
-    assert(entryDrainHooks == 2);
-    assert(entryResultHooks == 1);
+	/* Warm process-lifetime runtime buffers before measuring ownership. */
+	assert(!catchJoinedError(""));
+	assert(!catchFreedError(""));
+	assertAllReleased();
+	assert(entryCaptureHooks == 4);
+	assert(entryDrainHooks == 2);
+	assert(entryResultHooks == 1);
 
-    /* The explicit body error wins over both capture and final-drain errors. */
-    throwWorkerBody = true;
-    throwCaptureCleanup = true;
-    throwFinalDrain = true;
-    arc_test_allocation_checkpoint();
-    assert(catchJoinedError("worker body failure"));
-    assertAllReleased();
-    assert(entryCaptureHooks == 6);
-    assert(entryDrainHooks == 4);
-    assert(arc_test_allocation_delta() == 0);
+	/* The explicit body error wins over both capture and final-drain errors. */
+	throwWorkerBody = true;
+	throwCaptureCleanup = true;
+	throwFinalDrain = true;
+	arc_test_allocation_checkpoint();
+	assert(catchJoinedError("worker body failure"));
+	assertAllReleased();
+	assert(entryCaptureHooks == 6);
+	assert(entryDrainHooks == 4);
+	assert(arc_test_allocation_delta() == 0);
 
-    /* Every capture is released and the env is freed after the first acyclic
+	/* Every capture is released and the env is freed after the first acyclic
      * capture hook fails. That error remains ahead of the later cycle drain. */
-    throwWorkerBody = false;
-    arc_test_allocation_checkpoint();
-    assert(catchJoinedError("capture cleanup failure"));
-    assertAllReleased();
-    assert(entryCaptureHooks == 8);
-    assert(entryDrainHooks == 6);
-    assert(arc_test_allocation_delta() == 0);
+	throwWorkerBody = false;
+	arc_test_allocation_checkpoint();
+	assert(catchJoinedError("capture cleanup failure"));
+	assertAllReleased();
+	assert(entryCaptureHooks == 8);
+	assert(entryDrainHooks == 6);
+	assert(arc_test_allocation_delta() == 0);
 
-    /* With entry and arg disposal successful, the terminal worker drain is
+	/* With entry and arg disposal successful, the terminal worker drain is
      * transferred to join after reclaiming the published boxed result. */
-    throwCaptureCleanup = false;
-    arc_test_allocation_checkpoint();
-    assert(catchJoinedError("final drain failure"));
-    assertAllReleased();
-    assert(entryCaptureHooks == 10);
-    assert(entryDrainHooks == 8);
-    assert(arc_test_allocation_delta() == 0);
+	throwCaptureCleanup = false;
+	arc_test_allocation_checkpoint();
+	assert(catchJoinedError("final drain failure"));
+	assertAllReleased();
+	assert(entryCaptureHooks == 10);
+	assert(entryDrainHooks == 8);
+	assert(arc_test_allocation_delta() == 0);
 
-    /* Implicit free disposes a published managed result too. Its later hook
+	/* Implicit free disposes a published managed result too. Its later hook
      * error is secondary to the runtime-owned capture cleanup failure. */
-    throwFinalDrain = false;
-    throwCaptureCleanup = true;
-    throwWorkerResult = true;
-    arc_test_allocation_checkpoint();
-    assert(catchFreedError("capture cleanup failure"));
-    assertAllReleased();
-    assert(entryCaptureHooks == 12);
-    assert(entryResultHooks == 2);
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	throwFinalDrain = false;
+	throwCaptureCleanup = true;
+	throwWorkerResult = true;
+	arc_test_allocation_checkpoint();
+	assert(catchFreedError("capture cleanup failure"));
+	assertAllReleased();
+	assert(entryCaptureHooks == 12);
+	assert(entryResultHooks == 2);
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

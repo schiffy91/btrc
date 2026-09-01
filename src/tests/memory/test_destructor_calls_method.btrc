@@ -6,48 +6,48 @@
 int closed = 0;
 
 class Handle {
-    public string name;
-    public bool isOpen;
+	public string name;
+	public bool isOpen;
 
-    public Handle(string name) {
-        self.name = name;
-        self.isOpen = true;
-    }
+	public Handle(string name) {
+		self.name = name;
+		self.isOpen = true;
+	}
 
-    public void close() {
-        if (self.isOpen) {
-            self.isOpen = false;
-            closed++;
-        }
-    }
+	public void close() {
+		if (self.isOpen) {
+			self.isOpen = false;
+			closed++;
+		}
+	}
 
-    public void __del__() {
-        // Destructor invokes the object's own method; fields still valid.
-        self.close();
-    }
+	public void __del__() {
+		// Destructor invokes the object's own method; fields still valid.
+		self.close();
+	}
 }
 
 int main() {
-    // delete path: __del__ calls close() exactly once.
-    Handle f = new Handle("a.txt");
-    assert(f.isOpen);
-    delete f;
-    assert(closed == 1);
+	// delete path: __del__ calls close() exactly once.
+	Handle f = new Handle("a.txt");
+	assert(f.isOpen);
+	delete f;
+	assert(closed == 1);
 
-    // explicit close() before delete: __del__'s close() is a no-op (idempotent).
-    Handle g = new Handle("b.txt");
-    g.close();
-    assert(closed == 2);
-    delete g;                 // __del__ -> close(), but isOpen already false
-    assert(closed == 2);
+	// explicit close() before delete: __del__'s close() is a no-op (idempotent).
+	Handle g = new Handle("b.txt");
+	g.close();
+	assert(closed == 2);
+	delete g;                 // __del__ -> close(), but isOpen already false
+	assert(closed == 2);
 
-    // scope-exit path: destructor still calls close().
-    {
-        Handle h = new Handle("c.txt");
-        assert(h.isOpen);
-    }
-    assert(closed == 3);
+	// scope-exit path: destructor still calls close().
+	{
+		Handle h = new Handle("c.txt");
+		assert(h.isOpen);
+	}
+	assert(closed == 3);
 
-    print("PASS: test_destructor_calls_method");
-    return 0;
+	print("PASS: test_destructor_calls_method");
+	return 0;
 }

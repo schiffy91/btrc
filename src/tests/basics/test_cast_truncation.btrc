@@ -1,27 +1,27 @@
 #include <assert.h>
 
 int main() {
-    // Cast of a large double to long retains the value
-    double d = 4000000000.0;
-    long l = (long)d;
-    assert(l == 4000000000L);
+	// Cast of a large double to long retains the value
+	double d = 4000000000.0;
+	long l = (long)d;
+	assert(l == 4000000000L);
 
-    // float to int truncates toward zero
-    double neg = -3.9;
-    int ni = (int)neg;
-    assert(ni == -3);
+	// float to int truncates toward zero
+	double neg = -3.9;
+	int ni = (int)neg;
+	assert(ni == -3);
 
-    // int -> char truncation (321 mod 256 == 65 == 'A')
-    int big = 321;
-    char c = (char)big;
-    int as_unsigned = (int)(unsigned char)c;
-    assert(as_unsigned == 65);
+	// int -> char truncation (321 mod 256 == 65 == 'A')
+	int big = 321;
+	char c = (char)big;
+	int as_unsigned = (int)(unsigned char)c;
+	assert(as_unsigned == 65);
 
-    // double -> int loses the fractional part
-    double frac = 7.999;
-    int fi = (int)frac;
-    assert(fi == 7);
+	// double -> int loses the fractional part
+	double frac = 7.999;
+	int fi = (int)frac;
+	assert(fi == 7);
 
-    print("PASS: test_cast_truncation");
-    return 0;
+	print("PASS: test_cast_truncation");
+	return 0;
 }

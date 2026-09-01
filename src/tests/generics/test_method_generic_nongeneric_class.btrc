@@ -5,20 +5,20 @@
 #include <string.h>
 
 class Util {
-    public Util() {}
-    public U pick<U>(U a, U b, bool first) {
-        if (first) { return a; }
-        return b;
-    }
+	public Util() {}
+	public U pick<U>(U a, U b, bool first) {
+		if (first) { return a; }
+		return b;
+	}
 }
 
 int main() {
-    Util u = Util();
-    assert(u.pick(1, 2, true) == 1);
-    assert(u.pick(1, 2, false) == 2);
-    assert(strcmp(u.pick("x", "y", true), "x") == 0);
-    assert(strcmp(u.pick("x", "y", false), "y") == 0);
+	Util u = Util();
+	assert(u.pick(1, 2, true) == 1);
+	assert(u.pick(1, 2, false) == 2);
+	assert(strcmp(u.pick("x", "y", true), "x") == 0);
+	assert(strcmp(u.pick("x", "y", false), "y") == 0);
 
-    print("PASS: test_method_generic_nongeneric_class");
-    return 0;
+	print("PASS: test_method_generic_nongeneric_class");
+	return 0;
 }

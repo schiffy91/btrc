@@ -3,9 +3,9 @@
 #include <stdio.h>
 
 int main() {
-    // Test basic hello world output
-    printf("hello\n");
+	// Test basic hello world output
+	printf("hello\n");
 
-    print("PASS: test_hello");
-    return 0;
+	print("PASS: test_hello");
+	return 0;
 }

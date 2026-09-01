@@ -1,30 +1,30 @@
 #include <stdio.h>
 
 class UnhandledCleanupProbe {
-    public int id;
-    public bool throws;
+	public int id;
+	public bool throws;
 
-    public UnhandledCleanupProbe(int id, bool throws) {
-        self.id = id;
-        self.throws = throws;
-    }
+	public UnhandledCleanupProbe(int id, bool throws) {
+		self.id = id;
+		self.throws = throws;
+	}
 
-    public void __del__() {
-        fprintf(stderr, "cleanup:%d\n", self.id);
-        if (self.throws) { throw "cleanup failure"; }
-    }
+	public void __del__() {
+		fprintf(stderr, "cleanup:%d\n", self.id);
+		if (self.throws) { throw "cleanup failure"; }
+	}
 }
 
 void failWithoutHandler() {
-    UnhandledCleanupProbe first = new UnhandledCleanupProbe(1, false);
-    UnhandledCleanupProbe second = new UnhandledCleanupProbe(2, true);
-    UnhandledCleanupProbe third = new UnhandledCleanupProbe(3, false);
-    if (first.id + second.id + third.id == 6) {
-        throw "unhandled primary";
-    }
+	UnhandledCleanupProbe first = new UnhandledCleanupProbe(1, false);
+	UnhandledCleanupProbe second = new UnhandledCleanupProbe(2, true);
+	UnhandledCleanupProbe third = new UnhandledCleanupProbe(3, false);
+	if (first.id + second.id + third.id == 6) {
+		throw "unhandled primary";
+	}
 }
 
 int main() {
-    failWithoutHandler();
-    return 0;
+	failWithoutHandler();
+	return 0;
 }

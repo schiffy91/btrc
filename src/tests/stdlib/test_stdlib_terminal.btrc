@@ -14,213 +14,195 @@ import std.terminal_password;
 #include <termios.h>
 #include <unistd.h>
 
-extern int openpty(int* amaster, int* aslave, char* name,
-                   void* termp, void* winp);
+extern int openpty(int* amaster, int* aslave, char* name, void* termp, void* winp);
 
 volatile sig_atomic_t passwordInterruptSignals = 0;
 
 void countPasswordInterrupt(int signalNumber) {
-    if (signalNumber == SIGTERM) { passwordInterruptSignals++; }
+	if (signalNumber == SIGTERM) { passwordInterruptSignals++; }
 }
 
 int main() {
-    /* Exercise password input on a real terminal and prove ECHO is restored. */
-    int ptyMaster = -1;
-    int ptySlave = -1;
-    assert(openpty(&ptyMaster, &ptySlave, NULL, NULL, NULL) == 0);
-    struct termios beforePassword;
-    assert(tcgetattr(ptySlave, &beforePassword) == 0);
-    beforePassword.c_lflag = (tcflag_t)beforePassword.c_lflag
-        | (tcflag_t)ECHO;
-    assert(tcsetattr(ptySlave, TCSANOW, &beforePassword) == 0);
-    int savedStdin = dup(STDIN_FILENO);
-    assert(savedStdin >= 0);
-    assert(write(ptyMaster, "pty-secret\n", 11) == (ssize_t)11);
-    assert(dup2(ptySlave, STDIN_FILENO) == STDIN_FILENO);
-    clearerr(stdin);
-    assert(Terminal.promptPassword("pty secret: ").equals("pty-secret"));
-    struct termios afterPassword;
-    assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
-    assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO)
-        == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
+	/* Exercise password input on a real terminal and prove ECHO is restored. */
+	int ptyMaster = -1;
+	int ptySlave = -1;
+	assert(openpty(&ptyMaster, &ptySlave, NULL, NULL, NULL) == 0);
+	struct termios beforePassword;
+	assert(tcgetattr(ptySlave, &beforePassword) == 0);
+	beforePassword.c_lflag = (tcflag_t)beforePassword.c_lflag | (tcflag_t)ECHO;
+	assert(tcsetattr(ptySlave, TCSANOW, &beforePassword) == 0);
+	int savedStdin = dup(STDIN_FILENO);
+	assert(savedStdin >= 0);
+	assert(write(ptyMaster, "pty-secret\n", 11) == (ssize_t)11);
+	assert(dup2(ptySlave, STDIN_FILENO) == STDIN_FILENO);
+	clearerr(stdin);
+	assert(Terminal.promptPassword("pty secret: ").equals("pty-secret"));
+	struct termios afterPassword;
+	assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
+	assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO) == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
 
-    /* An interrupt wakes the prompt through its self-pipe, restores ECHO and
+	/* An interrupt wakes the prompt through its self-pipe, restores ECHO and
      * descriptor flags, then replays the signal under the caller's handler. */
-    int flagsBeforeInterrupt = fcntl(STDIN_FILENO, F_GETFL, 0);
-    assert(flagsBeforeInterrupt >= 0);
-    struct sigaction testSignalAction;
-    memset(&testSignalAction, 0, sizeof(testSignalAction));
-    testSignalAction.sa_handler = countPasswordInterrupt;
-    assert(sigemptyset(&testSignalAction.sa_mask) == 0);
-    assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
-    pid_t interruptChild = fork();
-    assert(interruptChild >= (pid_t)0);
-    if (interruptChild == (pid_t)0) {
-        poll(NULL, (nfds_t)0, 100);
-        kill(getppid(), SIGTERM);
-        _exit(0);
-    }
-    assert(Terminal.promptPassword("interrupt secret: ").isEmpty());
-    int interruptStatus = 0;
-    assert(waitpid(interruptChild, &interruptStatus, 0) == interruptChild);
-    assert(WIFEXITED(interruptStatus) && WEXITSTATUS(interruptStatus) == 0);
-    assert((int)passwordInterruptSignals == 1);
-    assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
-    assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO)
-        == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
-    assert(fcntl(STDIN_FILENO, F_GETFL, 0) == flagsBeforeInterrupt);
-    int passwordSignalRead = TerminalPasswordInput.signalReadDescriptor();
-    int passwordSignalWrite = TerminalPasswordInput.signalWriteDescriptor();
-    assert(passwordSignalRead >= 0);
-    assert(passwordSignalWrite >= 0);
-    assert((fcntl(passwordSignalRead, F_GETFD, 0)
-        & FD_CLOEXEC) != 0);
-    assert((fcntl(passwordSignalWrite, F_GETFD, 0)
-        & FD_CLOEXEC) != 0);
-    raise(SIGTERM);
-    assert((int)passwordInterruptSignals == 2);
-    testSignalAction.sa_handler = SIG_DFL;
-    assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
+	int flagsBeforeInterrupt = fcntl(STDIN_FILENO, F_GETFL, 0);
+	assert(flagsBeforeInterrupt >= 0);
+	struct sigaction testSignalAction;
+	memset(&testSignalAction, 0, sizeof(testSignalAction));
+	testSignalAction.sa_handler = countPasswordInterrupt;
+	assert(sigemptyset(&testSignalAction.sa_mask) == 0);
+	assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
+	pid_t interruptChild = fork();
+	assert(interruptChild >= (pid_t)0);
+	if (interruptChild == (pid_t)0) {
+		poll(NULL, (nfds_t)0, 100);
+		kill(getppid(), SIGTERM);
+		_exit(0);
+	}
+	assert(Terminal.promptPassword("interrupt secret: ").isEmpty());
+	int interruptStatus = 0;
+	assert(waitpid(interruptChild, &interruptStatus, 0) == interruptChild);
+	assert(WIFEXITED(interruptStatus) && WEXITSTATUS(interruptStatus) == 0);
+	assert((int)passwordInterruptSignals == 1);
+	assert(tcgetattr(STDIN_FILENO, &afterPassword) == 0);
+	assert(((tcflag_t)afterPassword.c_lflag & (tcflag_t)ECHO) == ((tcflag_t)beforePassword.c_lflag & (tcflag_t)ECHO));
+	assert(fcntl(STDIN_FILENO, F_GETFL, 0) == flagsBeforeInterrupt);
+	int passwordSignalRead = TerminalPasswordInput.signalReadDescriptor();
+	int passwordSignalWrite = TerminalPasswordInput.signalWriteDescriptor();
+	assert(passwordSignalRead >= 0);
+	assert(passwordSignalWrite >= 0);
+	assert((fcntl(passwordSignalRead, F_GETFD, 0) & FD_CLOEXEC) != 0);
+	assert((fcntl(passwordSignalWrite, F_GETFD, 0) & FD_CLOEXEC) != 0);
+	raise(SIGTERM);
+	assert((int)passwordInterruptSignals == 2);
+	testSignalAction.sa_handler = SIG_DFL;
+	assert(sigaction(SIGTERM, &testSignalAction, NULL) == 0);
 
-    assert(dup2(savedStdin, STDIN_FILENO) == STDIN_FILENO);
-    clearerr(stdin);
-    close(savedStdin);
-    close(ptyMaster);
-    close(ptySlave);
+	assert(dup2(savedStdin, STDIN_FILENO) == STDIN_FILENO);
+	clearerr(stdin);
+	close(savedStdin);
+	close(ptyMaster);
+	close(ptySlave);
 
-    string dir = FileSystem.tempDir("btrc_terminal");
-    string path = PathTools.join(dir, "input.txt");
-    string longLine = "x".repeat(9000);
-    Path.writeAll(path, longLine + "\nplain\nsecret\n");
-    FILE* input = freopen(path, "r", stdin);
-    assert(input != NULL);
+	string dir = FileSystem.tempDir("btrc_terminal");
+	string path = PathTools.join(dir, "input.txt");
+	string longLine = "x".repeat(9000);
+	Path.writeAll(path, longLine + "\nplain\nsecret\n");
+	FILE* input = freopen(path, "r", stdin);
+	assert(input != NULL);
 
-    assert(Terminal.readLine().equals(longLine));
-    assert(Terminal.prompt("plain: ").equals("plain"));
-    assert(Terminal.promptPassword("secret: ").equals("secret"));
-    assert(UnixPamPassword.safeSecret("normal"));
-    assert(UnixPamPassword.safeSecret("x".repeat(4096)));
-    assert(!UnixPamPassword.safeSecret("x".repeat(4097)));
-    assert(!UnixPamPassword.safeSecret("bad\nsecond response"));
-    assert(!UnixPamPassword.safeSecret("bad\rresponse"));
-    assert(UnixPamPassword.safeAccountArgument("alice"));
-    assert(!UnixPamPassword.safeAccountArgument("-stdin"));
-    assert(!UnixPamPassword.safeAccountArgument(""));
-    assert(UnixPamPassword.canonicalAccountArgument(
-        "directory-alias", "canonical-user").equals("canonical-user"));
-    assert(UnixPamPassword.canonicalAccountArgument(
-        "-stdin", "canonical-user").isEmpty());
-    assert(UnixPamPassword.canonicalAccountArgument(
-        "directory-alias", "--root").isEmpty());
+	assert(Terminal.readLine().equals(longLine));
+	assert(Terminal.prompt("plain: ").equals("plain"));
+	assert(Terminal.promptPassword("secret: ").equals("secret"));
+	assert(UnixPamPassword.safeSecret("normal"));
+	assert(UnixPamPassword.safeSecret("x".repeat(4096)));
+	assert(!UnixPamPassword.safeSecret("x".repeat(4097)));
+	assert(!UnixPamPassword.safeSecret("bad\nsecond response"));
+	assert(!UnixPamPassword.safeSecret("bad\rresponse"));
+	assert(UnixPamPassword.safeAccountArgument("alice"));
+	assert(!UnixPamPassword.safeAccountArgument("-stdin"));
+	assert(!UnixPamPassword.safeAccountArgument(""));
+	assert(UnixPamPassword.canonicalAccountArgument("directory-alias", "canonical-user").equals("canonical-user"));
+	assert(UnixPamPassword.canonicalAccountArgument("-stdin", "canonical-user").isEmpty());
+	assert(UnixPamPassword.canonicalAccountArgument("directory-alias", "--root").isEmpty());
 
-    string passwdPath = UnixPamPassword.passwdExecutable();
-    assert(!passwdPath.isEmpty());
-    assert(passwdPath[0] == '/');
-    assert(access(passwdPath, X_OK) == 0);
-    assert(UnixPamPassword.responseCountFor((uid_t)0, (uid_t)123) == 2);
-    assert(UnixPamPassword.responseCountFor((uid_t)123, (uid_t)123) == 3);
-    assert(UnixPamPassword.responseCountFor((uid_t)123, (uid_t)124) == 0);
-    /* The final response budget remains defense in depth after the ordered
+	string passwdPath = UnixPamPassword.passwdExecutable();
+	assert(!passwdPath.isEmpty());
+	assert(passwdPath[0] == '/');
+	assert(access(passwdPath, X_OK) == 0);
+	assert(UnixPamPassword.responseCountFor((uid_t)0, (uid_t)123) == 2);
+	assert(UnixPamPassword.responseCountFor((uid_t)123, (uid_t)123) == 3);
+	assert(UnixPamPassword.responseCountFor((uid_t)123, (uid_t)124) == 0);
+	/* The final response budget remains defense in depth after the ordered
      * classifier, quiet-boundary, and terminal-state checks. */
-    assert(UnixPamPassword.maySendResponse(0, 2, true));
-    assert(UnixPamPassword.maySendResponse(1, 2, true));
-    assert(!UnixPamPassword.maySendResponse(2, 2, true));
-    assert(UnixPamPassword.maySendResponse(2, 3, true));
-    assert(!UnixPamPassword.maySendResponse(3, 3, true));
-    assert(!UnixPamPassword.maySendResponse(0, 3, false));
-    size_t accountBufferSize = UnixPamPassword.initialAccountBufferSize();
-    assert(accountBufferSize >= (size_t)1024);
-    assert(accountBufferSize <= (size_t)1048576);
-    int descriptorBound = UnixPamPassword.descriptorCloseBound();
-    assert(descriptorBound >= 3 && descriptorBound <= 1048576);
+	assert(UnixPamPassword.maySendResponse(0, 2, true));
+	assert(UnixPamPassword.maySendResponse(1, 2, true));
+	assert(!UnixPamPassword.maySendResponse(2, 2, true));
+	assert(UnixPamPassword.maySendResponse(2, 3, true));
+	assert(!UnixPamPassword.maySendResponse(3, 3, true));
+	assert(!UnixPamPassword.maySendResponse(0, 3, false));
+	size_t accountBufferSize = UnixPamPassword.initialAccountBufferSize();
+	assert(accountBufferSize >= (size_t)1024);
+	assert(accountBufferSize <= (size_t)1048576);
+	int descriptorBound = UnixPamPassword.descriptorCloseBound();
+	assert(descriptorBound >= 3 && descriptorBound <= 1048576);
 
-    /* The post-fork close loop removes an inherited descriptor even when the
+	/* The post-fork close loop removes an inherited descriptor even when the
      * caller forgot FD_CLOEXEC. */
-    int sentinelPipe[2];
-    assert(pipe(sentinelPipe) == 0);
-    int sentinelBound = (sentinelPipe[0] > sentinelPipe[1]
-        ? sentinelPipe[0] : sentinelPipe[1]) + 1;
-    pid_t sentinelChild = fork();
-    assert(sentinelChild >= (pid_t)0);
-    if (sentinelChild == (pid_t)0) {
-        UnixPamPassword.closeDescriptorsForExec(sentinelBound);
-        int inherited = fcntl(sentinelPipe[1], F_GETFD, 0);
-        _exit(inherited < 0 && errno == EBADF ? 0 : 1);
-    }
-    close(sentinelPipe[0]);
-    close(sentinelPipe[1]);
-    int sentinelStatus = 0;
-    assert(waitpid(sentinelChild, &sentinelStatus, 0) == sentinelChild);
-    assert(WIFEXITED(sentinelStatus) && WEXITSTATUS(sentinelStatus) == 0);
+	int sentinelPipe[2];
+	assert(pipe(sentinelPipe) == 0);
+	int sentinelBound = (sentinelPipe[0] > sentinelPipe[1] ? sentinelPipe[0] : sentinelPipe[1]) + 1;
+	pid_t sentinelChild = fork();
+	assert(sentinelChild >= (pid_t)0);
+	if (sentinelChild == (pid_t)0) {
+		UnixPamPassword.closeDescriptorsForExec(sentinelBound);
+		int inherited = fcntl(sentinelPipe[1], F_GETFD, 0);
+		_exit(inherited < 0 && errno == EBADF ? 0 : 1);
+	}
+	close(sentinelPipe[0]);
+	close(sentinelPipe[1]);
+	int sentinelStatus = 0;
+	assert(waitpid(sentinelChild, &sentinelStatus, 0) == sentinelChild);
+	assert(WIFEXITED(sentinelStatus) && WEXITSTATUS(sentinelStatus) == 0);
 
-    assert(UnixPamPassword.waitForExitUntil(
-        (pid_t)0, TerminalClock.deadlineAfter(1)) == -1);
-    pid_t invalidProcess = (pid_t)0 - (pid_t)1;
-    assert(UnixPamPassword.waitForExitUntil(
-        invalidProcess, TerminalClock.deadlineAfter(1)) == -1);
+	assert(UnixPamPassword.waitForExitUntil((pid_t)0, TerminalClock.deadlineAfter(1)) == -1);
+	pid_t invalidProcess = (pid_t)0 - (pid_t)1;
+	assert(UnixPamPassword.waitForExitUntil(invalidProcess, TerminalClock.deadlineAfter(1)) == -1);
 
-    /* A full nonblocking channel proves password writes share the absolute
+	/* A full nonblocking channel proves password writes share the absolute
      * deadline instead of blocking inside write(). */
-    int stalledPipe[2];
-    assert(pipe(stalledPipe) == 0);
-    assert(UnixPamPassword.configureMaster(stalledPipe[1]));
-    assert((fcntl(stalledPipe[1], F_GETFD, 0) & FD_CLOEXEC) != 0);
-    assert((fcntl(stalledPipe[1], F_GETFL, 0) & O_NONBLOCK) != 0);
-    char filler[4096];
-    memset(filler, 120, sizeof(filler));
-    ssize_t filled = write(stalledPipe[1], filler, sizeof(filler));
-    while (filled > (ssize_t)0) {
-        filled = write(stalledPipe[1], filler, sizeof(filler));
-    }
-    assert(filled < (ssize_t)0
-        && (errno == EAGAIN || errno == EWOULDBLOCK));
-    Timer writeTimer = Timer();
-    writeTimer.start();
-    assert(!UnixPamPassword.writeResponseUntil(
-        stalledPipe[1], "secret", TerminalClock.deadlineAfter(100)));
-    writeTimer.stop();
-    assert(writeTimer.elapsedMillis() >= 50.0f);
-    assert(writeTimer.elapsedMillis() < 5000.0f);
-    close(stalledPipe[0]);
-    close(stalledPipe[1]);
+	int stalledPipe[2];
+	assert(pipe(stalledPipe) == 0);
+	assert(UnixPamPassword.configureMaster(stalledPipe[1]));
+	assert((fcntl(stalledPipe[1], F_GETFD, 0) & FD_CLOEXEC) != 0);
+	assert((fcntl(stalledPipe[1], F_GETFL, 0) & O_NONBLOCK) != 0);
+	char filler[4096];
+	memset(filler, 120, sizeof(filler));
+	ssize_t filled = write(stalledPipe[1], filler, sizeof(filler));
+	while (filled > (ssize_t)0) {
+		filled = write(stalledPipe[1], filler, sizeof(filler));
+	}
+	assert(filled < (ssize_t)0 && (errno == EAGAIN || errno == EWOULDBLOCK));
+	Timer writeTimer = Timer();
+	writeTimer.start();
+	assert(!UnixPamPassword.writeResponseUntil(stalledPipe[1], "secret", TerminalClock.deadlineAfter(100)));
+	writeTimer.stop();
+	assert(writeTimer.elapsedMillis() >= 50.0f);
+	assert(writeTimer.elapsedMillis() < 5000.0f);
+	close(stalledPipe[0]);
+	close(stalledPipe[1]);
 
-    pid_t stalledChild = fork();
-    assert(stalledChild >= (pid_t)0);
-    if (stalledChild == (pid_t)0) {
-        Timer.sleep(30.0);
-        _exit(0);
-    }
-    Timer deadlineTimer = Timer();
-    deadlineTimer.start();
-    int stalledStatus = UnixPamPassword.waitForExitUntil(
-        stalledChild, TerminalClock.deadlineAfter(100));
-    deadlineTimer.stop();
-    assert(stalledStatus == -1);
-    assert(deadlineTimer.elapsedMillis() < 5000.0f);
-    int reapedStatus = 0;
-    errno = 0;
-    assert(waitpid(stalledChild, &reapedStatus, WNOHANG) < (pid_t)0);
-    assert(errno == ECHILD);
+	pid_t stalledChild = fork();
+	assert(stalledChild >= (pid_t)0);
+	if (stalledChild == (pid_t)0) {
+		Timer.sleep(30.0);
+		_exit(0);
+	}
+	Timer deadlineTimer = Timer();
+	deadlineTimer.start();
+	int stalledStatus = UnixPamPassword.waitForExitUntil(stalledChild, TerminalClock.deadlineAfter(100));
+	deadlineTimer.stop();
+	assert(stalledStatus == -1);
+	assert(deadlineTimer.elapsedMillis() < 5000.0f);
+	int reapedStatus = 0;
+	errno = 0;
+	assert(waitpid(stalledChild, &reapedStatus, WNOHANG) < (pid_t)0);
+	assert(errno == ECHILD);
 
-    int supervisedMaster = -1;
-    pid_t supervisedChild = forkpty(
-        &supervisedMaster, NULL, NULL, NULL);
-    assert(supervisedChild >= (pid_t)0);
-    if (supervisedChild == (pid_t)0) {
-        Timer.sleep(30.0);
-        _exit(0);
-    }
-    assert(UnixPamPassword.configureMaster(supervisedMaster));
-    assert(UnixPamPassword.waitForPtyExitUntil(
-        supervisedChild, supervisedMaster,
-        TerminalClock.deadlineAfter(100)) == -1);
-    close(supervisedMaster);
-    errno = 0;
-    assert(waitpid(supervisedChild, &reapedStatus, WNOHANG) < (pid_t)0);
-    assert(errno == ECHILD);
+	int supervisedMaster = -1;
+	pid_t supervisedChild = forkpty(&supervisedMaster, NULL, NULL, NULL);
+	assert(supervisedChild >= (pid_t)0);
+	if (supervisedChild == (pid_t)0) {
+		Timer.sleep(30.0);
+		_exit(0);
+	}
+	assert(UnixPamPassword.configureMaster(supervisedMaster));
+	assert(UnixPamPassword.waitForPtyExitUntil(supervisedChild, supervisedMaster, TerminalClock.deadlineAfter(100)) == -1);
+	close(supervisedMaster);
+	errno = 0;
+	assert(waitpid(supervisedChild, &reapedStatus, WNOHANG) < (pid_t)0);
+	assert(errno == ECHILD);
 
-    FileSystem.removeRecursive(dir);
+	FileSystem.removeRecursive(dir);
 
-    print("PASS: test_stdlib_terminal");
-    return 0;
+	print("PASS: test_stdlib_terminal");
+	return 0;
 }

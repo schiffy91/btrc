@@ -8,31 +8,29 @@ import std.vector;
 int alive = 0;
 
 class Box {
-    public int value;
+	public int value;
 
-    public Box(int value) {
-        self.value = value;
-        alive++;
-    }
+	public Box(int value) {
+		self.value = value;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 int main() {
-    {
-        Vector<Box?> boxes = [];
-        boxes.push(null);
-        boxes.push(new Box(7));
+	{
+		Vector<Box?> boxes = [];
+		boxes.push(null);
+		boxes.push(new Box(7));
 
-        assert(boxes[0] == null);
-        assert(boxes[1] != null);
-        assert(boxes[1].value == 7);
-        assert(alive == 1);
-    }
+		assert(boxes[0] == null);
+		assert(boxes[1] != null);
+		assert(boxes[1].value == 7);
+		assert(alive == 1);
+	}
 
-    assert(alive == 0);
-    print("PASS: test_nullable_generic_arc");
-    return 0;
+	assert(alive == 0);
+	print("PASS: test_nullable_generic_arc");
+	return 0;
 }

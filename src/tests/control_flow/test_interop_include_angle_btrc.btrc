@@ -4,8 +4,8 @@
 #include <assert.h>
 
 int main() {
-    var p = AnglePoint(21);
-    assert(p.twice() == 42);
-    print("PASS: test_interop_include_angle_btrc");
-    return 0;
+	var p = AnglePoint(21);
+	assert(p.twice() == 42);
+	print("PASS: test_interop_include_angle_btrc");
+	return 0;
 }

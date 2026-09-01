@@ -9,25 +9,25 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    /* args() appends a whole Vector; flag() appends "--name" then "value". */
-    Vector<string> xs = ["a", "b"];
-    Command c = Command("git").args(xs).flag("--depth", "1");
-    /* All tokens are safe (alnum + '-'), so render passes them through unquoted. */
-    assert(c.render().equals("git a b --depth 1"));
+	/* args() appends a whole Vector; flag() appends "--name" then "value". */
+	Vector<string> xs = ["a", "b"];
+	Command c = Command("git").args(xs).flag("--depth", "1");
+	/* All tokens are safe (alnum + '-'), so render passes them through unquoted. */
+	assert(c.render().equals("git a b --depth 1"));
 
-    /* An argument that needs quoting (embedded space) is single-quoted in render. */
-    Command q = Command("echo").args(["one two", "x"]);
-    assert(q.render().equals("echo 'one two' x"));
+	/* An argument that needs quoting (embedded space) is single-quoted in render. */
+	Command q = Command("echo").args(["one two", "x"]);
+	assert(q.render().equals("echo 'one two' x"));
 
-    /* flag() value that needs quoting is quoted as the second token. */
-    Command f = Command("grep").flag("-e", "a b");
-    assert(f.render().equals("grep -e 'a b'"));
+	/* flag() value that needs quoting is quoted as the second token. */
+	Command f = Command("grep").flag("-e", "a b");
+	assert(f.render().equals("grep -e 'a b'"));
 
-    /* args() with an empty Vector is a no-op; render is just the command. */
-    Vector<string> none = [];
-    Command bare = Command("ls").args(none);
-    assert(bare.render().equals("ls"));
+	/* args() with an empty Vector is a no-op; render is just the command. */
+	Vector<string> none = [];
+	Command bare = Command("ls").args(none);
+	assert(bare.render().equals("ls"));
 
-    print("PASS: test_stdlib_command_builder");
-    return 0;
+	print("PASS: test_stdlib_command_builder");
+	return 0;
 }

@@ -9,20 +9,20 @@ import std.result;
 #include <assert.h>
 
 int main() {
-    // Err case: error payload is a structured Error subclass.
-    Result<int, Error> bad = new Result<int, Error>(false, 0, new ValueError("bad"));
-    assert(bad.isErr());
-    assert(!bad.isOk());
-    Error e = bad.unwrapErr();
-    assert(e.code == 1);                 // ValueError.code
-    assert(e.toString().equals("bad"));  // inherited toString()
-    assert(e.message.equals("bad"));
+	// Err case: error payload is a structured Error subclass.
+	Result<int, Error> bad = new Result<int, Error>(false, 0, new ValueError("bad"));
+	assert(bad.isErr());
+	assert(!bad.isOk());
+	Error e = bad.unwrapErr();
+	assert(e.code == 1);                 // ValueError.code
+	assert(e.toString().equals("bad"));  // inherited toString()
+	assert(e.message.equals("bad"));
 
-    // Ok case: value payload is intact, error side unused.
-    Result<int, Error> good = new Result<int, Error>(true, 42, new IOError(""));
-    assert(good.isOk());
-    assert(good.unwrap() == 42);
+	// Ok case: value payload is intact, error side unused.
+	Result<int, Error> good = new Result<int, Error>(true, 42, new IOError(""));
+	assert(good.isOk());
+	assert(good.unwrap() == 42);
 
-    print("PASS: test_exceptions_result_error_object");
-    return 0;
+	print("PASS: test_exceptions_result_error_object");
+	return 0;
 }

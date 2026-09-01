@@ -8,8 +8,8 @@
 #include <assert.h>
 
 int main() {
-    assert(Leaf.value() == 100);
-    assert(Mid.value() == 105);
-    print("PASS: test_interop_nested_include");
-    return 0;
+	assert(Leaf.value() == 100);
+	assert(Mid.value() == 105);
+	print("PASS: test_interop_nested_include");
+	return 0;
 }

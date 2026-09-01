@@ -4,24 +4,24 @@
 #include <assert.h>
 
 int main() {
-    var label = string function(int n) {
-        return f"n={n}";
-    };
-    string a = label(3);
-    assert(a == "n=3");
+	var label = string function(int n) {
+		return f"n={n}";
+	};
+	string a = label(3);
+	assert(a == "n=3");
 
-    __fn_ptr<string, int> fs = label;
-    string b = fs(7);
-    assert(b == "n=7");
+	__fn_ptr<string, int> fs = label;
+	string b = fs(7);
+	assert(b == "n=7");
 
-    var half = double function(double x) {
-        return x / 2.0;
-    };
-    assert(half(10.0) == 5.0);
+	var half = double function(double x) {
+		return x / 2.0;
+	};
+	assert(half(10.0) == 5.0);
 
-    __fn_ptr<double, double> fd = half;
-    assert(fd(3.0) == 1.5);
+	__fn_ptr<double, double> fd = half;
+	assert(fd(3.0) == 1.5);
 
-    print("PASS: test_lambda_string_return");
-    return 0;
+	print("PASS: test_lambda_string_return");
+	return 0;
 }

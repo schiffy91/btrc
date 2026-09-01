@@ -4,20 +4,18 @@ import std.vector;
 // `parallel for` is a first-class grammar construct that lowers to a sequential
 // for-in. No .btrc language test exercised it before now.
 int main() {
-    int total = 0;
-    Vector<int> xs = [1, 2, 3, 4];
-    parallel for x in xs {
-        total = total + x;
-    }
-    assert(total == 10);
+	int total = 0;
+	Vector<int> xs = [1, 2, 3, 4];
+	parallel for x in xs {
+		total = total + x;
+	}
+	assert(total == 10);
 
-    // over a range()
-    int sum = 0;
-    parallel for i in range(5) {
-        sum = sum + i;
-    }
-    assert(sum == 10);
+	// over a range()
+	int sum = 0;
+	parallel for i in range(5) { sum = sum + i; }
+	assert(sum == 10);
 
-    print("PASS: test_parallel_for_basic");
-    return 0;
+	print("PASS: test_parallel_for_basic");
+	return 0;
 }

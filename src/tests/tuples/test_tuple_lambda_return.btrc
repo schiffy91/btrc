@@ -1,10 +1,10 @@
 #include <assert.h>
 
 int main() {
-    var f = (int a, int b) => (a, b);
-    (int, int) r = f(3, 4);
-    assert(r._0 == 3);
-    assert(r._1 == 4);
-    print("PASS: test_tuple_lambda_return");
-    return 0;
+	var f = (int a, int b) => (a, b);
+	(int, int) r = f(3, 4);
+	assert(r._0 == 3);
+	assert(r._1 == 4);
+	print("PASS: test_tuple_lambda_return");
+	return 0;
 }

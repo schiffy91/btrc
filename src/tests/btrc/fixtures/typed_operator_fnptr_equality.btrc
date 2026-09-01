@@ -1,32 +1,31 @@
 #include <assert.h>
 
 int identity(int value) { return value; }
+
 int negate(int value) { return -value; }
 int callbackOrder = 0;
 
-__fn_ptr<int, int> callbackProbe(
-    __fn_ptr<int, int> callback, int marker
-) {
-    callbackOrder = callbackOrder * 10 + marker;
-    return callback;
+__fn_ptr<int, int> callbackProbe(__fn_ptr<int, int> callback, int marker) {
+	callbackOrder = callbackOrder * 10 + marker;
+	return callback;
 }
 
 class Equality<T> {
-    public Equality() {}
-    public bool same(T left, T right) { return __btrc_eq(left, right); }
+	public Equality() {}
+
+	public bool same(T left, T right) { return __btrc_eq(left, right); }
 }
 
 int main() {
-    __fn_ptr<int, int> callback = identity;
-    assert(callback == callback);
-    assert(callback != null);
-    assert(callbackProbe(identity, 1) == callbackProbe(identity, 2));
-    assert(callbackOrder == 12);
-    callbackOrder = 0;
-    assert(callbackProbe(identity, 1) != callbackProbe(negate, 2));
-    assert(callbackOrder == 12);
-    Equality<__fn_ptr<int, int>> equality =
-        new Equality<__fn_ptr<int, int>>();
-    assert(equality.same(callback, callback));
-    return 0;
+	__fn_ptr<int, int> callback = identity;
+	assert(callback == callback);
+	assert(callback != null);
+	assert(callbackProbe(identity, 1) == callbackProbe(identity, 2));
+	assert(callbackOrder == 12);
+	callbackOrder = 0;
+	assert(callbackProbe(identity, 1) != callbackProbe(negate, 2));
+	assert(callbackOrder == 12);
+	Equality<__fn_ptr<int, int>> equality = new Equality<__fn_ptr<int, int>> ();
+	assert(equality.same(callback, callback));
+	return 0;
 }

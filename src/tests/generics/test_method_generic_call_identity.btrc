@@ -4,18 +4,18 @@
 #include <assert.h>
 
 class Chain {
-    public size_t recordedBytes;
-    public Chain() { self.recordedBytes = (size_t)0; }
-    public Chain record<U>(U value) {
-        self.recordedBytes = self.recordedBytes + sizeof(value);
-        return self;
-    }
+	public size_t recordedBytes;
+	public Chain() { self.recordedBytes = (size_t)0; }
+	public Chain record<U>(U value) {
+		self.recordedBytes = self.recordedBytes + sizeof(value);
+		return self;
+	}
 }
 
 int main() {
-    Chain chain = Chain();
-    Chain result = chain.record(7).record("seven");
-    assert(result.recordedBytes == sizeof(int) + sizeof(string));
-    print("PASS: test_method_generic_call_identity");
-    return 0;
+	Chain chain = Chain();
+	Chain result = chain.record(7).record("seven");
+	assert(result.recordedBytes == sizeof(int) + sizeof(string));
+	print("PASS: test_method_generic_call_identity");
+	return 0;
 }

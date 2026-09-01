@@ -7,78 +7,72 @@ import std.vector;
 #include <assert.h>
 
 class JsonUtf8Fixture {
-    class string bytes(Vector<int> values) {
-        StringBuilder output = StringBuilder();
-        for value in values {
-            output.appendChar((char)value);
-        }
-        return output.toString();
-    }
+	class string bytes(Vector<int> values) {
+		StringBuilder output = StringBuilder();
+		for value in values {
+			output.appendChar((char)value);
+		}
+		return output.toString();
+	}
 
-    class void expectRepair(Vector<int> values, string expected) {
-        string malformed = JsonUtf8Fixture.bytes(values);
-        string encoded = "\"" + expected + "\"";
+	class void expectRepair(Vector<int> values, string expected) {
+		string malformed = JsonUtf8Fixture.bytes(values);
+		string encoded = "\"" + expected + "\"";
+		JsonValue value = JsonValue.makeString(malformed);
+		assert(value.stringify().equals(encoded));
+		assert(value.stringifyPretty().equals(encoded));
+		assert(value.document().equals(encoded + "\n"));
 
-        JsonValue value = JsonValue.makeString(malformed);
-        assert(value.stringify().equals(encoded));
-        assert(value.stringifyPretty().equals(encoded));
-        assert(value.document().equals(encoded + "\n"));
-
-        JsonValue roundtrip = JsonValue.parse(encoded);
-        assert(roundtrip.isString());
-        assert(roundtrip.asString().equals(expected));
-        assert(roundtrip.stringify().equals(encoded));
-    }
+		JsonValue roundtrip = JsonValue.parse(encoded);
+		assert(roundtrip.isString());
+		assert(roundtrip.asString().equals(expected));
+		assert(roundtrip.stringify().equals(encoded));
+	}
 }
 
 int main() {
-    string replacement = "\xef\xbf\xbd";
+	string replacement = "\xef\xbf\xbd";
 
-    string valid = JsonUtf8Fixture.bytes([
-        0xc2, 0x80,
-        0xdf, 0xbf,
-        0xe0, 0xa0, 0x80,
-        0xed, 0x9f, 0xbf,
-        0xf0, 0x90, 0x80, 0x80,
-        0xf4, 0x8f, 0xbf, 0xbf
-    ]);
-    assert(JsonValue.makeString(valid).stringify().equals("\"" + valid + "\""));
+	string valid = JsonUtf8Fixture.bytes([
+		0xc2, 0x80,
+		0xdf, 0xbf,
+		0xe0, 0xa0, 0x80,
+		0xed, 0x9f, 0xbf,
+		0xf0, 0x90, 0x80, 0x80,
+		0xf4, 0x8f, 0xbf, 0xbf
+	]);
+	assert(JsonValue.makeString(valid).stringify().equals("\"" + valid + "\""));
 
-    JsonUtf8Fixture.expectRepair([0x80], replacement);
-    JsonUtf8Fixture.expectRepair([0xc0, 0xaf], replacement + replacement);
-    JsonUtf8Fixture.expectRepair(
-        [0xe2, 0x28, 0xa1], replacement + "(" + replacement);
-    JsonUtf8Fixture.expectRepair(
-        [0xf0, 0x9f, 0x92], replacement + replacement + replacement);
-    JsonUtf8Fixture.expectRepair(
-        [0xed, 0xa0, 0x80], replacement + replacement + replacement);
-    JsonUtf8Fixture.expectRepair(
-        [0xf4, 0x90, 0x80, 0x80],
-        replacement + replacement + replacement + replacement);
+	JsonUtf8Fixture.expectRepair([0x80], replacement);
+	JsonUtf8Fixture.expectRepair([0xc0, 0xaf], replacement + replacement);
+	JsonUtf8Fixture.expectRepair([0xe2, 0x28, 0xa1], replacement + "(" + replacement);
+	JsonUtf8Fixture.expectRepair([0xf0, 0x9f, 0x92], replacement + replacement + replacement);
+	JsonUtf8Fixture.expectRepair([0xed, 0xa0, 0x80], replacement + replacement + replacement);
+	JsonUtf8Fixture.expectRepair([0xf4, 0x90, 0x80, 0x80], replacement + replacement + replacement + replacement);
 
-    string malformedKey = "k" + JsonUtf8Fixture.bytes([0x80]);
-    string malformedValue = JsonUtf8Fixture.bytes([0xe2, 0x28, 0xa1]);
-    string repairedKey = "k" + replacement;
-    string repairedValue = replacement + "(" + replacement;
-    string objectText = "{\"" + repairedKey + "\":\"" + repairedValue + "\"}";
+	string malformedKey = "k" + JsonUtf8Fixture.bytes([0x80]);
+	string malformedValue = JsonUtf8Fixture.bytes([0xe2, 0x28, 0xa1]);
+	string repairedKey = "k" + replacement;
+	string repairedValue = replacement + "(" + replacement;
+	string objectText = "{\"" + repairedKey + "\":\"" + repairedValue + "\"}";
 
-    JsonValue object = JsonValue.makeObject();
-    object.set(malformedKey, JsonValue.makeString(malformedValue));
-    assert(object.stringify().equals(objectText));
-    assert(JsonValue.parse(objectText).stringify().equals(objectText));
+	JsonValue object = JsonValue.makeObject();
+	object.set(malformedKey, JsonValue.makeString(malformedValue));
+	assert(object.stringify().equals(objectText));
+	assert(JsonValue.parse(objectText).stringify().equals(objectText));
 
-    JsonObject legacy = JsonObject();
-    legacy.setString(malformedKey, malformedValue);
-    assert(legacy.stringify().equals(objectText));
+	JsonObject legacy = JsonObject();
+	legacy.setString(malformedKey, malformedValue);
+	assert(legacy.stringify().equals(objectText));
 
-    StringBuilder rawJson = StringBuilder();
-    rawJson.appendChar((char)34);
-    rawJson.append(malformedValue);
-    rawJson.appendChar((char)34);
-    JsonValue parsedMalformed = JsonValue.parse(rawJson.toString());
-    assert(parsedMalformed.isString());
-    assert(parsedMalformed.stringify().equals("\"" + repairedValue + "\""));
+	StringBuilder rawJson = StringBuilder();
+	rawJson.appendChar((char)34);
+	rawJson.append(malformedValue);
+	rawJson.appendChar((char)34);
+	JsonValue parsedMalformed = JsonValue.parse(rawJson.toString());
+	assert(parsedMalformed.isString());
+	assert(parsedMalformed.stringify().equals("\"" + repairedValue + "\""));
 
-    print("PASS: test_stdlib_json_utf8");
-    return 0;
+	print("PASS: test_stdlib_json_utf8");
+	return 0;
 }

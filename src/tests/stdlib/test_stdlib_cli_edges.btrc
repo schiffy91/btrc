@@ -11,69 +11,69 @@ import std.cli;
 #include <assert.h>
 
 int main() {
-    // isOptionValue: a negative number counts as a value, a long flag does not.
-    assert(CliCommandLine.isOptionValue("-5"));
-    assert(CliCommandLine.isOptionValue("plain"));
-    assert(!CliCommandLine.isOptionValue("--x"));
-    assert(!CliCommandLine.isOptionValue("-abc"));   // '-' then non-digit
-    assert(CliCommandLine.isNegativeNumber("-5"));
-    assert(CliCommandLine.isNegativeNumber("-1.25"));
-    assert(CliCommandLine.isNegativeNumber("-1e-3"));
-    assert(!CliCommandLine.isNegativeNumber("-x"));
-    assert(!CliCommandLine.isNegativeNumber("-1x"));
-    assert(!CliCommandLine.isNegativeNumber("-"));    // too short
+	// isOptionValue: a negative number counts as a value, a long flag does not.
+	assert(CliCommandLine.isOptionValue("-5"));
+	assert(CliCommandLine.isOptionValue("plain"));
+	assert(!CliCommandLine.isOptionValue("--x"));
+	assert(!CliCommandLine.isOptionValue("-abc"));   // '-' then non-digit
+	assert(CliCommandLine.isNegativeNumber("-5"));
+	assert(CliCommandLine.isNegativeNumber("-1.25"));
+	assert(CliCommandLine.isNegativeNumber("-1e-3"));
+	assert(!CliCommandLine.isNegativeNumber("-x"));
+	assert(!CliCommandLine.isNegativeNumber("-1x"));
+	assert(!CliCommandLine.isNegativeNumber("-"));    // too short
 
-    // --n -5 -- --x : -5 is consumed as the value of --n, then -- ends options,
-    // so --x is a literal operand.
-    var args = CliArgs(0, null);
-    args.values.push("--n");
-    args.values.push("-5");
-    args.values.push("--");
-    args.values.push("--x");
-    var cl = CliCommandLine.parse(args);
-    assert(cl.option("--n").equals("-5"));   // negative number consumed
-    assert(cl.operandCount() == 1);
-    assert(cl.operand(0).equals("--x"));     // after --, treated as operand
+	// --n -5 -- --x : -5 is consumed as the value of --n, then -- ends options,
+	// so --x is a literal operand.
+	var args = CliArgs(0, null);
+	args.values.push("--n");
+	args.values.push("-5");
+	args.values.push("--");
+	args.values.push("--x");
+	var cl = CliCommandLine.parse(args);
+	assert(cl.option("--n").equals("-5"));   // negative number consumed
+	assert(cl.operandCount() == 1);
+	assert(cl.operand(0).equals("--x"));     // after --, treated as operand
 
-    // A boolean flag immediately followed by another flag: the first flag is
-    // boolean "true", the second becomes its own option.
-    var bools = CliArgs(0, null);
-    bools.values.push("--verbose");
-    bools.values.push("--debug");
-    var bc = CliCommandLine.parse(bools);
-    assert(bc.flag("--verbose"));
-    assert(bc.flag("--debug"));
-    assert(bc.operandCount() == 0);
+	// A boolean flag immediately followed by another flag: the first flag is
+	// boolean "true", the second becomes its own option.
+	var bools = CliArgs(0, null);
+	bools.values.push("--verbose");
+	bools.values.push("--debug");
+	var bc = CliCommandLine.parse(bools);
+	assert(bc.flag("--verbose"));
+	assert(bc.flag("--debug"));
+	assert(bc.operandCount() == 0);
 
-    // CliHelp: signature length EXACTLY equal to width takes the wrap branch
-    // (signature on its own line, description on the indented continuation).
-    var help = CliHelp().withWidth(5);
-    help.item("12345", "desc");     // len == width -> wrap
-    var rendered = help.render();
-    assert(rendered.contains("  12345"));
-    // The description sits on a separate, indented line.
-    assert(rendered.contains("\n     desc"));
+	// CliHelp: signature length EXACTLY equal to width takes the wrap branch
+	// (signature on its own line, description on the indented continuation).
+	var help = CliHelp().withWidth(5);
+	help.item("12345", "desc");     // len == width -> wrap
+	var rendered = help.render();
+	assert(rendered.contains("  12345"));
+	// The description sits on a separate, indented line.
+	assert(rendered.contains("\n     desc"));
 
-    // An item whose signature wraps but has an empty description: no trailing
-    // description line is produced.
-    var help2 = CliHelp().withWidth(5);
-    help2.item("longsig", "");
-    var r2 = help2.render();
-    assert(r2.contains("  longsig"));
-    // The render is just the one signature line (no extra continuation).
-    assert(r2.equals("  longsig"));
+	// An item whose signature wraps but has an empty description: no trailing
+	// description line is produced.
+	var help2 = CliHelp().withWidth(5);
+	help2.item("longsig", "");
+	var r2 = help2.render();
+	assert(r2.contains("  longsig"));
+	// The render is just the one signature line (no extra continuation).
+	assert(r2.equals("  longsig"));
 
-    var malformed = CliArgs(0, null);
-    malformed.values.push("--=value");
-    var malformedLine = CliCommandLine.parseFrom(malformed, -10);
-    assert(!malformedLine.ok());
-    assert(malformedLine.errors.get(0).contains("invalid option"));
+	var malformed = CliArgs(0, null);
+	malformed.values.push("--=value");
+	var malformedLine = CliCommandLine.parseFrom(malformed, -10);
+	assert(!malformedLine.ok());
+	assert(malformedLine.errors.get(0).contains("invalid option"));
 
-    var narrow = CliHelp().withWidth(-1);
-    assert(narrow.width == 1);
-    var bounded = CliHelp().withWidth(2147483647);
-    assert(bounded.width == 4096);
+	var narrow = CliHelp().withWidth(-1);
+	assert(narrow.width == 1);
+	var bounded = CliHelp().withWidth(2147483647);
+	assert(bounded.width == 4096);
 
-    print("PASS: test_stdlib_cli_edges");
-    return 0;
+	print("PASS: test_stdlib_cli_edges");
+	return 0;
 }

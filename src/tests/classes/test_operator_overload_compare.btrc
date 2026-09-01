@@ -4,50 +4,42 @@
 #include <assert.h>
 
 class Money {
-    public int cents;
-    public Money(int c) {
-        self.cents = c;
-    }
-    public bool __eq__(Money other) {
-        return self.cents == other.cents;
-    }
-    public bool __ne__(Money other) {
-        return self.cents != other.cents;
-    }
-    public bool __lt__(Money other) {
-        return self.cents < other.cents;
-    }
-    public bool __gt__(Money other) {
-        return self.cents > other.cents;
-    }
-    public bool __le__(Money other) {
-        return self.cents <= other.cents;
-    }
-    public bool __ge__(Money other) {
-        return self.cents >= other.cents;
-    }
+	public int cents;
+	public Money(int c) { self.cents = c; }
+
+	public bool __eq__(Money other) { return self.cents == other.cents; }
+
+	public bool __ne__(Money other) { return self.cents != other.cents; }
+
+	public bool __lt__(Money other) { return self.cents < other.cents; }
+
+	public bool __gt__(Money other) { return self.cents > other.cents; }
+
+	public bool __le__(Money other) { return self.cents <= other.cents; }
+
+	public bool __ge__(Money other) { return self.cents >= other.cents; }
 }
 
 int main() {
-    Money a = Money(100);
-    Money b = Money(250);
-    Money c = Money(100);
+	Money a = Money(100);
+	Money b = Money(250);
+	Money c = Money(100);
 
-    assert(a == c);
-    assert(a != b);
-    assert(!(a != c));
+	assert(a == c);
+	assert(a != b);
+	assert(!(a != c));
 
-    assert(a < b);
-    assert(b > a);
-    assert(a <= c);
-    assert(b >= a);
-    assert(!(b < a));
-    assert(!(a > b));
+	assert(a < b);
+	assert(b > a);
+	assert(a <= c);
+	assert(b >= a);
+	assert(!(b < a));
+	assert(!(a > b));
 
-    // Use overloaded comparisons as plain bool values combined with &&.
-    bool ordered = (a < b) && (b > c);
-    assert(ordered);
+	// Use overloaded comparisons as plain bool values combined with &&.
+	bool ordered = (a < b) && (b > c);
+	assert(ordered);
 
-    print("PASS: test_operator_overload_compare");
-    return 0;
+	print("PASS: test_operator_overload_compare");
+	return 0;
 }

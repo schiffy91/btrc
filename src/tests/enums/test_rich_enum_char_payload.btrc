@@ -2,19 +2,19 @@
 
 // Rich enum variant carrying a char payload, read back through the union.
 enum class Token {
-    Num(int v),
-    Op(char c)
+	Num(int v),
+	Op(char c)
 }
 
 int main() {
-    Token o = Token.Op('+');
-    assert(o.tag == Token.Op);
-    assert(o.data.Op.c == '+');
+	Token o = Token.Op('+');
+	assert(o.tag == Token.Op);
+	assert(o.data.Op.c == '+');
 
-    Token n = Token.Num(42);
-    assert(n.tag == Token.Num);
-    assert(n.data.Num.v == 42);
+	Token n = Token.Num(42);
+	assert(n.tag == Token.Num);
+	assert(n.data.Num.v == 42);
 
-    print("PASS: test_rich_enum_char_payload");
-    return 0;
+	print("PASS: test_rich_enum_char_payload");
+	return 0;
 }

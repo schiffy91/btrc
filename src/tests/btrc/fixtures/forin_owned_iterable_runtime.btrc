@@ -3,169 +3,153 @@
 int sequencesAlive = 0;
 
 class Sequence {
-    public int base;
+	public int base;
 
-    public Sequence(int base) {
-        self.base = base;
-        sequencesAlive++;
-    }
+	public Sequence(int base) {
+		self.base = base;
+		sequencesAlive++;
+	}
 
-    public int iterLen() {
-        return 4;
-    }
+	public int iterLen() { return 4; }
 
-    public int iterGet(int index) {
-        return self.base + index;
-    }
+	public int iterGet(int index) { return self.base + index; }
 
-    public void __del__() {
-        sequencesAlive--;
-    }
+	public void __del__() { sequencesAlive--; }
 }
 
-Sequence makeSequence(int base) {
-    return new Sequence(base);
-}
+Sequence makeSequence(int base) { return new Sequence(base); }
 
 int consumeExhausted(int base) {
-    int sum = 0;
-    for value in makeSequence(base) {
-        sum += value;
-    }
-    assert(sequencesAlive == 0);
-    return sum;
+	int sum = 0;
+	for value in makeSequence(base) { sum += value; }
+	assert(sequencesAlive == 0);
+	return sum;
 }
 
 int consumeBreak(int base) {
-    int first = -1;
-    for value in new Sequence(base) {
-        first = value;
-        break;
-    }
-    assert(sequencesAlive == 0);
-    return first;
+	int first = -1;
+	for value in new Sequence(base) {
+		first = value;
+		break;
+	}
+	assert(sequencesAlive == 0);
+	return first;
 }
 
 int consumeContinue(int base) {
-    int sum = 0;
-    for value in makeSequence(base) {
-        if (value % 2 == 0) { continue; }
-        sum += value;
-    }
-    assert(sequencesAlive == 0);
-    return sum;
+	int sum = 0;
+	for value in makeSequence(base) {
+		if (value % 2 == 0) { continue; }
+		sum += value;
+	}
+	assert(sequencesAlive == 0);
+	return sum;
 }
 
 int consumeReturn(int base) {
-    for value in makeSequence(base) {
-        return value;
-    }
-    return -1;
+	for value in makeSequence(base) { return value; }
+	return -1;
 }
 
 void consumeThrow(int base) {
-    try {
-        for value in makeSequence(base) {
-            if (value == base + 1) { throw "owned loop failure"; }
-        }
-        assert(false);
-    } catch (string error) {
-        assert(error.equals("owned loop failure"));
-    }
-    assert(sequencesAlive == 0);
+	try {
+		for value in makeSequence(base) {
+			if (value == base + 1) { throw "owned loop failure"; }
+		}
+		assert(false);
+	} catch (string error) {
+		assert(error.equals("owned loop failure"));
+	}
+	assert(sequencesAlive == 0);
 }
 
 int consumeBorrowed(Sequence sequence) {
-    int sum = 0;
-    for value in sequence {
-        sum += value;
-    }
-    assert(sequencesAlive == 1);
-    return sum;
+	int sum = 0;
+	for value in sequence {
+		sum += value;
+	}
+	assert(sequencesAlive == 1);
+	return sum;
 }
 
 int consumeNested(int base) {
-    int sum = 0;
-    for outer in makeSequence(base) {
-        for inner in makeSequence(base + 10) {
-            if (inner == base + 11) { continue; }
-            sum += outer + inner;
-            if (inner == base + 12) { break; }
-        }
-        assert(sequencesAlive == 1);
-    }
-    assert(sequencesAlive == 0);
-    return sum;
+	int sum = 0;
+	for outer in makeSequence(base) {
+		for inner in makeSequence(base + 10) {
+			if (inner == base + 11) { continue; }
+			sum += outer + inner;
+			if (inner == base + 12) { break; }
+		}
+		assert(sequencesAlive == 1);
+	}
+	assert(sequencesAlive == 0);
+	return sum;
 }
 
 class GenericRunner<T> {
-    public int exhaust(int base) {
-        int sum = 0;
-        for value in makeSequence(base) {
-            sum += value;
-        }
-        assert(sequencesAlive == 0);
-        return sum;
-    }
+	public int exhaust(int base) {
+		int sum = 0;
+		for value in makeSequence(base) { sum += value; }
+		assert(sequencesAlive == 0);
+		return sum;
+	}
 
-    public int earlyReturn(int base) {
-        for value in makeSequence(base) {
-            return value;
-        }
-        return -1;
-    }
+	public int earlyReturn(int base) {
+		for value in makeSequence(base) { return value; }
+		return -1;
+	}
 
-    public void throwFromLoop(int base) {
-        try {
-            for value in makeSequence(base) {
-                if (value == base + 2) { throw "generic loop failure"; }
-            }
-            assert(false);
-        } catch (string error) {
-            assert(error.equals("generic loop failure"));
-        }
-        assert(sequencesAlive == 0);
-    }
+	public void throwFromLoop(int base) {
+		try {
+			for value in makeSequence(base) {
+				if (value == base + 2) { throw "generic loop failure"; }
+			}
+			assert(false);
+		} catch (string error) {
+			assert(error.equals("generic loop failure"));
+		}
+		assert(sequencesAlive == 0);
+	}
 
-    public int nested(int base) {
-        int sum = 0;
-        for outer in makeSequence(base) {
-            for inner in makeSequence(base + 20) {
-                if (inner == base + 21) { continue; }
-                sum += outer + inner;
-                if (inner == base + 22) { break; }
-            }
-            assert(sequencesAlive == 1);
-        }
-        assert(sequencesAlive == 0);
-        return sum;
-    }
+	public int nested(int base) {
+		int sum = 0;
+		for outer in makeSequence(base) {
+			for inner in makeSequence(base + 20) {
+				if (inner == base + 21) { continue; }
+				sum += outer + inner;
+				if (inner == base + 22) { break; }
+			}
+			assert(sequencesAlive == 1);
+		}
+		assert(sequencesAlive == 0);
+		return sum;
+	}
 }
 
 int main() {
-    GenericRunner<int> runner = new GenericRunner<int>();
-    for (int iteration = 0; iteration < 32; iteration++) {
-        int base = iteration * 100;
-        assert(consumeExhausted(base) == base * 4 + 6);
-        assert(consumeBreak(base) == base);
-        assert(consumeContinue(base) == base * 2 + 4);
-        assert(consumeReturn(base) == base);
-        assert(sequencesAlive == 0);
-        consumeThrow(base);
-        assert(consumeNested(base) > 0);
+	GenericRunner<int> runner = new GenericRunner<int>();
+	for (int iteration = 0; iteration < 32; iteration++) {
+		int base = iteration * 100;
+		assert(consumeExhausted(base) == base * 4 + 6);
+		assert(consumeBreak(base) == base);
+		assert(consumeContinue(base) == base * 2 + 4);
+		assert(consumeReturn(base) == base);
+		assert(sequencesAlive == 0);
+		consumeThrow(base);
+		assert(consumeNested(base) > 0);
 
-        Sequence borrowed = new Sequence(base);
-        assert(consumeBorrowed(borrowed) == base * 4 + 6);
-        assert(sequencesAlive == 1);
-        delete borrowed;
-        assert(sequencesAlive == 0);
+		Sequence borrowed = new Sequence(base);
+		assert(consumeBorrowed(borrowed) == base * 4 + 6);
+		assert(sequencesAlive == 1);
+		delete borrowed;
+		assert(sequencesAlive == 0);
 
-        assert(runner.exhaust(base) == base * 4 + 6);
-        assert(runner.earlyReturn(base) == base);
-        assert(sequencesAlive == 0);
-        runner.throwFromLoop(base);
-        assert(runner.nested(base) > 0);
-        assert(sequencesAlive == 0);
-    }
-    return 0;
+		assert(runner.exhaust(base) == base * 4 + 6);
+		assert(runner.earlyReturn(base) == base);
+		assert(sequencesAlive == 0);
+		runner.throwFromLoop(base);
+		assert(runner.nested(base) > 0);
+		assert(sequencesAlive == 0);
+	}
+	return 0;
 }

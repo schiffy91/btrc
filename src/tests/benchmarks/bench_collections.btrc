@@ -6,27 +6,27 @@ import std.map;
 import std.set;
 
 int main() {
-    Vector<int> xs = [1, 2, 3, 4, 5];
-    xs.push(6);
-    int total = xs.reduce(0, (int a, int b) => a + b);
+	Vector<int> xs = [1, 2, 3, 4, 5];
+	xs.push(6);
+	int total = xs.reduce(0, (int a, int b) => a + b);
 
-    Vector<int> evens = xs.filter((int x) => x % 2 == 0);
-    Vector<int> doubled = xs.map((int x) => x * 2);
+	Vector<int> evens = xs.filter((int x) => x % 2 == 0);
+	Vector<int> doubled = xs.map((int x) => x * 2);
 
-    Map<string, int> counts = {"a": 1, "b": 2, "c": 3};
-    counts.set("d", 4);
-    int sum = 0;
-    for k, v in counts {
-        sum += v;
-    }
+	Map<string, int> counts = {"a": 1, "b": 2, "c": 3};
+	counts.set("d", 4);
+	int sum = 0;
+	for k, v in counts {
+		sum += v;
+	}
 
-    Set<int> seen = {1, 2, 3};
-    seen.add(4);
+	Set<int> seen = {1, 2, 3};
+	seen.add(4);
 
-    print(total);
-    print(evens.size());
-    print(doubled.size());
-    print(sum);
-    print(seen.size());
-    return 0;
+	print(total);
+	print(evens.size());
+	print(doubled.size());
+	print(sum);
+	print(seen.size());
+	return 0;
 }

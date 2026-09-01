@@ -3,30 +3,31 @@
 int balancedAlive = 0;
 
 class BalancedItem {
-    public BalancedItem() { balancedAlive++; }
-    public void __del__() { balancedAlive--; }
+	public BalancedItem() { balancedAlive++; }
+
+	public void __del__() { balancedAlive--; }
 }
 
 class BorrowGuard<T> {
-    public void inspect(T value) {
-        keep value;
-        release value;
-    }
+	public void inspect(T value) {
+		keep value;
+		release value;
+	}
 }
 
 int main() {
-    BorrowGuard<BalancedItem> objects = new BorrowGuard<BalancedItem>();
-    BalancedItem item = new BalancedItem();
-    objects.inspect(item);
-    assert(item != null);
-    assert(balancedAlive == 1);
+	BorrowGuard<BalancedItem> objects = new BorrowGuard<BalancedItem>();
+	BalancedItem item = new BalancedItem();
+	objects.inspect(item);
+	assert(item != null);
+	assert(balancedAlive == 1);
 
-    BorrowGuard<int> scalars = new BorrowGuard<int>();
-    scalars.inspect(7);
+	BorrowGuard<int> scalars = new BorrowGuard<int>();
+	scalars.inspect(7);
 
-    release item;
-    assert(balancedAlive == 0);
-    release objects;
-    release scalars;
-    return 0;
+	release item;
+	assert(balancedAlive == 0);
+	release objects;
+	release scalars;
+	return 0;
 }

@@ -7,45 +7,44 @@ typedef int* IntPointer;
 typedef __fn_ptr<int, int> Callback;
 
 struct Point {
-    int x;
-    int y;
+	int x;
+	int y;
 };
 
 enum Color {
-    RED,
-    GREEN
+	RED,
+	GREEN
 };
 
 enum class Shape {
-    Circle(int radius),
-    Point
+	Circle(int radius),
+	Point
 }
 
 int identity(int value) { return value; }
 
 int main() {
-    Text missing = null;
-    Octet octet = (Octet)255;
-    Small narrow = (Small)65535;
-    bool enabled = true;
-    long long signedWide = -5000000000LL;
-    unsigned long long unsignedWide = 9000000000ULL;
-    size_t sized = (size_t)17;
-    int number = 7;
-    IntPointer pointer = &number;
-    Callback callback = identity;
-    (int, int) pair = (1, 2);
-    struct Point point = {3, 4};
-    Shape shape = Shape.Circle(5);
-    Color color = GREEN;
+	Text missing = null;
+	Octet octet = (Octet)255;
+	Small narrow = (Small)65535;
+	bool enabled = true;
+	long long signedWide = -5000000000LL;
+	unsigned long long unsignedWide = 9000000000ULL;
+	size_t sized = (size_t)17;
+	int number = 7;
+	IntPointer pointer = &number;
+	Callback callback = identity;
+	(int, int) pair = (1, 2);
+	struct Point point = {3, 4};
+	Shape shape = Shape.Circle(5);
+	Color color = GREEN;
 
-    print(missing);
-    print(octet, narrow, enabled, signedWide, unsignedWide, sized,
-        callback, pair, point, shape, color);
-    print(pointer);
+	print(missing);
+	print(octet, narrow, enabled, signedWide, unsignedWide, sized, callback, pair, point, shape, color);
+	print(pointer);
 
-    string rendered = f"<{missing}|{octet}|{narrow}|{enabled}|{signedWide}|{unsignedWide}|{sized}|{callback}|{pair}|{point}|{shape}|{color}>";
-    assert(rendered.equals("<|255|65535|true|-5000000000|9000000000|17|<function>|<tuple>|<struct>|Circle|1>"));
-    print(rendered);
-    return callback(3) == 3 ? 0 : 1;
+	string rendered = f"<{missing}|{octet}|{narrow}|{enabled}|{signedWide}|{unsignedWide}|{sized}|{callback}|{pair}|{point}|{shape}|{color}>";
+	assert(rendered.equals("<|255|65535|true|-5000000000|9000000000|17|<function>|<tuple>|<struct>|Circle|1>"));
+	print(rendered);
+	return callback(3) == 3 ? 0 : 1;
 }

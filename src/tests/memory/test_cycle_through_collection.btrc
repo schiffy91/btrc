@@ -7,35 +7,33 @@ import std.vector;
 int node_count = 0;
 
 class Node {
-    public int id;
-    public Vector<Node> children;
+	public int id;
+	public Vector<Node> children;
 
-    public Node(int id) {
-        self.id = id;
-        self.children = {};
-        node_count++;
-    }
+	public Node(int id) {
+		self.id = id;
+		self.children = {};
+		node_count++;
+	}
 
-    public void __del__() {
-        node_count--;
-    }
+	public void __del__() { node_count--; }
 }
 
 int main() {
-    {
-        Node a = new Node(1);
-        Node b = new Node(2);
-        assert(node_count == 2);
+	{
+		Node a = new Node(1);
+		Node b = new Node(2);
+		assert(node_count == 2);
 
-        // Cycle via collection-held refs: a.children -> b, b.children -> a.
-        a.children.push(b);
-        b.children.push(a);
-        assert(a.children.get(0).id == 2);
-        assert(b.children.get(0).id == 1);
-        // Scope exit traverses the Vector's element slots and breaks the cycle.
-    }
-    assert(node_count == 0);
+		// Cycle via collection-held refs: a.children -> b, b.children -> a.
+		a.children.push(b);
+		b.children.push(a);
+		assert(a.children.get(0).id == 2);
+		assert(b.children.get(0).id == 1);
+		// Scope exit traverses the Vector's element slots and breaks the cycle.
+	}
+	assert(node_count == 0);
 
-    print("PASS: test_cycle_through_collection");
-    return 0;
+	print("PASS: test_cycle_through_collection");
+	return 0;
 }

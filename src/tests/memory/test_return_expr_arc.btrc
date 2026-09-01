@@ -7,35 +7,37 @@ import std.vector;
 #include <assert.h>
 
 class Builder {
-    public Vector<string> parts;
-    public Builder() { self.parts = []; }
-    public Builder add(string s) { self.parts.push(s); return self; }
-    public string build() { return self.parts.join("-"); }
+	public Vector<string> parts;
+	public Builder() { self.parts = []; }
+
+	public Builder add(string s) { self.parts.push(s); return self; }
+
+	public string build() { return self.parts.join("-"); }
 }
 
 class Maker {
-    public string make() {
-        Builder b = Builder();
-        b.add("a");
-        b.add("b");
-        b.add("c");
-        return b.build();   // method call on a local managed object
-    }
+	public string make() {
+		Builder b = Builder();
+		b.add("a");
+		b.add("b");
+		b.add("c");
+		return b.build();   // method call on a local managed object
+	}
 }
 
 int main() {
-    Maker m = Maker();
-    string r = m.make();
-    assert(r.len() == 5);
-    assert(r.equals("a-b-c"));
+	Maker m = Maker();
+	string r = m.make();
+	assert(r.len() == 5);
+	assert(r.equals("a-b-c"));
 
-    // Stress the path so any use-after-free/double-free surfaces as a crash.
-    for i in range(200) {
-        Maker mm = Maker();
-        string rr = mm.make();
-        assert(rr.equals("a-b-c"));
-    }
+	// Stress the path so any use-after-free/double-free surfaces as a crash.
+	for i in range(200) {
+		Maker mm = Maker();
+		string rr = mm.make();
+		assert(rr.equals("a-b-c"));
+	}
 
-    print("PASS: test_return_expr_arc");
-    return 0;
+	print("PASS: test_return_expr_arc");
+	return 0;
 }

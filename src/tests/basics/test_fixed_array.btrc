@@ -1,26 +1,26 @@
 #include <assert.h>
 
 int main() {
-    // Fixed-size array declaration with [N] suffix on the declared name
-    int arr[5];
-    for (int i = 0; i < 5; i++) {
-        arr[i] = i * i;
-    }
-    assert(arr[0] == 0);
-    assert(arr[3] == 9);
-    assert(arr[4] == 16);
+	// Fixed-size array declaration with [N] suffix on the declared name
+	int arr[5];
+	for (int i = 0; i < 5; i++) {
+		arr[i] = i * i;
+	}
+	assert(arr[0] == 0);
+	assert(arr[3] == 9);
+	assert(arr[4] == 16);
 
-    // sizeof a fixed array is N * element size
-    assert(sizeof(arr) == (size_t)5 * sizeof(int));
+	// sizeof a fixed array is N * element size
+	assert(sizeof(arr) == (size_t)5 * sizeof(int));
 
-    // a fixed array of another type
-    double vals[3];
-    vals[0] = 1.5;
-    vals[1] = 2.5;
-    vals[2] = 3.0;
-    double sum = vals[0] + vals[1] + vals[2];
-    assert(sum > 6.9 && sum < 7.1);
+	// a fixed array of another type
+	double vals[3];
+	vals[0] = 1.5;
+	vals[1] = 2.5;
+	vals[2] = 3.0;
+	double sum = vals[0] + vals[1] + vals[2];
+	assert(sum > 6.9 && sum < 7.1);
 
-    print("PASS: test_fixed_array");
-    return 0;
+	print("PASS: test_fixed_array");
+	return 0;
 }

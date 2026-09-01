@@ -1,13 +1,12 @@
 #include <assert.h>
 
-@gpu
-int[] addConstant(int[] a, int val) {
-    int i = gpu_id();
-    return a[i] + val;
+@gpu int[] addConstant(int[] a, int val) {
+	int i = gpu_id();
+	return a[i] + val;
 }
 
 int main() {
-    assert(10 + 5 == 15);
-    print("PASS: test_gpu_scalar_int_param");
-    return 0;
+	assert(10 + 5 == 15);
+	print("PASS: test_gpu_scalar_int_param");
+	return 0;
 }

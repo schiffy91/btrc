@@ -3,26 +3,26 @@
 #include <string.h>
 
 string managedCopy(string value) {
-    size_t length = strlen(value);
-    char* copy = (char*)malloc(length + (size_t)1);
-    memcpy(copy, value, length + (size_t)1);
-    return __btrc_str_track(copy);
+	size_t length = strlen(value);
+	char* copy = (char*)malloc(length + (size_t)1);
+	memcpy(copy, value, length + (size_t)1);
+	return __btrc_str_track(copy);
 }
 
 char* rawCopy(string value) {
-    size_t length = strlen(value);
-    char* copy = (char*)malloc(length + (size_t)1);
-    memcpy(copy, value, length + (size_t)1);
-    return copy;
+	size_t length = strlen(value);
+	char* copy = (char*)malloc(length + (size_t)1);
+	memcpy(copy, value, length + (size_t)1);
+	return copy;
 }
 
 int main() {
-    string owner = managedCopy("first");
-    char** entries = (char**)calloc(2, sizeof(char*));
-    entries[0] = rawCopy(owner);
-    owner = managedCopy("second");
-    assert(strcmp(entries[0], "first") == 0);
-    free(entries[0]);
-    free(entries);
-    return 0;
+	string owner = managedCopy("first");
+	char** entries = (char**)calloc(2, sizeof(char*));
+	entries[0] = rawCopy(owner);
+	owner = managedCopy("second");
+	assert(strcmp(entries[0], "first") == 0);
+	free(entries[0]);
+	free(entries);
+	return 0;
 }

@@ -10,61 +10,61 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    string dir = FileSystem.tempDir("btrc_file_lines");
-    assert(FileSystem.isDir(dir));
-    string path = PathTools.join(dir, "lines.txt");
+	string dir = FileSystem.tempDir("btrc_file_lines");
+	assert(FileSystem.isDir(dir));
+	string path = PathTools.join(dir, "lines.txt");
 
-    // Write three lines; writeLine returns true on success.
-    File w = File(path, "w");
-    assert(w.ok());
-    assert(w.writeLine("first"));
-    assert(w.writeLine("second"));
-    assert(w.writeLine("third"));
-    assert(w.flush());
-    assert(w.close());
+	// Write three lines; writeLine returns true on success.
+	File w = File(path, "w");
+	assert(w.ok());
+	assert(w.writeLine("first"));
+	assert(w.writeLine("second"));
+	assert(w.writeLine("third"));
+	assert(w.flush());
+	assert(w.close());
 
-    // readLine strips the trailing newline.
-    File r = File(path, "r");
-    assert(r.ok());
-    assert(r.readLine().equals("first"));
-    assert(r.readLine().equals("second"));
-    assert(r.readLine().equals("third"));
-    // After the last line, readLine returns "" and eof() is true.
-    assert(r.readLine().equals(""));
-    assert(r.eof());
-    r.close();
+	// readLine strips the trailing newline.
+	File r = File(path, "r");
+	assert(r.ok());
+	assert(r.readLine().equals("first"));
+	assert(r.readLine().equals("second"));
+	assert(r.readLine().equals("third"));
+	// After the last line, readLine returns "" and eof() is true.
+	assert(r.readLine().equals(""));
+	assert(r.eof());
+	r.close();
 
-    // readLines returns one entry per line, newlines stripped.
-    File rl = File(path, "r");
-    Vector<string> all = rl.readLines();
-    rl.close();
-    assert(all.len == 3);
-    assert(all.get(0).equals("first"));
-    assert(all.get(1).equals("second"));
-    assert(all.get(2).equals("third"));
+	// readLines returns one entry per line, newlines stripped.
+	File rl = File(path, "r");
+	Vector<string> all = rl.readLines();
+	rl.close();
+	assert(all.len == 3);
+	assert(all.get(0).equals("first"));
+	assert(all.get(1).equals("second"));
+	assert(all.get(2).equals("third"));
 
-    string longLine = Strings.repeat("0123456789", 900);
-    assert(Path.writeAll(path, longLine + "\nshort\n\n"));
-    File longReader = File(path, "r");
-    assert(longReader.readLine().equals(longLine));
-    assert(longReader.readLine().equals("short"));
-    assert(longReader.readLine().equals(""));
-    assert(longReader.readLine().equals(""));
-    assert(longReader.eof());
-    assert(!longReader.failed());
-    assert(longReader.close());
+	string longLine = Strings.repeat("0123456789", 900);
+	assert(Path.writeAll(path, longLine + "\nshort\n\n"));
+	File longReader = File(path, "r");
+	assert(longReader.readLine().equals(longLine));
+	assert(longReader.readLine().equals("short"));
+	assert(longReader.readLine().equals(""));
+	assert(longReader.readLine().equals(""));
+	assert(longReader.eof());
+	assert(!longReader.failed());
+	assert(longReader.close());
 
-    File linesReader = File(path, "r");
-    Vector<string> longLines = linesReader.readLines();
-    assert(longLines.len == 3);
-    assert(longLines.get(0).equals(longLine));
-    assert(longLines.get(1).equals("short"));
-    assert(longLines.get(2).equals(""));
-    assert(linesReader.close());
+	File linesReader = File(path, "r");
+	Vector<string> longLines = linesReader.readLines();
+	assert(longLines.len == 3);
+	assert(longLines.get(0).equals(longLine));
+	assert(longLines.get(1).equals("short"));
+	assert(longLines.get(2).equals(""));
+	assert(linesReader.close());
 
-    FileSystem.removeRecursive(dir);
-    assert(!FileSystem.exists(dir));
+	FileSystem.removeRecursive(dir);
+	assert(!FileSystem.exists(dir));
 
-    print("PASS: test_stdlib_file_lines");
-    return 0;
+	print("PASS: test_stdlib_file_lines");
+	return 0;
 }

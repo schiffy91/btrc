@@ -5,54 +5,43 @@
 int holderDestructions = 0;
 
 class ProjectionHolder {
-    public int values[2];
+	public int values[2];
 
-    public ProjectionHolder(int first, int second) {
-        self.values[0] = first;
-        self.values[1] = second;
-    }
+	public ProjectionHolder(int first, int second) {
+		self.values[0] = first;
+		self.values[1] = second;
+	}
 
-    public void __del__() {
-        holderDestructions += 1;
-    }
+	public void __del__() { holderDestructions += 1; }
 }
 
-ProjectionHolder makeProjectionHolder(int first, int second) {
-    return new ProjectionHolder(first, second);
-}
+ProjectionHolder makeProjectionHolder(int first, int second) { return new ProjectionHolder(first, second); }
 
-void consumeProjection(int[] values, int expected) {
-    assert(values[0] == expected);
-}
+void consumeProjection(int[] values, int expected) { assert(values[0] == expected); }
 
 class GenericProjectionReader<T> {
-    public GenericProjectionReader() {}
+	public GenericProjectionReader() {}
 
-    public int read() {
-        return makeProjectionHolder(17, 19).values[1];
-    }
+	public int read() { return makeProjectionHolder(17, 19).values[1]; }
 
-    public void consume() {
-        consumeProjection(makeProjectionHolder(23, 29).values, 23);
-    }
+	public void consume() { consumeProjection(makeProjectionHolder(23, 29).values, 23); }
 }
 
 int main() {
-    int value = makeProjectionHolder(5, 7).values[0];
-    assert(value == 5);
-    assert(holderDestructions == 1);
+	int value = makeProjectionHolder(5, 7).values[0];
+	assert(value == 5);
+	assert(holderDestructions == 1);
 
-    consumeProjection(makeProjectionHolder(11, 13).values, 11);
-    assert(holderDestructions == 2);
+	consumeProjection(makeProjectionHolder(11, 13).values, 11);
+	assert(holderDestructions == 2);
 
-    GenericProjectionReader<int> reader =
-        new GenericProjectionReader<int>();
-    assert(reader.read() == 19);
-    assert(holderDestructions == 3);
-    reader.consume();
-    assert(holderDestructions == 4);
+	GenericProjectionReader<int> reader = new GenericProjectionReader<int> ();
+	assert(reader.read() == 19);
+	assert(holderDestructions == 3);
+	reader.consume();
+	assert(holderDestructions == 4);
 
-    delete reader;
-    print("PASS: test_fixed_array_projection_lifetime");
-    return 0;
+	delete reader;
+	print("PASS: test_fixed_array_projection_lifetime");
+	return 0;
 }

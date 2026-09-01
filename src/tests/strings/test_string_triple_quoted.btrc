@@ -2,19 +2,19 @@
 #include <assert.h>
 
 int main() {
-    string s = """line1
+	string s = """line1
 line2
 line3""";
-    assert(s.contains("line1"));
-    assert(s.contains("line2"));
-    assert(s.contains("line3"));
-    // the newlines between the lines are real '\n'
-    assert(s.contains("\n"));
-    assert(s.indexOf("\n") == 5);
+	assert(s.contains("line1"));
+	assert(s.contains("line2"));
+	assert(s.contains("line3"));
+	// the newlines between the lines are real '\n'
+	assert(s.contains("\n"));
+	assert(s.indexOf("\n") == 5);
 
-    // count the lines via newline occurrences
-    assert(s.count("\n") == 2);
+	// count the lines via newline occurrences
+	assert(s.count("\n") == 2);
 
-    print("PASS: test_string_triple_quoted");
-    return 0;
+	print("PASS: test_string_triple_quoted");
+	return 0;
 }

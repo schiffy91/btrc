@@ -3,26 +3,26 @@
 // A self-referential struct: `struct Node*` is referenced inside the body
 // before the body is complete, exercising the forward-reference path.
 struct Node {
-    int v;
-    struct Node* next;
+	int v;
+	struct Node* next;
 };
 
 int main() {
-    struct Node c = {3, NULL};
-    struct Node b = {2, &c};
-    struct Node a = {1, &b};
+	struct Node c = {3, NULL};
+	struct Node b = {2, &c};
+	struct Node a = {1, &b};
 
-    // Traverse the three-node list.
-    struct Node* p = &a;
-    int sum = 0;
-    while (p != NULL) {
-        sum += p->v;
-        p = p->next;
-    }
-    assert(sum == 6);
-    assert(a.next->v == 2);
-    assert(a.next->next->v == 3);
+	// Traverse the three-node list.
+	struct Node* p = &a;
+	int sum = 0;
+	while (p != NULL) {
+		sum += p->v;
+		p = p->next;
+	}
+	assert(sum == 6);
+	assert(a.next->v == 2);
+	assert(a.next->next->v == 3);
 
-    print("PASS: test_interop_struct_forward_decl");
-    return 0;
+	print("PASS: test_interop_struct_forward_decl");
+	return 0;
 }

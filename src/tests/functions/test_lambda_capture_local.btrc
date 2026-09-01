@@ -3,53 +3,51 @@
 // C-compatible pointer has no environment slot; the analyzer rejects the loss.
 #include <assert.h>
 
-int identity(int value) {
-    return value;
-}
+int identity(int value) { return value; }
 
 int capturedCall() {
-    int offset = 2;
-    var callback = (int value) => value + offset;
-    return callback(3);
+	int offset = 2;
+	var callback = (int value) => value + offset;
+	return callback(3);
 }
 
 int plainCall() {
-    __fn_ptr<int, int> callback = identity;
-    return callback(4);
+	__fn_ptr<int, int> callback = identity;
+	return callback(4);
 }
 
 int main() {
-    assert(capturedCall() == 5);
-    assert(plainCall() == 4);
+	assert(capturedCall() == 5);
+	assert(plainCall() == 4);
 
-    int threshold = 3;
-    var over = (int x) => x > threshold;
-    assert(over(4) == true);
-    assert(over(3) == false);
-    assert(over(2) == false);
+	int threshold = 3;
+	var over = (int x) => x > threshold;
+	assert(over(4) == true);
+	assert(over(3) == false);
+	assert(over(2) == false);
 
-    // a different captured local
-    int bump = 100;
-    var add = (int x) => x + bump;
-    assert(add(1) == 101);
-    assert(add(5) == 105);
+	// a different captured local
+	int bump = 100;
+	var add = (int x) => x + bump;
+	assert(add(1) == 101);
+	assert(add(5) == 105);
 
-    // capture inside a nested block scope
-    int factor = 10;
-    {
-        var times = (int x) => x * factor;
-        assert(times(3) == 30);
-    }
+	// capture inside a nested block scope
+	int factor = 10;
+	{
+		var times = (int x) => x * factor;
+		assert(times(3) == 30);
+	}
 
-    // A nested closure binding shadows, then restores, a plain callable.
-    __fn_ptr<int, int> transform = identity;
-    if (true) {
-        int localBump = 8;
-        var transform = (int x) => x + localBump;
-        assert(transform(2) == 10);
-    }
-    assert(transform(2) == 2);
+	// A nested closure binding shadows, then restores, a plain callable.
+	__fn_ptr<int, int> transform = identity;
+	if (true) {
+		int localBump = 8;
+		var transform = (int x) => x + localBump;
+		assert(transform(2) == 10);
+	}
+	assert(transform(2) == 2);
 
-    print("PASS: test_lambda_capture_local");
-    return 0;
+	print("PASS: test_lambda_capture_local");
+	return 0;
 }

@@ -1,5 +1,4 @@
 import ./cenum/color.c
-
 #include <assert.h>
 
 // Raw C `enum IDENT` as a base_type (grammar.ebnf line 275): a C enum defined in
@@ -11,26 +10,26 @@ import ./cenum/color.c
 int rank(enum Color c) { return (int)c; }
 
 int main() {
-    enum Color c = GREEN;
-    assert(c == 1);
-    assert(RED == 0);
-    assert(BLUE == 2);
+	enum Color c = GREEN;
+	assert(c == 1);
+	assert(RED == 0);
+	assert(BLUE == 2);
 
-    enum Color* p = &c;
-    assert(*p == GREEN);
-    *p = BLUE;
-    assert(c == BLUE);
+	enum Color* p = &c;
+	assert(*p == GREEN);
+		*p = BLUE;
+	assert(c == BLUE);
 
-    assert(rank(RED) == 0);
-    assert(rank(BLUE) == 2);
+	assert(rank(RED) == 0);
+	assert(rank(BLUE) == 2);
 
-    enum Color seq[3] = {RED, GREEN, BLUE};
-    int sum = 0;
-    for (int i = 0; i < 3; i++) {
-        sum += seq[i];
-    }
-    assert(sum == 3);  // 0 + 1 + 2
+	enum Color seq[3] = {RED, GREEN, BLUE};
+	int sum = 0;
+	for (int i = 0; i < 3; i++) {
+		sum += seq[i];
+	}
+	assert(sum == 3);  // 0 + 1 + 2
 
-    print("PASS: test_interop_c_enum_base_type");
-    return 0;
+	print("PASS: test_interop_c_enum_base_type");
+	return 0;
 }

@@ -6,189 +6,179 @@ int sequencesAlive = 0;
 int sequencesDestroyed = 0;
 
 class Token {
-    public int id;
+	public int id;
 
-    public Token(int id) {
-        self.id = id;
-        tokensAlive++;
-    }
+	public Token(int id) {
+		self.id = id;
+		tokensAlive++;
+	}
 
-    public void __del__() {
-        tokensAlive--;
-        tokensDestroyed++;
-    }
+	public void __del__() {
+		tokensAlive--;
+		tokensDestroyed++;
+	}
 }
 
 class TokenSequence {
-    public Token first;
-    public Token second;
+	public Token first;
+	public Token second;
 
-    public TokenSequence(int base) {
-        sequencesAlive++;
-        self.first = new Token(base);
-        self.second = new Token(base + 1);
-    }
+	public TokenSequence(int base) {
+		sequencesAlive++;
+		self.first = new Token(base);
+		self.second = new Token(base + 1);
+	}
 
-    public int iterLen() { return 2; }
+	public int iterLen() { return 2; }
 
-    public Token iterGet(int index) {
-        if (index == 0) { return self.first; }
-        return self.second;
-    }
+	public Token iterGet(int index) {
+		if (index == 0) { return self.first; }
+		return self.second;
+	}
 
-    public void __del__() {
-        sequencesAlive--;
-        sequencesDestroyed++;
-    }
+	public void __del__() {
+		sequencesAlive--;
+		sequencesDestroyed++;
+	}
 }
 
-TokenSequence makeSequence(int base) {
-    return new TokenSequence(base);
-}
+TokenSequence makeSequence(int base) { return new TokenSequence(base); }
 
 void normalLeaf() {
-    Token local = new Token(1);
-    assert(local.id == 1);
+	Token local = new Token(1);
+	assert(local.id == 1);
 }
 
 void directThrowLeaf() {
-    Token outer = new Token(10);
-    {
-        Token nested = new Token(11);
-        assert(outer.id + nested.id == 21);
-        throw "direct leaf";
-    }
+	Token outer = new Token(10);
+	{
+		Token nested = new Token(11);
+		assert(outer.id + nested.id == 21);
+		throw "direct leaf";
+	}
 }
 
 void locallyCaughtLeaf() {
-    Token before = new Token(20);
-    try {
-        Token inner = new Token(21);
-        assert(inner.id == 21);
-        throw "caught locally";
-    } catch (string error) {
-        assert(error.equals("caught locally"));
-        assert(tokensAlive == 2);
-        assert(before.id == 20);
-    }
-    assert(tokensAlive == 2);
+	Token before = new Token(20);
+	try {
+		Token inner = new Token(21);
+		assert(inner.id == 21);
+		throw "caught locally";
+	} catch (string error) {
+		assert(error.equals("caught locally"));
+		assert(tokensAlive == 2);
+		assert(before.id == 20);
+	}
+	assert(tokensAlive == 2);
 }
 
 void nestedThrowLeaf() {
-    Token leaf = new Token(31);
-    assert(leaf.id == 31);
-    throw "nested leaf";
+	Token leaf = new Token(31);
+	assert(leaf.id == 31);
+	throw "nested leaf";
 }
 
 void rethrowingMiddle() {
-    Token middle = new Token(30);
-    try {
-        nestedThrowLeaf();
-    } catch (string error) {
-        assert(error.equals("nested leaf"));
-        assert(tokensAlive == 2);
-        assert(middle.id == 30);
-        throw "middle rethrow";
-    }
+	Token middle = new Token(30);
+	try {
+		nestedThrowLeaf();
+	} catch (string error) {
+		assert(error.equals("nested leaf"));
+		assert(tokensAlive == 2);
+		assert(middle.id == 30);
+		throw "middle rethrow";
+	}
 }
 
 void throwsWithKept(keep Token value) {
-    assert(value.id == 40);
-    throw "kept argument";
+	assert(value.id == 40);
+	throw "kept argument";
 }
 
-void ownedArgumentLeaf() {
-    throwsWithKept(new Token(40));
-}
+void ownedArgumentLeaf() { throwsWithKept(new Token(40)); }
 
 void ownedForInLeaf() {
-    for item in makeSequence(50) {
-        assert(item.id >= 50);
-        throw "owned for-in";
-    }
+	for item in makeSequence(50) {
+		assert(item.id >= 50);
+		throw "owned for-in";
+	}
 }
 
-int readToken(Token value) {
-    return value.id;
-}
+int readToken(Token value) { return value.id; }
 
-int scalarReturnWithOwnedOperand() {
-    return readToken(new Token(60));
-}
+int scalarReturnWithOwnedOperand() { return readToken(new Token(60)); }
 
 class GenericReturnProbe<T> {
-    public int scalarReturnWithOwnedOperand() {
-        return readToken(new Token(61));
-    }
+	public int scalarReturnWithOwnedOperand() { return readToken(new Token(61)); }
 }
 
 void laterThrowLeaf() {
-    Token local = new Token(62);
-    assert(local.id == 62);
-    throw "later throw";
+	Token local = new Token(62);
+	assert(local.id == 62);
+	throw "later throw";
 }
 
 int main() {
-    normalLeaf();
-    assert(tokensAlive == 0);
-    assert(tokensDestroyed == 1);
+	normalLeaf();
+	assert(tokensAlive == 0);
+	assert(tokensDestroyed == 1);
 
-    Token survivor = new Token(99);
-    assert(tokensAlive == 1);
+	Token survivor = new Token(99);
+	assert(tokensAlive == 1);
 
-    try { directThrowLeaf(); }
-    catch (string error) {
-        assert(error.equals("direct leaf"));
-        assert(tokensAlive == 1);
-        assert(tokensDestroyed == 3);
-        assert(survivor.id == 99);
-    }
+	try { directThrowLeaf(); }
+	catch (string error) {
+		assert(error.equals("direct leaf"));
+		assert(tokensAlive == 1);
+		assert(tokensDestroyed == 3);
+		assert(survivor.id == 99);
+	}
 
-    locallyCaughtLeaf();
-    assert(tokensAlive == 1);
-    assert(tokensDestroyed == 5);
+	locallyCaughtLeaf();
+	assert(tokensAlive == 1);
+	assert(tokensDestroyed == 5);
 
-    try { rethrowingMiddle(); }
-    catch (string error) {
-        assert(error.equals("middle rethrow"));
-        assert(tokensAlive == 1);
-        assert(tokensDestroyed == 7);
-        assert(survivor.id == 99);
-    }
+	try { rethrowingMiddle(); }
+	catch (string error) {
+		assert(error.equals("middle rethrow"));
+		assert(tokensAlive == 1);
+		assert(tokensDestroyed == 7);
+		assert(survivor.id == 99);
+	}
 
-    try { ownedArgumentLeaf(); }
-    catch (string error) {
-        assert(error.equals("kept argument"));
-        assert(tokensAlive == 1);
-        assert(tokensDestroyed == 8);
-    }
+	try { ownedArgumentLeaf(); }
+	catch (string error) {
+		assert(error.equals("kept argument"));
+		assert(tokensAlive == 1);
+		assert(tokensDestroyed == 8);
+	}
 
-    try { ownedForInLeaf(); }
-    catch (string error) {
-        assert(error.equals("owned for-in"));
-        assert(tokensAlive == 1);
-        assert(tokensDestroyed == 10);
-        assert(sequencesAlive == 0);
-        assert(sequencesDestroyed == 1);
-    }
+	try { ownedForInLeaf(); }
+	catch (string error) {
+		assert(error.equals("owned for-in"));
+		assert(tokensAlive == 1);
+		assert(tokensDestroyed == 10);
+		assert(sequencesAlive == 0);
+		assert(sequencesDestroyed == 1);
+	}
 
-    GenericReturnProbe<int> probe = new GenericReturnProbe<int>();
-    try {
-        assert(scalarReturnWithOwnedOperand() == 60);
-        assert(probe.scalarReturnWithOwnedOperand() == 61);
-        assert(tokensAlive == 1);
-        assert(tokensDestroyed == 12);
-        laterThrowLeaf();
-    } catch (string error) {
-        assert(error.equals("later throw"));
-        assert(tokensAlive == 1);
-        assert(tokensDestroyed == 13);
-        assert(survivor.id == 99);
-    }
-    delete probe;
+	GenericReturnProbe<int> probe = new GenericReturnProbe<int>();
+	try {
+		assert(scalarReturnWithOwnedOperand() == 60);
+		assert(probe.scalarReturnWithOwnedOperand() == 61);
+		assert(tokensAlive == 1);
+		assert(tokensDestroyed == 12);
+		laterThrowLeaf();
+	} catch (string error) {
+		assert(error.equals("later throw"));
+		assert(tokensAlive == 1);
+		assert(tokensDestroyed == 13);
+		assert(survivor.id == 99);
+	}
+	delete probe;
 
-    delete survivor;
-    assert(tokensAlive == 0);
-    assert(tokensDestroyed == 14);
-    return 0;
+	delete survivor;
+	assert(tokensAlive == 0);
+	assert(tokensDestroyed == 14);
+	return 0;
 }

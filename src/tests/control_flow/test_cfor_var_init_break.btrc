@@ -4,26 +4,26 @@
 #include <assert.h>
 
 int main() {
-    // `var i = 0` infers int; break out early
-    int hits = 0;
-    for (var i = 0; i < 100; i++) {
-        if (i == 4) {
-            break;
-        }
-        hits++;
-    }
-    assert(hits == 4); // i = 0,1,2,3 counted, breaks at 4
+	// `var i = 0` infers int; break out early
+	int hits = 0;
+	for (var i = 0; i < 100; i++) {
+		if (i == 4) {
+			break;
+		}
+		hits++;
+	}
+	assert(hits == 4); // i = 0,1,2,3 counted, breaks at 4
 
-    // var in init combined with continue
-    int sum = 0;
-    for (var k = 0; k < 10; k++) {
-        if (k % 2 == 0) {
-            continue;
-        }
-        sum += k;
-    }
-    assert(sum == 25); // 1+3+5+7+9
+	// var in init combined with continue
+	int sum = 0;
+	for (var k = 0; k < 10; k++) {
+		if (k % 2 == 0) {
+			continue;
+		}
+		sum += k;
+	}
+	assert(sum == 25); // 1+3+5+7+9
 
-    print("PASS: test_cfor_var_init_break");
-    return 0;
+	print("PASS: test_cfor_var_init_break");
+	return 0;
 }

@@ -1,23 +1,23 @@
 #include <assert.h>
 
 int main() {
-    // double retains more precision than float
-    double d = 2.718281828459045;
-    assert(d > 2.7182818 && d < 2.7182819);
+	// double retains more precision than float
+	double d = 2.718281828459045;
+	assert(d > 2.7182818 && d < 2.7182819);
 
-    // double.toString() produces a leading-digit, dotted representation
-    string s = d.toString();
-    assert(s[0] == '2');
-    assert(s.len() > 3);
+	// double.toString() produces a leading-digit, dotted representation
+	string s = d.toString();
+	assert(s[0] == '2');
+	assert(s.len() > 3);
 
-    // double arithmetic stays precise
-    double half = 1.0 / 2.0;
-    assert(half > 0.4999 && half < 0.5001);
+	// double arithmetic stays precise
+	double half = 1.0 / 2.0;
+	assert(half > 0.4999 && half < 0.5001);
 
-    // small magnitude double
-    double tiny = 0.0001;
-    assert(tiny > 0.0 && tiny < 0.001);
+	// small magnitude double
+	double tiny = 0.0001;
+	assert(tiny > 0.0 && tiny < 0.001);
 
-    print("PASS: test_double_precision");
-    return 0;
+	print("PASS: test_double_precision");
+	return 0;
 }

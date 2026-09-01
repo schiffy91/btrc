@@ -1,26 +1,20 @@
 #include <assert.h>
 
 class Tools {
-    static int add(int left, int right = 2) {
-        return left + right;
-    }
+	static int add(int left, int right = 2) { return left + right; }
 }
 
 class Box<T> {
-    public int named() {
-        return Tools.add(right = 4, left = 1);
-    }
+	public int named() { return Tools.add(right = 4, left = 1); }
 
-    public int defaulted() {
-        return Tools.add(3);
-    }
+	public int defaulted() { return Tools.add(3); }
 }
 
 int main() {
-    Box<int> box = new Box<int>();
-    assert(box.named() == 5);
-    assert(box.defaulted() == 5);
-    delete box;
-    print("PASS: ordinary static calls from generic methods");
-    return 0;
+	Box<int> box = new Box<int>();
+	assert(box.named() == 5);
+	assert(box.defaulted() == 5);
+	delete box;
+	print("PASS: ordinary static calls from generic methods");
+	return 0;
 }

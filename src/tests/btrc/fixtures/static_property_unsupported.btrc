@@ -1,7 +1,5 @@
 class Config {
-    static int value { get; set; }
+	static int value { get; set; }
 }
 
-int main() {
-    return Config.value;
-}
+int main() { return Config.value; }

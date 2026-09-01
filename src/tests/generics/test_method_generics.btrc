@@ -3,30 +3,31 @@ import std.vector;
 import std.strings;
 
 long intToLong(int x) { return (long)x + 100; }
+
 int strLen(string s) { return s.len(); }
 
 class Holder<T> {
-    public T value;
-    public Holder(T v) { self.value = v; }
-    public U transform<U>(__fn_ptr<U, T> fn) { return fn(self.value); }
+	public T value;
+	public Holder(T v) { self.value = v; }
+	public U transform<U>(__fn_ptr<U, T> fn) { return fn(self.value); }
 }
 
 int dbl(int x) { return x * 2; }
 
 int main() {
-    Vector<int> nums = [1, 2, 3];
-    Vector<long> longs = nums.mapTo(intToLong);
-    print(f"{longs.get(0)},{longs.get(1)},{longs.get(2)}");
+	Vector<int> nums = [1, 2, 3];
+	Vector<long> longs = nums.mapTo(intToLong);
+	print(f"{longs.get(0)},{longs.get(1)},{longs.get(2)}");
 
-    Vector<string> words = ["a", "bb", "ccc"];
-    Vector<int> lens = words.mapTo(strLen);
-    print(f"{lens.get(0)},{lens.get(1)},{lens.get(2)}");
+	Vector<string> words = ["a", "bb", "ccc"];
+	Vector<int> lens = words.mapTo(strLen);
+	print(f"{lens.get(0)},{lens.get(1)},{lens.get(2)}");
 
-    // user generic class with a generic method, two distinct U
-    Holder<int> h = new Holder<int>(21);
-    int d = h.transform(dbl);
-    long lx = h.transform(intToLong);
-    print(f"{d},{lx}");
-    print("PASS: test_method_generics");
-    return 0;
+	// user generic class with a generic method, two distinct U
+	Holder<int> h = new Holder<int>(21);
+	int d = h.transform(dbl);
+	long lx = h.transform(intToLong);
+	print(f"{d},{lx}");
+	print("PASS: test_method_generics");
+	return 0;
 }

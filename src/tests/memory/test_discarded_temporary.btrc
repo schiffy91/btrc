@@ -5,33 +5,31 @@
 int alive = 0;
 
 class Obj {
-    public int v;
+	public int v;
 
-    public Obj(int v) {
-        self.v = v;
-        alive++;
-    }
+	public Obj(int v) {
+		self.v = v;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 int main() {
-    {
-        // Discarded owned results are released at the full-expression boundary.
-        new Obj(1);
-        assert(alive == 0);
-    }
-    assert(alive == 0);
+	{
+		// Discarded owned results are released at the full-expression boundary.
+		new Obj(1);
+		assert(alive == 0);
+	}
+	assert(alive == 0);
 
-    // A bound managed local remains alive until its enclosing scope exits.
-    {
-        Obj o = new Obj(2);
-        assert(alive == 1);
-    }
-    assert(alive == 0);
+	// A bound managed local remains alive until its enclosing scope exits.
+	{
+		Obj o = new Obj(2);
+		assert(alive == 1);
+	}
+	assert(alive == 0);
 
-    print("PASS: test_discarded_temporary");
-    return 0;
+	print("PASS: test_discarded_temporary");
+	return 0;
 }

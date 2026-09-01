@@ -5,35 +5,29 @@
 #include <assert.h>
 
 int main() {
-    // range(lo, hi) with both bounds in variables: 2..7
-    int lo = 2;
-    int hi = 8;
-    int sum = 0;
-    for i in range(lo, hi) {
-        sum += i;
-    }
-    assert(sum == 27); // 2+3+4+5+6+7
-    // loop must not have mutated the bound variables
-    assert(lo == 2);
-    assert(hi == 8);
+	// range(lo, hi) with both bounds in variables: 2..7
+	int lo = 2;
+	int hi = 8;
+	int sum = 0;
+	for i in range(lo, hi) { sum += i; }
+	assert(sum == 27); // 2+3+4+5+6+7
+	// loop must not have mutated the bound variables
+	assert(lo == 2);
+	assert(hi == 8);
 
-    // single-arg range() with a variable stop
-    int n = 5;
-    int count = 0;
-    for i in range(n) {
-        count++;
-    }
-    assert(count == 5);
-    assert(n == 5);
+	// single-arg range() with a variable stop
+	int n = 5;
+	int count = 0;
+	for i in range(n) { count++; }
+	assert(count == 5);
+	assert(n == 5);
 
-    // bounds computed from an expression
-    int base = 3;
-    int total = 0;
-    for i in range(base - 1, base + 2) {
-        total += i;
-    }
-    assert(total == 9); // 2+3+4
+	// bounds computed from an expression
+	int base = 3;
+	int total = 0;
+	for i in range(base - 1, base + 2) { total += i; }
+	assert(total == 9); // 2+3+4
 
-    print("PASS: test_range_variable_bounds");
-    return 0;
+	print("PASS: test_range_variable_bounds");
+	return 0;
 }

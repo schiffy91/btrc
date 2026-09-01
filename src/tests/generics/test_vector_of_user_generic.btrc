@@ -2,22 +2,24 @@
  * explicitly-constructed Box<int> elements and reads them back through the
  * collection, verifying user-generic monomorphization inside the push/get
  * path. */
-#include <assert.h>
 import std.vector;
 
+#include <assert.h>
+
 class Box<T> {
-    public T v;
-    public Box(T x) { self.v = x; }
-    public T get() { return self.v; }
+	public T v;
+	public Box(T x) { self.v = x; }
+
+	public T get() { return self.v; }
 }
 
 int main() {
-    Vector<Box<int>> v = [];
-    v.push(new Box<int>(1));
-    v.push(new Box<int>(2));
-    assert(v.len == 2);
-    assert(v.get(0).get() + v.get(1).get() == 3);
+	Vector<Box<int>> v = [];
+	v.push(new Box<int>(1));
+	v.push(new Box<int>(2));
+	assert(v.len == 2);
+	assert(v.get(0).get() + v.get(1).get() == 3);
 
-    print("PASS: test_vector_of_user_generic");
-    return 0;
+	print("PASS: test_vector_of_user_generic");
+	return 0;
 }

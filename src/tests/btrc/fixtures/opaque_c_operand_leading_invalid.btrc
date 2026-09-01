@@ -2,11 +2,12 @@
 #include <limits.h>
 
 long long wideReturningLL() { return LLONG_MAX; }
+
 int intReturningZero() { return 0; }
 
 #define OPAQUE_WIDE wideReturningLL()
 
 int main() {
-    assert(OPAQUE_WIDE > intReturningZero());
-    return 0;
+	assert(OPAQUE_WIDE > intReturningZero());
+	return 0;
 }

@@ -7,46 +7,40 @@
 int alive = 0;
 
 class Counter {
-    public int n;
+	public int n;
 
-    public Counter(int start) {
-        self.n = start;
-        alive++;
-    }
+	public Counter(int start) {
+		self.n = start;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 
-    public void bump() {
-        self.n += 1;
-    }
+	public void bump() { self.n += 1; }
 
-    public int value() {
-        return self.n;
-    }
+	public int value() { return self.n; }
 }
 
 int main() {
-    {
-        Counter c = new Counter(10);
-        assert(alive == 1);
+	{
+		Counter c = new Counter(10);
+		assert(alive == 1);
 
-        // Lambda captures the managed object by reference.
-        var inc = void function() { c.bump(); };
-        var read = int function() { return c.value(); };
+		// Lambda captures the managed object by reference.
+		var inc = void function() { c.bump(); };
+		var read = int function() { return c.value(); };
 
-        // Invoke repeatedly: the captured object must remain valid.
-        inc();
-        inc();
-        inc();
-        assert(read() == 13);
-        assert(c.value() == 13);
-        assert(alive == 1);   // still alive while the lambdas reference it
-    }
-    // Scope exit releases the captured object exactly once.
-    assert(alive == 0);
+		// Invoke repeatedly: the captured object must remain valid.
+		inc();
+		inc();
+		inc();
+		assert(read() == 13);
+		assert(c.value() == 13);
+		assert(alive == 1);   // still alive while the lambdas reference it
+	}
+	// Scope exit releases the captured object exactly once.
+	assert(alive == 0);
 
-    print("PASS: test_lambda_capture_arc");
-    return 0;
+	print("PASS: test_lambda_capture_arc");
+	return 0;
 }

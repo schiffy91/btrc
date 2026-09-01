@@ -3,14 +3,14 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    // Nested collection operations
-    Vector<int> a = [1, 2, 3, 4, 5];
-    a.reverse();
-    a.remove(0);
-    assert(a.get(0) == 4);
-    assert(a.len == 4);
-    a.free();
+	// Nested collection operations
+	Vector<int> a = [1, 2, 3, 4, 5];
+	a.reverse();
+	a.remove(0);
+	assert(a.get(0) == 4);
+	assert(a.len == 4);
+	a.free();
 
-    print("PASS: test_nested_collections");
-    return 0;
+	print("PASS: test_nested_collections");
+	return 0;
 }

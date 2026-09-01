@@ -5,26 +5,26 @@
 #include <assert.h>
 
 int main() {
-    int v = 0;
-    try {
-        v = 1;          // try completes normally
-    } finally {
-        assert(v == 1); // finally sees the try's write
-        v = 2;          // finally still runs on the fall-through path
-    }
-    assert(v == 2);
+	int v = 0;
+	try {
+		v = 1;          // try completes normally
+	} finally {
+		assert(v == 1); // finally sees the try's write
+		v = 2;          // finally still runs on the fall-through path
+	}
+	assert(v == 2);
 
-    // A try/finally whose body computes a value: finally runs after it.
-    int sum = 0;
-    int fin = 0;
-    try {
-        for (int i = 1; i <= 4; i = i + 1) { sum = sum + i; }
-    } finally {
-        fin = 1;
-    }
-    assert(sum == 10);
-    assert(fin == 1);
+	// A try/finally whose body computes a value: finally runs after it.
+	int sum = 0;
+	int fin = 0;
+	try {
+		for (int i = 1; i <= 4; i = i + 1) { sum = sum + i; }
+	} finally {
+		fin = 1;
+	}
+	assert(sum == 10);
+	assert(fin == 1);
 
-    print("PASS: test_exceptions_finally_no_throw");
-    return 0;
+	print("PASS: test_exceptions_finally_no_throw");
+	return 0;
 }

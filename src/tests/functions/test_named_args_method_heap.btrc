@@ -3,36 +3,32 @@
 #include <assert.h>
 
 class Box {
-    public int v;
+	public int v;
 
-    public Box() {
-        self.v = 0;
-    }
+	public Box() { self.v = 0; }
 
-    public int set(int lo = 0, int hi = 10) {
-        self.v = lo * 100 + hi;
-        return self.v;
-    }
+	public int set(int lo = 0, int hi = 10) {
+		self.v = lo * 100 + hi;
+		return self.v;
+	}
 
-    public int span(int a, int b = 2, int c = 3) {
-        return a + b * 10 + c * 100;
-    }
+	public int span(int a, int b = 2, int c = 3) { return a + b * 10 + c * 100; }
 }
 
 int main() {
-    Box b = new Box();
+	Box b = new Box();
 
-    // named args reversed on a heap receiver
-    assert(b.set(hi=3, lo=2) == 203);
-    assert(b.v == 203);
+	// named args reversed on a heap receiver
+	assert(b.set(hi=3, lo=2) == 203);
+	assert(b.v == 203);
 
-    // named skipping a defaulted middle param
-    assert(b.span(1, c=4) == 421);
-    // all named, scrambled
-    assert(b.span(c=5, a=6, b=7) == 576);
+	// named skipping a defaulted middle param
+	assert(b.span(1, c=4) == 421);
+	// all named, scrambled
+	assert(b.span(c=5, a=6, b=7) == 576);
 
-    delete b;
+	delete b;
 
-    print("PASS: test_named_args_method_heap");
-    return 0;
+	print("PASS: test_named_args_method_heap");
+	return 0;
 }

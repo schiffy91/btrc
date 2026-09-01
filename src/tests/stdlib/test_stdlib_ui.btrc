@@ -13,48 +13,45 @@ import std.ui;
 #include <assert.h>
 
 int main() {
-    assert(Html.escape("a & b").equals("a &amp; b"));
-    assert(Html.escape("<x>").equals("&lt;x&gt;"));
-    assert(Html.escape("say \"hi\"").equals("say &quot;hi&quot;"));
-    assert(Html.escape("it's").equals("it&#39;s"));
-    assert(Html.escape("plain").equals("plain"));
+	assert(Html.escape("a & b").equals("a &amp; b"));
+	assert(Html.escape("<x>").equals("&lt;x&gt;"));
+	assert(Html.escape("say \"hi\"").equals("say &quot;hi&quot;"));
+	assert(Html.escape("it's").equals("it&#39;s"));
+	assert(Html.escape("plain").equals("plain"));
 
-    UiNode p = UiNode("p").text("1 < 2");
-    assert(p.renderHtml().equals("<p>1 &lt; 2</p>"));
+	UiNode p = UiNode("p").text("1 < 2");
+	assert(p.renderHtml().equals("<p>1 &lt; 2</p>"));
 
-    UiNode div = UiNode("div").id("main").className("box").attr("data-x", "<v>'\"");
-    assert(div.renderHtml().equals(
-        "<div id=\"main\" class=\"box\" data-x=\"&lt;v&gt;&#39;&quot;\"></div>"));
+	UiNode div = UiNode("div").id("main").className("box").attr("data-x", "<v>'\"");
+	assert(div.renderHtml().equals("<div id=\"main\" class=\"box\" data-x=\"&lt;v&gt;&#39;&quot;\"></div>"));
 
-    UiNode rawNode = UiNode("span").raw("<b>bold</b>");
-    assert(rawNode.renderHtml().equals("<span><b>bold</b></span>"));
+	UiNode rawNode = UiNode("span").raw("<b>bold</b>");
+	assert(rawNode.renderHtml().equals("<span><b>bold</b></span>"));
 
-    UiNode br = UiNode("br");
-    assert(br.isVoidElement());
-    assert(br.renderHtml().equals("<br>"));
-    UiNode img = UiNode("img").attr("src", "a.png");
-    assert(img.renderHtml().equals("<img src=\"a.png\">"));
-    assert(!UiNode("div").isVoidElement());
+	UiNode br = UiNode("br");
+	assert(br.isVoidElement());
+	assert(br.renderHtml().equals("<br>"));
+	UiNode img = UiNode("img").attr("src", "a.png");
+	assert(img.renderHtml().equals("<img src=\"a.png\">"));
+	assert(!UiNode("div").isVoidElement());
 
-    UiNode list = UiNode("ul")
-        .child(UiNode("li").text("one"))
-        .child(UiNode("li").text("two"));
-    assert(list.renderHtml().equals("<ul><li>one</li><li>two</li></ul>"));
+	UiNode list = UiNode("ul").child(UiNode("li").text("one")).child(UiNode("li").text("two"));
+	assert(list.renderHtml().equals("<ul><li>one</li><li>two</li></ul>"));
 
-    UiNode mixed = UiNode("p").text("hi ").child(UiNode("em").text("there"));
-    assert(mixed.renderHtml().equals("<p>hi <em>there</em></p>"));
+	UiNode mixed = UiNode("p").text("hi ").child(UiNode("em").text("there"));
+	assert(mixed.renderHtml().equals("<p>hi <em>there</em></p>"));
 
-    UiNode body = UiNode("h1").text("Welcome");
-    UiDocument doc = UiDocument("My <App>", body).style("h1 { color: red; }");
-    string html = doc.renderHtml();
-    assert(html.contains("<!doctype html>"));
-    assert(html.contains("<title>My &lt;App&gt;</title>"));
-    assert(html.contains("<style>h1 { color: red; }</style>"));
-    assert(html.contains("<body><h1>Welcome</h1></body>"));
+	UiNode body = UiNode("h1").text("Welcome");
+	UiDocument doc = UiDocument("My <App>", body).style("h1 { color: red; }");
+	string html = doc.renderHtml();
+	assert(html.contains("<!doctype html>"));
+	assert(html.contains("<title>My &lt;App&gt;</title>"));
+	assert(html.contains("<style>h1 { color: red; }</style>"));
+	assert(html.contains("<body><h1>Welcome</h1></body>"));
 
-    UiDocument bare = UiDocument("Plain", UiNode("p").text("x"));
-    assert(!bare.renderHtml().contains("<style>"));
+	UiDocument bare = UiDocument("Plain", UiNode("p").text("x"));
+	assert(!bare.renderHtml().contains("<style>"));
 
-    print("PASS");
-    return 0;
+	print("PASS");
+	return 0;
 }

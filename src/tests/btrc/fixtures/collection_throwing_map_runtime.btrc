@@ -7,53 +7,53 @@ int valuesDestroyed = 0;
 int trace = 0;
 
 class ThrowingMapKey {
-    public int id;
+	public int id;
 
-    public ThrowingMapKey(int id) { self.id = id; }
+	public ThrowingMapKey(int id) { self.id = id; }
 
-    public void __del__() {
-        keysDestroyed++;
-        trace = trace * 10 + 1;
-        throw "map-key-first";
-    }
+	public void __del__() {
+		keysDestroyed++;
+		trace = trace * 10 + 1;
+		throw "map-key-first";
+	}
 }
 
 class ThrowingMapValue {
-    public int id;
+	public int id;
 
-    public ThrowingMapValue(int id) { self.id = id; }
+	public ThrowingMapValue(int id) { self.id = id; }
 
-    public void __del__() {
-        valuesDestroyed++;
-        trace = trace * 10 + 2;
-        throw "map-value-second";
-    }
+	public void __del__() {
+		valuesDestroyed++;
+		trace = trace * 10 + 2;
+		throw "map-value-second";
+	}
 }
 
 int main() {
-    {
-        Map<ThrowingMapKey, ThrowingMapValue> values = {};
-        values.put(new ThrowingMapKey(1), new ThrowingMapValue(2));
+	{
+		Map<ThrowingMapKey, ThrowingMapValue> values = {};
+		values.put(new ThrowingMapKey(1), new ThrowingMapValue(2));
 
-        bool caughtKey = false;
-        try {
-            values.free();
-        } catch (string error) {
-            caughtKey = error.equals("map-key-first");
-        }
+		bool caughtKey = false;
+		try {
+			values.free();
+		} catch (string error) {
+			caughtKey = error.equals("map-key-first");
+		}
 
-        assert(caughtKey);
-        assert(values.keys == null);
-        assert(values.values == null);
-        assert(values.occupied == null);
-        assert(values.len == 0 && values.cap == 0);
-        assert(keysDestroyed == 1 && valuesDestroyed == 1);
-        assert(trace == 12);
+		assert(caughtKey);
+		assert(values.keys == null);
+		assert(values.values == null);
+		assert(values.occupied == null);
+		assert(values.len == 0 && values.cap == 0);
+		assert(keysDestroyed == 1 && valuesDestroyed == 1);
+		assert(trace == 12);
 
-        values.free();
-        assert(keysDestroyed == 1 && valuesDestroyed == 1 && trace == 12);
-    }
+		values.free();
+		assert(keysDestroyed == 1 && valuesDestroyed == 1 && trace == 12);
+	}
 
-    assert(keysDestroyed == 1 && valuesDestroyed == 1 && trace == 12);
-    return 0;
+	assert(keysDestroyed == 1 && valuesDestroyed == 1 && trace == 12);
+	return 0;
 }

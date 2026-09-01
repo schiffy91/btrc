@@ -9,25 +9,27 @@
 #include <string.h>
 
 interface Gettable<T> {
-    int tag();
+	int tag();
 }
 
 class Box<T> implements Gettable {
-    public T v;
-    public Box(T x) { self.v = x; }
-    public int tag() { return 1; }
-    public T get() { return self.v; }
+	public T v;
+	public Box(T x) { self.v = x; }
+
+	public int tag() { return 1; }
+
+	public T get() { return self.v; }
 }
 
 int main() {
-    Box<int> bi = new Box<int>(5);
-    assert(bi.tag() == 1);
-    assert(bi.get() == 5);
+	Box<int> bi = new Box<int>(5);
+	assert(bi.tag() == 1);
+	assert(bi.get() == 5);
 
-    Box<string> bs = new Box<string>("hi");
-    assert(bs.tag() == 1);
-    assert(strcmp(bs.get(), "hi") == 0);
+	Box<string> bs = new Box<string>("hi");
+	assert(bs.tag() == 1);
+	assert(strcmp(bs.get(), "hi") == 0);
 
-    print("PASS: test_generic_interface_impl");
-    return 0;
+	print("PASS: test_generic_interface_impl");
+	return 0;
 }

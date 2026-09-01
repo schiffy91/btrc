@@ -2,24 +2,24 @@
 // @gpu kernel coexisting with a user generic class in the same module:
 // monomorphization and GPU kernel emission must not interfere.
 class Box<T> {
-    public T value;
-    public Box(T val) { self.value = val; }
-    public T get() { return self.value; }
+	public T value;
+	public Box(T val) { self.value = val; }
+
+	public T get() { return self.value; }
 }
 
-@gpu
-float[] scaleBy(float[] a, float factor) {
-    int i = gpu_id();
-    return a[i] * factor;
+@gpu float[] scaleBy(float[] a, float factor) {
+	int i = gpu_id();
+	return a[i] * factor;
 }
 
 int main() {
-    Box<int> bi = Box(42);
-    assert(bi.get() == 42);
+	Box<int> bi = Box(42);
+	assert(bi.get() == 42);
 
-    Box<bool> bb = Box(true);
-    assert(bb.get() == true);
+	Box<bool> bb = Box(true);
+	assert(bb.get() == true);
 
-    print("PASS: test_gpu_with_generics");
-    return 0;
+	print("PASS: test_gpu_with_generics");
+	return 0;
 }

@@ -1,19 +1,16 @@
 #include <stdio.h>
 class Box {
-    public int val;
-    public Box(int v) {
-        self.val = v;
-    }
-    public int getVal() {
-        return self.val;
-    }
+	public int val;
+	public Box(int v) { self.val = v; }
+
+	public int getVal() { return self.val; }
 }
 int main() {
-    Box b = new Box(42);
-    print(b?.val);
-    delete b;
-    b = null;
-    print(b?.val);
-    printf("PASS: test_nullable_class\n");
-    return 0;
+	Box b = new Box(42);
+	print(b?.val);
+	delete b;
+	b = null;
+	print(b?.val);
+	printf("PASS: test_nullable_class\n");
+	return 0;
 }

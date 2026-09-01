@@ -4,21 +4,21 @@
 #include <assert.h>
 
 class Base {
-    public T identity<T>(T x) { return x; }
+	public T identity<T>(T x) { return x; }
 }
 
 class Sub extends Base {
-    public int z;
-    public Sub(int z) { self.z = z; }
+	public int z;
+	public Sub(int z) { self.z = z; }
 }
 
 int main() {
-    Sub s = Sub(7);
-    // Inherited generic method, two distinct instantiations.
-    assert(s.identity(5) == 5);
-    assert(s.identity("hi") == "hi");
-    assert(s.z == 7);
+	Sub s = Sub(7);
+	// Inherited generic method, two distinct instantiations.
+	assert(s.identity(5) == 5);
+	assert(s.identity("hi") == "hi");
+	assert(s.z == 7);
 
-    print("PASS: test_inherited_generic_method");
-    return 0;
+	print("PASS: test_inherited_generic_method");
+	return 0;
 }

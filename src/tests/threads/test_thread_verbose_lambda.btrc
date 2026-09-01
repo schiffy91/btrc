@@ -1,19 +1,19 @@
 #include <assert.h>
 // spawn with a VERBOSE lambda ( int function() { ... } ) instead of the arrow form.
 int main() {
-    Thread<int> t = spawn(int function() {
-        return 7;
-    });
-    int r = t.join();
-    assert(r == 7);
+	Thread<int> t = spawn(int function() {
+			return 7;
+		});
+	int r = t.join();
+	assert(r == 7);
 
-    int base = 100;
-    Thread<int> t2 = spawn(int function() {
-        return base + 5;
-    });
-    int r2 = t2.join();
-    assert(r2 == 105);
+	int base = 100;
+	Thread<int> t2 = spawn(int function() {
+			return base + 5;
+		});
+	int r2 = t2.join();
+	assert(r2 == 105);
 
-    print("PASS: test_thread_verbose_lambda");
-    return 0;
+	print("PASS: test_thread_verbose_lambda");
+	return 0;
 }

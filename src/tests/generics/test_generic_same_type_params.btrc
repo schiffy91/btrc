@@ -5,23 +5,25 @@
 #include <string.h>
 
 class Pair<A, B> {
-    public A first;
-    public B second;
-    public Pair(A a, B b) { self.first = a; self.second = b; }
-    public A getFirst() { return self.first; }
-    public B getSecond() { return self.second; }
+	public A first;
+	public B second;
+	public Pair(A a, B b) { self.first = a; self.second = b; }
+
+	public A getFirst() { return self.first; }
+
+	public B getSecond() { return self.second; }
 }
 
 int main() {
-    Pair<int, int> pi = new Pair<int, int>(3, 4);
-    assert(pi.getFirst() == 3);
-    assert(pi.getSecond() == 4);
-    assert(pi.getFirst() + pi.getSecond() == 7);
+	Pair<int, int> pi = new Pair<int, int>(3, 4);
+	assert(pi.getFirst() == 3);
+	assert(pi.getSecond() == 4);
+	assert(pi.getFirst() + pi.getSecond() == 7);
 
-    Pair<string, string> ps = new Pair<string, string>("foo", "bar");
-    assert(strcmp(ps.getFirst(), "foo") == 0);
-    assert(strcmp(ps.getSecond(), "bar") == 0);
+	Pair<string, string> ps = new Pair<string, string>("foo", "bar");
+	assert(strcmp(ps.getFirst(), "foo") == 0);
+	assert(strcmp(ps.getSecond(), "bar") == 0);
 
-    print("PASS: test_generic_same_type_params");
-    return 0;
+	print("PASS: test_generic_same_type_params");
+	return 0;
 }

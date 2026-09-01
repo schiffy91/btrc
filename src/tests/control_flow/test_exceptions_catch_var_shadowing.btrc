@@ -6,14 +6,14 @@
 #include <assert.h>
 
 int main() {
-    string e = "outer";
-    try {
-        throw "inner";
-    } catch (string e) {
-        assert(e.equals("inner"));  // the catch var shadows the outer e
-    }
-    assert(e.equals("outer"));      // outer e is unchanged after the catch
+	string e = "outer";
+	try {
+		throw "inner";
+	} catch (string e) {
+		assert(e.equals("inner"));  // the catch var shadows the outer e
+	}
+	assert(e.equals("outer"));      // outer e is unchanged after the catch
 
-    print("PASS: test_exceptions_catch_var_shadowing");
-    return 0;
+	print("PASS: test_exceptions_catch_var_shadowing");
+	return 0;
 }

@@ -6,52 +6,48 @@
 int live = 0;
 
 class Box {
-    public int value;
+	public int value;
 
-    public Box(int value) {
-        self.value = value;
-        live++;
-    }
+	public Box(int value) {
+		self.value = value;
+		live++;
+	}
 
-    public void __del__() {
-        live--;
-    }
+	public void __del__() { live--; }
 }
 
-Box makeBox(int value) {
-    return new Box(value);
-}
+Box makeBox(int value) { return new Box(value); }
 
 int main() {
-    // Declared empty, then assigned: the assignment releases the empty slot.
-    Box b;
-    b = new Box(3);
-    assert(b.value == 3);
-    assert(live == 1);
+	// Declared empty, then assigned: the assignment releases the empty slot.
+	Box b;
+	b = new Box(3);
+	assert(b.value == 3);
+	assert(live == 1);
 
-    // Reassignment releases the previous object exactly once.
-    b = new Box(4);
-    assert(b.value == 4);
-    assert(live == 1);
+	// Reassignment releases the previous object exactly once.
+	b = new Box(4);
+	assert(b.value == 4);
+	assert(live == 1);
 
-    delete b;
-    assert(live == 0);
+	delete b;
+	assert(live == 0);
 
-    // A slot some paths never assign must still be safe to leave scope.
-    for (int i = 0; i < 3; i++) {
-        Box loopBox;
-        if (i > 0) {
-            loopBox = makeBox(i);
-            assert(loopBox.value == i);
-        }
-    }
-    assert(live == 0);
+	// A slot some paths never assign must still be safe to leave scope.
+	for (int i = 0; i < 3; i++) {
+		Box loopBox;
+		if (i > 0) {
+			loopBox = makeBox(i);
+			assert(loopBox.value == i);
+		}
+	}
+	assert(live == 0);
 
-    // Managed strings use the same owned-slot storage.
-    string s;
-    s = "hello";
-    assert(s.len() == 5);
+	// Managed strings use the same owned-slot storage.
+	string s;
+	s = "hello";
+	assert(s.len() == 5);
 
-    print("PASS: test_empty_managed_local");
-    return 0;
+	print("PASS: test_empty_managed_local");
+	return 0;
 }

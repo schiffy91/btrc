@@ -9,45 +9,41 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 class Box {
-    public Obj content;
+	public Obj content;
 
-    public Box() {
-        self.content = null;
-    }
+	public Box() { self.content = null; }
 }
 
 int main() {
-    Box b = new Box();
-    Obj o = new Obj(1);      // rc 1
-    b.content = o;           // field assign rc++ -> rc 2
-    assert(alive == 1);
-    assert(b.content.id == 1);
+	Box b = new Box();
+	Obj o = new Obj(1);      // rc 1
+	b.content = o;           // field assign rc++ -> rc 2
+	assert(alive == 1);
+	assert(b.content.id == 1);
 
-    // Self-assignment: release old (rc 2 -> 1) then retain new (rc 1 -> 2).
-    // Must NOT destroy the object mid-assignment.
-    b.content = b.content;
-    assert(b.content.id == 1); // survived, still readable
-    assert(alive == 1);        // net rc unchanged, nothing freed
+	// Self-assignment: release old (rc 2 -> 1) then retain new (rc 1 -> 2).
+	// Must NOT destroy the object mid-assignment.
+	b.content = b.content;
+	assert(b.content.id == 1); // survived, still readable
+	assert(alive == 1);        // net rc unchanged, nothing freed
 
-    delete b;                  // releases field: rc 2 -> 1
-    assert(alive == 1);        // still alive via local `o`
+	delete b;                  // releases field: rc 2 -> 1
+	assert(alive == 1);        // still alive via local `o`
 
-    delete o;                  // rc 1 -> 0 -> destroyed
-    assert(alive == 0);
+	delete o;                  // rc 1 -> 0 -> destroyed
+	assert(alive == 0);
 
-    print("PASS: test_field_self_reassign");
-    return 0;
+	print("PASS: test_field_self_reassign");
+	return 0;
 }

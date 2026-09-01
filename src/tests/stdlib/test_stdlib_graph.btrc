@@ -10,137 +10,124 @@ import std.vector;
 #include <string.h>
 
 GraphNode graphNode(string id, string specPath) {
-    var node = GraphNode();
-    node.id = id;
-    node.specPath = specPath;
-    return node;
+	var node = GraphNode();
+	node.id = id;
+	node.specPath = specPath;
+	return node;
 }
 
 GraphNode graphNodeAfter(string id, string specPath, Vector<string> after) {
-    var node = graphNode(id, specPath);
-    node.after = after;
-    return node;
+	var node = graphNode(id, specPath);
+	node.after = after;
+	return node;
 }
 
 ExecutionGraph graphWith(Vector<GraphNode> nodes) {
-    var graph = ExecutionGraph();
-    graph.nodes = nodes;
-    return graph;
+	var graph = ExecutionGraph();
+	graph.nodes = nodes;
+	return graph;
 }
 
 int main() {
-    string dir = FileSystem.tempDir("btrc-graph-test");
-    string graphPath = PathTools.join(dir, "graph.json");
-    Path.writeAll(
-        graphPath,
-        "{"
-        + "\"name\":\"demo\","
-        + "\"workspaceRoot\":\"..\","
-        + "\"default\":[\"final\"],"
-        + "\"required\":[\"seed\",\"final\"],"
-        + "\"nodes\":["
-        + "{\"id\":\"seed\",\"spec\":\"seed.json\"},"
-        + "{\"id\":\"build\",\"spec\":\"build.json\",\"after\":[\"seed\"],\"args\":{\"arch\":\"x86_64\"}},"
-        + "{\"id\":\"final\",\"spec\":\"final.json\",\"after\":[\"build\"]}"
-        + "]"
-        + "}"
-    );
+	string dir = FileSystem.tempDir("btrc-graph-test");
+	string graphPath = PathTools.join(dir, "graph.json");
+	Path.writeAll(graphPath, "{" + "\"name\":\"demo\"," + "\"workspaceRoot\":\"..\"," + "\"default\":[\"final\"]," + "\"required\":[\"seed\",\"final\"]," + "\"nodes\":[" + "{\"id\":\"seed\",\"spec\":\"seed.json\"}," + "{\"id\":\"build\",\"spec\":\"build.json\",\"after\":[\"seed\"],\"args\":{\"arch\":\"x86_64\"}}," + "{\"id\":\"final\",\"spec\":\"final.json\",\"after\":[\"build\"]}" + "]" + "}");
 
-    ExecutionGraph graph = GraphParser.readFile(graphPath);
-    assert(graph.valid());
-    assert(graph.validationError().isEmpty());
-    assert(graph.name.equals("demo"));
-    assert(graph.nodes.len == 3);
-    assert(graph.defaultTargets().len == 1);
-    assert(graph.defaultTargets().get(0).equals("final"));
-    assert(graph.required.len == 2);
-    assert(graph.required.get(0).equals("seed"));
-    assert(graph.required.get(1).equals("final"));
-    assert(graph.node("build").after.get(0).equals("seed"));
-    assert(graph.node("build").args.get("arch").equals("x86_64"));
-    assert(graph.resolvedSpecPath(graph.node("seed")).endsWith("seed.json"));
+	ExecutionGraph graph = GraphParser.readFile(graphPath);
+	assert(graph.valid());
+	assert(graph.validationError().isEmpty());
+	assert(graph.name.equals("demo"));
+	assert(graph.nodes.len == 3);
+	assert(graph.defaultTargets().len == 1);
+	assert(graph.defaultTargets().get(0).equals("final"));
+	assert(graph.required.len == 2);
+	assert(graph.required.get(0).equals("seed"));
+	assert(graph.required.get(1).equals("final"));
+	assert(graph.node("build").after.get(0).equals("seed"));
+	assert(graph.node("build").args.get("arch").equals("x86_64"));
+	assert(graph.resolvedSpecPath(graph.node("seed")).endsWith("seed.json"));
 
-    CliArgs cli = CliArgs(0, null);
-    cli.values.push("final");
-    cli.values.push("--arg");
-    cli.values.push("force=true");
-    cli.values.push("--arg=arch=aarch64");
-    cli.values.push("ignored");
+	CliArgs cli = CliArgs(0, null);
+	cli.values.push("final");
+	cli.values.push("--arg");
+	cli.values.push("force=true");
+	cli.values.push("--arg=arch=aarch64");
+	cli.values.push("ignored");
 
-    Map<string, string> parsedArgs = GraphCli.args(cli, 0);
-    Vector<string> targets = GraphCli.targets(cli, 0);
-    assert(parsedArgs.get("force").equals("true"));
-    assert(parsedArgs.get("arch").equals("aarch64"));
-    assert(targets.len == 2);
-    assert(targets.get(0).equals("final"));
-    assert(targets.get(1).equals("ignored"));
+	Map<string, string> parsedArgs = GraphCli.args(cli, 0);
+	Vector<string> targets = GraphCli.targets(cli, 0);
+	assert(parsedArgs.get("force").equals("true"));
+	assert(parsedArgs.get("arch").equals("aarch64"));
+	assert(targets.len == 2);
+	assert(targets.get(0).equals("final"));
+	assert(targets.get(1).equals("ignored"));
 
-    GraphTraversal traversal = GraphTraversal(graph);
-    Vector<string> order = traversal.order(["final"]);
-    assert(traversal.ok());
-    assert(order.len == 3);
-    assert(order.get(0).equals("seed"));
-    assert(order.get(1).equals("build"));
-    assert(order.get(2).equals("final"));
-    assert(traversal.done.contains("seed"));
-    assert(traversal.done.contains("build"));
-    assert(traversal.done.contains("final"));
-    Vector<string> secondOrder = traversal.order(["build"]);
-    assert(secondOrder.len == 2);
-    assert(secondOrder.get(0).equals("seed"));
-    assert(secondOrder.get(1).equals("build"));
+	GraphTraversal traversal = GraphTraversal(graph);
+	Vector<string> order = traversal.order(["final"]);
+	assert(traversal.ok());
+	assert(order.len == 3);
+	assert(order.get(0).equals("seed"));
+	assert(order.get(1).equals("build"));
+	assert(order.get(2).equals("final"));
+	assert(traversal.done.contains("seed"));
+	assert(traversal.done.contains("build"));
+	assert(traversal.done.contains("final"));
+	Vector<string> secondOrder = traversal.order(["build"]);
+	assert(secondOrder.len == 2);
+	assert(secondOrder.get(0).equals("seed"));
+	assert(secondOrder.get(1).equals("build"));
 
-    var duplicate = graphWith([graphNode("a", "a.json"), graphNode("a", "other.json")]);
-    assert(!duplicate.valid());
-    assert(duplicate.validationError().contains("Duplicate graph node id: a"));
+	var duplicate = graphWith([graphNode("a", "a.json"), graphNode("a", "other.json")]);
+	assert(!duplicate.valid());
+	assert(duplicate.validationError().contains("Duplicate graph node id: a"));
 
-    var missingParent = graphWith([graphNodeAfter("a", "a.json", ["missing"])]);
-    assert(missingParent.validationError().contains("depends on missing node: missing"));
+	var missingParent = graphWith([graphNodeAfter("a", "a.json", ["missing"])]);
+	assert(missingParent.validationError().contains("depends on missing node: missing"));
 
-    var missingDefault = graphWith([graphNode("a", "a.json")]);
-    missingDefault.defaults.push("missing");
-    assert(missingDefault.validationError().contains("Graph default target is missing: missing"));
+	var missingDefault = graphWith([graphNode("a", "a.json")]);
+	missingDefault.defaults.push("missing");
+	assert(missingDefault.validationError().contains("Graph default target is missing: missing"));
 
-    var missingRequired = graphWith([graphNode("a", "a.json")]);
-    missingRequired.required.push("missing");
-    assert(missingRequired.validationError().contains("Graph required target is missing: missing"));
+	var missingRequired = graphWith([graphNode("a", "a.json")]);
+	missingRequired.required.push("missing");
+	assert(missingRequired.validationError().contains("Graph required target is missing: missing"));
 
-    var missingSpec = graphWith([graphNode("a", "")]);
-    assert(missingSpec.validationError().contains("Graph node a is missing spec"));
+	var missingSpec = graphWith([graphNode("a", "")]);
+	assert(missingSpec.validationError().contains("Graph node a is missing spec"));
 
-    var cyclic = graphWith([
-        graphNodeAfter("a", "a.json", ["b"]),
-        graphNodeAfter("b", "b.json", ["a"])
-    ]);
-    assert(cyclic.validationError().contains("Cycle in graph"));
-    GraphTraversal cycle = GraphTraversal(cyclic);
-    cycle.order(["a"]);
-    assert(!cycle.ok());
-    assert(cycle.error.contains("Cycle in graph"));
+	var cyclic = graphWith([
+		graphNodeAfter("a", "a.json", ["b"]),
+		graphNodeAfter("b", "b.json", ["a"])
+	]);
+	assert(cyclic.validationError().contains("Cycle in graph"));
+	GraphTraversal cycle = GraphTraversal(cyclic);
+	cycle.order(["a"]);
+	assert(!cycle.ok());
+	assert(cycle.error.contains("Cycle in graph"));
 
-    GraphTraversal unknown = GraphTraversal(graph);
-    unknown.order(["missing"]);
-    assert(!unknown.ok());
-    assert(unknown.error.contains("Unknown graph node: missing"));
+	GraphTraversal unknown = GraphTraversal(graph);
+	unknown.order(["missing"]);
+	assert(!unknown.ok());
+	assert(unknown.error.contains("Unknown graph node: missing"));
 
-    // Traversal uses explicit frames, so deep graphs do not consume the C
-    // call stack. Keep the fixture large enough to catch recursive lowering
-    // while remaining quick under sanitizer builds.
-    Vector<GraphNode> deepNodes = [];
-    for (int i = 0; i < 1500; i++) {
-        string id = f"node-{i}";
-        Vector<string> parents = [];
-        if (i > 0) { parents.push(f"node-{i - 1}"); }
-        deepNodes.push(graphNodeAfter(id, f"{id}.json", parents));
-    }
-    var deepGraph = graphWith(deepNodes);
-    GraphTraversal deep = GraphTraversal(deepGraph);
-    Vector<string> deepOrder = deep.order(["node-1499"]);
-    assert(deep.ok());
-    assert(deepOrder.len == 1500);
-    assert(deepOrder.first().equals("node-0"));
-    assert(deepOrder.last().equals("node-1499"));
+	// Traversal uses explicit frames, so deep graphs do not consume the C
+	// call stack. Keep the fixture large enough to catch recursive lowering
+	// while remaining quick under sanitizer builds.
+	Vector<GraphNode> deepNodes = [];
+	for (int i = 0; i < 1500; i++) {
+		string id = f"node-{i}";
+		Vector<string> parents = [];
+		if (i > 0) { parents.push(f"node-{i - 1}"); }
+		deepNodes.push(graphNodeAfter(id, f"{id}.json", parents));
+	}
+	var deepGraph = graphWith(deepNodes);
+	GraphTraversal deep = GraphTraversal(deepGraph);
+	Vector<string> deepOrder = deep.order(["node-1499"]);
+	assert(deep.ok());
+	assert(deepOrder.len == 1500);
+	assert(deepOrder.first().equals("node-0"));
+	assert(deepOrder.last().equals("node-1499"));
 
-    print("PASS: test_stdlib_graph");
-    return 0;
+	print("PASS: test_stdlib_graph");
+	return 0;
 }

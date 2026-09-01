@@ -4,75 +4,75 @@ import std.image;
 #include <assert.h>
 
 void fillPair(Image left, Image right) {
-    left.setRGBA(0, 0, 10, 20, 30, 40);
-    left.setRGBA(1, 0, 50, 60, 70, 80);
-    right.setRGBA(0, 0, 10, 20, 30, 40);
-    right.setRGBA(1, 0, 50, 60, 70, 80);
+	left.setRGBA(0, 0, 10, 20, 30, 40);
+	left.setRGBA(1, 0, 50, 60, 70, 80);
+	right.setRGBA(0, 0, 10, 20, 30, 40);
+	right.setRGBA(1, 0, 50, 60, 70, 80);
 }
 
 int main() {
-    RGBA clamped = RGBA(-1, 12, 300, 256);
-    assert(clamped.red == 0);
-    assert(clamped.green == 12);
-    assert(clamped.blue == 255);
-    assert(clamped.alpha == 255);
+	RGBA clamped = RGBA(-1, 12, 300, 256);
+	assert(clamped.red == 0);
+	assert(clamped.green == 12);
+	assert(clamped.blue == 255);
+	assert(clamped.alpha == 255);
 
-    Image actual = Image(2, 1);
-    Image expected = Image(2, 1);
-    unsigned char packed[8] = {10, 20, 30, 40, 50, 60, 70, 80};
-    assert(actual.tryCopyPackedRgba(packed, 8ULL));
-    assert(!actual.tryCopyPackedRgba(packed, 7ULL));
-    assert(actual.pixel(0, 0).equals(RGBA(10, 20, 30, 40)));
-    fillPair(actual, expected);
-    assert(actual.width == 2 && actual.height == 1 && actual.area() == 2);
-    assert(actual.pixel(1, 0).equals(RGBA(50, 60, 70, 80)));
+	Image actual = Image(2, 1);
+	Image expected = Image(2, 1);
+	unsigned char packed[8] = {10, 20, 30, 40, 50, 60, 70, 80};
+	assert(actual.tryCopyPackedRgba(packed, 8ULL));
+	assert(!actual.tryCopyPackedRgba(packed, 7ULL));
+	assert(actual.pixel(0, 0).equals(RGBA(10, 20, 30, 40)));
+	fillPair(actual, expected);
+	assert(actual.width == 2 && actual.height == 1 && actual.area() == 2);
+	assert(actual.pixel(1, 0).equals(RGBA(50, 60, 70, 80)));
 
-    ImageDiff exact = actual.diff(expected);
-    assert(exact.comparable);
-    assert(exact.pixelCount == 2);
-    assert(exact.changedPixels == 0);
-    assert(exact.maxChannelDelta == 0);
-    assert(exact.meanAbsoluteError == 0.0);
-    assert(exact.matches() && exact.exact());
+	ImageDiff exact = actual.diff(expected);
+	assert(exact.comparable);
+	assert(exact.pixelCount == 2);
+	assert(exact.changedPixels == 0);
+	assert(exact.maxChannelDelta == 0);
+	assert(exact.meanAbsoluteError == 0.0);
+	assert(exact.matches() && exact.exact());
 
-    actual.setRGBA(1, 0, 53, 61, 70, 80);
-    ImageDiff onePixel = actual.diff(expected);
-    assert(onePixel.changedPixels == 1);
-    assert(onePixel.maxChannelDelta == 3);
-    /* (3 + 1) / (2 pixels * 4 channels) */
-    assert(onePixel.meanAbsoluteError > 0.499);
-    assert(onePixel.meanAbsoluteError < 0.501);
-    assert(!onePixel.matches() && !onePixel.exact());
+	actual.setRGBA(1, 0, 53, 61, 70, 80);
+	ImageDiff onePixel = actual.diff(expected);
+	assert(onePixel.changedPixels == 1);
+	assert(onePixel.maxChannelDelta == 3);
+	/* (3 + 1) / (2 pixels * 4 channels) */
+	assert(onePixel.meanAbsoluteError > 0.499);
+	assert(onePixel.meanAbsoluteError < 0.501);
+	assert(!onePixel.matches() && !onePixel.exact());
 
-    ImageDiff toleranceTwo = actual.diff(expected, 2);
-    assert(toleranceTwo.changedPixels == 1);
-    assert(toleranceTwo.maxChannelDelta == 3);
-    ImageDiff toleranceThree = actual.diff(expected, 3);
-    assert(toleranceThree.changedPixels == 0);
-    assert(toleranceThree.matches());
-    assert(!toleranceThree.exact());
-    assert(toleranceThree.meanAbsoluteError > 0.499);
+	ImageDiff toleranceTwo = actual.diff(expected, 2);
+	assert(toleranceTwo.changedPixels == 1);
+	assert(toleranceTwo.maxChannelDelta == 3);
+	ImageDiff toleranceThree = actual.diff(expected, 3);
+	assert(toleranceThree.changedPixels == 0);
+	assert(toleranceThree.matches());
+	assert(!toleranceThree.exact());
+	assert(toleranceThree.meanAbsoluteError > 0.499);
 
-    Image crop = actual.crop(1, 0, 1, 1);
-    assert(!crop.isEmpty());
-    assert(crop.width == 1 && crop.height == 1);
-    assert(crop.pixel(0, 0).equals(actual.pixel(1, 0)));
-    assert(actual.crop(2, 0, 1, 1).isEmpty());
+	Image crop = actual.crop(1, 0, 1, 1);
+	assert(!crop.isEmpty());
+	assert(crop.width == 1 && crop.height == 1);
+	assert(crop.pixel(0, 0).equals(actual.pixel(1, 0)));
+	assert(actual.crop(2, 0, 1, 1).isEmpty());
 
-    Image strip = Image(3, 1);
-    strip.setRGBA(0, 0, 1, 1, 1, 1);
-    strip.setRGBA(1, 0, 53, 61, 70, 80);
-    strip.setRGBA(2, 0, 9, 9, 9, 9);
-    ImageDiff region = actual.diffRegion(strip, 1, 0, 1, 0, 1, 1);
-    assert(region.exact());
-    assert(region.pixelCount == 1);
-    assert(!actual.diffRegion(strip, 0, 0, 2, 0, 2, 1).comparable);
+	Image strip = Image(3, 1);
+	strip.setRGBA(0, 0, 1, 1, 1, 1);
+	strip.setRGBA(1, 0, 53, 61, 70, 80);
+	strip.setRGBA(2, 0, 9, 9, 9, 9);
+	ImageDiff region = actual.diffRegion(strip, 1, 0, 1, 0, 1, 1);
+	assert(region.exact());
+	assert(region.pixelCount == 1);
+	assert(!actual.diffRegion(strip, 0, 0, 2, 0, 2, 1).comparable);
 
-    Image differentSize = Image(1, 1);
-    ImageDiff incompatible = actual.diff(differentSize);
-    assert(!incompatible.comparable);
-    assert(!incompatible.error.isEmpty());
+	Image differentSize = Image(1, 1);
+	ImageDiff incompatible = actual.diff(differentSize);
+	assert(!incompatible.comparable);
+	assert(!incompatible.error.isEmpty());
 
-    print("PASS: test_stdlib_image_pixels");
-    return 0;
+	print("PASS: test_stdlib_image_pixels");
+	return 0;
 }

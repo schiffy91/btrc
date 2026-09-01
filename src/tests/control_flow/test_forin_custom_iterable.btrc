@@ -7,55 +7,51 @@ import std.vector;
 #include <assert.h>
 
 class Squares<T> implements Iterable {
-    private Vector<T> data;
+	private Vector<T> data;
 
-    public Squares() {
-        self.data = [];
-        self.data.push(0);
-        self.data.push(1);
-        self.data.push(4);
-        self.data.push(9);
-    }
+	public Squares() {
+		self.data = [];
+		self.data.push(0);
+		self.data.push(1);
+		self.data.push(4);
+		self.data.push(9);
+	}
 
-    public int iterLen() {
-        return self.data.size();
-    }
+	public int iterLen() { return self.data.size(); }
 
-    public T iterGet(int i) {
-        return self.data.get(i);
-    }
+	public T iterGet(int i) { return self.data.get(i); }
 }
 
 int main() {
-    Squares<int> sq = Squares();
+	Squares<int> sq = Squares();
 
-    // plain accumulation over the custom iterable
-    int sum = 0;
-    for v in sq {
-        sum += v;
-    }
-    assert(sum == 14); // 0 + 1 + 4 + 9
+	// plain accumulation over the custom iterable
+	int sum = 0;
+	for v in sq {
+		sum += v;
+	}
+	assert(sum == 14); // 0 + 1 + 4 + 9
 
-    // break works over a custom iterable
-    int count = 0;
-    for v in sq {
-        if (v == 4) {
-            break;
-        }
-        count++;
-    }
-    assert(count == 2); // 0 and 1 before 4
+	// break works over a custom iterable
+	int count = 0;
+	for v in sq {
+		if (v == 4) {
+			break;
+		}
+		count++;
+	}
+	assert(count == 2); // 0 and 1 before 4
 
-    // continue works over a custom iterable
-    int oddlike = 0;
-    for v in sq {
-        if (v % 2 == 0) {
-            continue;
-        }
-        oddlike += v;
-    }
-    assert(oddlike == 10); // 1 + 9
+	// continue works over a custom iterable
+	int oddlike = 0;
+	for v in sq {
+		if (v % 2 == 0) {
+			continue;
+		}
+		oddlike += v;
+	}
+	assert(oddlike == 10); // 1 + 9
 
-    print("PASS: test_forin_custom_iterable");
-    return 0;
+	print("PASS: test_forin_custom_iterable");
+	return 0;
 }

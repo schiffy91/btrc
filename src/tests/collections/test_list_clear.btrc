@@ -2,10 +2,10 @@ import std.vector;
 
 #include <stdio.h>
 int main() {
-    Vector<int> nums = [1, 2, 3];
-    nums.clear();
-    print(nums.len);
-    nums.free();
-    printf("PASS: test_list_clear\n");
-    return 0;
+	Vector<int> nums = [1, 2, 3];
+	nums.clear();
+	print(nums.len);
+	nums.free();
+	printf("PASS: test_list_clear\n");
+	return 0;
 }

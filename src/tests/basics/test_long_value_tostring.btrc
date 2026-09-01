@@ -1,21 +1,21 @@
 #include <assert.h>
 
 int main() {
-    // long value beyond 32-bit int range
-    long big = 9000000000;
-    assert(big > 8000000000);
+	// long value beyond 32-bit int range
+	long big = 9000000000;
+	assert(big > 8000000000);
 
-    // long.toString()
-    string s = big.toString();
-    assert(s.len() == 10);
-    assert(s[0] == '9');
+	// long.toString()
+	string s = big.toString();
+	assert(s.len() == 10);
+	assert(s[0] == '9');
 
-    // a smaller long round-trips through toString
-    long mid = 1234567890;
-    string ms = mid.toString();
-    assert(ms.len() == 10);
-    assert(ms[0] == '1');
+	// a smaller long round-trips through toString
+	long mid = 1234567890;
+	string ms = mid.toString();
+	assert(ms.len() == 10);
+	assert(ms[0] == '1');
 
-    print("PASS: test_long_value_tostring");
-    return 0;
+	print("PASS: test_long_value_tostring");
+	return 0;
 }

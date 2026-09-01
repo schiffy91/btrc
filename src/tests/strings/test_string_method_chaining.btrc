@@ -2,15 +2,15 @@
 #include <assert.h>
 
 int main() {
-    // trim -> toLower -> substring -> equals
-    assert("  Hello  ".trim().toLower().substring(0, 3).equals("hel"));
+	// trim -> toLower -> substring -> equals
+	assert("  Hello  ".trim().toLower().substring(0, 3).equals("hel"));
 
-    // reverse -> toUpper -> replace
-    assert("abc".reverse().toUpper().replace("C", "X").equals("XBA"));
+	// reverse -> toUpper -> replace
+	assert("abc".reverse().toUpper().replace("C", "X").equals("XBA"));
 
-    // chained queries feeding an int comparison
-    assert("  Hi There  ".trim().toLower().indexOf("there") == 3);
+	// chained queries feeding an int comparison
+	assert("  Hi There  ".trim().toLower().indexOf("there") == 3);
 
-    print("PASS: test_string_method_chaining");
-    return 0;
+	print("PASS: test_string_method_chaining");
+	return 0;
 }

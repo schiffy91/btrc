@@ -2,7 +2,5 @@
 #include "test_diamond_b_helper.btrc"
 
 class Mid {
-    class int value() {
-        return Leaf.value() + 5;
-    }
+	class int value() { return Leaf.value() + 5; }
 }

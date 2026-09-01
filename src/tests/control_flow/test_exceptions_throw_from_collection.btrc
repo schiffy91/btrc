@@ -7,29 +7,29 @@ import std.vector;
 #include <assert.h>
 
 class Box {
-    public string message;
-    public Box(string m) { self.message = m; }
+	public string message;
+	public Box(string m) { self.message = m; }
 }
 
 int main() {
-    // Throw a collection element.
-    Vector<string> msgs = ["alpha", "beta", "gamma"];
-    try {
-        throw msgs[1];
-    } catch (string e) {
-        assert(e.equals("beta"));
-    }
-    msgs.free();
+	// Throw a collection element.
+	Vector<string> msgs = ["alpha", "beta", "gamma"];
+	try {
+		throw msgs[1];
+	} catch (string e) {
+		assert(e.equals("beta"));
+	}
+	msgs.free();
 
-    // Throw an object field.
-    Box box = new Box("field error");
-    try {
-        throw box.message;
-    } catch (string e) {
-        assert(e.equals("field error"));
-    }
-    delete box;
+	// Throw an object field.
+	Box box = new Box("field error");
+	try {
+		throw box.message;
+	} catch (string e) {
+		assert(e.equals("field error"));
+	}
+	delete box;
 
-    print("PASS: test_exceptions_throw_from_collection");
-    return 0;
+	print("PASS: test_exceptions_throw_from_collection");
+	return 0;
 }

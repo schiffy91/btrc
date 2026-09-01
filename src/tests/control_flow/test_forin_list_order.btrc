@@ -7,42 +7,42 @@ import std.set;
 #include <assert.h>
 
 int main() {
-    // List<int> preserves insertion order under for-in
-    List<int> xs = List();
-    xs.push(1);
-    xs.push(2);
-    xs.push(3);
-    string out = "";
-    for v in xs {
-        out += f"{v}";
-    }
-    assert(strcmp(out, "123") == 0);
+	// List<int> preserves insertion order under for-in
+	List<int> xs = List();
+	xs.push(1);
+	xs.push(2);
+	xs.push(3);
+	string out = "";
+	for v in xs {
+		out += f"{v}";
+	}
+	assert(strcmp(out, "123") == 0);
 
-    // for-in over a List with break stops mid-list
-    int seen = 0;
-    for v in xs {
-        if (v == 3) {
-            break;
-        }
-        seen++;
-    }
-    assert(seen == 2);
+	// for-in over a List with break stops mid-list
+	int seen = 0;
+	for v in xs {
+		if (v == 3) {
+			break;
+		}
+		seen++;
+	}
+	assert(seen == 2);
 
-    // for-in over a Set: dedups, every inserted-once element visited exactly once
-    Set<int> s = {};
-    s.add(7);
-    s.add(7);
-    s.add(11);
-    s.add(13);
-    int sum = 0;
-    int count = 0;
-    for v in s {
-        sum += v;
-        count++;
-    }
-    assert(count == 3);   // 7 (deduped), 11, 13
-    assert(sum == 31);    // 7 + 11 + 13 (order-independent)
+	// for-in over a Set: dedups, every inserted-once element visited exactly once
+	Set<int> s = {};
+	s.add(7);
+	s.add(7);
+	s.add(11);
+	s.add(13);
+	int sum = 0;
+	int count = 0;
+	for v in s {
+		sum += v;
+		count++;
+	}
+	assert(count == 3);   // 7 (deduped), 11, 13
+	assert(sum == 31);    // 7 + 11 + 13 (order-independent)
 
-    print("PASS: test_forin_list_order");
-    return 0;
+	print("PASS: test_forin_list_order");
+	return 0;
 }

@@ -5,43 +5,39 @@
 #include <assert.h>
 
 class M {
-    public int x;
-    public M(int x) {
-        self.x = x;
-    }
-    public bool __lt__(M o) {
-        return self.x < o.x;
-    }
-    public bool __eq__(M o) {
-        return self.x == o.x;
-    }
+	public int x;
+	public M(int x) { self.x = x; }
+
+	public bool __lt__(M o) { return self.x < o.x; }
+
+	public bool __eq__(M o) { return self.x == o.x; }
 }
 
 int main() {
-    M a = M(1);
-    M b = M(2);
+	M a = M(1);
+	M b = M(2);
 
-    // Overloaded < directly as an if condition.
-    int hit = 0;
-    if (a < b) {
-        hit = 1;
-    }
-    assert(hit == 1);
+	// Overloaded < directly as an if condition.
+	int hit = 0;
+	if (a < b) {
+		hit = 1;
+	}
+	assert(hit == 1);
 
-    // Overloaded < directly as a while condition.
-    int n = 0;
-    M lo = M(0);
-    M hi = M(3);
-    while (lo < hi) {
-        n = n + 1;
-        lo = M(lo.x + 1);
-    }
-    assert(n == 3);
+	// Overloaded < directly as a while condition.
+	int n = 0;
+	M lo = M(0);
+	M hi = M(3);
+	while (lo < hi) {
+		n = n + 1;
+		lo = M(lo.x + 1);
+	}
+	assert(n == 3);
 
-    // Overloaded == directly as a ternary condition.
-    int t = (a == M(1)) ? 100 : 200;
-    assert(t == 100);
+	// Overloaded == directly as a ternary condition.
+	int t = (a == M(1)) ? 100 : 200;
+	assert(t == 100);
 
-    print("PASS: test_operator_overload_in_condition");
-    return 0;
+	print("PASS: test_operator_overload_in_condition");
+	return 0;
 }

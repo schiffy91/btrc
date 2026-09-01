@@ -1,13 +1,13 @@
 class Base<T> {
-    public Base() {}
+	public Base() {}
 }
 
 class Child<T> extends Base {
-    public Child() {}
+	public Child() {}
 }
 
 int main() {
-    Base<int> base = new Base<int>();
-    Child<string> child = new Child<string>();
-    return base == child ? 1 : 0;
+	Base<int> base = new Base<int>();
+	Child<string> child = new Child<string>();
+	return base == child ? 1 : 0;
 }

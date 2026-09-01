@@ -1,22 +1,22 @@
 #include <stdio.h>
 
 class GenericPrintfOrder<T> {
-    public GenericPrintfOrder() {}
+	public GenericPrintfOrder() {}
 
-    public int run() {
-        int value = 0;
-        printf("%d %d\n", (value = 2), value);
-        return value;
-    }
+	public int run() {
+		int value = 0;
+		printf("%d %d\n", (value = 2), value);
+		return value;
+	}
 }
 
 int main() {
-    int value = 0;
-    printf("%d %d\n", (value = 1), value);
-    if (value != 1) { return 1; }
+	int value = 0;
+	printf("%d %d\n", (value = 1), value);
+	if (value != 1) { return 1; }
 
-    GenericPrintfOrder<int> generic = new GenericPrintfOrder<int>();
-    int result = generic.run();
-    delete generic;
-    return result == 2 ? 0 : 2;
+	GenericPrintfOrder<int> generic = new GenericPrintfOrder<int>();
+	int result = generic.run();
+	delete generic;
+	return result == 2 ? 0 : 2;
 }

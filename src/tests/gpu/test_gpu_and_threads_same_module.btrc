@@ -1,22 +1,21 @@
 #include <assert.h>
 // A @gpu kernel AND threads in the same program: the GPU includes/WGSL emission
 // must not collide with the pthread-based thread runtime.
-@gpu
-void doubleInPlace(float[] a) {
-    int i = gpu_id();
-    a[i] = a[i] * 2.0;
+@gpu void doubleInPlace(float[] a) {
+	int i = gpu_id();
+	a[i] = a[i] * 2.0;
 }
 
 int main() {
-    Thread<int> t1 = spawn(() => {
-        return 21;
-    });
-    Thread<int> t2 = spawn(() => {
-        return 21;
-    });
-    int sum = t1.join() + t2.join();
-    assert(sum == 42);
+	Thread<int> t1 = spawn(() => {
+			return 21;
+		});
+	Thread<int> t2 = spawn(() => {
+			return 21;
+		});
+	int sum = t1.join() + t2.join();
+	assert(sum == 42);
 
-    print("PASS: test_gpu_and_threads_same_module");
-    return 0;
+	print("PASS: test_gpu_and_threads_same_module");
+	return 0;
 }

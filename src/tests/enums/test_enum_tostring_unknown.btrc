@@ -5,9 +5,9 @@
 enum Color { RED, GREEN, BLUE };
 
 int main() {
-    Color c = (Color)99;
-    assert(strcmp(c.toString(), "unknown") == 0);
-    assert(strcmp(GREEN.toString(), "GREEN") == 0);
-    print("PASS: test_enum_tostring_unknown");
-    return 0;
+	Color c = (Color)99;
+	assert(strcmp(c.toString(), "unknown") == 0);
+	assert(strcmp(GREEN.toString(), "GREEN") == 0);
+	print("PASS: test_enum_tostring_unknown");
+	return 0;
 }

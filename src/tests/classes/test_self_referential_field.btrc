@@ -5,36 +5,36 @@
 #include <assert.h>
 
 class LNode {
-    public int val;
-    public LNode next;
-    public LNode(int v) { self.val = v; }
+	public int val;
+	public LNode next;
+	public LNode(int v) { self.val = v; }
 }
 
 int main() {
-    // build 1 -> 2 -> 3
-    LNode a = new LNode(1);
-    a.next = new LNode(2);
-    a.next.next = new LNode(3);
+	// build 1 -> 2 -> 3
+	LNode a = new LNode(1);
+	a.next = new LNode(2);
+	a.next.next = new LNode(3);
 
-    // read through the self-referential field
-    assert(a.val == 1);
-    assert(a.next.val == 2);
-    assert(a.next.next.val == 3);
+	// read through the self-referential field
+	assert(a.val == 1);
+	assert(a.next.val == 2);
+	assert(a.next.next.val == 3);
 
-    // traverse and sum, stopping when the tail field is the last node
-    int sum = 0;
-    LNode cur = a;
-    sum = sum + cur.val;
-    cur = cur.next;
-    sum = sum + cur.val;
-    cur = cur.next;
-    sum = sum + cur.val;
-    assert(sum == 6);
+	// traverse and sum, stopping when the tail field is the last node
+	int sum = 0;
+	LNode cur = a;
+	sum = sum + cur.val;
+	cur = cur.next;
+	sum = sum + cur.val;
+	cur = cur.next;
+	sum = sum + cur.val;
+	assert(sum == 6);
 
-    // mutate through the chain
-    a.next.val = 20;
-    assert(a.next.val == 20);
+	// mutate through the chain
+	a.next.val = 20;
+	assert(a.next.val == 20);
 
-    print("PASS: test_self_referential_field");
-    return 0;
+	print("PASS: test_self_referential_field");
+	return 0;
 }

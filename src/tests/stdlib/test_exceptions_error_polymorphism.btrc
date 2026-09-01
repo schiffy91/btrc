@@ -9,27 +9,27 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    Vector<Error> errs = [];
-    errs.push(new ValueError("v"));   // code 1
-    errs.push(new IOError("i"));      // code 2
-    errs.push(new KeyError("k"));     // code 5
-    assert(errs.len == 3);
+	Vector<Error> errs = [];
+	errs.push(new ValueError("v"));   // code 1
+	errs.push(new IOError("i"));      // code 2
+	errs.push(new KeyError("k"));     // code 5
+	assert(errs.len == 3);
 
-    int sumCodes = 0;
-    string joined = "";
-    for e in errs {
-        sumCodes = sumCodes + e.code;
-        joined = joined + e.toString();
-    }
-    assert(sumCodes == 1 + 2 + 5);
-    assert(joined.equals("vik"));
+	int sumCodes = 0;
+	string joined = "";
+	for e in errs {
+		sumCodes = sumCodes + e.code;
+		joined = joined + e.toString();
+	}
+	assert(sumCodes == 1 + 2 + 5);
+	assert(joined.equals("vik"));
 
-    // Indexed access dispatches the same way.
-    assert(errs[0].code == 1);
-    assert(errs[1].code == 2);
-    assert(errs[2].code == 5);
-    assert(errs[1].toString().equals("i"));
+	// Indexed access dispatches the same way.
+	assert(errs[0].code == 1);
+	assert(errs[1].code == 2);
+	assert(errs[2].code == 5);
+	assert(errs[1].toString().equals("i"));
 
-    print("PASS: test_exceptions_error_polymorphism");
-    return 0;
+	print("PASS: test_exceptions_error_polymorphism");
+	return 0;
 }

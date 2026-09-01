@@ -1,27 +1,25 @@
 #include <assert.h>
 
 struct Payload {
-    int value;
+	int value;
 };
 
-int readPayload(struct Payload* payload) {
-    return payload->value;
-}
+int readPayload(struct Payload* payload) { return payload->value; }
 
 int guardedRead(struct Payload payload) {
-    int result = 0;
-    try {
-        result = readPayload(&payload);
-        throw "done";
-    } catch (string error) {
-        assert(error == "done");
-    }
-    return result;
+	int result = 0;
+	try {
+		result = readPayload(&payload);
+		throw "done";
+	} catch (string error) {
+		assert(error == "done");
+	}
+	return result;
 }
 
 int main() {
-    struct Payload payload = {42};
-    assert(guardedRead(payload) == 42);
-    print("PASS");
-    return 0;
+	struct Payload payload = {42};
+	assert(guardedRead(payload) == 42);
+	print("PASS");
+	return 0;
 }

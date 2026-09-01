@@ -1,151 +1,113 @@
 import std.OwnedBuffer;
 
 struct OwnedBufferPoint {
-    int x;
-    float y;
+	int x;
+	float y;
 };
 
 struct OwnedBufferCallbackContext {
-    Atomic<uint>* counters;
+	Atomic<uint>* counters;
 };
 
 @realtime uint ownedBufferReadCounter(void* opaque) {
-    struct OwnedBufferCallbackContext* context =
-        (struct OwnedBufferCallbackContext*)opaque;
-    return context->counters[0].load(MemoryOrder.ACQUIRE);
+	struct OwnedBufferCallbackContext* context = (struct OwnedBufferCallbackContext*)opaque;
+	return context->counters[0].load(MemoryOrder.ACQUIRE);
 }
 
 int main() {
-    struct OwnedBufferStorage* raw = null;
-    if (OwnedBuffers.tryOpen(
-            (size_t)0, sizeof(float), &raw)
-            != OWNED_BUFFER_COUNT_OUT_OF_RANGE || raw != null) {
-        return 1;
-    }
-    if (OwnedBuffers.tryOpen(
-            (size_t)1, (size_t)0, &raw)
-            != OWNED_BUFFER_INVALID_ARGUMENT || raw != null) {
-        return 2;
-    }
-    if (OwnedBuffers.tryOpen(
-            (size_t)(-1), (size_t)2, &raw)
-            != OWNED_BUFFER_SIZE_OVERFLOW || raw != null) {
-        return 3;
-    }
-    if (OwnedBuffers.tryOpen(
-            (size_t)1, sizeof(float), null)
-            != OWNED_BUFFER_INVALID_ARGUMENT) {
-        return 4;
-    }
+	struct OwnedBufferStorage* raw = null;
+	if (OwnedBuffers.tryOpen((size_t)0, sizeof(float), &raw) != OWNED_BUFFER_COUNT_OUT_OF_RANGE || raw != null) {
+		return 1;
+	}
+	if (OwnedBuffers.tryOpen((size_t)1, (size_t)0, &raw) != OWNED_BUFFER_INVALID_ARGUMENT || raw != null) {
+		return 2;
+	}
+	if (OwnedBuffers.tryOpen((size_t)(-1), (size_t)2, &raw) != OWNED_BUFFER_SIZE_OVERFLOW || raw != null) {
+		return 3;
+	}
+	if (OwnedBuffers.tryOpen((size_t)1, sizeof(float), null) != OWNED_BUFFER_INVALID_ARGUMENT) {
+		return 4;
+	}
 
-    OwnedBuffer<float> samples = OwnedBuffer((size_t)4);
-    if (!samples.opened() || samples.status() != OWNED_BUFFER_OPENED
-            || samples.count() != (size_t)4) {
-        return 5;
-    }
-    float source[4] = {1.0f, 2.0f, 3.0f, 4.0f};
-    if (!samples.tryCopyFrom(
-            (size_t)0, source, (size_t)4)) {
-        return 6;
-    }
-    float* firstBorrow = samples.borrow();
-    float* secondBorrow = samples.borrow();
-    if (firstBorrow == null || firstBorrow != secondBorrow) { return 7; }
+	OwnedBuffer<float> samples = OwnedBuffer((size_t)4);
+	if (!samples.opened() || samples.status() != OWNED_BUFFER_OPENED || samples.count() != (size_t)4) {
+		return 5;
+	}
+	float source[4] = {1.0f, 2.0f, 3.0f, 4.0f};
+	if (!samples.tryCopyFrom((size_t)0, source, (size_t)4)) {
+		return 6;
+	}
+	float* firstBorrow = samples.borrow();
+	float* secondBorrow = samples.borrow();
+	if (firstBorrow == null || firstBorrow != secondBorrow) { return 7; }
 
-    float output = -1.0f;
-    if (!samples.tryGet((size_t)2, &output) || output != 3.0f) {
-        return 8;
-    }
-    float replacement = 7.0f;
-    if (!samples.set((size_t)1, replacement)
-            || samples.get((size_t)1) != 7.0f
-            || firstBorrow[1] != 7.0f) {
-        return 9;
-    }
-    float* selected = null;
-    if (!samples.tryPointerAt((size_t)3, &selected)
-            || selected != firstBorrow + 3
-            || samples.tryPointerAt((size_t)4, &selected)
-            || selected != null) {
-        return 10;
-    }
-    output = 19.0f;
-    if (samples.tryGet((size_t)4, &output) || output != 19.0f
-            || samples.trySet((size_t)4, &replacement)) {
-        return 11;
-    }
-    if (!samples.tryCopyFrom(
-            (size_t)1, firstBorrow, (size_t)3)
-            || firstBorrow[0] != 1.0f
-            || firstBorrow[1] != 1.0f
-            || firstBorrow[2] != 7.0f
-            || firstBorrow[3] != 3.0f) {
-        return 12;
-    }
+	float output = -1.0f;
+	if (!samples.tryGet((size_t)2, &output) || output != 3.0f) {
+		return 8;
+	}
+	float replacement = 7.0f;
+	if (!samples.set((size_t)1, replacement) || samples.get((size_t)1) != 7.0f || firstBorrow[1] != 7.0f) {
+		return 9;
+	}
+	float* selected = null;
+	if (!samples.tryPointerAt((size_t)3, &selected) || selected != firstBorrow + 3 || samples.tryPointerAt((size_t)4, &selected) || selected != null) {
+		return 10;
+	}
+	output = 19.0f;
+	if (samples.tryGet((size_t)4, &output) || output != 19.0f || samples.trySet((size_t)4, &replacement)) {
+		return 11;
+	}
+	if (!samples.tryCopyFrom((size_t)1, firstBorrow, (size_t)3) || firstBorrow[0] != 1.0f || firstBorrow[1] != 1.0f || firstBorrow[2] != 7.0f || firstBorrow[3] != 3.0f) {
+		return 12;
+	}
 
-    OwnedBuffer<struct OwnedBufferPoint> points =
-        OwnedBuffer((size_t)2);
-    struct OwnedBufferPoint point = {11, 2.5f};
-    struct OwnedBufferPoint readPoint = {0, 0.0f};
-    if (!points.opened()
-            || !points.set((size_t)1, point)) {
-        return 13;
-    }
-    readPoint = points.get((size_t)1);
-    if (readPoint.x != 11 || readPoint.y != 2.5f) {
-        return 13;
-    }
+	OwnedBuffer<struct OwnedBufferPoint> points = OwnedBuffer((size_t)2);
+	struct OwnedBufferPoint point = {11, 2.5f};
+	struct OwnedBufferPoint readPoint = {0, 0.0f};
+	if (!points.opened() || !points.set((size_t)1, point)) {
+		return 13;
+	}
+	readPoint = points.get((size_t)1);
+	if (readPoint.x != 11 || readPoint.y != 2.5f) {
+		return 13;
+	}
 
-    OwnedBuffer<float> copiedSamples = OwnedBuffer((size_t)3);
-    if (!copiedSamples.opened()
-            || !copiedSamples.tryCopyFromBuffer(
-                (size_t)0, samples, (size_t)1, (size_t)3)
-            || copiedSamples.get((size_t)0) != 1.0f
-            || copiedSamples.get((size_t)1) != 7.0f
-            || copiedSamples.get((size_t)2) != 3.0f) {
-        return 13;
-    }
+	OwnedBuffer<float> copiedSamples = OwnedBuffer((size_t)3);
+	if (!copiedSamples.opened() || !copiedSamples.tryCopyFromBuffer((size_t)0, samples, (size_t)1, (size_t)3) || copiedSamples.get((size_t)0) != 1.0f || copiedSamples.get((size_t)1) != 7.0f || copiedSamples.get((size_t)2) != 3.0f) {
+		return 13;
+	}
 
-    AtomicBuffer<uint> counters = AtomicBuffer((size_t)2);
-    Atomic<uint>* counterBorrow = counters.borrow();
-    if (!counters.opened() || counterBorrow == null) { return 14; }
-    counterBorrow[0].init(5u);
-    counterBorrow[1].init(0u);
-    struct OwnedBufferCallbackContext context = {counterBorrow};
-    counterBorrow[0].store(13u, MemoryOrder.RELEASE);
-    if (ownedBufferReadCounter(&context) != 13u) { return 15; }
+	AtomicBuffer<uint> counters = AtomicBuffer((size_t)2);
+	Atomic<uint>* counterBorrow = counters.borrow();
+	if (!counters.opened() || counterBorrow == null) { return 14; }
+	counterBorrow[0].init(5u);
+	counterBorrow[1].init(0u);
+	struct OwnedBufferCallbackContext context = {counterBorrow};
+	counterBorrow[0].store(13u, MemoryOrder.RELEASE);
+	if (ownedBufferReadCounter(&context) != 13u) { return 15; }
 
-    samples.close();
-    samples.close();
-    if (samples.opened() || samples.count() != (size_t)0
-            || samples.borrow() != null) {
-        return 16;
-    }
-    points.close();
-    copiedSamples.close();
-    counters.close();
+	samples.close();
+	samples.close();
+	if (samples.opened() || samples.count() != (size_t)0 || samples.borrow() != null) {
+		return 16;
+	}
+	points.close();
+	copiedSamples.close();
+	counters.close();
 
-    if (OwnedBuffers.tryOpen(
-            (size_t)3, sizeof(int), &raw)
-            != OWNED_BUFFER_OPENED || raw == null) {
-        return 17;
-    }
-    int integers[3] = {3, 5, 8};
-    int copied[3] = {0, 0, 0};
-    if (!OwnedBuffers.tryCopyFrom(
-            raw, sizeof(int), (size_t)0, integers, (size_t)3)
-            || !OwnedBuffers.tryCopyTo(
-                raw, sizeof(int), (size_t)0, copied, (size_t)3)
-            || copied[0] != 3 || copied[1] != 5 || copied[2] != 8
-            || OwnedBuffers.borrow(raw, sizeof(double)) != null
-            || OwnedBuffers.count(raw, sizeof(double)) != (size_t)0) {
-        OwnedBuffers.close(&raw);
-        return 18;
-    }
-    OwnedBuffers.close(&raw);
-    OwnedBuffers.close(&raw);
-    if (raw != null) { return 19; }
+	if (OwnedBuffers.tryOpen((size_t)3, sizeof(int), &raw) != OWNED_BUFFER_OPENED || raw == null) {
+		return 17;
+	}
+	int integers[3] = {3, 5, 8};
+	int copied[3] = {0, 0, 0};
+	if (!OwnedBuffers.tryCopyFrom(raw, sizeof(int), (size_t)0, integers, (size_t)3) || !OwnedBuffers.tryCopyTo(raw, sizeof(int), (size_t)0, copied, (size_t)3) || copied[0] != 3 || copied[1] != 5 || copied[2] != 8 || OwnedBuffers.borrow(raw, sizeof(double)) != null || OwnedBuffers.count(raw, sizeof(double)) != (size_t)0) {
+		OwnedBuffers.close(&raw);
+		return 18;
+	}
+	OwnedBuffers.close(&raw);
+	OwnedBuffers.close(&raw);
+	if (raw != null) { return 19; }
 
-    print("PASS OwnedBuffer");
-    return 0;
+	print("PASS OwnedBuffer");
+	return 0;
 }

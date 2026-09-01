@@ -1,30 +1,32 @@
 /* Built-in Set whose element type is a USER generic class: Set<Box<int>>.
  * Exercises __btrc_eq / __btrc_hash over a monomorphized user-generic struct
  * pointer as a Set member. */
-#include <assert.h>
 import std.set;
 
+#include <assert.h>
+
 class Box<T> {
-    public T v;
-    public Box(T x) { self.v = x; }
-    public T get() { return self.v; }
+	public T v;
+	public Box(T x) { self.v = x; }
+
+	public T get() { return self.v; }
 }
 
 int main() {
-    Box<int> a = new Box<int>(1);
-    Box<int> b = new Box<int>(2);
+	Box<int> a = new Box<int>(1);
+	Box<int> b = new Box<int>(2);
 
-    Set<Box<int>> s = {};
-    s.add(a);
-    s.add(b);
-    assert(s.len == 2);
-    assert(s.has(a));
-    assert(s.has(b));
+	Set<Box<int>> s = {};
+	s.add(a);
+	s.add(b);
+	assert(s.len == 2);
+	assert(s.has(a));
+	assert(s.has(b));
 
-    /* adding the same reference again does not grow the set */
-    s.add(a);
-    assert(s.len == 2);
+	/* adding the same reference again does not grow the set */
+	s.add(a);
+	assert(s.len == 2);
 
-    print("PASS: test_set_of_user_generic");
-    return 0;
+	print("PASS: test_set_of_user_generic");
+	return 0;
 }

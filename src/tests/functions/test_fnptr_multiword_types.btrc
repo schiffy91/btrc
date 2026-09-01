@@ -3,27 +3,23 @@
 #include <assert.h>
 
 void swap_callback(void* display, unsigned long drawable) {
-    assert(display == null);
-    assert(drawable == 7);
+	assert(display == null);
+	assert(drawable == 7);
 }
 
-unsigned int qualifier_callback(unsigned char byte_value, signed int delta) {
-    return byte_value + delta;
-}
+unsigned int qualifier_callback(unsigned char byte_value, signed int delta) { return byte_value + delta; }
 
-unsigned long long wide_callback(long double ratio, long int count, short int offset) {
-    return (unsigned long long)(ratio + count + offset);
-}
+unsigned long long wide_callback(long double ratio, long int count, short int offset) { return (unsigned long long)(ratio + count + offset); }
 
 int main() {
-    __fn_ptr<void, void*, unsigned long> swap = swap_callback;
-    __fn_ptr<unsigned int, unsigned char, signed int> qualifier = qualifier_callback;
-    __fn_ptr<unsigned long long, long double, long int, short int> wide = wide_callback;
+	__fn_ptr<void, void*, unsigned long> swap = swap_callback;
+	__fn_ptr<unsigned int, unsigned char, signed int> qualifier = qualifier_callback;
+	__fn_ptr<unsigned long long, long double, long int, short int> wide = wide_callback;
 
-    swap(null, 7);
-    assert(qualifier(8, -3) == 5);
-    assert(wide(1.0, 2, 3) == 6);
+	swap(null, 7);
+	assert(qualifier(8, -3) == 5);
+	assert(wide(1.0, 2, 3) == 6);
 
-    print("PASS: test_fnptr_multiword_types");
-    return 0;
+	print("PASS: test_fnptr_multiword_types");
+	return 0;
 }

@@ -7,16 +7,16 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    string grammarText = Path.readAll("src/language/grammar.ebnf");
-    GrammarInfo grammar = EbnfGrammarParser(grammarText).parse();
-    Lexer lexer = Lexer("int value = 1;", grammar);
+	string grammarText = Path.readAll("src/language/grammar.ebnf");
+	GrammarInfo grammar = EbnfGrammarParser(grammarText).parse();
+	Lexer lexer = Lexer("int value = 1;", grammar);
 
-    Vector<Token> first = lexer.tokenize();
-    Vector<Token> second = lexer.tokenize();
+	Vector<Token> first = lexer.tokenize();
+	Vector<Token> second = lexer.tokenize();
 
-    assert(first.len == 6);
-    assert(second.len == 6);
-    assert(second.get(5).type.equals("EOF"));
-    print("PASS: lexer reuse is idempotent");
-    return 0;
+	assert(first.len == 6);
+	assert(second.len == 6);
+	assert(second.get(5).type.equals("EOF"));
+	print("PASS: lexer reuse is idempotent");
+	return 0;
 }

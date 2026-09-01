@@ -4,52 +4,50 @@ import ../../../stdlib/app/app.btrc;
 import ../../../stdlib/gpu/gpu.btrc;
 
 int main() {
-    Application application = new Application();
-    if (!application.isOpen()) {
-        print("SKIP: application backend unavailable");
-        return 77;
-    }
-    AppWindowOpenOutcome opened = application.openWindow(
-        new AppWindowDescriptor("btrc real GPU smoke", 64, 64));
-    ApplicationWindow? maybeWindow = opened.window;
-    if (opened.kind != APP_WINDOW_OPENED || maybeWindow == null) {
-        print("SKIP: real window unavailable");
-        return 77;
-    }
-    ApplicationWindow window = maybeWindow;
+	Application application = new Application();
+	if (!application.isOpen()) {
+		print("SKIP: application backend unavailable");
+		return 77;
+	}
+	AppWindowOpenOutcome opened = application.openWindow(new AppWindowDescriptor("btrc real GPU smoke", 64, 64));
+	ApplicationWindow? maybeWindow = opened.window;
+	if (opened.kind != APP_WINDOW_OPENED || maybeWindow == null) {
+		print("SKIP: real window unavailable");
+		return 77;
+	}
+	ApplicationWindow window = maybeWindow;
 
-    AppSurfaceOpenOutcome surfaceOpened = window.surface();
-    AppSurfaceAttachment? maybeSurface = surfaceOpened.surface;
-    if (surfaceOpened.kind != APP_SURFACE_OPENED || maybeSurface == null) {
-        return 1;
-    }
-    AppSurfaceAttachment surface = maybeSurface;
+	AppSurfaceOpenOutcome surfaceOpened = window.surface();
+	AppSurfaceAttachment? maybeSurface = surfaceOpened.surface;
+	if (surfaceOpened.kind != APP_SURFACE_OPENED || maybeSurface == null) {
+		return 1;
+	}
+	AppSurfaceAttachment surface = maybeSurface;
 
-    GPUAttachOutcome attached = GPU.attach(surface);
-    GPU? maybeGPU = attached.gpu;
-    if (attached.kind != GPU_ATTACHED || maybeGPU == null) {
-        if (surface.close().kind != APP_CLOSED) { return 9; }
-        if (window.close().kind != APP_CLOSED) { return 10; }
-        if (application.close().kind != APP_CLOSED) { return 11; }
-        if (attached.kind == GPU_ATTACH_ADAPTER_UNAVAILABLE) {
-            print("SKIP: compatible GPU adapter unavailable");
-            return 77;
-        }
-        return 13;
-    }
-    GPU gpu = maybeGPU;
+	GPUAttachOutcome attached = GPU.attach(surface);
+	GPU? maybeGPU = attached.gpu;
+	if (attached.kind != GPU_ATTACHED || maybeGPU == null) {
+		if (surface.close().kind != APP_CLOSED) { return 9; }
+		if (window.close().kind != APP_CLOSED) { return 10; }
+		if (application.close().kind != APP_CLOSED) { return 11; }
+		if (attached.kind == GPU_ATTACH_ADAPTER_UNAVAILABLE) {
+			print("SKIP: compatible GPU adapter unavailable");
+			return 77;
+		}
+		return 13;
+	}
+	GPU gpu = maybeGPU;
 
-    GPUShaderOutcome invalidShader = gpu.createShader("""
+	GPUShaderOutcome invalidShader = gpu.createShader("""
         @compute @workgroup_size(1) fn invalid_main() {
             var meta: u32 = 0u;
         }
     """);
-    if (invalidShader.kind != GPU_RESOURCE_CREATION_FAILED
-            || invalidShader.shader != null || invalidShader.error.isEmpty()) {
-        return 18;
-    }
+	if (invalidShader.kind != GPU_RESOURCE_CREATION_FAILED || invalidShader.shader != null || invalidShader.error.isEmpty()) {
+		return 18;
+	}
 
-    GPUShaderOutcome shaderCreated = gpu.createShader("""
+	GPUShaderOutcome shaderCreated = gpu.createShader("""
         @vertex fn vs_main(@builtin(vertex_index) index: u32)
                 -> @builtin(position) vec4f {
             var vertices = array<vec2f, 3>(
@@ -60,59 +58,57 @@ int main() {
             return vec4f(0.8, 0.3, 0.1, 1.0);
         }
     """);
-    GPUShader? maybeShader = shaderCreated.shader;
-    if (shaderCreated.kind != GPU_RESOURCE_READY || maybeShader == null) {
-        return 14;
-    }
-    GPUShader shader = maybeShader;
-    GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
-    GPURenderPipeline? maybePipeline = pipelineCreated.pipeline;
-    if (pipelineCreated.kind != GPU_RESOURCE_READY || maybePipeline == null) {
-        return 15;
-    }
-    GPURenderPipeline pipeline = maybePipeline;
+	GPUShader? maybeShader = shaderCreated.shader;
+	if (shaderCreated.kind != GPU_RESOURCE_READY || maybeShader == null) {
+		return 14;
+	}
+	GPUShader shader = maybeShader;
+	GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
+	GPURenderPipeline? maybePipeline = pipelineCreated.pipeline;
+	if (pipelineCreated.kind != GPU_RESOURCE_READY || maybePipeline == null) {
+		return 15;
+	}
+	GPURenderPipeline pipeline = maybePipeline;
 
-    bool presented = false;
-    for (int attempt = 0; attempt < 120 && !presented; attempt++) {
-        AppWindowEvent event = application.poll();
-        if (event.kind == APP_EVENT_FAILED
-                || event.kind == APP_EVENT_CLOSE_REQUESTED) {
-            return 2;
-        }
-        GPUFrameOutcome frame = gpu.beginFrame(0.02f, 0.04f, 0.08f);
-        if (frame.kind == GPU_FRAME_READY) {
-            if (gpu.draw(pipeline, 3).kind != GPU_DRAW_RECORDED) { return 16; }
-            presented = gpu.endFrame().kind == GPU_FRAME_PRESENTED;
-        } else if (frame.kind != GPU_FRAME_TIMEOUT
-                && frame.kind != GPU_FRAME_OUTDATED) {
-            return 3;
-        }
-    }
-    if (!presented) { return 4; }
+	bool presented = false;
+	for (int attempt = 0; attempt < 120 && !presented; attempt++) {
+		AppWindowEvent event = application.poll();
+		if (event.kind == APP_EVENT_FAILED || event.kind == APP_EVENT_CLOSE_REQUESTED) {
+			return 2;
+		}
+		GPUFrameOutcome frame = gpu.beginFrame(0.02f, 0.04f, 0.08f);
+		if (frame.kind == GPU_FRAME_READY) {
+			if (gpu.draw(pipeline, 3).kind != GPU_DRAW_RECORDED) { return 16; }
+			presented = gpu.endFrame().kind == GPU_FRAME_PRESENTED;
+		} else if (frame.kind != GPU_FRAME_TIMEOUT && frame.kind != GPU_FRAME_OUTDATED) {
+			return 3;
+		}
+	}
+	if (!presented) { return 4; }
 
-    pipeline.close();
-    shader.close();
-    Thread<int> wrongThreadGPUClose = spawn(() => {
-        GPUCloseOutcome outcome = gpu.close();
-        if (outcome.kind != GPU_CLOSE_REJECTED || outcome.error.isEmpty()) {
-            return -1;
-        }
-        return (int)outcome.kind;
-    });
-    if (wrongThreadGPUClose.join() != GPU_CLOSE_REJECTED) { return 17; }
-    if (gpu.close().kind != GPU_CLOSED) { return 5; }
-    Thread<int> wrongThreadClose = spawn(() => {
-        AppCloseOutcome outcome = surface.close();
-        if (outcome.kind != APP_CLOSE_REJECTED || outcome.error == null) {
-            return -1;
-        }
-        AppError error = outcome.error;
-        return (int)error.code;
-    });
-    if (wrongThreadClose.join() != APP_ERROR_NOT_MAIN_THREAD) { return 12; }
-    if (surface.close().kind != APP_CLOSED) { return 6; }
-    if (window.close().kind != APP_CLOSED) { return 7; }
-    if (application.close().kind != APP_CLOSED) { return 8; }
-    print("PASS: real application window GPU presentation");
-    return 0;
+	pipeline.close();
+	shader.close();
+	Thread<int> wrongThreadGPUClose = spawn(() => {
+			GPUCloseOutcome outcome = gpu.close();
+			if (outcome.kind != GPU_CLOSE_REJECTED || outcome.error.isEmpty()) {
+				return -1;
+			}
+			return (int)outcome.kind;
+		});
+	if (wrongThreadGPUClose.join() != GPU_CLOSE_REJECTED) { return 17; }
+	if (gpu.close().kind != GPU_CLOSED) { return 5; }
+	Thread<int> wrongThreadClose = spawn(() => {
+			AppCloseOutcome outcome = surface.close();
+			if (outcome.kind != APP_CLOSE_REJECTED || outcome.error == null) {
+				return -1;
+			}
+			AppError error = outcome.error;
+			return (int)error.code;
+		});
+	if (wrongThreadClose.join() != APP_ERROR_NOT_MAIN_THREAD) { return 12; }
+	if (surface.close().kind != APP_CLOSED) { return 6; }
+	if (window.close().kind != APP_CLOSED) { return 7; }
+	if (application.close().kind != APP_CLOSED) { return 8; }
+	print("PASS: real application window GPU presentation");
+	return 0;
 }

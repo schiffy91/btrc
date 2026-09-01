@@ -2,25 +2,25 @@
 #include <assert.h>
 
 int main() {
-    // reverse
-    assert("abc".reverse().equals("cba"));
-    assert("".reverse().equals(""));
-    assert("a".reverse().equals("a"));
-    assert("racecar".reverse().equals("racecar"));
+	// reverse
+	assert("abc".reverse().equals("cba"));
+	assert("".reverse().equals(""));
+	assert("a".reverse().equals("a"));
+	assert("racecar".reverse().equals("racecar"));
 
-    // removePrefix / removeSuffix
-    string s = "foobar";
-    assert(s.removePrefix("foo").equals("bar"));
-    assert(s.removeSuffix("bar").equals("foo"));
-    // absent affix is a no-op
-    assert(s.removePrefix("xx").equals("foobar"));
-    assert(s.removeSuffix("xx").equals("foobar"));
+	// removePrefix / removeSuffix
+	string s = "foobar";
+	assert(s.removePrefix("foo").equals("bar"));
+	assert(s.removeSuffix("bar").equals("foo"));
+	// absent affix is a no-op
+	assert(s.removePrefix("xx").equals("foobar"));
+	assert(s.removeSuffix("xx").equals("foobar"));
 
-    // center: even padding splits, odd padding biases right, width<=len is a no-op
-    assert("hi".center(6, '*').equals("**hi**"));
-    assert("hi".center(5, '.').equals(".hi.."));
-    assert("hello".center(3, ' ').equals("hello"));
+	// center: even padding splits, odd padding biases right, width<=len is a no-op
+	assert("hi".center(6, '*').equals("**hi**"));
+	assert("hi".center(5, '.').equals(".hi.."));
+	assert("hello".center(3, ' ').equals("hello"));
 
-    print("PASS: test_string_reverse_affix_center");
-    return 0;
+	print("PASS: test_string_reverse_affix_center");
+	return 0;
 }

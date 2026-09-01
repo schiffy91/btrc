@@ -6,12 +6,12 @@ extern void arc_test_allocation_checkpoint();
 extern long arc_test_allocation_delta();
 
 int main() {
-    arc_test_allocation_checkpoint();
-    {
-        string workingDirectory = getcwd((char*)NULL, (size_t)0);
-        assert(workingDirectory != null);
-        assert(workingDirectory[0] != '\0');
-    }
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	arc_test_allocation_checkpoint();
+	{
+		string workingDirectory = getcwd((char*)NULL, (size_t)0);
+		assert(workingDirectory != null);
+		assert(workingDirectory[0] != '\0');
+	}
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

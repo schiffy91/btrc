@@ -1,26 +1,26 @@
 #include <assert.h>
 
 struct Point {
-    int x;
-    int y;
+	int x;
+	int y;
 };
 
 int main() {
-    // 'struct Point' spelled-out base_type in a var declaration
-    struct Point p;
-    p.x = 3;
-    p.y = 4;
-    assert(p.x + p.y == 7);
+	// 'struct Point' spelled-out base_type in a var declaration
+	struct Point p;
+	p.x = 3;
+	p.y = 4;
+	assert(p.x + p.y == 7);
 
-    // pointer to a struct base_type and arrow access
-    struct Point* pp = &p;
-    pp->x = 10;
-    assert(p.x == 10);
-    assert(pp->y == 4);
+	// pointer to a struct base_type and arrow access
+	struct Point* pp = &p;
+	pp->x = 10;
+	assert(p.x == 10);
+	assert(pp->y == 4);
 
-    // sizeof of the spelled-out struct type
-    assert(sizeof(struct Point) >= (size_t)2 * sizeof(int));
+	// sizeof of the spelled-out struct type
+	assert(sizeof(struct Point) >= (size_t)2 * sizeof(int));
 
-    print("PASS: test_struct_base_type");
-    return 0;
+	print("PASS: test_struct_base_type");
+	return 0;
 }

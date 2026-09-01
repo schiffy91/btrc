@@ -5,36 +5,34 @@
 #include <assert.h>
 
 int main() {
-    // negative variable step: 10, 8, 6, 4, 2  -> 5 iterations
-    int s = -2;
-    int count = 0;
-    int last = 0;
-    for i in range(10, 0, s) {
-        count++;
-        last = i;
-    }
-    assert(count == 5);
-    assert(last == 2);
+	// negative variable step: 10, 8, 6, 4, 2  -> 5 iterations
+	int s = -2;
+	int count = 0;
+	int last = 0;
+	for i in range(10, 0, s) {
+		count++;
+		last = i;
+	}
+	assert(count == 5);
+	assert(last == 2);
 
-    // reuse the same loop with a positive variable step: 0, 3, 6, 9 -> 4 iters
-    s = 3;
-    int count2 = 0;
-    int sum2 = 0;
-    for i in range(0, 10, s) {
-        count2++;
-        sum2 += i;
-    }
-    assert(count2 == 4);
-    assert(sum2 == 18); // 0 + 3 + 6 + 9
+	// reuse the same loop with a positive variable step: 0, 3, 6, 9 -> 4 iters
+	s = 3;
+	int count2 = 0;
+	int sum2 = 0;
+	for i in range(0, 10, s) {
+		count2++;
+		sum2 += i;
+	}
+	assert(count2 == 4);
+	assert(sum2 == 18); // 0 + 3 + 6 + 9
 
-    // step variable that makes the range empty (wrong direction): no iterations
-    int down = -1;
-    int count3 = 0;
-    for i in range(0, 5, down) {
-        count3++;
-    }
-    assert(count3 == 0);
+	// step variable that makes the range empty (wrong direction): no iterations
+	int down = -1;
+	int count3 = 0;
+	for i in range(0, 5, down) { count3++; }
+	assert(count3 == 0);
 
-    print("PASS: test_range_variable_step");
-    return 0;
+	print("PASS: test_range_variable_step");
+	return 0;
 }

@@ -7,26 +7,26 @@ import std.platform;
 #include <stdlib.h>
 
 int main() {
-    // A set, non-empty variable: has() true, get() returns the value.
-    setenv("BTRC_TEST_X", "val", 1);
-    assert(Environment.has("BTRC_TEST_X"));
-    assert(Environment.get("BTRC_TEST_X", "fallback").equals("val"));
+	// A set, non-empty variable: has() true, get() returns the value.
+	setenv("BTRC_TEST_X", "val", 1);
+	assert(Environment.has("BTRC_TEST_X"));
+	assert(Environment.get("BTRC_TEST_X", "fallback").equals("val"));
 
-    // A set-but-EMPTY variable is treated as absent.
-    setenv("BTRC_TEST_E", "", 1);
-    assert(!Environment.has("BTRC_TEST_E"));
-    assert(Environment.get("BTRC_TEST_E", "fb").equals("fb"));
+	// A set-but-EMPTY variable is treated as absent.
+	setenv("BTRC_TEST_E", "", 1);
+	assert(!Environment.has("BTRC_TEST_E"));
+	assert(Environment.get("BTRC_TEST_E", "fb").equals("fb"));
 
-    // A genuinely unset variable: has() false, get() returns the fallback.
-    unsetenv("BTRC_TEST_MISSING");
-    assert(!Environment.has("BTRC_TEST_MISSING"));
-    assert(Environment.get("BTRC_TEST_MISSING", "default").equals("default"));
+	// A genuinely unset variable: has() false, get() returns the fallback.
+	unsetenv("BTRC_TEST_MISSING");
+	assert(!Environment.has("BTRC_TEST_MISSING"));
+	assert(Environment.get("BTRC_TEST_MISSING", "default").equals("default"));
 
-    // Overwriting flips has() back on.
-    setenv("BTRC_TEST_E", "now", 1);
-    assert(Environment.has("BTRC_TEST_E"));
-    assert(Environment.get("BTRC_TEST_E", "fb").equals("now"));
+	// Overwriting flips has() back on.
+	setenv("BTRC_TEST_E", "now", 1);
+	assert(Environment.has("BTRC_TEST_E"));
+	assert(Environment.get("BTRC_TEST_E", "fb").equals("now"));
 
-    print("PASS: test_stdlib_environment");
-    return 0;
+	print("PASS: test_stdlib_environment");
+	return 0;
 }

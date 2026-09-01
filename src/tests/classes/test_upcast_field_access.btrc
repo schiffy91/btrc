@@ -4,25 +4,25 @@
 #include <assert.h>
 
 class A {
-    public int x;
-    public A(int x) { self.x = x; }
+	public int x;
+	public A(int x) { self.x = x; }
 }
 
 class C extends A {
-    public int y;
-    public C(int x, int y) { self.x = x; self.y = y; }
+	public int y;
+	public C(int x, int y) { self.x = x; self.y = y; }
 }
 
 int main() {
-    C c = C(3, 4);
-    assert(c.x == 3);
-    assert(c.y == 4);
+	C c = C(3, 4);
+	assert(c.x == 3);
+	assert(c.y == 4);
 
-    // Upcast: a base-typed view of the same object.
-    A a = c;
-    // The inherited field reads correctly through the base type.
-    assert(a.x == 3);
+	// Upcast: a base-typed view of the same object.
+	A a = c;
+	// The inherited field reads correctly through the base type.
+	assert(a.x == 3);
 
-    print("PASS: test_upcast_field_access");
-    return 0;
+	print("PASS: test_upcast_field_access");
+	return 0;
 }

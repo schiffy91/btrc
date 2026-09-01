@@ -1,16 +1,16 @@
 #include <assert.h>
 
 int main() {
-    // volatile type qualifier on a local
-    volatile int flag = 0;
-    assert(flag == 0);
-    flag = 1;
-    assert(flag == 1);
+	// volatile type qualifier on a local
+	volatile int flag = 0;
+	assert(flag == 0);
+	flag = 1;
+	assert(flag == 1);
 
-    volatile int counter = 10;
-    counter = counter + 5;
-    assert(counter == 15);
+	volatile int counter = 10;
+	counter = counter + 5;
+	assert(counter == 15);
 
-    print("PASS: test_volatile_qualifier");
-    return 0;
+	print("PASS: test_volatile_qualifier");
+	return 0;
 }

@@ -1,11 +1,11 @@
-#include <assert.h>
-#include "fake_app_gpu_runtime.h"
-
 import std.app;
 import std.gpu;
 import std.image;
 import std.native_ui;
 import std.native_ui_app;
+
+#include <assert.h>
+#include "fake_app_gpu_runtime.h"
 
 void fake_platform_reset();
 void fake_gpu_set_next_frame(int status);
@@ -16,179 +16,123 @@ string fake_platform_lifecycle();
 int fake_platform_live_resources();
 
 int main() {
-    fake_platform_reset();
-    Application application = Application();
-    assert(application.isOpen());
-    AppWindowOpenOutcome opened = application.openWindow(
-        AppWindowDescriptor("native UI", 240, 120));
-    assert(opened.kind == APP_WINDOW_OPENED);
-    ApplicationWindow window = opened.window;
-    AppSurfaceOpenOutcome surfaceOpened = window.surface();
-    assert(surfaceOpened.kind == APP_SURFACE_OPENED);
-    AppSurfaceAttachment surface = surfaceOpened.surface;
-    GPUAttachOutcome attached = GPU.attach(surface);
-    assert(attached.kind == GPU_ATTACHED);
-    GPU gpu = attached.gpu;
+	fake_platform_reset();
+	Application application = Application();
+	assert(application.isOpen());
+	AppWindowOpenOutcome opened = application.openWindow(AppWindowDescriptor("native UI", 240, 120));
+	assert(opened.kind == APP_WINDOW_OPENED);
+	ApplicationWindow window = opened.window;
+	AppSurfaceOpenOutcome surfaceOpened = window.surface();
+	assert(surfaceOpened.kind == APP_SURFACE_OPENED);
+	AppSurfaceAttachment surface = surfaceOpened.surface;
+	GPUAttachOutcome attached = GPU.attach(surface);
+	assert(attached.kind == GPU_ATTACHED);
+	GPU gpu = attached.gpu;
 
-    NativeUiStyleSheet sheet = NativeUiStyleSheet()
-        .rule("root", "gap: 6px; padding: 6px")
-        .rule("card", "border-radius: 6px; color: #ffffff");
-    NativeUiAppAttachOutcome uiAttached = NativeUiAppSession.attach(
-        window, gpu, sheet);
-    assert(uiAttached.kind == NATIVE_UI_APP_ATTACHED);
-    NativeUiAppSession session = uiAttached.session;
+	NativeUiStyleSheet sheet = NativeUiStyleSheet().rule("root", "gap: 6px; padding: 6px").rule("card", "border-radius: 6px; color: #ffffff");
+	NativeUiAppAttachOutcome uiAttached = NativeUiAppSession.attach(window, gpu, sheet);
+	assert(uiAttached.kind == NATIVE_UI_APP_ATTACHED);
+	NativeUiAppSession session = uiAttached.session;
 
-    Image artwork = Image(2, 2);
-    artwork.setRGBA(0, 0, 220, 40, 20, 255);
-    NativeUiElement root = NativeUiElement
-        .column("library")
-        .className("root")
-        .child(NativeUiElement.text("heading", "Albums"))
-        .child(NativeUiElement.textInput(
-            "query", "a", "Search albums", 16))
-        .child(NativeUiElement
-            .button("album:one", "Album One")
-            .className("card")
-            .child(NativeUiElement
-                .image("art:one", artwork, "Album One")
-                .imageRevision(1ULL)));
+	Image artwork = Image(2, 2);
+	artwork.setRGBA(0, 0, 220, 40, 20, 255);
+	NativeUiElement root = NativeUiElement.column("library").className("root").child(NativeUiElement.text("heading", "Albums")).child(NativeUiElement.textInput("query", "a", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(1ULL)));
 
-    NativeUiPresentOutcome first = session.present(root);
-    assert(first.kind == NATIVE_UI_PRESENTED);
-    assert(first.frame.ok());
-    assert(first.frame.image.isEmpty());
-    assert(session.commandCount() > 0);
-    assert(session.cachedImageCount() == 1);
-    assert(fake_native_ui_upload_count() == 1);
-    assert(fake_gpu_frame_begin_count() == 1);
-    assert(fake_gpu_frame_present_count() == 1);
+	NativeUiPresentOutcome first = session.present(root);
+	assert(first.kind == NATIVE_UI_PRESENTED);
+	assert(first.frame.ok());
+	assert(first.frame.image.isEmpty());
+	assert(session.commandCount() > 0);
+	assert(session.cachedImageCount() == 1);
+	assert(fake_native_ui_upload_count() == 1);
+	assert(fake_gpu_frame_begin_count() == 1);
+	assert(fake_gpu_frame_present_count() == 1);
 
-    NativeUiPresentOutcome unchanged = session.present(root);
-    assert(unchanged.kind == NATIVE_UI_PRESENTED);
-    assert(fake_native_ui_upload_count() == 1);
+	NativeUiPresentOutcome unchanged = session.present(root);
+	assert(unchanged.kind == NATIVE_UI_PRESENTED);
+	assert(fake_native_ui_upload_count() == 1);
 
-    NativeUiLayoutBox query = session.input()
-        .currentFrame().boxFor("query");
-    AppWindowEvent focusQuery = AppWindowEvent(APP_EVENT_POINTER);
-    focusQuery.pointer = AppPointerEvent(
-        APP_POINTER_PRESSED,
-        APP_POINTER_BUTTON_PRIMARY,
-        (float)(query.bounds.x + 2),
-        (float)(query.bounds.y + 2),
-        AppKeyModifiers(false, false, false, false)
-    );
-    assert(session.dispatch(focusQuery).eventCount() <= 1);
-    assert(session.input().focusedId() == "query");
+	NativeUiLayoutBox query = session.input().currentFrame().boxFor("query");
+	AppWindowEvent focusQuery = AppWindowEvent(APP_EVENT_POINTER);
+	focusQuery.pointer = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)(query.bounds.x + 2), (float)(query.bounds.y + 2), AppKeyModifiers(false, false, false, false));
+	assert(session.dispatch(focusQuery).eventCount() <= 1);
+	assert(session.input().focusedId() == "query");
 
-    fake_platform_push_text("\xc3\xa9");
-    AppWindowEvent enteredText = application.poll();
-    assert(enteredText.kind == APP_EVENT_TEXT);
-    NativeUiEventBatch entered = session.dispatch(enteredText);
-    assert(entered.eventCount() == 1);
-    assert(entered.eventAt(0).kind() == NATIVE_UI_VALUE_CHANGED);
-    assert(entered.eventAt(0).elementId() == "query");
-    assert(entered.eventAt(0).value() == "a\xc3\xa9");
+	fake_platform_push_text("\xc3\xa9");
+	AppWindowEvent enteredText = application.poll();
+	assert(enteredText.kind == APP_EVENT_TEXT);
+	NativeUiEventBatch entered = session.dispatch(enteredText);
+	assert(entered.eventCount() == 1);
+	assert(entered.eventAt(0).kind() == NATIVE_UI_VALUE_CHANGED);
+	assert(entered.eventAt(0).elementId() == "query");
+	assert(entered.eventAt(0).value() == "a\xc3\xa9");
 
-    fake_platform_push_keyboard(
-        APP_KEY_PRESSED, APP_KEY_LEFT, 0);
-    assert(session.dispatch(application.poll()).eventCount() == 0);
-    fake_platform_push_text("Z");
-    NativeUiEventBatch inserted = session.dispatch(application.poll());
-    assert(inserted.eventCount() == 1);
-    assert(inserted.eventAt(0).value() == "aZ\xc3\xa9");
-    fake_platform_push_keyboard(
-        APP_KEY_PRESSED, APP_KEY_BACKSPACE, 0);
-    NativeUiEventBatch removed = session.dispatch(application.poll());
-    assert(removed.eventCount() == 1);
-    assert(removed.eventAt(0).value() == "a\xc3\xa9");
-    fake_platform_push_text("\xc3");
-    assert(session.dispatch(application.poll()).eventCount() == 0);
-    assert(session.input().focusedValue() == "a\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_LEFT, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	fake_platform_push_text("Z");
+	NativeUiEventBatch inserted = session.dispatch(application.poll());
+	assert(inserted.eventCount() == 1);
+	assert(inserted.eventAt(0).value() == "aZ\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_BACKSPACE, 0);
+	NativeUiEventBatch removed = session.dispatch(application.poll());
+	assert(removed.eventCount() == 1);
+	assert(removed.eventAt(0).value() == "a\xc3\xa9");
+	fake_platform_push_text("\xc3");
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().focusedValue() == "a\xc3\xa9");
 
-    artwork.setRGBA(0, 0, 10, 200, 30, 255);
-    NativeUiElement revisedRoot = NativeUiElement
-        .column("library")
-        .className("root")
-        .child(NativeUiElement.text("heading", "Albums"))
-        .child(NativeUiElement.textInput(
-            "query", "a\xc3\xa9", "Search albums", 16))
-        .child(NativeUiElement
-            .button("album:one", "Album One")
-            .className("card")
-            .child(NativeUiElement
-                .image("art:one", artwork, "Album One")
-                .imageRevision(2ULL)));
-    assert(session.present(revisedRoot).kind == NATIVE_UI_PRESENTED);
-    assert(fake_native_ui_upload_count() == 2);
-    assert(session.input().focusedId() == "query");
-    assert(session.input().focusedValue() == "a\xc3\xa9");
-    fake_platform_push_keyboard(
-        APP_KEY_PRESSED, APP_KEY_ESCAPE, 0);
-    assert(session.dispatch(application.poll()).eventCount() == 0);
-    assert(session.input().focusedId().isEmpty());
-    fake_platform_push_keyboard(
-        APP_KEY_PRESSED, APP_KEY_TAB, 0);
-    assert(session.dispatch(application.poll()).eventCount() == 0);
-    assert(session.input().focusedId() == "query");
+	artwork.setRGBA(0, 0, 10, 200, 30, 255);
+	NativeUiElement revisedRoot = NativeUiElement.column("library").className("root").child(NativeUiElement.text("heading", "Albums")).child(NativeUiElement.textInput("query", "a\xc3\xa9", "Search albums", 16)).child(NativeUiElement.button("album:one", "Album One").className("card").child(NativeUiElement.image("art:one", artwork, "Album One").imageRevision(2ULL)));
+	assert(session.present(revisedRoot).kind == NATIVE_UI_PRESENTED);
+	assert(fake_native_ui_upload_count() == 2);
+	assert(session.input().focusedId() == "query");
+	assert(session.input().focusedValue() == "a\xc3\xa9");
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_ESCAPE, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().focusedId().isEmpty());
+	fake_platform_push_keyboard(APP_KEY_PRESSED, APP_KEY_TAB, 0);
+	assert(session.dispatch(application.poll()).eventCount() == 0);
+	assert(session.input().focusedId() == "query");
 
-    NativeUiLayoutBox button = session.input()
-        .currentFrame().boxFor("album:one");
-    int pointerX = button.bounds.x + 2;
-    int pointerY = button.bounds.y + 2;
-    AppWindowEvent press = AppWindowEvent(APP_EVENT_POINTER);
-    press.pointer = AppPointerEvent(
-        APP_POINTER_PRESSED,
-        APP_POINTER_BUTTON_PRIMARY,
-        (float)pointerX,
-        (float)pointerY,
-        AppKeyModifiers(false, false, false, false)
-    );
-    NativeUiEventBatch pressed = session.dispatch(press);
-    assert(pressed.eventCount() <= 2);
-    AppWindowEvent releasedEvent = AppWindowEvent(APP_EVENT_POINTER);
-    releasedEvent.pointer = AppPointerEvent(
-        APP_POINTER_RELEASED,
-        APP_POINTER_BUTTON_PRIMARY,
-        (float)pointerX,
-        (float)pointerY,
-        AppKeyModifiers(false, false, false, false)
-    );
-    NativeUiEventBatch clicked = session.dispatch(releasedEvent);
-    assert(clicked.eventCount() >= 1);
-    assert(clicked.eventAt(clicked.eventCount() - 1).kind()
-        == NATIVE_UI_CLICKED);
-    assert(clicked.eventAt(clicked.eventCount() - 1).elementId()
-        == "album:one");
+	NativeUiLayoutBox button = session.input().currentFrame().boxFor("album:one");
+	int pointerX = button.bounds.x + 2;
+	int pointerY = button.bounds.y + 2;
+	AppWindowEvent press = AppWindowEvent(APP_EVENT_POINTER);
+	press.pointer = AppPointerEvent(APP_POINTER_PRESSED, APP_POINTER_BUTTON_PRIMARY, (float)pointerX, (float)pointerY, AppKeyModifiers(false, false, false, false));
+	NativeUiEventBatch pressed = session.dispatch(press);
+	assert(pressed.eventCount() <= 2);
+	AppWindowEvent releasedEvent = AppWindowEvent(APP_EVENT_POINTER);
+	releasedEvent.pointer = AppPointerEvent(APP_POINTER_RELEASED, APP_POINTER_BUTTON_PRIMARY, (float)pointerX, (float)pointerY, AppKeyModifiers(false, false, false, false));
+	NativeUiEventBatch clicked = session.dispatch(releasedEvent);
+	assert(clicked.eventCount() >= 1);
+	assert(clicked.eventAt(clicked.eventCount() - 1).kind() == NATIVE_UI_CLICKED);
+	assert(clicked.eventAt(clicked.eventCount() - 1).elementId() == "album:one");
 
-    NativeUiElement duplicate = NativeUiElement.column("duplicate")
-        .child(NativeUiElement.text("same", "one"))
-        .child(NativeUiElement.text("same", "two"));
-    int framesBeforeReject = fake_gpu_frame_begin_count();
-    NativeUiPresentOutcome rejected = session.present(duplicate);
-    assert(rejected.kind == NATIVE_UI_PRESENT_PREPARE_REJECTED);
-    assert(rejected.frame.status == NATIVE_UI_FRAME_INVALID_TREE);
-    assert(fake_gpu_frame_begin_count() == framesBeforeReject);
+	NativeUiElement duplicate = NativeUiElement.column("duplicate").child(NativeUiElement.text("same", "one")).child(NativeUiElement.text("same", "two"));
+	int framesBeforeReject = fake_gpu_frame_begin_count();
+	NativeUiPresentOutcome rejected = session.present(duplicate);
+	assert(rejected.kind == NATIVE_UI_PRESENT_PREPARE_REJECTED);
+	assert(rejected.frame.status == NATIVE_UI_FRAME_INVALID_TREE);
+	assert(fake_gpu_frame_begin_count() == framesBeforeReject);
 
-    NativeUiPresentOutcome invalidInput = session.present(
-        NativeUiElement.textInput("invalid-input", "\xc3", "", 8));
-    assert(invalidInput.kind == NATIVE_UI_PRESENT_PREPARE_REJECTED);
-    assert(invalidInput.frame.status == NATIVE_UI_FRAME_INVALID_TREE);
-    assert(fake_gpu_frame_begin_count() == framesBeforeReject);
+	NativeUiPresentOutcome invalidInput = session.present(NativeUiElement.textInput("invalid-input", "\xc3", "", 8));
+	assert(invalidInput.kind == NATIVE_UI_PRESENT_PREPARE_REJECTED);
+	assert(invalidInput.frame.status == NATIVE_UI_FRAME_INVALID_TREE);
+	assert(fake_gpu_frame_begin_count() == framesBeforeReject);
 
-    fake_gpu_set_next_frame(GPU_FRAME_OUTDATED);
-    NativeUiPresentOutcome deferred = session.present(revisedRoot);
-    assert(deferred.kind == NATIVE_UI_PRESENT_DEFERRED);
-    assert(deferred.gpuFrame == GPU_FRAME_OUTDATED);
+	fake_gpu_set_next_frame(GPU_FRAME_OUTDATED);
+	NativeUiPresentOutcome deferred = session.present(revisedRoot);
+	assert(deferred.kind == NATIVE_UI_PRESENT_DEFERRED);
+	assert(deferred.gpuFrame == GPU_FRAME_OUTDATED);
 
-    assert(session.close().kind == GPU_CLOSED);
-    assert(gpu.close().kind == GPU_CLOSED);
-    assert(surface.close().kind == APP_CLOSED);
-    assert(window.close().kind == APP_CLOSED);
-    assert(application.close().kind == APP_CLOSED);
-    assert(fake_platform_live_resources() == 0);
-    assert(fake_platform_lifecycle()
-        == "native-ui,gpu-surface,surface,window,application");
+	assert(session.close().kind == GPU_CLOSED);
+	assert(gpu.close().kind == GPU_CLOSED);
+	assert(surface.close().kind == APP_CLOSED);
+	assert(window.close().kind == APP_CLOSED);
+	assert(application.close().kind == APP_CLOSED);
+	assert(fake_platform_live_resources() == 0);
+	assert(fake_platform_lifecycle() == "native-ui,gpu-surface,surface,window,application");
 
-    print("PASS: unified native UI app GPU session");
-    return 0;
+	print("PASS: unified native UI app GPU session");
+	return 0;
 }

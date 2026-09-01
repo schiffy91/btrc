@@ -1,5 +1,3 @@
 class QuotedMessage {
-    class string value() {
-        return "quoted-import-ok";
-    }
+	class string value() { return "quoted-import-ok"; }
 }

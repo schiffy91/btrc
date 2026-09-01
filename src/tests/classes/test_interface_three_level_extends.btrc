@@ -4,30 +4,32 @@
 #include <assert.h>
 
 interface Levelable {
-    int a();
+	int a();
 }
 
 interface Sublevel extends Levelable {
-    int b();
+	int b();
 }
 
 interface Deeplevel extends Sublevel {
-    int c();
+	int c();
 }
 
 class Impl implements Deeplevel {
-    public int a() { return 1; }
-    public int b() { return 2; }
-    public int c() { return 3; }
+	public int a() { return 1; }
+
+	public int b() { return 2; }
+
+	public int c() { return 3; }
 }
 
 int main() {
-    Impl i = Impl();
-    assert(i.a() == 1);
-    assert(i.b() == 2);
-    assert(i.c() == 3);
-    assert(i.a() + i.b() + i.c() == 6);
+	Impl i = Impl();
+	assert(i.a() == 1);
+	assert(i.b() == 2);
+	assert(i.c() == 3);
+	assert(i.a() + i.b() + i.c() == 6);
 
-    print("PASS: test_interface_three_level_extends");
-    return 0;
+	print("PASS: test_interface_three_level_extends");
+	return 0;
 }

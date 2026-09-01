@@ -8,40 +8,40 @@ import std.vector;
 #include "../../stdlib/random.btrc"
 
 class Deck {
-    public Vector<int> cards;
-    public Deck() {
-        self.cards = [];
-        for i in range(10) { self.cards.push(i); }
-    }
+	public Vector<int> cards;
+	public Deck() {
+		self.cards = [];
+		for i in range(10) { self.cards.push(i); }
+	}
 }
 
 int main() {
-    Random rng = new Random();
-    rng.seed(1234);
+	Random rng = new Random();
+	rng.seed(1234);
 
-    Deck d = new Deck();
-    assert(d.cards.len == 10);
+	Deck d = new Deck();
+	assert(d.cards.len == 10);
 
-    // shuffle a FIELD vector in place: length unchanged, multiset preserved.
-    rng.shuffle(d.cards);
-    assert(d.cards.len == 10);
+	// shuffle a FIELD vector in place: length unchanged, multiset preserved.
+	rng.shuffle(d.cards);
+	assert(d.cards.len == 10);
 
-    int sum = 0;
-    for i in range(10) {
-        assert(d.cards.contains(i));   // every original element still present
-        sum = sum + d.cards.get(i);
-    }
-    assert(sum == 45);                 // 0+1+...+9, multiset intact
+	int sum = 0;
+	for i in range(10) {
+		assert(d.cards.contains(i));   // every original element still present
+		sum = sum + d.cards.get(i);
+	}
+	assert(sum == 45);                 // 0+1+...+9, multiset intact
 
-    // choice picks a member of the field vector.
-    for i in range(20) {
-        int c = rng.choice(d.cards);
-        assert(c >= 0 && c <= 9);
-    }
+	// choice picks a member of the field vector.
+	for i in range(20) {
+		int c = rng.choice(d.cards);
+		assert(c >= 0 && c <= 9);
+	}
 
-    delete d;
-    delete rng;
+	delete d;
+	delete rng;
 
-    print("PASS: test_stdlib_random_field_vector");
-    return 0;
+	print("PASS: test_stdlib_random_field_vector");
+	return 0;
 }

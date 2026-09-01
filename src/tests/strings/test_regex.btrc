@@ -7,82 +7,82 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    /* matches: SEARCH semantics — pattern occurs anywhere. */
-    assert(Regex.matches("[0-9]+", "abc123") == true);
-    assert(Regex.matches("[0-9]+", "abcdef") == false);
-    assert(Regex.matches("a|b", "xby") == true);
-    print("matches: ok");
+	/* matches: SEARCH semantics — pattern occurs anywhere. */
+	assert(Regex.matches("[0-9]+", "abc123") == true);
+	assert(Regex.matches("[0-9]+", "abcdef") == false);
+	assert(Regex.matches("a|b", "xby") == true);
+	print("matches: ok");
 
-    /* fullMatch: anchored start-to-end. */
-    assert(Regex.fullMatch("[0-9]+", "12345") == true);
-    assert(Regex.fullMatch("[0-9]+", "12a45") == false);
-    assert(Regex.fullMatch("[0-9]+", "abc123") == false);
-    assert(Regex.fullMatch("a|b", "a") == true);    /* alternation, not mis-bound */
-    assert(Regex.fullMatch("a|b", "ab") == false);
-    print("fullMatch: ok");
+	/* fullMatch: anchored start-to-end. */
+	assert(Regex.fullMatch("[0-9]+", "12345") == true);
+	assert(Regex.fullMatch("[0-9]+", "12a45") == false);
+	assert(Regex.fullMatch("[0-9]+", "abc123") == false);
+	assert(Regex.fullMatch("a|b", "a") == true);    /* alternation, not mis-bound */
+	assert(Regex.fullMatch("a|b", "ab") == false);
+	print("fullMatch: ok");
 
-    /* find: index of first match, or -1. */
-    assert(Regex.find("[0-9]+", "abc123") == 3);
-    assert(Regex.find("[0-9]+", "123") == 0);
-    assert(Regex.find("[0-9]+", "abc") == -1);
-    print("find: ok");
+	/* find: index of first match, or -1. */
+	assert(Regex.find("[0-9]+", "abc123") == 3);
+	assert(Regex.find("[0-9]+", "123") == 0);
+	assert(Regex.find("[0-9]+", "abc") == -1);
+	print("find: ok");
 
-    /* first: first matched substring. */
-    assert(Regex.first("[0-9]+", "abc123def").equals("123"));
-    assert(Regex.first("[0-9]+", "abc").equals(""));
-    print("first: ok");
+	/* first: first matched substring. */
+	assert(Regex.first("[0-9]+", "abc123def").equals("123"));
+	assert(Regex.first("[0-9]+", "abc").equals(""));
+	print("first: ok");
 
-    /* findAll: all non-overlapping matches, left to right. */
-    Vector<string> nums = Regex.findAll("[0-9]+", "a1b22c333");
-    assert(nums.len == 3);
-    assert(nums.get(0).equals("1"));
-    assert(nums.get(1).equals("22"));
-    assert(nums.get(2).equals("333"));
-    print(f"findAll: {nums.get(0)} {nums.get(1)} {nums.get(2)}");
+	/* findAll: all non-overlapping matches, left to right. */
+	Vector<string> nums = Regex.findAll("[0-9]+", "a1b22c333");
+	assert(nums.len == 3);
+	assert(nums.get(0).equals("1"));
+	assert(nums.get(1).equals("22"));
+	assert(nums.get(2).equals("333"));
+	print(f"findAll: {nums.get(0)} {nums.get(1)} {nums.get(2)}");
 
-    Vector<string> words = Regex.findAll("[a-z]+", "foo bar baz");
-    assert(words.len == 3);
-    assert(words.get(2).equals("baz"));
+	Vector<string> words = Regex.findAll("[a-z]+", "foo bar baz");
+	assert(words.len == 3);
+	assert(words.get(2).equals("baz"));
 
-    Vector<string> none = Regex.findAll("[0-9]+", "no digits here");
-    assert(none.len == 0);
-    print("findAll empty: ok");
+	Vector<string> none = Regex.findAll("[0-9]+", "no digits here");
+	assert(none.len == 0);
+	print("findAll empty: ok");
 
-    /* replace: first match only. */
-    string r1 = Regex.replace("[0-9]+", "a1b2c3", "#");
-    assert(r1.equals("a#b2c3"));
-    print(f"replace: {r1}");
+	/* replace: first match only. */
+	string r1 = Regex.replace("[0-9]+", "a1b2c3", "#");
+	assert(r1.equals("a#b2c3"));
+	print(f"replace: {r1}");
 
-    /* replaceAll: every non-overlapping match. */
-    string r2 = Regex.replaceAll("[0-9]+", "a1b22c333", "#");
-    assert(r2.equals("a#b#c#"));
-    print(f"replaceAll: {r2}");
+	/* replaceAll: every non-overlapping match. */
+	string r2 = Regex.replaceAll("[0-9]+", "a1b22c333", "#");
+	assert(r2.equals("a#b#c#"));
+	print(f"replaceAll: {r2}");
 
-    /* replaceAll with a multi-char replacement and no-match passthrough. */
-    string r3 = Regex.replaceAll("foo", "foofoo", "[X]");
-    assert(r3.equals("[X][X]"));
-    string r4 = Regex.replaceAll("[0-9]+", "no digits", "#");
-    assert(r4.equals("no digits"));
-    print("replaceAll edge: ok");
+	/* replaceAll with a multi-char replacement and no-match passthrough. */
+	string r3 = Regex.replaceAll("foo", "foofoo", "[X]");
+	assert(r3.equals("[X][X]"));
+	string r4 = Regex.replaceAll("[0-9]+", "no digits", "#");
+	assert(r4.equals("no digits"));
+	print("replaceAll edge: ok");
 
-    /* Compiled-instance form: regcomp cached, freed in __del__. */
-    CompiledRegex re = new CompiledRegex("^[a-z]+@[a-z]+\\.[a-z]+$");
-    assert(re.test("user@example.com") == true);
-    assert(re.fullMatch("user@example.com") == true);
-    assert(re.test("not an email") == false);
-    delete re;
-    print("compiled: ok");
+	/* Compiled-instance form: regcomp cached, freed in __del__. */
+	CompiledRegex re = new CompiledRegex("^[a-z]+@[a-z]+\\.[a-z]+$");
+	assert(re.test("user@example.com") == true);
+	assert(re.fullMatch("user@example.com") == true);
+	assert(re.test("not an email") == false);
+	delete re;
+	print("compiled: ok");
 
-    /* Invalid pattern: no crash; safe defaults (stderr warning is expected). */
-    assert(Regex.matches("[", "abc") == false);
-    assert(Regex.find("(", "abc") == -1);
-    assert(Regex.first("[", "abc").equals(""));
-    Vector<string> bad = Regex.findAll("[", "abc");
-    assert(bad.len == 0);
-    string br = Regex.replaceAll("[", "abc", "#");
-    assert(br.equals("abc"));   /* invalid pattern leaves text unchanged */
-    print("invalid pattern: safe");
+	/* Invalid pattern: no crash; safe defaults (stderr warning is expected). */
+	assert(Regex.matches("[", "abc") == false);
+	assert(Regex.find("(", "abc") == -1);
+	assert(Regex.first("[", "abc").equals(""));
+	Vector<string> bad = Regex.findAll("[", "abc");
+	assert(bad.len == 0);
+	string br = Regex.replaceAll("[", "abc", "#");
+	assert(br.equals("abc"));   /* invalid pattern leaves text unchanged */
+	print("invalid pattern: safe");
 
-    print("PASS: test_regex");
-    return 0;
+	print("PASS: test_regex");
+	return 0;
 }

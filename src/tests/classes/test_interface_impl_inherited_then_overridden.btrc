@@ -6,30 +6,32 @@
 #include <assert.h>
 
 interface Speaker {
-    string speak();
+	string speak();
 }
 
 class Animal implements Speaker {
-    public Animal() {}
-    public string speak() { return "..."; }
+	public Animal() {}
+
+	public string speak() { return "..."; }
 }
 
 class Dog extends Animal {
-    public Dog() {}
-    public string speak() { return "Woof"; }   // overrides the inherited impl
+	public Dog() {}
+
+	public string speak() { return "Woof"; }   // overrides the inherited impl
 }
 
 class Mute extends Animal {
-    public Mute() {}                            // inherits the base impl
+	public Mute() {}                            // inherits the base impl
 }
 
 int main() {
-    Dog d = Dog();
-    assert(d.speak() == "Woof");
+	Dog d = Dog();
+	assert(d.speak() == "Woof");
 
-    Mute m = Mute();
-    assert(m.speak() == "...");
+	Mute m = Mute();
+	assert(m.speak() == "...");
 
-    print("PASS: test_interface_impl_inherited_then_overridden");
-    return 0;
+	print("PASS: test_interface_impl_inherited_then_overridden");
+	return 0;
 }

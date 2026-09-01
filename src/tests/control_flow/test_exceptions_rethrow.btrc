@@ -4,24 +4,24 @@
 #include <assert.h>
 
 int main() {
-    int innerSeen = 0;
-    int outerSeen = 0;
-    try {
-        try {
-            throw "orig";
-        } catch (string e) {
-            innerSeen = 1;
-            assert(e.equals("orig"));
-            throw f"wrapped: {e}";   // re-throw a derived message
-        }
-    } catch (string outer) {
-        outerSeen = 1;
-        assert(outer.startsWith("wrapped"));
-        assert(outer.contains("orig"));
-    }
-    assert(innerSeen == 1);
-    assert(outerSeen == 1);
+	int innerSeen = 0;
+	int outerSeen = 0;
+	try {
+		try {
+			throw "orig";
+		} catch (string e) {
+			innerSeen = 1;
+			assert(e.equals("orig"));
+			throw f"wrapped: {e}";   // re-throw a derived message
+		}
+	} catch (string outer) {
+		outerSeen = 1;
+		assert(outer.startsWith("wrapped"));
+		assert(outer.contains("orig"));
+	}
+	assert(innerSeen == 1);
+	assert(outerSeen == 1);
 
-    print("PASS: test_exceptions_rethrow");
-    return 0;
+	print("PASS: test_exceptions_rethrow");
+	return 0;
 }

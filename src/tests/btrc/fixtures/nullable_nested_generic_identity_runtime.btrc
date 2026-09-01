@@ -1,39 +1,35 @@
 #include <assert.h>
 
 class BoundaryInner<U> {
-    public U stored;
+	public U stored;
 
-    public BoundaryInner(U value) {
-        self.stored = value;
-    }
+	public BoundaryInner(U value) { self.stored = value; }
 
-    public U get() { return self.stored; }
+	public U get() { return self.stored; }
 }
 
 class BoundaryOuter<T> {
-    public BoundaryInner<T*> inner;
+	public BoundaryInner<T*> inner;
 
-    public BoundaryOuter(T* value) {
-        self.inner = new BoundaryInner<T*>(value);
-    }
+	public BoundaryOuter(T* value) { self.inner = new BoundaryInner<T*> (value); }
 
-    public T* get() { return self.inner.get(); }
+	public T* get() { return self.inner.get(); }
 }
 
 int main() {
-    int value = 43;
-    int? slots[1];
-    slots[0] = &value;
+	int value = 43;
+	int? slots[1];
+	slots[0] = &value;
 
-    BoundaryInner<int*?> direct = new BoundaryInner<int*?>(&value);
-    BoundaryOuter<int?> outer = new BoundaryOuter<int?>(slots);
-    var directValue = direct.get();
-    var nestedValue = outer.get();
-    assert(*directValue == 43);
-    assert(*nestedValue[0] == 43);
+	BoundaryInner<int*?> direct = new BoundaryInner<int*?>(&value);
+	BoundaryOuter<int?> outer = new BoundaryOuter<int?>(slots);
+	var directValue = direct.get();
+	var nestedValue = outer.get();
+	assert(*directValue == 43);
+	assert(*nestedValue[0] == 43);
 
-    delete outer;
-    delete direct;
-    print("PASS: nullable nested generic identity");
-    return 0;
+	delete outer;
+	delete direct;
+	print("PASS: nullable nested generic identity");
+	return 0;
 }

@@ -1,14 +1,14 @@
 #include <stdio.h>
 enum class Direction {
-    North,
-    South,
-    East,
-    West
+	North,
+	South,
+	East,
+	West
 }
 int main() {
-    Direction d = Direction.North();
-    string name = d.toString();
-    print(name);
-    printf("PASS: test_rich_enum_toString\n");
-    return 0;
+	Direction d = Direction.North();
+	string name = d.toString();
+	print(name);
+	printf("PASS: test_rich_enum_toString\n");
+	return 0;
 }

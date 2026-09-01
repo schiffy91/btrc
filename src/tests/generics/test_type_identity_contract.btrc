@@ -4,70 +4,70 @@ typedef int A_int;
 typedef int A_int_p1;
 
 class A<T> {
-    public A() {}
+	public A() {}
 }
 
 class Holder<T> {
-    public Holder() {}
-    public int marker() { return 1; }
+	public Holder() {}
+
+	public int marker() { return 1; }
 }
 
 class Holder_A<T> {
-    public Holder_A() {}
-    public int marker() { return 2; }
+	public Holder_A() {}
+
+	public int marker() { return 2; }
 }
 
 class Picker {
-    public U identity<U>(U value) { return value; }
+	public U identity<U>(U value) { return value; }
 }
 
 /* A declaration named T must not capture Outer's shadowing type parameter. */
 class T {
-    public T() {}
+	public T() {}
 }
 
 class Inner<U> {
-    public U value;
-    public Inner(U value) { self.value = value; }
+	public U value;
+	public Inner(U value) { self.value = value; }
 }
 
 class Outer<T> {
-    public Inner<T> child;
-    public Outer(Inner<T> child) { self.child = child; }
+	public Inner<T> child;
+	public Outer(Inner<T> child) { self.child = child; }
 }
 
 int main() {
-    Holder<int> scalar = new Holder<int>();
-    Holder<int[]> array = new Holder<int[]>();
-    Holder<int?> nullable = new Holder<int?>();
-    Holder<int*> pointer = new Holder<int*>();
-    Holder<A<int>> nested = new Holder<A<int>>();
-    Holder<A_int_p1> flat = new Holder<A_int_p1>();
-    Holder_A<int> unsafeOuter = new Holder_A<int>();
-    Holder<A_int> unsafeArgument = new Holder<A_int>();
+	Holder<int> scalar = new Holder<int>();
+	Holder<int[]> array = new Holder<int[]>();
+	Holder<int?> nullable = new Holder<int?>();
+	Holder<int*> pointer = new Holder<int*>();
+	Holder<A<int>> nested = new Holder<A<int>>();
+	Holder<A_int_p1> flat = new Holder<A_int_p1>();
+	Holder_A<int> unsafeOuter = new Holder_A<int>();
+	Holder<A_int> unsafeArgument = new Holder<A_int>();
 
-    int markers = scalar.marker() + array.marker() + nullable.marker()
-        + pointer.marker() + nested.marker() + flat.marker()
-        + unsafeOuter.marker() + unsafeArgument.marker();
-    assert(markers == 9);
+	int markers = scalar.marker() + array.marker() + nullable.marker() + pointer.marker() + nested.marker() + flat.marker() + unsafeOuter.marker() + unsafeArgument.marker();
+	assert(markers == 9);
 
-    Picker picker = Picker();
-    A<int> object = new A<int>();
-    A<int> objectCopy = picker.identity(object);
-    A_int_p1 number = 7;
-    A_int_p1 numberCopy = picker.identity(number);
-    int values[2] = {4, 9};
-    int* valuesCopy = picker.identity(values);
-    int scalarCopy = picker.identity(5);
-    assert(objectCopy == object);
-    assert((int)numberCopy == 7);
-    assert(valuesCopy[1] == 9);
-    assert(scalarCopy == 5);
+	Picker picker = Picker();
+	A<int> object = new A<int>();
+	A<int> objectCopy = picker.identity(object);
+	A_int_p1 number = 7;
+	A_int_p1 numberCopy = picker.identity(number);
+	int values[2] = {4, 9};
+	int* valuesCopy = picker.identity(values);
+	int scalarCopy = picker.identity(5);
+	assert(objectCopy == object);
+	assert((int)numberCopy == 7);
+	assert(valuesCopy[1] == 9);
+	assert(scalarCopy == 5);
 
-    Inner<int> inner = new Inner<int>(3);
-    Outer<int> outer = new Outer<int>(inner);
-    assert(outer.child.value == 3);
+	Inner<int> inner = new Inner<int>(3);
+	Outer<int> outer = new Outer<int>(inner);
+	assert(outer.child.value == 3);
 
-    print("PASS: test_type_identity_contract");
-    return 0;
+	print("PASS: test_type_identity_contract");
+	return 0;
 }

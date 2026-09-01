@@ -6,32 +6,32 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    // Basic round trip
-    Vector<string> parts = Strings.split("a,b,c", ",");
-    assert(parts.size() == 3);
-    assert(parts[1].equals("b"));
-    assert(Strings.join(parts, "-").equals("a-b-c"));
+	// Basic round trip
+	Vector<string> parts = Strings.split("a,b,c", ",");
+	assert(parts.size() == 3);
+	assert(parts[1].equals("b"));
+	assert(Strings.join(parts, "-").equals("a-b-c"));
 
-    // Empty middle segment is preserved
-    Vector<string> withEmpty = Strings.split("a,,b", ",");
-    assert(withEmpty.size() == 3);
-    assert(withEmpty[0].equals("a"));
-    assert(withEmpty[1].equals(""));
-    assert(withEmpty[2].equals("b"));
+	// Empty middle segment is preserved
+	Vector<string> withEmpty = Strings.split("a,,b", ",");
+	assert(withEmpty.size() == 3);
+	assert(withEmpty[0].equals("a"));
+	assert(withEmpty[1].equals(""));
+	assert(withEmpty[2].equals("b"));
 
-    // Delimiter not present -> single whole-string segment
-    Vector<string> none = Strings.split("hello", ",");
-    assert(none.size() == 1);
-    assert(none[0].equals("hello"));
+	// Delimiter not present -> single whole-string segment
+	Vector<string> none = Strings.split("hello", ",");
+	assert(none.size() == 1);
+	assert(none[0].equals("hello"));
 
-    // Instance .join() on a Vector<string>
-    Vector<string> items = ["a", "b", "c"];
-    assert(items.join("-").equals("a-b-c"));
+	// Instance .join() on a Vector<string>
+	Vector<string> items = ["a", "b", "c"];
+	assert(items.join("-").equals("a-b-c"));
 
-    // Single-element join is just the element (no separator emitted)
-    Vector<string> one = ["solo"];
-    assert(one.join(",").equals("solo"));
+	// Single-element join is just the element (no separator emitted)
+	Vector<string> one = ["solo"];
+	assert(one.join(",").equals("solo"));
 
-    print("PASS: test_strings_split_join_instance");
-    return 0;
+	print("PASS: test_strings_split_join_instance");
+	return 0;
 }

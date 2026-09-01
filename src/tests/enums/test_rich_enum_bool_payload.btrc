@@ -3,22 +3,22 @@
 // Rich enum variant carrying a bool payload, read back through the union,
 // alongside a bare (payloadless) variant.
 enum class Flag {
-    Set(bool on),
-    None
+	Set(bool on),
+	None
 }
 
 int main() {
-    Flag f = Flag.Set(true);
-    assert(f.tag == Flag.Set);
-    assert(f.data.Set.on == true);
+	Flag f = Flag.Set(true);
+	assert(f.tag == Flag.Set);
+	assert(f.data.Set.on == true);
 
-    Flag g = Flag.Set(false);
-    assert(g.tag == Flag.Set);
-    assert(g.data.Set.on == false);
+	Flag g = Flag.Set(false);
+	assert(g.tag == Flag.Set);
+	assert(g.data.Set.on == false);
 
-    Flag n = Flag.None();
-    assert(n.tag == Flag.None);
+	Flag n = Flag.None();
+	assert(n.tag == Flag.None);
 
-    print("PASS: test_rich_enum_bool_payload");
-    return 0;
+	print("PASS: test_rich_enum_bool_payload");
+	return 0;
 }

@@ -8,69 +8,69 @@ import std.datetime;
 #include "../../stdlib/datetime.btrc"
 
 int main() {
-    // --- Unix epoch conversion (UTC, fully deterministic) ---
+	// --- Unix epoch conversion (UTC, fully deterministic) ---
 
-    // Fixed date: 2025-06-15 10:30:45 UTC == 1749983445.
-    DateTime dt = DateTime(2025, 6, 15, 10, 30, 45);
-    int u = dt.toUnix();
-    assert(u == 1749983445);
+	// Fixed date: 2025-06-15 10:30:45 UTC == 1749983445.
+	DateTime dt = DateTime(2025, 6, 15, 10, 30, 45);
+	int u = dt.toUnix();
+	assert(u == 1749983445);
 
-    // Round-trip toUnix -> fromUnix recovers every field exactly.
-    DateTime back = DateTime.fromUnix(u);
-    assert(back.year == 2025);
-    assert(back.month == 6);
-    assert(back.day == 15);
-    assert(back.hour == 10);
-    assert(back.minute == 30);
-    assert(back.second == 45);
+	// Round-trip toUnix -> fromUnix recovers every field exactly.
+	DateTime back = DateTime.fromUnix(u);
+	assert(back.year == 2025);
+	assert(back.month == 6);
+	assert(back.day == 15);
+	assert(back.hour == 10);
+	assert(back.minute == 30);
+	assert(back.second == 45);
 
-    // The epoch itself: 0 <-> 1970-01-01 00:00:00 UTC.
-    DateTime e0 = DateTime.fromUnix(0);
-    assert(e0.year == 1970 && e0.month == 1 && e0.day == 1);
-    assert(e0.hour == 0 && e0.minute == 0 && e0.second == 0);
-    assert(DateTime(1970, 1, 1, 0, 0, 0).toUnix() == 0);
+	// The epoch itself: 0 <-> 1970-01-01 00:00:00 UTC.
+	DateTime e0 = DateTime.fromUnix(0);
+	assert(e0.year == 1970 && e0.month == 1 && e0.day == 1);
+	assert(e0.hour == 0 && e0.minute == 0 && e0.second == 0);
+	assert(DateTime(1970, 1, 1, 0, 0, 0).toUnix() == 0);
 
-    print("PASS: epoch round-trip");
+	print("PASS: epoch round-trip");
 
-    // --- Monotonic Timer over a busy loop ---
+	// --- Monotonic Timer over a busy loop ---
 
-    Timer busy = Timer();
-    busy.start();
-    long acc = 0;
-    for (int i = 0; i < 3000000; i = i + 1) {
-        acc = acc + i;
-    }
-    busy.stop();
-    assert(acc >= 0);
-    // A monotonic (wall-clock) timer measures real elapsed time, so a busy loop
-    // reports >= 0. (clock() would also be positive here, but the point of the
-    // fix is wall time — verified by the sleep case below.)
-    assert(busy.elapsed() >= 0.0f);
-    assert(busy.elapsedMillis() >= 0.0f);
+	Timer busy = Timer();
+	busy.start();
+	long acc = 0;
+	for (int i = 0; i < 3000000; i = i + 1) {
+		acc = acc + i;
+	}
+	busy.stop();
+	assert(acc >= 0);
+	// A monotonic (wall-clock) timer measures real elapsed time, so a busy loop
+	// reports >= 0. (clock() would also be positive here, but the point of the
+	// fix is wall time — verified by the sleep case below.)
+	assert(busy.elapsed() >= 0.0f);
+	assert(busy.elapsedMillis() >= 0.0f);
 
-    print("PASS: timer busy loop");
+	print("PASS: timer busy loop");
 
-    // --- Timer over a short sleep must show wall time ---
+	// --- Timer over a short sleep must show wall time ---
 
-    Timer slept = Timer();
-    slept.start();
-    Timer.sleep(0.005);   // ~5ms
-    slept.stop();
-    // Lenient lower bound only (>= 1ms): CPU-time clock() would report ~0 here,
-    // so this is the real regression guard for the monotonic fix.
-    assert(slept.elapsedMillis() >= 1.0f);
+	Timer slept = Timer();
+	slept.start();
+	Timer.sleep(0.005);   // ~5ms
+	slept.stop();
+	// Lenient lower bound only (>= 1ms): CPU-time clock() would report ~0 here,
+	// so this is the real regression guard for the monotonic fix.
+	assert(slept.elapsedMillis() >= 1.0f);
 
-    print("PASS: timer sleep wall time");
+	print("PASS: timer sleep wall time");
 
-    // --- sleep helpers return without error ---
+	// --- sleep helpers return without error ---
 
-    Timer.sleep(0.002);     // fractional seconds
-    Timer.sleepMillis(2);   // whole milliseconds
-    Timer.sleep(0.0);       // non-positive is a no-op
-    Timer.sleepMillis(0);   // non-positive is a no-op
+	Timer.sleep(0.002);     // fractional seconds
+	Timer.sleepMillis(2);   // whole milliseconds
+	Timer.sleep(0.0);       // non-positive is a no-op
+	Timer.sleepMillis(0);   // non-positive is a no-op
 
-    print("PASS: sleep returns");
+	print("PASS: sleep returns");
 
-    print("PASS: test_datetime_time");
-    return 0;
+	print("PASS: test_datetime_time");
+	return 0;
 }

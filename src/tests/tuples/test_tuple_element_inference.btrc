@@ -1,11 +1,11 @@
 #include <assert.h>
 
 int main() {
-    (int, string) t = (7, "hi");
-    int n = t._0;
-    string s = t._1;
-    assert(n == 7);
-    assert(s == "hi");
-    print("PASS: test_tuple_element_inference");
-    return 0;
+	(int, string) t = (7, "hi");
+	int n = t._0;
+	string s = t._1;
+	assert(n == 7);
+	assert(s == "hi");
+	print("PASS: test_tuple_element_inference");
+	return 0;
 }

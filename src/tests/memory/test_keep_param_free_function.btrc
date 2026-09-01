@@ -5,47 +5,41 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 class Sink {
-    public Obj held;
+	public Obj held;
 
-    public Sink() {
-        self.held = null;
-    }
+	public Sink() { self.held = null; }
 }
 
-void stashInto(Sink s, keep Obj o) {
-    s.held = o;
-}
+void stashInto(Sink s, keep Obj o) { s.held = o; }
 
 int main() {
-    Sink s = new Sink();
-    Obj o = new Obj(1);
-    assert(alive == 1);
+	Sink s = new Sink();
+	Obj o = new Obj(1);
+	assert(alive == 1);
 
-    // The keep guard is call-scoped; the field store is persistent ownership.
-    stashInto(s, o);
-    assert(s.held.id == 1);
+	// The keep guard is call-scoped; the field store is persistent ownership.
+	stashInto(s, o);
+	assert(s.held.id == 1);
 
-    // Drop the local handle; the field keeps o alive.
-    release o;
-    assert(o == null);
-    assert(alive == 1);
+	// Drop the local handle; the field keeps o alive.
+	release o;
+	assert(o == null);
+	assert(alive == 1);
 
-    delete s;
-    assert(alive == 0);
+	delete s;
+	assert(alive == 0);
 
-    print("PASS: test_keep_param_free_function");
-    return 0;
+	print("PASS: test_keep_param_free_function");
+	return 0;
 }

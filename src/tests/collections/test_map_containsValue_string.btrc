@@ -8,15 +8,15 @@ import std.map;
 #include <stdio.h>
 
 int main() {
-    Map<string, string> m = {};
-    m.put("k1", "hello");
-    m.put("k2", "world");
+	Map<string, string> m = {};
+	m.put("k1", "hello");
+	m.put("k2", "world");
 
-    string needle = "hel" + "lo";
-    assert(m.containsValue(needle));
-    assert(!m.containsValue("absent"));
+	string needle = "hel" + "lo";
+	assert(m.containsValue(needle));
+	assert(!m.containsValue("absent"));
 
-    m.free();
-    printf("PASS: test_map_containsValue_string\n");
-    return 0;
+	m.free();
+	printf("PASS: test_map_containsValue_string\n");
+	return 0;
 }

@@ -4,27 +4,25 @@
 import std.vector;
 import std.strings;
 
-string describe(string name, int age) {
-    return f"{name} is {age} years old";
-}
+string describe(string name, int age) { return f"{name} is {age} years old"; }
 
 int main() {
-    string s = "The quick brown fox";
-    print(s.toUpper());
-    print(s.toLower());
-    print(s.len());
-    print(s.contains("quick"));
-    print(s.indexOf("brown"));
-    print(s.substring(4, 5));
-    print(s.replace("quick", "slow"));
+	string s = "The quick brown fox";
+	print(s.toUpper());
+	print(s.toLower());
+	print(s.len());
+	print(s.contains("quick"));
+	print(s.indexOf("brown"));
+	print(s.substring(4, 5));
+	print(s.replace("quick", "slow"));
 
-    Vector<string> words = Strings.split(s, " ");
-    print(words.size());
-    print(words.join("-"));
+	Vector<string> words = Strings.split(s, " ");
+	print(words.size());
+	print(words.join("-"));
 
-    print(describe("btrc", 1));
+	print(describe("btrc", 1));
 
-    string padded = "  hi  ";
-    print(padded.trim());
-    return 0;
+	string padded = "  hi  ";
+	print(padded.trim());
+	return 0;
 }

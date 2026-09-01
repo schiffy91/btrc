@@ -6,12 +6,12 @@ import std.vector;
 enum Color { RED, GREEN, BLUE };
 
 int main() {
-    Vector<Color> v = [RED, BLUE];
-    assert(v[0] == RED);
-    assert(v[1] == BLUE);
-    v.push(GREEN);
-    assert(v.size() == 3);
-    assert(v[2] == GREEN);
-    print("PASS: test_enum_in_collection");
-    return 0;
+	Vector<Color> v = [RED, BLUE];
+	assert(v[0] == RED);
+	assert(v[1] == BLUE);
+	v.push(GREEN);
+	assert(v.size() == 3);
+	assert(v[2] == GREEN);
+	print("PASS: test_enum_in_collection");
+	return 0;
 }

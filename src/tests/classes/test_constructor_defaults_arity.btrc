@@ -5,43 +5,41 @@
 #include <assert.h>
 
 class Pt {
-    public int x;
-    public int y;
-    public int z;
+	public int x;
+	public int y;
+	public int z;
 
-    public Pt(int x, int y = 0, int z = 0) {
-        self.x = x;
-        self.y = y;
-        self.z = z;
-    }
+	public Pt(int x, int y = 0, int z = 0) {
+		self.x = x;
+		self.y = y;
+		self.z = z;
+	}
 
-    public int sum() {
-        return self.x + self.y + self.z;
-    }
+	public int sum() { return self.x + self.y + self.z; }
 }
 
 int main() {
-    // one argument: y and z default to 0
-    Pt p1 = Pt(5);
-    assert(p1.x == 5);
-    assert(p1.y == 0);
-    assert(p1.z == 0);
-    assert(p1.sum() == 5);
+	// one argument: y and z default to 0
+	Pt p1 = Pt(5);
+	assert(p1.x == 5);
+	assert(p1.y == 0);
+	assert(p1.z == 0);
+	assert(p1.sum() == 5);
 
-    // two arguments: z defaults to 0
-    Pt p2 = Pt(5, 9);
-    assert(p2.x == 5);
-    assert(p2.y == 9);
-    assert(p2.z == 0);
-    assert(p2.sum() == 14);
+	// two arguments: z defaults to 0
+	Pt p2 = Pt(5, 9);
+	assert(p2.x == 5);
+	assert(p2.y == 9);
+	assert(p2.z == 0);
+	assert(p2.sum() == 14);
 
-    // all three arguments
-    Pt p3 = Pt(5, 9, 11);
-    assert(p3.x == 5);
-    assert(p3.y == 9);
-    assert(p3.z == 11);
-    assert(p3.sum() == 25);
+	// all three arguments
+	Pt p3 = Pt(5, 9, 11);
+	assert(p3.x == 5);
+	assert(p3.y == 9);
+	assert(p3.z == 11);
+	assert(p3.sum() == 25);
 
-    print("PASS: test_constructor_defaults_arity");
-    return 0;
+	print("PASS: test_constructor_defaults_arity");
+	return 0;
 }

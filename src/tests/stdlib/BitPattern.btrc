@@ -1,15 +1,14 @@
 import std.BitPattern;
 
 int main() {
-    if (BitPattern32.signedInteger(0xffffffffu) != -1) { return 1; }
-    if (BitPattern32.fromSignedInteger(-2147483647 - 1)
-            != 0x80000000u) {
-        return 2;
-    }
-    if (BitPattern32.floatingPoint(0x3f800000u) != 1.0f) { return 3; }
-    if (BitPattern32.fromFloatingPoint(-0.0f) != 0x80000000u) {
-        return 4;
-    }
-    print("PASS BitPattern32");
-    return 0;
+	if (BitPattern32.signedInteger(0xffffffffu) != -1) { return 1; }
+	if (BitPattern32.fromSignedInteger(-2147483647 - 1) != 0x80000000u) {
+		return 2;
+	}
+	if (BitPattern32.floatingPoint(0x3f800000u) != 1.0f) { return 3; }
+	if (BitPattern32.fromFloatingPoint(-0.0f) != 0x80000000u) {
+		return 4;
+	}
+	print("PASS BitPattern32");
+	return 0;
 }

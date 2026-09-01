@@ -1,24 +1,24 @@
 #include <assert.h>
 
 int main() {
-    // var on a decimal literal infers a floating type
-    var f = 3.14;
-    assert(f > 3.13 && f < 3.15);
+	// var on a decimal literal infers a floating type
+	var f = 3.14;
+	assert(f > 3.13 && f < 3.15);
 
-    string s = f.toString();
-    assert(s[0] == '3');
-    assert(s[1] == '.');
+	string s = f.toString();
+	assert(s[0] == '3');
+	assert(s[1] == '.');
 
-    // var on an integer literal infers int
-    var n = 42;
-    assert(n == 42);
-    assert(n + 8 == 50);
+	// var on an integer literal infers int
+	var n = 42;
+	assert(n == 42);
+	assert(n + 8 == 50);
 
-    // var participates in float arithmetic
-    var g = 1.5;
-    var sum = f + g;
-    assert(sum > 4.6 && sum < 4.7);
+	// var participates in float arithmetic
+	var g = 1.5;
+	var sum = f + g;
+	assert(sum > 4.6 && sum < 4.7);
 
-    print("PASS: test_var_infers_float");
-    return 0;
+	print("PASS: test_var_infers_float");
+	return 0;
 }

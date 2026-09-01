@@ -4,25 +4,23 @@ import std.vector;
 // Nested `parallel for`. parallel-for was only tested flat before; a parallel
 // for inside another parallel for exercises nested lowering to sequential loops.
 int main() {
-    int total = 0;
-    parallel for i in range(3) {
-        parallel for j in range(3) {
-            total = total + 1;
-        }
-    }
-    assert(total == 9);
+	int total = 0;
+	parallel for i in range(3) {
+		parallel for j in range(3) { total = total + 1; }
+	}
+	assert(total == 9);
 
-    // nested over Vectors, accumulating products
-    int sum = 0;
-    Vector<int> xs = [1, 2];
-    Vector<int> ys = [10, 20, 30];
-    parallel for x in xs {
-        parallel for y in ys {
-            sum = sum + x * y;
-        }
-    }
-    assert(sum == 180);
+	// nested over Vectors, accumulating products
+	int sum = 0;
+	Vector<int> xs = [1, 2];
+	Vector<int> ys = [10, 20, 30];
+	parallel for x in xs {
+		parallel for y in ys {
+			sum = sum + x * y;
+		}
+	}
+	assert(sum == 180);
 
-    print("PASS: test_parallel_for_nested");
-    return 0;
+	print("PASS: test_parallel_for_nested");
+	return 0;
 }

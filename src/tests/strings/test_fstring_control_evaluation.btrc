@@ -1,25 +1,25 @@
 int calls = 0;
 
 int tick() {
-    calls++;
-    return calls;
+	calls++;
+	return calls;
 }
 
 int main() {
-    bool skipped = false && f"{tick()}".len() > 0;
-    assert(!skipped);
-    assert(calls == 0);
+	bool skipped = false && f"{tick()}".len() > 0;
+	assert(!skipped);
+	assert(calls == 0);
 
-    string chosen = true ? "chosen" : f"{tick()}";
-    assert(chosen == "chosen");
-    assert(calls == 0);
+	string chosen = true ? "chosen" : f"{tick()}";
+	assert(chosen == "chosen");
+	assert(calls == 0);
 
-    int loops = 0;
-    while (loops < 3 && f"{tick()}".len() > 0) {
-        loops++;
-    }
-    assert(loops == 3);
-    assert(calls == 3);
-    print("PASS");
-    return 0;
+	int loops = 0;
+	while (loops < 3 && f"{tick()}".len() > 0) {
+		loops++;
+	}
+	assert(loops == 3);
+	assert(calls == 3);
+	print("PASS");
+	return 0;
 }

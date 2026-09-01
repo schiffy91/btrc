@@ -4,25 +4,25 @@
 #include <assert.h>
 
 int main() {
-    // Empty string -> true.
-    assert("".isEmpty() == true);
+	// Empty string -> true.
+	assert("".isEmpty() == true);
 
-    // Any non-empty content -> false.
-    assert("x".isEmpty() == false);
+	// Any non-empty content -> false.
+	assert("x".isEmpty() == false);
 
-    // A single space is NOT empty (this is what distinguishes isEmpty from isBlank).
-    string s = " ";
-    assert(s.isEmpty() == false);
+	// A single space is NOT empty (this is what distinguishes isEmpty from isBlank).
+	string s = " ";
+	assert(s.isEmpty() == false);
 
-    // Whitespace-only string: empty? no. blank? yes.
-    string ws = "   ";
-    assert(ws.isEmpty() == false);
-    assert(ws.isBlank() == true);
+	// Whitespace-only string: empty? no. blank? yes.
+	string ws = "   ";
+	assert(ws.isEmpty() == false);
+	assert(ws.isBlank() == true);
 
-    // Empty variable.
-    string e = "";
-    assert(e.isEmpty() == true);
+	// Empty variable.
+	string e = "";
+	assert(e.isEmpty() == true);
 
-    print("PASS: test_string_isempty");
-    return 0;
+	print("PASS: test_string_isempty");
+	return 0;
 }

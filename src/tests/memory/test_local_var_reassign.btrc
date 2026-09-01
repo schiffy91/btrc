@@ -5,33 +5,31 @@
 int alive = 0;
 
 class Obj {
-    public int id;
+	public int id;
 
-    public Obj(int id) {
-        self.id = id;
-        alive++;
-    }
+	public Obj(int id) {
+		self.id = id;
+		alive++;
+	}
 
-    public void __del__() {
-        alive--;
-    }
+	public void __del__() { alive--; }
 }
 
 int main() {
-    {
-        Obj o = new Obj(1);
-        assert(alive == 1);
-        assert(o.id == 1);
+	{
+		Obj o = new Obj(1);
+		assert(alive == 1);
+		assert(o.id == 1);
 
-        // Reassign the local to a new object.
-        o = new Obj(2);
-        assert(o.id == 2);
-        // The old value is released as part of replacement.
-        assert(alive == 1);
-    }
-    // Scope exit releases the replacement value.
-    assert(alive == 0);
+		// Reassign the local to a new object.
+		o = new Obj(2);
+		assert(o.id == 2);
+		// The old value is released as part of replacement.
+		assert(alive == 1);
+	}
+	// Scope exit releases the replacement value.
+	assert(alive == 0);
 
-    print("PASS: test_local_var_reassign");
-    return 0;
+	print("PASS: test_local_var_reassign");
+	return 0;
 }

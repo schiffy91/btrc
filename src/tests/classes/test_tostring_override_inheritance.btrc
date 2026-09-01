@@ -6,23 +6,25 @@
 #include <assert.h>
 
 class Base {
-    public int v;
-    public Base(int v) { self.v = v; }
-    public string toString() { return "Base"; }
+	public int v;
+	public Base(int v) { self.v = v; }
+
+	public string toString() { return "Base"; }
 }
 
 class Derived extends Base {
-    public Derived(int v) { self.v = v; }
-    public string toString() { return "Derived"; }
+	public Derived(int v) { self.v = v; }
+
+	public string toString() { return "Derived"; }
 }
 
 int main() {
-    Derived d = Derived(5);
-    assert(d.toString() == "Derived");
+	Derived d = Derived(5);
+	assert(d.toString() == "Derived");
 
-    Base b = Base(1);
-    assert(b.toString() == "Base");
+	Base b = Base(1);
+	assert(b.toString() == "Base");
 
-    print("PASS: test_tostring_override_inheritance");
-    return 0;
+	print("PASS: test_tostring_override_inheritance");
+	return 0;
 }

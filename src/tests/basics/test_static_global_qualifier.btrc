@@ -7,8 +7,8 @@
 static int counter = 5;
 
 int main() {
-    counter += 37;
-    assert(counter == 42);
-    print("PASS: test_static_global_qualifier");
-    return 0;
+	counter += 37;
+	assert(counter == 42);
+	print("PASS: test_static_global_qualifier");
+	return 0;
 }

@@ -7,71 +7,67 @@ int freestandingChildHooks = 0;
 int freestandingOwnerHooks = 0;
 
 class FreestandingCleanupChild {
-    public FreestandingCleanupChild() {
-        freestandingChildrenAlive++;
-    }
+	public FreestandingCleanupChild() { freestandingChildrenAlive++; }
 
-    public void __del__() {
-        freestandingChildrenAlive--;
-        freestandingChildHooks++;
-    }
+	public void __del__() {
+		freestandingChildrenAlive--;
+		freestandingChildHooks++;
+	}
 }
 
 class FreestandingPartialOwner {
-    public FreestandingCleanupChild child;
+	public FreestandingCleanupChild child;
 
-    public FreestandingPartialOwner() {
-        self.child = new FreestandingCleanupChild();
-        throw "freestanding constructor failure";
-    }
+	public FreestandingPartialOwner() {
+		self.child = new FreestandingCleanupChild();
+		throw "freestanding constructor failure";
+	}
 
-    public void __del__() {
-        freestandingOwnerHooks++;
-    }
+	public void __del__() { freestandingOwnerHooks++; }
 }
 
 void throwAcrossFreestandingCall() {
-    FreestandingCleanupChild local = new FreestandingCleanupChild();
-    if (local == null) { freestandingFailures++; }
-    throw "freestanding callee failure";
+	FreestandingCleanupChild local = new FreestandingCleanupChild();
+	if (local == null) { freestandingFailures++; }
+	throw "freestanding callee failure";
 }
 
 void attemptFreestandingConstructor() {
-    bool caught = false;
-    try {
-        FreestandingPartialOwner value = new FreestandingPartialOwner();
-        if (value != null) { freestandingFailures++; }
-    } catch (string error) {
-        caught = error.equals("freestanding constructor failure");
-    }
-    if (!caught) { freestandingFailures++; }
+	bool caught = false;
+	try {
+		FreestandingPartialOwner value = new FreestandingPartialOwner();
+		if (value != null) { freestandingFailures++; }
+	} catch (string error) {
+		caught = error.equals("freestanding constructor failure");
+	}
+	if (!caught) { freestandingFailures++; }
 }
 
 void attemptFreestandingCallee() {
-    bool caught = false;
-    try {
-        throwAcrossFreestandingCall();
-    } catch (string error) {
-        caught = error.equals("freestanding callee failure");
-    }
-    if (!caught) { freestandingFailures++; }
+	bool caught = false;
+	try {
+		throwAcrossFreestandingCall();
+	} catch (string error) {
+		caught = error.equals("freestanding callee failure");
+	}
+	if (!caught) { freestandingFailures++; }
 }
 
 void exerciseFreestandingCleanup() {
-    attemptFreestandingConstructor();
-    attemptFreestandingCallee();
-    if (freestandingChildrenAlive != 0) { freestandingFailures++; }
+	attemptFreestandingConstructor();
+	attemptFreestandingCallee();
+	if (freestandingChildrenAlive != 0) { freestandingFailures++; }
 }
 
 int main() {
-    exerciseFreestandingCleanup();
-    if (freestandingChildHooks != 2) { freestandingFailures++; }
-    if (freestandingOwnerHooks != 0) { freestandingFailures++; }
+	exerciseFreestandingCleanup();
+	if (freestandingChildHooks != 2) { freestandingFailures++; }
+	if (freestandingOwnerHooks != 0) { freestandingFailures++; }
 
-    arc_test_allocation_checkpoint();
-    exerciseFreestandingCleanup();
-    if (freestandingChildHooks != 4) { freestandingFailures++; }
-    if (freestandingOwnerHooks != 0) { freestandingFailures++; }
-    if (arc_test_allocation_delta() != 0) { freestandingFailures++; }
-    return freestandingFailures;
+	arc_test_allocation_checkpoint();
+	exerciseFreestandingCleanup();
+	if (freestandingChildHooks != 4) { freestandingFailures++; }
+	if (freestandingOwnerHooks != 0) { freestandingFailures++; }
+	if (arc_test_allocation_delta() != 0) { freestandingFailures++; }
+	return freestandingFailures;
 }

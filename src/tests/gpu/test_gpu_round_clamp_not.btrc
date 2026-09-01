@@ -6,25 +6,23 @@
 // maps round/clamp (wgsl_builtins) and '!' (_OP_MAP). Kernels are never
 // dispatched (hermetic, by design) — the WGSL string is an emitted constant
 // verified to transpile + build.
-@gpu
-float[] f(float[] a) {
-    int i = gpu_id();
-    float v = round(a[i]);
-    return clamp(v, 0.0, 10.0);
+@gpu float[] f(float[] a) {
+	int i = gpu_id();
+	float v = round(a[i]);
+	return clamp(v, 0.0, 10.0);
 }
 
-@gpu
-int[] g(int[] a) {
-    int i = gpu_id();
-    bool b = a[i] > 0;
-    if (!b) {
-        return 1;
-    }
-    return 0;
+@gpu int[] g(int[] a) {
+	int i = gpu_id();
+	bool b = a[i] > 0;
+	if (!b) {
+		return 1;
+	}
+	return 0;
 }
 
 int main() {
-    assert(1 + 1 == 2);
-    print("PASS: test_gpu_round_clamp_not");
-    return 0;
+	assert(1 + 1 == 2);
+	print("PASS: test_gpu_round_clamp_not");
+	return 0;
 }

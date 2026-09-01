@@ -2,21 +2,21 @@
 #include <string.h>
 
 int main() {
-    // negative int .toString() emits a leading '-'
-    int n = -42;
-    assert(strcmp(n.toString(), "-42") == 0);
+	// negative int .toString() emits a leading '-'
+	int n = -42;
+	assert(strcmp(n.toString(), "-42") == 0);
 
-    // negative long .toString() also signed
-    long l = -9999999999;
-    string ls = l.toString();
-    assert(ls[0] == '-');
-    assert(strcmp(ls, "-9999999999") == 0);
+	// negative long .toString() also signed
+	long l = -9999999999;
+	string ls = l.toString();
+	assert(ls[0] == '-');
+	assert(strcmp(ls, "-9999999999") == 0);
 
-    // negative double .toString() leads with '-'
-    double d = -3.5;
-    string ds = d.toString();
-    assert(ds[0] == '-');
+	// negative double .toString() leads with '-'
+	double d = -3.5;
+	string ds = d.toString();
+	assert(ds[0] == '-');
 
-    print("PASS: test_negative_tostring");
-    return 0;
+	print("PASS: test_negative_tostring");
+	return 0;
 }

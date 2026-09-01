@@ -4,9 +4,9 @@
 enum E { NEG = -1, ZERO = 0, SUM = 1 + 2 };
 
 int main() {
-    assert(NEG == -1);
-    assert(ZERO == 0);
-    assert(SUM == 3);
-    print("PASS: test_enum_expr_and_negative_values");
-    return 0;
+	assert(NEG == -1);
+	assert(ZERO == 0);
+	assert(SUM == 3);
+	print("PASS: test_enum_expr_and_negative_values");
+	return 0;
 }

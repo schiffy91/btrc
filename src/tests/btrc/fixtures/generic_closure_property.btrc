@@ -3,25 +3,26 @@
 int propertyLeafAlive = 0;
 
 class PropertyLeaf<T> {
-    public PropertyLeaf() { propertyLeafAlive++; }
-    public void __del__() { propertyLeafAlive--; }
+	public PropertyLeaf() { propertyLeafAlive++; }
+
+	public void __del__() { propertyLeafAlive--; }
 }
 
 class PropertySeed<T> {
-    public int value {
-        get {
-            PropertyLeaf<T> leaf = new PropertyLeaf<T>();
-            delete leaf;
-            return 7;
-        }
-    }
+	public int value {
+		get {
+			PropertyLeaf<T> leaf = new PropertyLeaf<T>();
+			delete leaf;
+			return 7;
+		}
+	}
 }
 
 int main() {
-    PropertySeed<int> seed = new PropertySeed<int>();
-    assert(seed.value == 7);
-    assert(propertyLeafAlive == 0);
-    delete seed;
-    print("PASS: property generic closure");
-    return 0;
+	PropertySeed<int> seed = new PropertySeed<int>();
+	assert(seed.value == 7);
+	assert(propertyLeafAlive == 0);
+	delete seed;
+	print("PASS: property generic closure");
+	return 0;
 }

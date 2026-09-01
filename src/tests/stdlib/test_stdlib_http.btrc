@@ -13,89 +13,89 @@ import std.strings;
 #include <assert.h>
 
 int main() {
-    // --- HttpResponse builders: status + content type + body ---
-    HttpResponse ok = HttpResponse.text("hi");
-    assert(ok.status == 200);
-    assert(ok.contentType.equals("text/plain; charset=utf-8"));
-    assert(ok.body.equals("hi"));
+	// --- HttpResponse builders: status + content type + body ---
+	HttpResponse ok = HttpResponse.text("hi");
+	assert(ok.status == 200);
+	assert(ok.contentType.equals("text/plain; charset=utf-8"));
+	assert(ok.body.equals("hi"));
 
-    HttpResponse htmlResp = HttpResponse.html("<h1>x</h1>");
-    assert(htmlResp.contentType.equals("text/html; charset=utf-8"));
+	HttpResponse htmlResp = HttpResponse.html("<h1>x</h1>");
+	assert(htmlResp.contentType.equals("text/html; charset=utf-8"));
 
-    HttpResponse jsonResp = HttpResponse.json("{}");
-    assert(jsonResp.contentType.equals("application/json; charset=utf-8"));
+	HttpResponse jsonResp = HttpResponse.json("{}");
+	assert(jsonResp.contentType.equals("application/json; charset=utf-8"));
 
-    HttpResponse nf = HttpResponse.notFound();
-    assert(nf.status == 404);
+	HttpResponse nf = HttpResponse.notFound();
+	assert(nf.status == 404);
 
-    HttpResponse err = HttpResponse.error(500, "boom");
-    assert(err.status == 500);
-    assert(err.body.equals("boom"));
+	HttpResponse err = HttpResponse.error(500, "boom");
+	assert(err.status == 500);
+	assert(err.body.equals("boom"));
 
-    // addHeader is chainable and accumulates extra headers.
-    HttpResponse withHdr = HttpResponse.text("x").addHeader("X-Test: 1");
-    assert(withHdr.extraHeaders.len == 1);
-    assert(HttpResponseHeaders.reserved("cOnTeNt-LeNgTh"));
-    assert(HttpResponseHeaders.reserved("CACHE-control"));
-    assert(HttpResponseHeaders.reserved("Keep-Alive"));
-    assert(HttpResponseHeaders.reserved("Proxy-Authenticate"));
-    assert(HttpResponseHeaders.reserved("Proxy-Authorization"));
-    assert(HttpResponseHeaders.reserved("TE"));
-    assert(HttpResponseHeaders.reserved("Trailer"));
-    assert(HttpResponseHeaders.reserved("Upgrade"));
-    assert(!HttpResponseHeaders.reserved("X-Test"));
+	// addHeader is chainable and accumulates extra headers.
+	HttpResponse withHdr = HttpResponse.text("x").addHeader("X-Test: 1");
+	assert(withHdr.extraHeaders.len == 1);
+	assert(HttpResponseHeaders.reserved("cOnTeNt-LeNgTh"));
+	assert(HttpResponseHeaders.reserved("CACHE-control"));
+	assert(HttpResponseHeaders.reserved("Keep-Alive"));
+	assert(HttpResponseHeaders.reserved("Proxy-Authenticate"));
+	assert(HttpResponseHeaders.reserved("Proxy-Authorization"));
+	assert(HttpResponseHeaders.reserved("TE"));
+	assert(HttpResponseHeaders.reserved("Trailer"));
+	assert(HttpResponseHeaders.reserved("Upgrade"));
+	assert(!HttpResponseHeaders.reserved("X-Test"));
 
-    // --- HttpRequest parsing: request line, path/query split, headers, body ---
-    HttpServer parser = HttpServer(0);
-    string raw = "POST /submit?x=1&y=2 HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello";
-    HttpRequest req = parser.parse(raw);
-    assert(req.method.equals("POST"));
-    assert(req.isPost());
-    assert(!req.isGet());
-    assert(req.path.equals("/submit"));
-    assert(req.query.equals("x=1&y=2"));
-    assert(req.header("host").equals("localhost"));      // header names lower-cased
-    assert(req.header("content-type").equals("text/plain"));
-    assert(req.body.equals("hello"));
-    assert(req.header("missing").equals(""));            // absent header -> ""
+	// --- HttpRequest parsing: request line, path/query split, headers, body ---
+	HttpServer parser = HttpServer(0);
+	string raw = "POST /submit?x=1&y=2 HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello";
+	HttpRequest req = parser.parse(raw);
+	assert(req.method.equals("POST"));
+	assert(req.isPost());
+	assert(!req.isGet());
+	assert(req.path.equals("/submit"));
+	assert(req.query.equals("x=1&y=2"));
+	assert(req.header("host").equals("localhost"));      // header names lower-cased
+	assert(req.header("content-type").equals("text/plain"));
+	assert(req.body.equals("hello"));
+	assert(req.header("missing").equals(""));            // absent header -> ""
 
-    // A GET with no query string: path is whole target, query is "".
-    HttpRequest get = parser.parse("GET /index.html HTTP/1.1\r\nHost: a\r\n\r\n");
-    assert(get.isGet());
-    assert(get.path.equals("/index.html"));
-    assert(get.query.equals(""));
+	// A GET with no query string: path is whole target, query is "".
+	HttpRequest get = parser.parse("GET /index.html HTTP/1.1\r\nHost: a\r\n\r\n");
+	assert(get.isGet());
+	assert(get.path.equals("/index.html"));
+	assert(get.query.equals(""));
 
-    // Empty request parses to defaults, not a crash.
-    HttpRequest empty = parser.parse("");
-    assert(empty.method.equals("GET"));
-    assert(empty.path.equals("/"));
+	// Empty request parses to defaults, not a crash.
+	HttpRequest empty = parser.parse("");
+	assert(empty.method.equals("GET"));
+	assert(empty.path.equals("/"));
 
-    // --- Content-Length scan (static helper) ---
-    string head = "GET / HTTP/1.1\r\nContent-Length: 42\r\n\r\n";
-    int he = Strings.find(head, "\r\n\r\n", 0);
-    assert(HttpServer.headerContentLength(head, he) == 42);
-    string headPrefixed = "GET / HTTP/1.1\r\nX-Content-Length: 999\r\nContent-Length: 7\r\n\r\n";
-    int prefixedEnd = Strings.find(headPrefixed, "\r\n\r\n", 0);
-    assert(HttpServer.headerContentLength(headPrefixed, prefixedEnd) == 7);
-    // No Content-Length header -> 0.
-    string head2 = "GET / HTTP/1.1\r\nHost: a\r\n\r\n";
-    int he2 = Strings.find(head2, "\r\n\r\n", 0);
-    assert(HttpServer.headerContentLength(head2, he2) == 0);
+	// --- Content-Length scan (static helper) ---
+	string head = "GET / HTTP/1.1\r\nContent-Length: 42\r\n\r\n";
+	int he = Strings.find(head, "\r\n\r\n", 0);
+	assert(HttpServer.headerContentLength(head, he) == 42);
+	string headPrefixed = "GET / HTTP/1.1\r\nX-Content-Length: 999\r\nContent-Length: 7\r\n\r\n";
+	int prefixedEnd = Strings.find(headPrefixed, "\r\n\r\n", 0);
+	assert(HttpServer.headerContentLength(headPrefixed, prefixedEnd) == 7);
+	// No Content-Length header -> 0.
+	string head2 = "GET / HTTP/1.1\r\nHost: a\r\n\r\n";
+	int he2 = Strings.find(head2, "\r\n\r\n", 0);
+	assert(HttpServer.headerContentLength(head2, he2) == 0);
 
-    // --- reason phrases ---
-    assert(parser.reason(200).equals("OK"));
-    assert(parser.reason(201).equals("Created"));
-    assert(parser.reason(404).equals("Not Found"));
-    assert(parser.reason(500).equals("Internal Server Error"));
-    assert(parser.reason(302).equals("Found"));          // 3xx no longer "OK"
-    assert(parser.reason(999).equals(""));               // unknown -> generic/empty
+	// --- reason phrases ---
+	assert(parser.reason(200).equals("OK"));
+	assert(parser.reason(201).equals("Created"));
+	assert(parser.reason(404).equals("Not Found"));
+	assert(parser.reason(500).equals("Internal Server Error"));
+	assert(parser.reason(302).equals("Found"));          // 3xx no longer "OK"
+	assert(parser.reason(999).equals(""));               // unknown -> generic/empty
 
-    // --- HttpClientResponse.ok() reflects 2xx ---
-    assert(HttpClientResponse(200, "x", "").ok());
-    assert(HttpClientResponse(204, "", "").ok());
-    assert(!HttpClientResponse(404, "", "").ok());
-    assert(!HttpClientResponse(0, "", "curl failed").ok());
+	// --- HttpClientResponse.ok() reflects 2xx ---
+	assert(HttpClientResponse(200, "x", "").ok());
+	assert(HttpClientResponse(204, "", "").ok());
+	assert(!HttpClientResponse(404, "", "").ok());
+	assert(!HttpClientResponse(0, "", "curl failed").ok());
 
-    print("PASS");
-    return 0;
+	print("PASS");
+	return 0;
 }

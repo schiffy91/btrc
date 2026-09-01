@@ -9,46 +9,46 @@ import std.io;
 #include <assert.h>
 
 int main() {
-    string dir = FileSystem.tempDir("btrc_file_bytes_large");
-    assert(FileSystem.isDir(dir));
-    string path = PathTools.join(dir, "blob.bin");
+	string dir = FileSystem.tempDir("btrc_file_bytes_large");
+	assert(FileSystem.isDir(dir));
+	string path = PathTools.join(dir, "blob.bin");
 
-    // Build a 20000-byte buffer with NUL bytes at indices 100 and 15000.
-    Bytes w = Bytes();
-    for i in range(20000) {
-        if (i == 100 || i == 15000) {
-            w.append(0);
-        } else {
-            w.append((i % 251) + 1);   // 1..251, never 0 except the two NULs
-        }
-    }
-    assert(w.length() == 20000);
-    assert(w.get(100) == 0);
-    assert(w.get(15000) == 0);
+	// Build a 20000-byte buffer with NUL bytes at indices 100 and 15000.
+	Bytes w = Bytes();
+	for i in range(20000) {
+		if (i == 100 || i == 15000) {
+			w.append(0);
+		} else {
+			w.append((i % 251) + 1);   // 1..251, never 0 except the two NULs
+		}
+	}
+	assert(w.length() == 20000);
+	assert(w.get(100) == 0);
+	assert(w.get(15000) == 0);
 
-    File fw = File(path, "wb");
-    assert(fw.ok());
-    assert(fw.writeBytes(w));
-    fw.close();
+	File fw = File(path, "wb");
+	assert(fw.ok());
+	assert(fw.writeBytes(w));
+	fw.close();
 
-    // Read it all back; spans multiple 8192-byte fread chunks.
-    File fr = File(path, "rb");
-    assert(fr.ok());
-    Bytes r = fr.readBytes();
-    fr.close();
+	// Read it all back; spans multiple 8192-byte fread chunks.
+	File fr = File(path, "rb");
+	assert(fr.ok());
+	Bytes r = fr.readBytes();
+	fr.close();
 
-    assert(r.length() == 20000);
-    assert(r.get(0) == w.get(0));
-    assert(r.get(100) == 0);        // NUL survived the chunked read
-    assert(r.get(8191) == w.get(8191));   // last byte of chunk 1
-    assert(r.get(8192) == w.get(8192));   // first byte of chunk 2
-    assert(r.get(15000) == 0);      // NUL in chunk 2
-    assert(r.get(19999) == w.get(19999));
-    assert(r.equals(w));            // byte-exact across the whole buffer
+	assert(r.length() == 20000);
+	assert(r.get(0) == w.get(0));
+	assert(r.get(100) == 0);        // NUL survived the chunked read
+	assert(r.get(8191) == w.get(8191));   // last byte of chunk 1
+	assert(r.get(8192) == w.get(8192));   // first byte of chunk 2
+	assert(r.get(15000) == 0);      // NUL in chunk 2
+	assert(r.get(19999) == w.get(19999));
+	assert(r.equals(w));            // byte-exact across the whole buffer
 
-    FileSystem.removeRecursive(dir);
-    assert(!FileSystem.exists(dir));
+	FileSystem.removeRecursive(dir);
+	assert(!FileSystem.exists(dir));
 
-    print("PASS: test_stdlib_file_bytes_large");
-    return 0;
+	print("PASS: test_stdlib_file_bytes_large");
+	return 0;
 }

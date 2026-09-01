@@ -4,9 +4,9 @@
 enum Color { RED, GREEN, BLUE, };
 
 int main() {
-    assert(RED == 0);
-    assert(GREEN == 1);
-    assert(BLUE == 2);
-    print("PASS: test_enum_trailing_comma");
-    return 0;
+	assert(RED == 0);
+	assert(GREEN == 1);
+	assert(BLUE == 2);
+	print("PASS: test_enum_trailing_comma");
+	return 0;
 }

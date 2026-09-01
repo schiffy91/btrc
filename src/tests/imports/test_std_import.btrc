@@ -1,10 +1,10 @@
 import std.{json, toml}
 
 int main() {
-    var json = JsonObject();
-    json.setString("format", "json");
-    assert(json.getString("format", "").equals("json"));
-    assert(Toml.value("name = \"btrc\"").equals("btrc"));
-    print("PASS: test_std_import");
-    return 0;
+	var json = JsonObject();
+	json.setString("format", "json");
+	assert(json.getString("format", "").equals("json"));
+	assert(Toml.value("name = \"btrc\"").equals("btrc"));
+	print("PASS: test_std_import");
+	return 0;
 }

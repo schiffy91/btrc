@@ -3,13 +3,13 @@
 enum Code { CODE_ZERO, CODE_ONE, CODE_TWO };
 
 enum class Measure {
-    Exact(double value, long count),
-    Missing
+	Exact(double value, long count),
+	Missing
 }
 
 struct Pair {
-    double fraction;
-    unsigned long long wide;
+	double fraction;
+	unsigned long long wide;
 };
 
 typedef double Ratio;
@@ -19,62 +19,64 @@ typedef Thread<Ratio> RatioWorker;
 int rawValue = 73;
 
 int increment(int value) { return value + 1; }
+
 byte byteValue() { return 0xAB; }
+
 uint uintValue() { return 4000000000U; }
 
 int main() {
-    Thread<float> floatThread = spawn(() => 1.25f);
-    Thread<double> doubleThread = spawn(() => 9.5);
-    Thread<long double> longDoubleThread = spawn(() => (long double)3.125);
-    assert(floatThread.join() == 1.25f);
-    assert(doubleThread.join() == 9.5);
-    assert(longDoubleThread.join() == (long double)3.125);
+	Thread<float> floatThread = spawn(() => 1.25f);
+	Thread<double> doubleThread = spawn(() => 9.5);
+	Thread<long double> longDoubleThread = spawn(() => (long double)3.125);
+	assert(floatThread.join() == 1.25f);
+	assert(doubleThread.join() == 9.5);
+	assert(longDoubleThread.join() == (long double)3.125);
 
-    RatioWorker ratioThread = spawn(() => (Ratio)11.75);
-    assert(ratioThread.join() == (Ratio)11.75);
+	RatioWorker ratioThread = spawn(() => (Ratio)11.75);
+	assert(ratioThread.join() == (Ratio)11.75);
 
-    Thread<byte> byteThread = spawn(() => byteValue());
-    Thread<uint> uintThread = spawn(() => uintValue());
-    Thread<unsigned long long> wideThread = spawn(() => 0xFEDCBA9876543210ULL);
-    Thread<size_t> sizeThread = spawn(() => sizeof(Pair));
-    assert(byteThread.join() == 0xAB);
-    assert(uintThread.join() == 4000000000U);
-    assert(wideThread.join() == 0xFEDCBA9876543210ULL);
-    assert(sizeThread.join() == sizeof(Pair));
+	Thread<byte> byteThread = spawn(() => byteValue());
+	Thread<uint> uintThread = spawn(() => uintValue());
+	Thread<unsigned long long> wideThread = spawn(() => 0xFEDCBA9876543210ULL);
+	Thread<size_t> sizeThread = spawn(() => sizeof(Pair));
+	assert(byteThread.join() == 0xAB);
+	assert(uintThread.join() == 4000000000U);
+	assert(wideThread.join() == 0xFEDCBA9876543210ULL);
+	assert(sizeThread.join() == sizeof(Pair));
 
-    Thread<Code> enumThread = spawn(() => CODE_TWO);
-    assert(enumThread.join() == CODE_TWO);
+	Thread<Code> enumThread = spawn(() => CODE_TWO);
+	assert(enumThread.join() == CODE_TWO);
 
-    Thread<Pair> structThread = spawn(() => {
-        Pair pair = {6.25, 0xABCDEF0123456789ULL};
-        return pair;
-    });
-    Pair pair = structThread.join();
-    assert(pair.fraction == 6.25);
-    assert(pair.wide == 0xABCDEF0123456789ULL);
+	Thread<Pair> structThread = spawn(() => {
+			Pair pair = {6.25, 0xABCDEF0123456789ULL};
+			return pair;
+		});
+	Pair pair = structThread.join();
+	assert(pair.fraction == 6.25);
+	assert(pair.wide == 0xABCDEF0123456789ULL);
 
-    Thread<(double, long)> tupleThread = spawn(() => (7.75, (long)91));
-    (double, long) tupleValue = tupleThread.join();
-    assert(tupleValue._0 == 7.75);
-    assert(tupleValue._1 == 91);
+	Thread<(double, long)> tupleThread = spawn(() => (7.75, (long)91));
+	(double, long) tupleValue = tupleThread.join();
+	assert(tupleValue._0 == 7.75);
+	assert(tupleValue._1 == 91);
 
-    Thread<Measure> richThread = spawn(() => {
-        Measure value = Measure.Exact(2.5, 19);
-        return value;
-    });
-    Measure measure = richThread.join();
-    assert(measure.tag == Measure.Exact);
-    assert(measure.data.Exact.value == 2.5);
-    assert(measure.data.Exact.count == 19);
+	Thread<Measure> richThread = spawn(() => {
+			Measure value = Measure.Exact(2.5, 19);
+			return value;
+		});
+	Measure measure = richThread.join();
+	assert(measure.tag == Measure.Exact);
+	assert(measure.data.Exact.value == 2.5);
+	assert(measure.data.Exact.count == 19);
 
-    Unary callback = increment;
-    Thread<Unary> callbackThread = spawn(() => callback);
-    __fn_ptr<int, int> joinedCallback = callbackThread.join();
-    assert(joinedCallback(8) == 9);
+	Unary callback = increment;
+	Thread<Unary> callbackThread = spawn(() => callback);
+	__fn_ptr<int, int> joinedCallback = callbackThread.join();
+	assert(joinedCallback(8) == 9);
 
-    Thread<int*> pointerThread = spawn(() => &rawValue);
-    int* pointer = pointerThread.join();
-    assert(pointer == &rawValue);
+	Thread<int*> pointerThread = spawn(() => &rawValue);
+	int* pointer = pointerThread.join();
+	assert(pointer == &rawValue);
 
-    return 0;
+	return 0;
 }

@@ -6,62 +6,62 @@ int firstChildHooks = 0;
 int secondChildHooks = 0;
 
 class ThrowCycleChild {
-    public int id;
-    public ThrowCycleChild next;
+	public int id;
+	public ThrowCycleChild next;
 
-    public ThrowCycleChild(int id) {
-        self.id = id;
-        self.next = null;
-        cycleObjectsAlive++;
-    }
+	public ThrowCycleChild(int id) {
+		self.id = id;
+		self.next = null;
+		cycleObjectsAlive++;
+	}
 
-    public void __del__() {
-        cycleTrace = cycleTrace * 10 + self.id;
-        cycleObjectsAlive--;
-        if (self.id == 2) {
-            firstChildHooks++;
-            throw "first cycle child failure";
-        }
-        secondChildHooks++;
-        throw "second cycle child failure";
-    }
+	public void __del__() {
+		cycleTrace = cycleTrace * 10 + self.id;
+		cycleObjectsAlive--;
+		if (self.id == 2) {
+			firstChildHooks++;
+			throw "first cycle child failure";
+		}
+		secondChildHooks++;
+		throw "second cycle child failure";
+	}
 }
 
 class ThrowCycleOwner {
-    public ThrowCycleChild child;
+	public ThrowCycleChild child;
 
-    public ThrowCycleOwner() {
-        ThrowCycleChild first = new ThrowCycleChild(2);
-        ThrowCycleChild second = new ThrowCycleChild(3);
-        first.next = second;
-        second.next = first;
-        self.child = first;
-        cycleObjectsAlive++;
-    }
+	public ThrowCycleOwner() {
+		ThrowCycleChild first = new ThrowCycleChild(2);
+		ThrowCycleChild second = new ThrowCycleChild(3);
+		first.next = second;
+		second.next = first;
+		self.child = first;
+		cycleObjectsAlive++;
+	}
 
-    public void __del__() {
-        cycleTrace = cycleTrace * 10 + 1;
-        cycleObjectsAlive--;
-        throw "owner cycle failure";
-    }
+	public void __del__() {
+		cycleTrace = cycleTrace * 10 + 1;
+		cycleObjectsAlive--;
+		throw "owner cycle failure";
+	}
 }
 
 int main() {
-    bool caughtOwner = false;
-    try {
-        ThrowCycleOwner owner = new ThrowCycleOwner();
-        delete owner;
-        assert(false);
-    } catch (string error) {
-        caughtOwner = error.equals("owner cycle failure");
-    }
+	bool caughtOwner = false;
+	try {
+		ThrowCycleOwner owner = new ThrowCycleOwner();
+		delete owner;
+		assert(false);
+	} catch (string error) {
+		caughtOwner = error.equals("owner cycle failure");
+	}
 
-    /* Terminal owner detachment exposes an otherwise unreachable child SCC.
+	/* Terminal owner detachment exposes an otherwise unreachable child SCC.
      * Its later hook errors cannot bypass either terminal or replace the first
      * owner error after the queue/collector fixpoint has drained. */
-    assert(caughtOwner);
-    assert(cycleTrace == 123);
-    assert(cycleObjectsAlive == 0);
-    assert(firstChildHooks == 1 && secondChildHooks == 1);
-    return 0;
+	assert(caughtOwner);
+	assert(cycleTrace == 123);
+	assert(cycleObjectsAlive == 0);
+	assert(firstChildHooks == 1 && secondChildHooks == 1);
+	return 0;
 }

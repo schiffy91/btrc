@@ -7,43 +7,39 @@ import std.vector;
 #include <assert.h>
 
 int main() {
-    Random rng = new Random();
-    rng.seed(42);
+	Random rng = new Random();
+	rng.seed(42);
 
-    /* hi < lo swaps the bounds: randint(10, 1) behaves like randint(1, 10). */
-    int minSeen = 999;
-    int maxSeen = -999;
-    for i in range(500) {
-        int val = rng.randint(10, 1);
-        assert(val >= 1 && val <= 10);
-        if (val < minSeen) { minSeen = val; }
-        if (val > maxSeen) { maxSeen = val; }
-    }
-    assert(minSeen == 1);
-    assert(maxSeen == 10);
-    print("swapped bounds stay in [1, 10]");
+	/* hi < lo swaps the bounds: randint(10, 1) behaves like randint(1, 10). */
+	int minSeen = 999;
+	int maxSeen = -999;
+	for i in range(500) {
+		int val = rng.randint(10, 1);
+		assert(val >= 1 && val <= 10);
+		if (val < minSeen) { minSeen = val; }
+		if (val > maxSeen) { maxSeen = val; }
+	}
+	assert(minSeen == 1);
+	assert(maxSeen == 10);
+	print("swapped bounds stay in [1, 10]");
 
-    /* Degenerate range: lo == hi always returns that value. */
-    for i in range(20) {
-        assert(rng.randint(5, 5) == 5);
-    }
-    print("randint(5, 5) == 5");
+	/* Degenerate range: lo == hi always returns that value. */
+	for i in range(20) { assert(rng.randint(5, 5) == 5); }
+	print("randint(5, 5) == 5");
 
-    /* hi == lo - 1 swapped: randint(4, 3) is randint(3, 4). */
-    for i in range(50) {
-        int val = rng.randint(4, 3);
-        assert(val == 3 || val == 4);
-    }
-    print("randint(4, 3) stays in [3, 4]");
+	/* hi == lo - 1 swapped: randint(4, 3) is randint(3, 4). */
+	for i in range(50) {
+		int val = rng.randint(4, 3);
+		assert(val == 3 || val == 4);
+	}
+	print("randint(4, 3) stays in [3, 4]");
 
-    /* choice from a single-element vector returns that element. */
-    Vector<int> one = [77];
-    for i in range(10) {
-        assert(rng.choice(one) == 77);
-    }
-    print("choice of single element is 77");
+	/* choice from a single-element vector returns that element. */
+	Vector<int> one = [77];
+	for i in range(10) { assert(rng.choice(one) == 77); }
+	print("choice of single element is 77");
 
-    delete rng;
-    print("PASS: test_stdlib_random_edge");
-    return 0;
+	delete rng;
+	print("PASS: test_stdlib_random_edge");
+	return 0;
 }

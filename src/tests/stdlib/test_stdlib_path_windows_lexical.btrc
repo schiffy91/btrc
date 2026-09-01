@@ -4,67 +4,49 @@ import std.platform;
 
 import ../../compiler/btrc/frontend/source_io.btrc;
 int main() {
-    FeSourcePathPolicy sourcePaths = FeSourcePathPolicy();
-    if (Platform.isWindows()) {
-        if (Platform.isUnix() || Platform.isRoot()
-                || !Platform.pathSeparator().equals("\\")) { return 1; }
+	FeSourcePathPolicy sourcePaths = FeSourcePathPolicy();
+	if (Platform.isWindows()) {
+		if (Platform.isUnix() || Platform.isRoot() || !Platform.pathSeparator().equals("\\")) { return 1; }
 
-        string fileProbe = f"btrc-windows-remove-{Platform.pid()}.txt";
-        if (!FileSystem.writeText(fileProbe, "probe")
-                || FileSystem.removeRecursive(fileProbe) != 0
-                || FileSystem.exists(fileProbe)) {
-            return 1;
-        }
-        string directoryProbe = f"btrc-windows-remove-{Platform.pid()}";
-        if (FileSystem.mkdir(directoryProbe, 448) != 0) { return 1; }
-        if (FileSystem.removeRecursive(directoryProbe) != -1) {
-            rmdir(directoryProbe);
-            return 1;
-        }
-        if (rmdir(directoryProbe) != 0) { return 1; }
-    } else if (!Platform.isUnix()
-            || !Platform.pathSeparator().equals("/")) {
-        return 1;
-    }
+		string fileProbe = f"btrc-windows-remove-{Platform.pid()}.txt";
+		if (!FileSystem.writeText(fileProbe, "probe") || FileSystem.removeRecursive(fileProbe) != 0 || FileSystem.exists(fileProbe)) {
+			return 1;
+		}
+		string directoryProbe = f"btrc-windows-remove-{Platform.pid()}";
+		if (FileSystem.mkdir(directoryProbe, 448) != 0) { return 1; }
+		if (FileSystem.removeRecursive(directoryProbe) != -1) {
+			rmdir(directoryProbe);
+			return 1;
+		}
+		if (rmdir(directoryProbe) != 0) { return 1; }
+	} else if (!Platform.isUnix() || !Platform.pathSeparator().equals("/")) {
+		return 1;
+	}
 
-    if (!sourcePaths.isAbsoluteFor("C:\\src\\main.btrc", true)) { return 1; }
-    if (!sourcePaths.isAbsoluteFor("C:/src/main.btrc", true)) { return 1; }
-    if (!sourcePaths.isAbsoluteFor("\\\\server\\share\\main.btrc", true)) { return 1; }
-    if (sourcePaths.isAbsoluteFor("C:main.btrc", true)) { return 1; }
-    if (sourcePaths.isAbsoluteFor("\\main.btrc", true)) { return 1; }
-    if (!sourcePaths.isRootRelativeFor("\\main.btrc", true)) { return 1; }
-    if (sourcePaths.isAbsoluteFor("relative/main.btrc", true)) { return 1; }
+	if (!sourcePaths.isAbsoluteFor("C:\\src\\main.btrc", true)) { return 1; }
+	if (!sourcePaths.isAbsoluteFor("C:/src/main.btrc", true)) { return 1; }
+	if (!sourcePaths.isAbsoluteFor("\\\\server\\share\\main.btrc", true)) { return 1; }
+	if (sourcePaths.isAbsoluteFor("C:main.btrc", true)) { return 1; }
+	if (sourcePaths.isAbsoluteFor("\\main.btrc", true)) { return 1; }
+	if (!sourcePaths.isRootRelativeFor("\\main.btrc", true)) { return 1; }
+	if (sourcePaths.isAbsoluteFor("relative/main.btrc", true)) { return 1; }
 
-    if (!sourcePaths.normalizeAbsoluteFor(
-        "C:\\work\\compiler\\..\\main.btrc", "C:\\cwd", true)
-        .equals("C:/work/main.btrc")) { return 1; }
-    if (!sourcePaths.normalizeAbsoluteFor(
-        "C:main.btrc", "C:/work/compiler", true)
-        .equals("C:/work/compiler/main.btrc")) { return 1; }
-    if (!sourcePaths.normalizeAbsoluteFor(
-        "\\main.btrc", "C:/work/compiler", true)
-        .equals("C:/main.btrc")) { return 1; }
-    if (!sourcePaths.normalizeAbsoluteFor(
-        "\\\\server\\share\\folder\\..\\..\\..\\main.btrc",
-        "C:/ignored", true).equals("//server/share/main.btrc")) { return 1; }
+	if (!sourcePaths.normalizeAbsoluteFor("C:\\work\\compiler\\..\\main.btrc", "C:\\cwd", true).equals("C:/work/main.btrc")) { return 1; }
+	if (!sourcePaths.normalizeAbsoluteFor("C:main.btrc", "C:/work/compiler", true).equals("C:/work/compiler/main.btrc")) { return 1; }
+	if (!sourcePaths.normalizeAbsoluteFor("\\main.btrc", "C:/work/compiler", true).equals("C:/main.btrc")) { return 1; }
+	if (!sourcePaths.normalizeAbsoluteFor("\\\\server\\share\\folder\\..\\..\\..\\main.btrc", "C:/ignored", true).equals("//server/share/main.btrc")) { return 1; }
 
-    if (!PathTools.joinFor("C:\\base", "C:tail", true)
-            .equals("C:\\base\\tail")) { return 1; }
-    if (!PathTools.joinFor("C:\\base", "D:tail", true)
-            .equals("D:tail")) { return 1; }
-    if (!PathTools.joinFor("C:", "tail", true).equals("C:tail")) {
-        return 1;
-    }
-    if (!PathTools.joinFor("C:\\base", "\\tail", true)
-            .equals("C:\\tail")) { return 1; }
-    if (!PathTools.joinFor("\\\\host\\share\\dir", "\\tail", true)
-            .equals("\\\\host\\share\\tail")) { return 1; }
+	if (!PathTools.joinFor("C:\\base", "C:tail", true).equals("C:\\base\\tail")) { return 1; }
+	if (!PathTools.joinFor("C:\\base", "D:tail", true).equals("D:tail")) { return 1; }
+	if (!PathTools.joinFor("C:", "tail", true).equals("C:tail")) {
+		return 1;
+	}
+	if (!PathTools.joinFor("C:\\base", "\\tail", true).equals("C:\\tail")) { return 1; }
+	if (!PathTools.joinFor("\\\\host\\share\\dir", "\\tail", true).equals("\\\\host\\share\\tail")) { return 1; }
 
-    /* A backslash remains an ordinary filename byte under POSIX rules. */
-    if (!sourcePaths.normalizeAbsoluteFor(
-        "folder\\name/../main.btrc", "/work", false)
-        .equals("/work/main.btrc")) { return 1; }
+	/* A backslash remains an ordinary filename byte under POSIX rules. */
+	if (!sourcePaths.normalizeAbsoluteFor("folder\\name/../main.btrc", "/work", false).equals("/work/main.btrc")) { return 1; }
 
-    print("PASS: test_stdlib_path_windows_lexical");
-    return 0;
+	print("PASS: test_stdlib_path_windows_lexical");
+	return 0;
 }

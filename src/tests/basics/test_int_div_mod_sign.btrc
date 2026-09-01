@@ -3,23 +3,23 @@
 #include <assert.h>
 
 int main() {
-    // Division truncates toward zero, not floor.
-    assert(-7 / 2 == -3);
-    assert(7 / -2 == -3);
-    assert(-7 / -2 == 3);
-    assert(7 / 2 == 3);
+	// Division truncates toward zero, not floor.
+	assert(-7 / 2 == -3);
+	assert(7 / -2 == -3);
+	assert(-7 / -2 == 3);
+	assert(7 / 2 == 3);
 
-    // Modulo sign follows the dividend.
-    assert(-7 % 3 == -1);
-    assert(7 % -3 == 1);
-    assert(-7 % -3 == -1);
-    assert(7 % 3 == 1);
+	// Modulo sign follows the dividend.
+	assert(-7 % 3 == -1);
+	assert(7 % -3 == 1);
+	assert(-7 % -3 == -1);
+	assert(7 % 3 == 1);
 
-    // Identity: (a/b)*b + a%b == a for the signed cases above.
-    int a = -7;
-    int b = 3;
-    assert((a / b) * b + (a % b) == a);
+	// Identity: (a/b)*b + a%b == a for the signed cases above.
+	int a = -7;
+	int b = 3;
+	assert((a / b) * b + (a % b) == a);
 
-    print("PASS: test_int_div_mod_sign");
-    return 0;
+	print("PASS: test_int_div_mod_sign");
+	return 0;
 }

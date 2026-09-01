@@ -1,5 +1,3 @@
 class Beta {
-    class int value() {
-        return 31;
-    }
+	class int value() { return 31; }
 }

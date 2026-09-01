@@ -6,18 +6,18 @@
 #define SQUARE(x) ((x) * (x))
 
 int main() {
-    assert(SQUARE(4) == 16);
-    assert(SQUARE(MAXN) == 100);
+	assert(SQUARE(4) == 16);
+	assert(SQUARE(MAXN) == 100);
 
-    // Use the object-like macro as a C array size.
-    int arr[MAXN];
-    for (int i = 0; i < MAXN; i++) {
-        arr[i] = SQUARE(i);
-    }
-    assert(arr[0] == 0);
-    assert(arr[3] == 9);
-    assert(arr[MAXN - 1] == 81);
+	// Use the object-like macro as a C array size.
+	int arr[MAXN];
+	for (int i = 0; i < MAXN; i++) {
+		arr[i] = SQUARE(i);
+	}
+	assert(arr[0] == 0);
+	assert(arr[3] == 9);
+	assert(arr[MAXN - 1] == 81);
 
-    print("PASS: test_interop_define_macro");
-    return 0;
+	print("PASS: test_interop_define_macro");
+	return 0;
 }

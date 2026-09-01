@@ -2,21 +2,21 @@
 #include <assert.h>
 
 int main() {
-    string s = "abc";
+	string s = "abc";
 
-    // zero-length substring at the start
-    assert(s.substring(0, 0).equals(""));
+	// zero-length substring at the start
+	assert(s.substring(0, 0).equals(""));
 
-    // substring at exactly len with zero length is empty
-    assert(s.substring(3, 1).equals(""));
+	// substring at exactly len with zero length is empty
+	assert(s.substring(3, 1).equals(""));
 
-    // whole string
-    assert(s.substring(0, 3).equals("abc"));
+	// whole string
+	assert(s.substring(0, 3).equals("abc"));
 
-    // single char at the last valid index
-    assert(s.charAt(s.len() - 1) == 'c');
-    assert(s.substring(2, 1).equals("c"));
+	// single char at the last valid index
+	assert(s.charAt(s.len() - 1) == 'c');
+	assert(s.substring(2, 1).equals("c"));
 
-    print("PASS: test_string_index_bounds");
-    return 0;
+	print("PASS: test_string_index_bounds");
+	return 0;
 }

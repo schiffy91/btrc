@@ -7,33 +7,33 @@
 int calls = 0;
 
 string lhs() {
-    calls = calls + 1;
-    return "present";
+	calls = calls + 1;
+	return "present";
 }
 
 int main() {
-    // Non-null LHS is returned and evaluated exactly once.
-    calls = 0;
-    string r = lhs() ?? "fallback";
-    assert(strcmp(r, "present") == 0);
-    assert(calls == 1);
+	// Non-null LHS is returned and evaluated exactly once.
+	calls = 0;
+	string r = lhs() ?? "fallback";
+	assert(strcmp(r, "present") == 0);
+	assert(calls == 1);
 
-    // Null LHS falls through to the RHS.
-    string a = null;
-    string r2 = a ?? "fallback";
-    assert(strcmp(r2, "fallback") == 0);
+	// Null LHS falls through to the RHS.
+	string a = null;
+	string r2 = a ?? "fallback";
+	assert(strcmp(r2, "fallback") == 0);
 
-    // Chained ?? : first non-null wins.
-    string x = null;
-    string y = null;
-    string r3 = x ?? y ?? "third";
-    assert(strcmp(r3, "third") == 0);
+	// Chained ?? : first non-null wins.
+	string x = null;
+	string y = null;
+	string r3 = x ?? y ?? "third";
+	assert(strcmp(r3, "third") == 0);
 
-    string m = null;
-    string n = "second";
-    string r4 = m ?? n ?? "third";
-    assert(strcmp(r4, "second") == 0);
+	string m = null;
+	string n = "second";
+	string r4 = m ?? n ?? "third";
+	assert(strcmp(r4, "second") == 0);
 
-    print("PASS: test_null_coalesce_eval_once");
-    return 0;
+	print("PASS: test_null_coalesce_eval_once");
+	return 0;
 }

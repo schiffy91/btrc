@@ -4,54 +4,47 @@
 #include <assert.h>
 
 class FixedBuffer {
-    public int values[2];
+	public int values[2];
 
-    public FixedBuffer() {
-        self.values[0] = 4;
-        self.values[1] = 7;
-    }
+	public FixedBuffer() {
+		self.values[0] = 4;
+		self.values[1] = 7;
+	}
 
-    public int sum() {
-        return self.values[0] + self.values[1];
-    }
+	public int sum() { return self.values[0] + self.values[1]; }
 }
 
 class GenericFixedBuffer<T> {
-    public int values[2];
+	public int values[2];
 
-    public GenericFixedBuffer(int first, int second) {
-        self.values[0] = first;
-        self.values[1] = second;
-    }
+	public GenericFixedBuffer(int first, int second) {
+		self.values[0] = first;
+		self.values[1] = second;
+	}
 
-    public int get(int index) {
-        return self.values[index];
-    }
+	public int get(int index) { return self.values[index]; }
 }
 
 class TypeSizedBuffer<T> {
-    public int values[sizeof(T)];
+	public int values[sizeof(T)];
 
-    public TypeSizedBuffer(int value) {
-        self.values[0] = value;
-    }
+	public TypeSizedBuffer(int value) { self.values[0] = value; }
 }
 
 int main() {
-    FixedBuffer fixed = new FixedBuffer();
-    assert(fixed.sum() == 11);
+	FixedBuffer fixed = new FixedBuffer();
+	assert(fixed.sum() == 11);
 
-    GenericFixedBuffer<int> generic =
-        new GenericFixedBuffer<int>(13, 17);
-    assert(generic.get(0) == 13);
-    assert(generic.get(1) == 17);
+	GenericFixedBuffer<int> generic = new GenericFixedBuffer<int> (13, 17);
+	assert(generic.get(0) == 13);
+	assert(generic.get(1) == 17);
 
-    TypeSizedBuffer<int> sized = new TypeSizedBuffer<int>(23);
-    assert(sized.values[0] == 23);
+	TypeSizedBuffer<int> sized = new TypeSizedBuffer<int>(23);
+	assert(sized.values[0] == 23);
 
-    delete sized;
-    delete generic;
-    delete fixed;
-    print("PASS: test_fixed_array_fields");
-    return 0;
+	delete sized;
+	delete generic;
+	delete fixed;
+	print("PASS: test_fixed_array_fields");
+	return 0;
 }

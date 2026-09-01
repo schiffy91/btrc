@@ -3,32 +3,28 @@
 #include <assert.h>
 
 int main() {
-    int n = 0;
-    for i in range(3) {
-        switch (i) {
-            case 1:
-                break;     // exits the switch only; loop continues
-            default:
-                n += 1;    // runs for i == 0 and i == 2
-        }
-        n += 10;           // runs every iteration, proving loop did not exit
-    }
-    // i=0: default(+1) then +10 ; i=1: break then +10 ; i=2: default(+1) then +10
-    assert(n == 32);
+	int n = 0;
+	for i in range(3) {
+		switch (i) {
+			case 1: break;     // exits the switch only; loop continues
+			default: n += 1;    // runs for i == 0 and i == 2
+		}
+		n += 10;           // runs every iteration, proving loop did not exit
+	}
+	// i=0: default(+1) then +10 ; i=1: break then +10 ; i=2: default(+1) then +10
+	assert(n == 32);
 
-    // confirm the loop fully completed by counting iterations independently
-    int iters = 0;
-    for i in range(4) {
-        switch (i % 2) {
-            case 0:
-                break;
-            default:
-                break;
-        }
-        iters++;
-    }
-    assert(iters == 4);
+	// confirm the loop fully completed by counting iterations independently
+	int iters = 0;
+	for i in range(4) {
+		switch (i % 2) {
+			case 0: break;
+			default: break;
+		}
+		iters++;
+	}
+	assert(iters == 4);
 
-    print("PASS: test_break_in_switch_in_loop");
-    return 0;
+	print("PASS: test_break_in_switch_in_loop");
+	return 0;
 }

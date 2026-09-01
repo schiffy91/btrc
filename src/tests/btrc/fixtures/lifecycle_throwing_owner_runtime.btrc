@@ -4,66 +4,66 @@ int lifecycleTrace = 0;
 int lifecycleObjectsAlive = 0;
 
 class ThrowLeaf {
-    public int id;
+	public int id;
 
-    public ThrowLeaf(int id) {
-        self.id = id;
-        lifecycleObjectsAlive++;
-    }
+	public ThrowLeaf(int id) {
+		self.id = id;
+		lifecycleObjectsAlive++;
+	}
 
-    public void __del__() {
-        lifecycleTrace = lifecycleTrace * 10 + self.id;
-        lifecycleObjectsAlive--;
-    }
+	public void __del__() {
+		lifecycleTrace = lifecycleTrace * 10 + self.id;
+		lifecycleObjectsAlive--;
+	}
 }
 
 class QueuedChild {
-    public int id;
-    public ThrowLeaf leaf;
+	public int id;
+	public ThrowLeaf leaf;
 
-    public QueuedChild(int id, int leafId) {
-        self.id = id;
-        self.leaf = new ThrowLeaf(leafId);
-        lifecycleObjectsAlive++;
-    }
+	public QueuedChild(int id, int leafId) {
+		self.id = id;
+		self.leaf = new ThrowLeaf(leafId);
+		lifecycleObjectsAlive++;
+	}
 
-    public void __del__() {
-        lifecycleTrace = lifecycleTrace * 10 + self.id;
-        lifecycleObjectsAlive--;
-    }
+	public void __del__() {
+		lifecycleTrace = lifecycleTrace * 10 + self.id;
+		lifecycleObjectsAlive--;
+	}
 }
 
 class ThrowingOwner {
-    public QueuedChild first;
-    public QueuedChild second;
+	public QueuedChild first;
+	public QueuedChild second;
 
-    public ThrowingOwner() {
-        self.first = new QueuedChild(2, 4);
-        self.second = new QueuedChild(3, 5);
-        lifecycleObjectsAlive++;
-    }
+	public ThrowingOwner() {
+		self.first = new QueuedChild(2, 4);
+		self.second = new QueuedChild(3, 5);
+		lifecycleObjectsAlive++;
+	}
 
-    public void __del__() {
-        lifecycleTrace = lifecycleTrace * 10 + 1;
-        lifecycleObjectsAlive--;
-        throw "owner hook failure";
-    }
+	public void __del__() {
+		lifecycleTrace = lifecycleTrace * 10 + 1;
+		lifecycleObjectsAlive--;
+		throw "owner hook failure";
+	}
 }
 
 int main() {
-    bool caught = false;
-    try {
-        ThrowingOwner owner = new ThrowingOwner();
-        delete owner;
-        assert(false);
-    } catch (string error) {
-        caught = error.equals("owner hook failure");
-    }
+	bool caught = false;
+	try {
+		ThrowingOwner owner = new ThrowingOwner();
+		delete owner;
+		assert(false);
+	} catch (string error) {
+		caught = error.equals("owner hook failure");
+	}
 
-    /* The owner error is rethrown only after both children and both nested
+	/* The owner error is rethrown only after both children and both nested
      * leaves have completed the FIFO lifecycle drain. */
-    assert(caught);
-    assert(lifecycleTrace == 12345);
-    assert(lifecycleObjectsAlive == 0);
-    return 0;
+	assert(caught);
+	assert(lifecycleTrace == 12345);
+	assert(lifecycleObjectsAlive == 0);
+	return 0;
 }

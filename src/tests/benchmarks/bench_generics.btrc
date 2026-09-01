@@ -2,32 +2,35 @@
 // type arguments. Stresses monomorphization (one emitted family per argument
 // set) and the generic method emitter.
 class Pair<A, B> {
-    public A first;
-    public B second;
-    public Pair(A a, B b) { self.first = a; self.second = b; }
-    public A getFirst() { return self.first; }
-    public B getSecond() { return self.second; }
+	public A first;
+	public B second;
+	public Pair(A a, B b) { self.first = a; self.second = b; }
+
+	public A getFirst() { return self.first; }
+
+	public B getSecond() { return self.second; }
 }
 
 class Wrapper<T> {
-    public T value;
-    public Wrapper(T v) { self.value = v; }
-    public T unwrap() { return self.value; }
+	public T value;
+	public Wrapper(T v) { self.value = v; }
+
+	public T unwrap() { return self.value; }
 }
 
 int main() {
-    Pair<int, string> p1 = Pair(1, "one");
-    Pair<string, int> p2 = Pair("two", 2);
-    Pair<int, int> p3 = Pair(3, 4);
+	Pair<int, string> p1 = Pair(1, "one");
+	Pair<string, int> p2 = Pair("two", 2);
+	Pair<int, int> p3 = Pair(3, 4);
 
-    Wrapper<int> w1 = Wrapper(10);
-    Wrapper<string> w2 = Wrapper("ten");
-    Wrapper<bool> w3 = Wrapper(true);
+	Wrapper<int> w1 = Wrapper(10);
+	Wrapper<string> w2 = Wrapper("ten");
+	Wrapper<bool> w3 = Wrapper(true);
 
-    print(p1.getFirst());
-    print(p2.getSecond());
-    print(p3.getFirst() + p3.getSecond());
-    print(w1.unwrap());
-    print(w2.unwrap());
-    return 0;
+	print(p1.getFirst());
+	print(p2.getSecond());
+	print(p3.getFirst() + p3.getSecond());
+	print(w1.unwrap());
+	print(w2.unwrap());
+	return 0;
 }

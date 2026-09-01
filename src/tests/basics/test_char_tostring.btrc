@@ -2,20 +2,20 @@
 #include <string.h>
 
 int main() {
-    // char.toString() produces a one-character string
-    char c = 'A';
-    string s = c.toString();
-    assert(strcmp(s, "A") == 0);
-    assert(s.len() == 1);
+	// char.toString() produces a one-character string
+	char c = 'A';
+	string s = c.toString();
+	assert(strcmp(s, "A") == 0);
+	assert(s.len() == 1);
 
-    // a different char
-    char d = 'z';
-    string ds = d.toString();
-    assert(strcmp(ds, "z") == 0);
+	// a different char
+	char d = 'z';
+	string ds = d.toString();
+	assert(strcmp(ds, "z") == 0);
 
-    // char still compares as its integer code
-    assert(c == 65);
+	// char still compares as its integer code
+	assert(c == 65);
 
-    print("PASS: test_char_tostring");
-    return 0;
+	print("PASS: test_char_tostring");
+	return 0;
 }

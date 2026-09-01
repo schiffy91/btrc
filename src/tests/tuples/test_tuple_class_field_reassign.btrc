@@ -6,28 +6,26 @@
 #include <assert.h>
 
 class Box {
-    public (int, int) p;
-    public Box() {
-        self.p = (0, 0);
-    }
+	public (int, int) p;
+	public Box() { self.p = (0, 0); }
 }
 
 int main() {
-    Box b = new Box();
-    assert(b.p._0 == 0);
-    assert(b.p._1 == 0);
+	Box b = new Box();
+	assert(b.p._0 == 0);
+	assert(b.p._1 == 0);
 
-    b.p = (7, 8);
-    assert(b.p._0 == 7);
-    assert(b.p._1 == 8);
+	b.p = (7, 8);
+	assert(b.p._0 == 7);
+	assert(b.p._1 == 8);
 
-    b.p._0 = 9;
-    assert(b.p._0 == 9);
-    assert(b.p._1 == 8);
+	b.p._0 = 9;
+	assert(b.p._0 == 9);
+	assert(b.p._1 == 8);
 
-    b.p._1 = b.p._0 + 1;
-    assert(b.p._1 == 10);
+	b.p._1 = b.p._0 + 1;
+	assert(b.p._1 == 10);
 
-    print("PASS: test_tuple_class_field_reassign");
-    return 0;
+	print("PASS: test_tuple_class_field_reassign");
+	return 0;
 }

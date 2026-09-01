@@ -6,26 +6,26 @@ import std.error;
 #include <string.h>
 
 int main() {
-    Error base = new Error("boom", 99);
-    assert(base.code == 99);
-    assert(strcmp(base.message, "boom") == 0);
-    assert(strcmp(base.toString(), "boom") == 0);
+	Error base = new Error("boom", 99);
+	assert(base.code == 99);
+	assert(strcmp(base.message, "boom") == 0);
+	assert(strcmp(base.toString(), "boom") == 0);
 
-    Error v = new ValueError("bad value");
-    assert(v.code == 1);
-    assert(strcmp(v.message, "bad value") == 0);
-    assert(strcmp(v.toString(), "bad value") == 0);  /* inherited toString */
+	Error v = new ValueError("bad value");
+	assert(v.code == 1);
+	assert(strcmp(v.message, "bad value") == 0);
+	assert(strcmp(v.toString(), "bad value") == 0);  /* inherited toString */
 
-    Error io = new IOError("io fail");
-    assert(io.code == 2);
-    Error ty = new TypeError("type");
-    assert(ty.code == 3);
-    Error ix = new IndexError("idx");
-    assert(ix.code == 4);
-    Error ke = new KeyError("key");
-    assert(ke.code == 5);
+	Error io = new IOError("io fail");
+	assert(io.code == 2);
+	Error ty = new TypeError("type");
+	assert(ty.code == 3);
+	Error ix = new IndexError("idx");
+	assert(ix.code == 4);
+	Error ke = new KeyError("key");
+	assert(ke.code == 5);
 
-    delete base; delete v; delete io; delete ty; delete ix; delete ke;
-    print("PASS: test_stdlib_error");
-    return 0;
+	delete base; delete v; delete io; delete ty; delete ix; delete ke;
+	print("PASS: test_stdlib_error");
+	return 0;
 }

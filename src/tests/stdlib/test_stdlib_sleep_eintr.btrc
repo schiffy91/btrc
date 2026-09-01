@@ -8,41 +8,41 @@ import std.datetime;
 #include "../../stdlib/datetime.btrc"
 
 void interruptSleep(int signalNumber) {
-    if (signalNumber != SIGALRM) {
-        return;
-    }
+	if (signalNumber != SIGALRM) {
+		return;
+	}
 }
 
 void armInterrupt() {
-    struct itimerval alarmTimer;
-    alarmTimer.it_interval.tv_sec = 0;
-    alarmTimer.it_interval.tv_usec = 0;
-    alarmTimer.it_value.tv_sec = 0;
-    alarmTimer.it_value.tv_usec = 50000;
-    int realTimer = (int)ITIMER_REAL;
-    assert(setitimer(realTimer, &alarmTimer, NULL) == 0);
+	struct itimerval alarmTimer;
+	alarmTimer.it_interval.tv_sec = 0;
+	alarmTimer.it_interval.tv_usec = 0;
+	alarmTimer.it_value.tv_sec = 0;
+	alarmTimer.it_value.tv_usec = 50000;
+	int realTimer = (int)ITIMER_REAL;
+	assert(setitimer(realTimer, &alarmTimer, NULL) == 0);
 }
 
 int main() {
-    int alarmSignal = (int)SIGALRM;
-    signal(alarmSignal, interruptSleep);
+	int alarmSignal = (int)SIGALRM;
+	signal(alarmSignal, interruptSleep);
 
-    armInterrupt();
-    Timer secondsTimer = Timer();
-    secondsTimer.start();
-    Timer.sleep(0.15);
-    secondsTimer.stop();
+	armInterrupt();
+	Timer secondsTimer = Timer();
+	secondsTimer.start();
+	Timer.sleep(0.15);
+	secondsTimer.stop();
 
-    /* Without the EINTR retry this returns near the 50 ms alarm. */
-    assert(secondsTimer.elapsedMillis() >= 120.0f);
+	/* Without the EINTR retry this returns near the 50 ms alarm. */
+	assert(secondsTimer.elapsedMillis() >= 120.0f);
 
-    armInterrupt();
-    Timer millisTimer = Timer();
-    millisTimer.start();
-    Timer.sleepMillis(150);
-    millisTimer.stop();
-    assert(millisTimer.elapsedMillis() >= 120.0f);
+	armInterrupt();
+	Timer millisTimer = Timer();
+	millisTimer.start();
+	Timer.sleepMillis(150);
+	millisTimer.stop();
+	assert(millisTimer.elapsedMillis() >= 120.0f);
 
-    print("PASS: test_stdlib_sleep_eintr");
-    return 0;
+	print("PASS: test_stdlib_sleep_eintr");
+	return 0;
 }

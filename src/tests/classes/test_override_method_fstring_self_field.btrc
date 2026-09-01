@@ -4,28 +4,30 @@
 #include <assert.h>
 
 interface Drawable {
-    string render();
+	string render();
 }
 
 class Circle implements Drawable {
-    public int r;
-    public Circle(int r) { self.r = r; }
-    public string render() { return f"circle r={self.r}"; }
+	public int r;
+	public Circle(int r) { self.r = r; }
+
+	public string render() { return f"circle r={self.r}"; }
 }
 
 class Square implements Drawable {
-    public int side;
-    public Square(int side) { self.side = side; }
-    public string render() { return f"square s={self.side}"; }
+	public int side;
+	public Square(int side) { self.side = side; }
+
+	public string render() { return f"square s={self.side}"; }
 }
 
 int main() {
-    Circle c = Circle(5);
-    assert(c.render() == "circle r=5");
+	Circle c = Circle(5);
+	assert(c.render() == "circle r=5");
 
-    Square s = Square(3);
-    assert(s.render() == "square s=3");
+	Square s = Square(3);
+	assert(s.render() == "square s=3");
 
-    print("PASS: test_override_method_fstring_self_field");
-    return 0;
+	print("PASS: test_override_method_fstring_self_field");
+	return 0;
 }

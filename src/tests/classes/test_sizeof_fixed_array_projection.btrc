@@ -6,44 +6,37 @@ int sizeofConstructions = 0;
 int sizeofDestructions = 0;
 
 int forbiddenSizeofEffect() {
-    sizeofConstructions += 100;
-    return 7;
+	sizeofConstructions += 100;
+	return 7;
 }
 
 class SizeofHolder {
-    public int values[3];
+	public int values[3];
 
-    public SizeofHolder() {
-        sizeofConstructions += 1;
-    }
+	public SizeofHolder() { sizeofConstructions += 1; }
 
-    public void __del__() {
-        sizeofDestructions += 1;
-    }
+	public void __del__() { sizeofDestructions += 1; }
 }
 
 class GenericSizeofProbe<T> {
-    public GenericSizeofProbe() {}
+	public GenericSizeofProbe() {}
 
-    public size_t measure() {
-        return sizeof((new SizeofHolder()).values);
-    }
+	public size_t measure() { return sizeof((new SizeofHolder()).values); }
 }
 
 int main() {
-    assert(sizeof(new SizeofHolder()) == sizeof(SizeofHolder*));
-    assert(sizeof(f"{forbiddenSizeofEffect()}") == sizeof(string));
-    assert(sizeof((new SizeofHolder()).values) ==
-        (size_t)3 * sizeof(int));
-    assert(sizeofConstructions == 0);
-    assert(sizeofDestructions == 0);
+	assert(sizeof(new SizeofHolder()) == sizeof(SizeofHolder*));
+	assert(sizeof(f"{forbiddenSizeofEffect()}") == sizeof(string));
+	assert(sizeof((new SizeofHolder()).values) == (size_t)3 * sizeof(int));
+	assert(sizeofConstructions == 0);
+	assert(sizeofDestructions == 0);
 
-    GenericSizeofProbe<int> probe = new GenericSizeofProbe<int>();
-    assert(probe.measure() == (size_t)3 * sizeof(int));
-    assert(sizeofConstructions == 0);
-    assert(sizeofDestructions == 0);
+	GenericSizeofProbe<int> probe = new GenericSizeofProbe<int>();
+	assert(probe.measure() == (size_t)3 * sizeof(int));
+	assert(sizeofConstructions == 0);
+	assert(sizeofDestructions == 0);
 
-    delete probe;
-    print("PASS: test_sizeof_fixed_array_projection");
-    return 0;
+	delete probe;
+	print("PASS: test_sizeof_fixed_array_projection");
+	return 0;
 }

@@ -5,30 +5,30 @@
 int seen = 0;
 
 void mark(int n) {
-    if (n < 0) {
-        return;   // bare return in void context
-    }
-    seen = n;
+	if (n < 0) {
+		return;   // bare return in void context
+	}
+	seen = n;
 }
 
 int touched = 0;
 
 void noReturn(int n) {
-    // no return statement anywhere; just falls off the end
-    touched = touched + n;
+	// no return statement anywhere; just falls off the end
+	touched = touched + n;
 }
 
 int main() {
-    mark(-1);
-    assert(seen == 0);   // early return: seen untouched
-    mark(7);
-    assert(seen == 7);
+	mark(-1);
+	assert(seen == 0);   // early return: seen untouched
+	mark(7);
+	assert(seen == 7);
 
-    noReturn(3);
-    assert(touched == 3);
-    noReturn(4);
-    assert(touched == 7);
+	noReturn(3);
+	assert(touched == 3);
+	noReturn(4);
+	assert(touched == 7);
 
-    print("PASS: test_void_return");
-    return 0;
+	print("PASS: test_void_return");
+	return 0;
 }

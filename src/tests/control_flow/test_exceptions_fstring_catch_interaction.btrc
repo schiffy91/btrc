@@ -5,22 +5,22 @@
 #include <assert.h>
 
 int main() {
-    int n = 5;
-    try {
-        throw f"bad {n}";
-    } catch (string e) {
-        assert(e.equals("bad 5"));
-        // Re-interpolate the catch var together with another expression.
-        string s = f"got [{e}] at {n + 1}";
-        assert(s.equals("got [bad 5] at 6"));
-        assert(s.contains("bad 5"));
-        assert(s.startsWith("got ["));
+	int n = 5;
+	try {
+		throw f"bad {n}";
+	} catch (string e) {
+		assert(e.equals("bad 5"));
+		// Re-interpolate the catch var together with another expression.
+		string s = f"got [{e}] at {n + 1}";
+		assert(s.equals("got [bad 5] at 6"));
+		assert(s.contains("bad 5"));
+		assert(s.startsWith("got ["));
 
-        // Concatenation of the catch var with literals also works.
-        string c = "<" + e + ">";
-        assert(c.equals("<bad 5>"));
-    }
+		// Concatenation of the catch var with literals also works.
+		string c = "<" + e + ">";
+		assert(c.equals("<bad 5>"));
+	}
 
-    print("PASS: test_exceptions_fstring_catch_interaction");
-    return 0;
+	print("PASS: test_exceptions_fstring_catch_interaction");
+	return 0;
 }

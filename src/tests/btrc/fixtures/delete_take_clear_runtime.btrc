@@ -3,58 +3,56 @@ int lvalueCalls = 0;
 bool destructorSawNull = false;
 
 class Victim {
-    public void __del__() {
-        destructorCalls += 1;
-        destructorSawNull = holders[0].item == null;
-        throw "destructor failed";
-    }
+	public void __del__() {
+		destructorCalls += 1;
+		destructorSawNull = holders[0].item == null;
+		throw "destructor failed";
+	}
 }
 
 class Holder {
-    public Victim item;
+	public Victim item;
 
-    public Holder() {
-        self.item = new Victim();
-    }
+	public Holder() { self.item = new Victim(); }
 }
 
 Holder holders[1];
 
 int selectedIndex() {
-    lvalueCalls += 1;
-    return 0;
+	lvalueCalls += 1;
+	return 0;
 }
 
 class GenericDrop<T> {
-    public void dropNullVictim() {
-        Victim value = (Victim)null;
-        delete value;
-    }
+	public void dropNullVictim() {
+		Victim value = (Victim)null;
+		delete value;
+	}
 }
 
 int main() {
-    int* raw = null;
-    delete raw;
-    if (raw != null) { return 1; }
+	int* raw = null;
+	delete raw;
+	if (raw != null) { return 1; }
 
-    GenericDrop<string> genericDrop = new GenericDrop<string>();
-    genericDrop.dropNullVictim();
-    delete genericDrop;
+	GenericDrop<string> genericDrop = new GenericDrop<string>();
+	genericDrop.dropNullVictim();
+	delete genericDrop;
 
-    Holder owner = new Holder();
-    holders[0] = owner;
-    bool caught = false;
-    try {
-        delete holders[selectedIndex()].item;
-    } catch (string error) {
-        caught = error == "destructor failed";
-    }
+	Holder owner = new Holder();
+	holders[0] = owner;
+	bool caught = false;
+	try {
+		delete holders[selectedIndex()].item;
+	} catch (string error) {
+		caught = error == "destructor failed";
+	}
 
-    if (!caught) { return 2; }
-    if (lvalueCalls != 1) { return 3; }
-    if (destructorCalls != 1) { return 4; }
-    if (!destructorSawNull) { return 5; }
-    if (holders[0].item != null) { return 6; }
-    print("PASS: delete take-clear");
-    return 0;
+	if (!caught) { return 2; }
+	if (lvalueCalls != 1) { return 3; }
+	if (destructorCalls != 1) { return 4; }
+	if (!destructorSawNull) { return 5; }
+	if (holders[0].item != null) { return 6; }
+	print("PASS: delete take-clear");
+	return 0;
 }

@@ -4,28 +4,30 @@
 #include <assert.h>
 
 class Animal {
-    public Animal() {}
-    public string speak() { return "base"; }
+	public Animal() {}
+
+	public string speak() { return "base"; }
 }
 
 class Dog extends Animal {
-    public Dog() {}
-    public string speak() { return "woof"; }
+	public Dog() {}
+
+	public string speak() { return "woof"; }
 }
 
 int main() {
-    // value is a Dog, but the variable is declared Animal -> base method runs
-    Animal a = Dog();
-    assert(a.speak() == "base");
+	// value is a Dog, but the variable is declared Animal -> base method runs
+	Animal a = Dog();
+	assert(a.speak() == "base");
 
-    // declared as the concrete type -> the override runs
-    Dog d = Dog();
-    assert(d.speak() == "woof");
+	// declared as the concrete type -> the override runs
+	Dog d = Dog();
+	assert(d.speak() == "woof");
 
-    // a base-typed variable still calls the base method even after a Dog
-    Animal a2 = Animal();
-    assert(a2.speak() == "base");
+	// a base-typed variable still calls the base method even after a Dog
+	Animal a2 = Animal();
+	assert(a2.speak() == "base");
 
-    print("PASS: test_inheritance_static_dispatch");
-    return 0;
+	print("PASS: test_inheritance_static_dispatch");
+	return 0;
 }

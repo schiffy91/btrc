@@ -5,98 +5,91 @@ import std.io;
 #include <assert.h>
 
 FileRevision snapshotTree(string path, FileTreeLimits limits) {
-    FileTreeSnapshotOpenOutcome opened =
-        FileSystem.openFileTreeSnapshot(path, limits);
-    assert(opened.ok());
-    FileTreeSnapshot snapshot = opened.snapshot();
-    for (int stepCount = 0; stepCount < 256; stepCount++) {
-        FileTreeSnapshotStep step = snapshot.advance();
-        assert(step.ok());
-        if (step.kind() == FILE_TREE_SNAPSHOT_COMPLETE) {
-            return step.revision();
-        }
-    }
-    throw "file tree snapshot did not complete within its step bound";
+	FileTreeSnapshotOpenOutcome opened = FileSystem.openFileTreeSnapshot(path, limits);
+	assert(opened.ok());
+	FileTreeSnapshot snapshot = opened.snapshot();
+	for (int stepCount = 0; stepCount < 256; stepCount++) {
+		FileTreeSnapshotStep step = snapshot.advance();
+		assert(step.ok());
+		if (step.kind() == FILE_TREE_SNAPSHOT_COMPLETE) {
+			return step.revision();
+		}
+	}
+	throw "file tree snapshot did not complete within its step bound";
 }
 
 FileSystemError boundedFailure(string path, FileTreeLimits limits) {
-    FileTreeSnapshotOpenOutcome opened =
-        FileSystem.openFileTreeSnapshot(path, limits);
-    assert(opened.ok());
-    FileTreeSnapshot snapshot = opened.snapshot();
-    for (int stepCount = 0; stepCount < 256; stepCount++) {
-        FileTreeSnapshotStep step = snapshot.advance();
-        if (step.kind() == FILE_TREE_SNAPSHOT_FAILED) {
-            return step.error();
-        }
-        assert(step.kind() != FILE_TREE_SNAPSHOT_COMPLETE);
-    }
-    throw "bounded file tree snapshot did not fail";
+	FileTreeSnapshotOpenOutcome opened = FileSystem.openFileTreeSnapshot(path, limits);
+	assert(opened.ok());
+	FileTreeSnapshot snapshot = opened.snapshot();
+	for (int stepCount = 0; stepCount < 256; stepCount++) {
+		FileTreeSnapshotStep step = snapshot.advance();
+		if (step.kind() == FILE_TREE_SNAPSHOT_FAILED) {
+			return step.error();
+		}
+		assert(step.kind() != FILE_TREE_SNAPSHOT_COMPLETE);
+	}
+	throw "bounded file tree snapshot did not fail";
 }
 
 int main() {
-    TemporaryDirectoryOpenOutcome temporaryOpen =
-        FileSystem.createTemporaryDirectory("btrc_file_tree_real");
-    assert(temporaryOpen.ok());
-    TemporaryDirectory temporary = temporaryOpen.directory();
-    string root = temporary.path();
-    string child = PathTools.join(root, "child");
-    assert(FileSystem.mkdir(child, 448) == 0);
-    assert(FileSystem.writeText(PathTools.join(root, "b.txt"), "bravo"));
-    assert(FileSystem.writeText(PathTools.join(root, "a.txt"), "alpha"));
-    string nested = PathTools.join(child, "nested.txt");
-    assert(FileSystem.writeText(nested, "nested"));
+	TemporaryDirectoryOpenOutcome temporaryOpen = FileSystem.createTemporaryDirectory("btrc_file_tree_real");
+	assert(temporaryOpen.ok());
+	TemporaryDirectory temporary = temporaryOpen.directory();
+	string root = temporary.path();
+	string child = PathTools.join(root, "child");
+	assert(FileSystem.mkdir(child, 448) == 0);
+	assert(FileSystem.writeText(PathTools.join(root, "b.txt"), "bravo"));
+	assert(FileSystem.writeText(PathTools.join(root, "a.txt"), "alpha"));
+	string nested = PathTools.join(child, "nested.txt");
+	assert(FileSystem.writeText(nested, "nested"));
 
-    FileTreeLimits limits = FileTreeLimits(8, 32, 128, 16384);
-    int baseline = FileSystem.ownedHandleInventory().openCount();
-    FileRevision first = snapshotTree(root, limits);
-    assert(FileSystem.ownedHandleInventory().openCount() == baseline);
-    FileRevision same = snapshotTree(root, limits);
-    assert(first.equals(same));
-    assert(FileSystem.ownedHandleInventory().openCount() == baseline);
+	FileTreeLimits limits = FileTreeLimits(8, 32, 128, 16384);
+	int baseline = FileSystem.ownedHandleInventory().openCount();
+	FileRevision first = snapshotTree(root, limits);
+	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
+	FileRevision same = snapshotTree(root, limits);
+	assert(first.equals(same));
+	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
 
-    assert(FileSystem.writeText(nested, "nested replacement"));
-    FileRevision changed = snapshotTree(root, limits);
-    assert(!first.equals(changed));
-    assert(FileSystem.ownedHandleInventory().openCount() == baseline);
+	assert(FileSystem.writeText(nested, "nested replacement"));
+	FileRevision changed = snapshotTree(root, limits);
+	assert(!first.equals(changed));
+	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
 
-    FileSystemError entryLimit = boundedFailure(
-        root, FileTreeLimits(8, 2, 128, 16384));
-    assert(entryLimit.kind() == FS_RESOURCE_EXHAUSTED);
-    assert(FileSystem.ownedHandleInventory().openCount() == baseline);
-    FileSystemError depthLimit = boundedFailure(
-        root, FileTreeLimits(0, 32, 128, 16384));
-    assert(depthLimit.kind() == FS_RESOURCE_EXHAUSTED);
-    assert(FileSystem.ownedHandleInventory().openCount() == baseline);
-    FileSystemError nameLimit = boundedFailure(
-        root, FileTreeLimits(8, 32, 2, 16384));
-    assert(nameLimit.kind() == FS_RESOURCE_EXHAUSTED);
-    assert(FileSystem.ownedHandleInventory().openCount() == baseline);
+	FileSystemError entryLimit = boundedFailure(root, FileTreeLimits(8, 2, 128, 16384));
+	assert(entryLimit.kind() == FS_RESOURCE_EXHAUSTED);
+	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
+	FileSystemError depthLimit = boundedFailure(root, FileTreeLimits(0, 32, 128, 16384));
+	assert(depthLimit.kind() == FS_RESOURCE_EXHAUSTED);
+	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
+	FileSystemError nameLimit = boundedFailure(root, FileTreeLimits(8, 32, 2, 16384));
+	assert(nameLimit.kind() == FS_RESOURCE_EXHAUSTED);
+	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
 
-    string link = PathTools.join(root, "link");
-    assert(FileSystem.symlink(nested, link) == 0);
-    FileSystemError unsupported = boundedFailure(root, limits);
-    assert(unsupported.kind() == FS_UNSUPPORTED);
-    assert(FileSystem.ownedHandleInventory().openCount() == baseline);
-    assert(FileSystem.removeRecursive(link) == 0);
+	string link = PathTools.join(root, "link");
+	assert(FileSystem.symlink(nested, link) == 0);
+	FileSystemError unsupported = boundedFailure(root, limits);
+	assert(unsupported.kind() == FS_UNSUPPORTED);
+	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
+	assert(FileSystem.removeRecursive(link) == 0);
 
-    FileTreeSnapshotOpenOutcome cancelledOpen =
-        FileSystem.openFileTreeSnapshot(root, limits);
-    assert(cancelledOpen.ok());
-    FileTreeSnapshot cancelled = cancelledOpen.snapshot();
-    assert(cancelled.advance().kind() == FILE_TREE_SNAPSHOT_ADVANCED);
-    assert(cancelled.close().kind() == FS_CLOSED_NOW);
-    assert(cancelled.close().kind() == FS_ALREADY_CLOSED);
-    assert(FileSystem.ownedHandleInventory().openCount() == baseline);
+	FileTreeSnapshotOpenOutcome cancelledOpen = FileSystem.openFileTreeSnapshot(root, limits);
+	assert(cancelledOpen.ok());
+	FileTreeSnapshot cancelled = cancelledOpen.snapshot();
+	assert(cancelled.advance().kind() == FILE_TREE_SNAPSHOT_ADVANCED);
+	assert(cancelled.close().kind() == FS_CLOSED_NOW);
+	assert(cancelled.close().kind() == FS_ALREADY_CLOSED);
+	assert(FileSystem.ownedHandleInventory().openCount() == baseline);
 
-    FileSnapshotOutcome nestedSnapshot = FileSystem.inspectExact(nested);
-    assert(nestedSnapshot.ok());
-    FileRevision direct = FileSystem.revision(nestedSnapshot.snapshot());
-    FileRevisionBuilder builder = FileRevisionBuilder();
-    builder.appendSnapshot(nestedSnapshot.snapshot());
-    assert(direct.equals(builder.revision()));
+	FileSnapshotOutcome nestedSnapshot = FileSystem.inspectExact(nested);
+	assert(nestedSnapshot.ok());
+	FileRevision direct = FileSystem.revision(nestedSnapshot.snapshot());
+	FileRevisionBuilder builder = FileRevisionBuilder();
+	builder.appendSnapshot(nestedSnapshot.snapshot());
+	assert(direct.equals(builder.revision()));
 
-    assert(temporary.close().kind() == FS_CLOSED_NOW);
-    print("PASS: deterministic bounded file tree snapshots");
-    return 0;
+	assert(temporary.close().kind() == FS_CLOSED_NOW);
+	print("PASS: deterministic bounded file tree snapshots");
+	return 0;
 }

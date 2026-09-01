@@ -6,111 +6,108 @@ extern long arc_test_allocation_delta();
 int genericFieldItemsAlive = 0;
 
 class GenericFieldItem {
-    public int id;
+	public int id;
 
-    public GenericFieldItem(int id) {
-        self.id = id;
-        genericFieldItemsAlive++;
-    }
+	public GenericFieldItem(int id) {
+		self.id = id;
+		genericFieldItemsAlive++;
+	}
 
-    public void __del__() { genericFieldItemsAlive--; }
+	public void __del__() { genericFieldItemsAlive--; }
 }
 
 class GenericFieldSlot<T> {
-    public T stored;
+	public T stored;
 
-    public GenericFieldSlot() { self.stored = null; }
-    public void store(T value) { self.stored = value; }
+	public GenericFieldSlot() { self.stored = null; }
+
+	public void store(T value) { self.stored = value; }
 }
 
 class NullableGenericFieldSlot<T> {
-    public T? stored = null;
+	public T? stored = null;
 
-    public NullableGenericFieldSlot() {}
-    public void store(T? value) { self.stored = value; }
+	public NullableGenericFieldSlot() {}
+
+	public void store(T? value) { self.stored = value; }
 }
 
 void exerciseClassFields(int base) {
-    GenericFieldSlot<GenericFieldItem> direct =
-        new GenericFieldSlot<GenericFieldItem>();
-    {
-        GenericFieldItem source = new GenericFieldItem(base);
-        direct.store(source);
-    }
-    assert(genericFieldItemsAlive == 1);
-    assert(direct.stored.id == base);
-    delete direct;
-    assert(genericFieldItemsAlive == 0);
+	GenericFieldSlot<GenericFieldItem> direct = new GenericFieldSlot<GenericFieldItem> ();
+	{
+		GenericFieldItem source = new GenericFieldItem(base);
+		direct.store(source);
+	}
+	assert(genericFieldItemsAlive == 1);
+	assert(direct.stored.id == base);
+	delete direct;
+	assert(genericFieldItemsAlive == 0);
 
-    NullableGenericFieldSlot<GenericFieldItem> nullable =
-        new NullableGenericFieldSlot<GenericFieldItem>();
-    {
-        GenericFieldItem source = new GenericFieldItem(base + 1);
-        nullable.store(source);
-    }
-    assert(genericFieldItemsAlive == 1);
-    assert(nullable.stored.id == base + 1);
-    delete nullable;
-    assert(genericFieldItemsAlive == 0);
+	NullableGenericFieldSlot<GenericFieldItem> nullable = new NullableGenericFieldSlot<GenericFieldItem> ();
+	{
+		GenericFieldItem source = new GenericFieldItem(base + 1);
+		nullable.store(source);
+	}
+	assert(genericFieldItemsAlive == 1);
+	assert(nullable.stored.id == base + 1);
+	delete nullable;
+	assert(genericFieldItemsAlive == 0);
 }
 
 void exerciseStringFields(int base) {
-    int baseline = (int)__btrc_string_live_count();
-    GenericFieldSlot<string> direct = new GenericFieldSlot<string>();
-    {
-        string source = base.toString();
-        direct.store(source);
-    }
-    assert(direct.stored.toInt() == base);
-    assert((int)__btrc_string_live_count() == baseline + 1);
-    delete direct;
-    assert((int)__btrc_string_live_count() == baseline);
+	int baseline = (int)__btrc_string_live_count();
+	GenericFieldSlot<string> direct = new GenericFieldSlot<string>();
+	{
+		string source = base.toString();
+		direct.store(source);
+	}
+	assert(direct.stored.toInt() == base);
+	assert((int)__btrc_string_live_count() == baseline + 1);
+	delete direct;
+	assert((int)__btrc_string_live_count() == baseline);
 
-    NullableGenericFieldSlot<string> nullable =
-        new NullableGenericFieldSlot<string>();
-    {
-        string source = (base + 1).toString();
-        nullable.store(source);
-    }
-    assert(nullable.stored.toInt() == base + 1);
-    assert((int)__btrc_string_live_count() == baseline + 1);
-    delete nullable;
-    assert((int)__btrc_string_live_count() == baseline);
+	NullableGenericFieldSlot<string> nullable = new NullableGenericFieldSlot<string> ();
+	{
+		string source = (base + 1).toString();
+		nullable.store(source);
+	}
+	assert(nullable.stored.toInt() == base + 1);
+	assert((int)__btrc_string_live_count() == baseline + 1);
+	delete nullable;
+	assert((int)__btrc_string_live_count() == baseline);
 }
 
 void exerciseMutexFields(int base) {
-    GenericFieldSlot<Mutex<int>> direct =
-        new GenericFieldSlot<Mutex<int>>();
-    {
-        Mutex<int> source = Mutex(base);
-        direct.store(source);
-    }
-    assert(direct.stored.get() == base);
-    delete direct;
+	GenericFieldSlot<Mutex<int>> direct = new GenericFieldSlot<Mutex<int>> ();
+	{
+		Mutex<int> source = Mutex(base);
+		direct.store(source);
+	}
+	assert(direct.stored.get() == base);
+	delete direct;
 
-    NullableGenericFieldSlot<Mutex<int>> nullable =
-        new NullableGenericFieldSlot<Mutex<int>>();
-    {
-        Mutex<int> source = Mutex(base + 1);
-        nullable.store(source);
-    }
-    assert(nullable.stored.get() == base + 1);
-    delete nullable;
+	NullableGenericFieldSlot<Mutex<int>> nullable = new NullableGenericFieldSlot<Mutex<int>> ();
+	{
+		Mutex<int> source = Mutex(base + 1);
+		nullable.store(source);
+	}
+	assert(nullable.stored.get() == base + 1);
+	delete nullable;
 }
 
 void exerciseGenericFieldOwnership(int base) {
-    exerciseClassFields(base);
-    exerciseStringFields(base + 100);
-    exerciseMutexFields(base + 200);
+	exerciseClassFields(base);
+	exerciseStringFields(base + 100);
+	exerciseMutexFields(base + 200);
 }
 
 int main() {
-    exerciseGenericFieldOwnership(1000);
-    assert(genericFieldItemsAlive == 0);
+	exerciseGenericFieldOwnership(1000);
+	assert(genericFieldItemsAlive == 0);
 
-    arc_test_allocation_checkpoint();
-    exerciseGenericFieldOwnership(2000);
-    assert(genericFieldItemsAlive == 0);
-    assert(arc_test_allocation_delta() == 0);
-    return 0;
+	arc_test_allocation_checkpoint();
+	exerciseGenericFieldOwnership(2000);
+	assert(genericFieldItemsAlive == 0);
+	assert(arc_test_allocation_delta() == 0);
+	return 0;
 }

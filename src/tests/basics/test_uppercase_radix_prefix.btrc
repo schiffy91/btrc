@@ -4,23 +4,23 @@
 #include <assert.h>
 
 int main() {
-    // uppercase 0X prefix with mixed-case hex digits
-    assert(0XaBcD == 43981);
+	// uppercase 0X prefix with mixed-case hex digits
+	assert(0XaBcD == 43981);
 
-    // uppercase 0O octal prefix
-    assert(0O17 == 15);
+	// uppercase 0O octal prefix
+	assert(0O17 == 15);
 
-    // lowercase hex digits a-f under the lowercase prefix
-    assert(0xabc == 2748);
+	// lowercase hex digits a-f under the lowercase prefix
+	assert(0xabc == 2748);
 
-    // uppercase 0B binary prefix for completeness alongside the others
-    assert(0B1010 == 10);
+	// uppercase 0B binary prefix for completeness alongside the others
+	assert(0B1010 == 10);
 
-    // mix the forms in one expression
-    int v = 0XFF + 0O10 + 0xa;
-    assert(v == 255 + 8 + 10);
-    assert(v == 273);
+	// mix the forms in one expression
+	int v = 0XFF + 0O10 + 0xa;
+	assert(v == 255 + 8 + 10);
+	assert(v == 273);
 
-    print("PASS: test_uppercase_radix_prefix");
-    return 0;
+	print("PASS: test_uppercase_radix_prefix");
+	return 0;
 }

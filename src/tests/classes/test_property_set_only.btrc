@@ -5,32 +5,28 @@
 #include <assert.h>
 
 class Logger {
-    private string last;
+	private string last;
 
-    public Logger() {
-        self.last = "";
-    }
+	public Logger() { self.last = ""; }
 
-    // set-only property: no getter, writes the backing field via the setter
-    public string message {
-        set { self.last = value; }
-    }
+	// set-only property: no getter, writes the backing field via the setter
+	public string message {
+		set { self.last = value; }
+	}
 
-    public string getLast() {
-        return self.last;
-    }
+	public string getLast() { return self.last; }
 }
 
 int main() {
-    Logger l = Logger();
+	Logger l = Logger();
 
-    l.message = "hello";
-    assert(l.getLast() == "hello");
+	l.message = "hello";
+	assert(l.getLast() == "hello");
 
-    // a second assignment overwrites the backing field through the setter
-    l.message = "world";
-    assert(l.getLast() == "world");
+	// a second assignment overwrites the backing field through the setter
+	l.message = "world";
+	assert(l.getLast() == "world");
 
-    print("PASS: test_property_set_only");
-    return 0;
+	print("PASS: test_property_set_only");
+	return 0;
 }

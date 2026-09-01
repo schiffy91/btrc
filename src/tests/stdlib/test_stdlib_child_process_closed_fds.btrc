@@ -1,95 +1,80 @@
 import std.process;
 
 bool closesFdAboveLoweredSoftLimit() {
-    struct rlimit originalLimit;
-    if (getrlimit((int)RLIMIT_NOFILE, &originalLimit) != 0
-            || (uintmax_t)originalLimit.rlim_cur <= (uintmax_t)6) {
-        return false;
-    }
+	struct rlimit originalLimit;
+	if (getrlimit((int)RLIMIT_NOFILE, &originalLimit) != 0 || (uintmax_t)originalLimit.rlim_cur <= (uintmax_t)6) {
+		return false;
+	}
 
-    FILE* stream = tmpfile();
-    if (stream == NULL) { return false; }
-    int highDescriptor = fcntl(fileno(stream), F_DUPFD, 5);
-    if (highDescriptor < 5) {
-        if (highDescriptor >= 0) { close(highDescriptor); }
-        fclose(stream);
-        return false;
-    }
+	FILE* stream = tmpfile();
+	if (stream == NULL) { return false; }
+	int highDescriptor = fcntl(fileno(stream), F_DUPFD, 5);
+	if (highDescriptor < 5) {
+		if (highDescriptor >= 0) { close(highDescriptor); }
+		fclose(stream);
+		return false;
+	}
 
-    struct rlimit loweredLimit = originalLimit;
-    loweredLimit.rlim_cur = (rlim_t)4;
-    if (setrlimit((int)RLIMIT_NOFILE, &loweredLimit) != 0) {
-        close(highDescriptor);
-        fclose(stream);
-        return false;
-    }
+	struct rlimit loweredLimit = originalLimit;
+	loweredLimit.rlim_cur = (rlim_t)4;
+	if (setrlimit((int)RLIMIT_NOFILE, &loweredLimit) != 0) {
+		close(highDescriptor);
+		fclose(stream);
+		return false;
+	}
 
-    int descriptorBound = ChildProcess.descriptorCloseBound();
-    pid_t child = fork();
-    if (child == (pid_t)0) {
-        int closed = ChildProcess.closeDescriptorsForExec(descriptorBound);
-        int flags = fcntl(highDescriptor, F_GETFD, 0);
-        _exit(closed == 0 && flags < 0 && errno == EBADF ? 0 : 9);
-    }
+	int descriptorBound = ChildProcess.descriptorCloseBound();
+	pid_t child = fork();
+	if (child == (pid_t)0) {
+		int closed = ChildProcess.closeDescriptorsForExec(descriptorBound);
+		int flags = fcntl(highDescriptor, F_GETFD, 0);
+		_exit(closed == 0 && flags < 0 && errno == EBADF ? 0 : 9);
+	}
 
-    bool restored = setrlimit((int)RLIMIT_NOFILE, &originalLimit) == 0;
-    int status = -1;
-    pid_t waited = child;
-    if (child >= (pid_t)0) { waited = waitpid(child, &status, 0); }
-    close(highDescriptor);
-    fclose(stream);
-    return restored && waited == child
-        && WIFEXITED(status) && WEXITSTATUS(status) == 0;
+	bool restored = setrlimit((int)RLIMIT_NOFILE, &originalLimit) == 0;
+	int status = -1;
+	pid_t waited = child;
+	if (child >= (pid_t)0) { waited = waitpid(child, &status, 0); }
+	close(highDescriptor);
+	fclose(stream);
+	return restored && waited == child && WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 int main() {
-    if (!closesFdAboveLoweredSoftLimit()) { return 1; }
+	if (!closesFdAboveLoweredSoftLimit()) { return 1; }
 
-    FILE* inheritedStream = tmpfile();
-    if (inheritedStream == NULL) { return 1; }
-    string inheritedMarker = "btrc-fd-leak\n";
-    if (fwrite(inheritedMarker, 1, strlen(inheritedMarker),
-               inheritedStream) != strlen(inheritedMarker)
-            || fflush(inheritedStream) != 0) {
-        fclose(inheritedStream);
-        return 1;
-    }
-    int inheritedDescriptor = fileno(inheritedStream);
-    int inheritedFlags = fcntl(inheritedDescriptor, F_GETFD);
-    if (inheritedDescriptor < 3 || inheritedFlags < 0
-            || fcntl(inheritedDescriptor, F_SETFD,
-                inheritedFlags & ~FD_CLOEXEC) != 0
-            || lseek(inheritedDescriptor, (off_t)0, SEEK_SET) < (off_t)0) {
-        fclose(inheritedStream);
-        return 1;
-    }
-    string descriptorProbe = f"marker=$( (cat <&{inheritedDescriptor}) "
-        + "2>/dev/null) || exit 0; "
-        + "if [ \"$marker\" = btrc-fd-leak ]; then exit 9; fi; exit 0";
-    ExecResult descriptorResult = ChildProcess.run(
-        "/bin/sh", ["-c", descriptorProbe]);
-    if (fclose(inheritedStream) != 0 || descriptorResult.code != 0) {
-        return 1;
-    }
+	FILE* inheritedStream = tmpfile();
+	if (inheritedStream == NULL) { return 1; }
+	string inheritedMarker = "btrc-fd-leak\n";
+	if (fwrite(inheritedMarker, 1, strlen(inheritedMarker), inheritedStream) != strlen(inheritedMarker) || fflush(inheritedStream) != 0) {
+		fclose(inheritedStream);
+		return 1;
+	}
+	int inheritedDescriptor = fileno(inheritedStream);
+	int inheritedFlags = fcntl(inheritedDescriptor, F_GETFD);
+	if (inheritedDescriptor < 3 || inheritedFlags < 0 || fcntl(inheritedDescriptor, F_SETFD, inheritedFlags & ~FD_CLOEXEC) != 0 || lseek(inheritedDescriptor, (off_t)0, SEEK_SET) < (off_t)0) {
+		fclose(inheritedStream);
+		return 1;
+	}
+	string descriptorProbe = f"marker=$( (cat <&{inheritedDescriptor}) " + "2>/dev/null) || exit 0; " + "if [ \"$marker\" = btrc-fd-leak ]; then exit 9; fi; exit 0";
+	ExecResult descriptorResult = ChildProcess.run("/bin/sh", ["-c", descriptorProbe]);
+	if (fclose(inheritedStream) != 0 || descriptorResult.code != 0) {
+		return 1;
+	}
 
-    int reportDescriptor = fcntl(
-        STDOUT_FILENO, F_DUPFD_CLOEXEC, 3);
-    if (reportDescriptor < 0) { return 1; }
+	int reportDescriptor = fcntl(STDOUT_FILENO, F_DUPFD_CLOEXEC, 3);
+	if (reportDescriptor < 0) { return 1; }
 
-    close(STDIN_FILENO);
-    close(STDOUT_FILENO);
-    close(STDERR_FILENO);
+	close(STDIN_FILENO);
+	close(STDOUT_FILENO);
+	close(STDERR_FILENO);
 
-    ExecResult result = ChildProcess.run(
-        "/bin/sh", ["-c", "cat; printf marker >&2"],
-        stdinData="payload");
-    bool passed = result.code == 0
-        && result.out.equals("payload")
-        && result.err.equals("marker");
+	ExecResult result = ChildProcess.run("/bin/sh", ["-c", "cat; printf marker >&2"], stdinData="payload");
+	bool passed = result.code == 0 && result.out.equals("payload") && result.err.equals("marker");
 
-    if (dup2(reportDescriptor, STDOUT_FILENO) < 0) { return 1; }
-    close(reportDescriptor);
-    if (!passed) { return 1; }
-    print("PASS");
-    return 0;
+	if (dup2(reportDescriptor, STDOUT_FILENO) < 0) { return 1; }
+	close(reportDescriptor);
+	if (!passed) { return 1; }
+	print("PASS");
+	return 0;
 }

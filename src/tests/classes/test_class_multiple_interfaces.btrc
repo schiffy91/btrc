@@ -3,26 +3,28 @@
 #include <assert.h>
 
 interface Readable {
-    int read();
+	int read();
 }
 
 interface Writable {
-    int write(int x);
+	int write(int x);
 }
 
 class Buffer implements Readable, Writable {
-    public int stored;
-    public Buffer() { self.stored = 0; }
-    public int read() { return self.stored; }
-    public int write(int x) { self.stored = x; return x; }
+	public int stored;
+	public Buffer() { self.stored = 0; }
+
+	public int read() { return self.stored; }
+
+	public int write(int x) { self.stored = x; return x; }
 }
 
 int main() {
-    Buffer b = Buffer();
-    assert(b.read() == 0);
-    assert(b.write(42) == 42);
-    assert(b.read() == 42);
+	Buffer b = Buffer();
+	assert(b.read() == 0);
+	assert(b.write(42) == 42);
+	assert(b.read() == 42);
 
-    print("PASS: test_class_multiple_interfaces");
-    return 0;
+	print("PASS: test_class_multiple_interfaces");
+	return 0;
 }

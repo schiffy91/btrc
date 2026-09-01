@@ -3,19 +3,19 @@
 // A fixed-size C array of a rich enum, with element assignment and
 // per-element tag/payload read-back (a stack array, not Vector<RichEnum>).
 enum class Shape {
-    Circle(double r),
-    Point
+	Circle(double r),
+	Point
 }
 
 int main() {
-    Shape arr[2];
-    arr[0] = Shape.Circle(5.0);
-    arr[1] = Shape.Point();
+	Shape arr[2];
+	arr[0] = Shape.Circle(5.0);
+	arr[1] = Shape.Point();
 
-    assert(arr[0].tag == Shape.Circle);
-    assert(arr[0].data.Circle.r == 5.0);
-    assert(arr[1].tag == Shape.Point);
+	assert(arr[0].tag == Shape.Circle);
+	assert(arr[0].data.Circle.r == 5.0);
+	assert(arr[1].tag == Shape.Point);
 
-    print("PASS: test_rich_enum_c_array");
-    return 0;
+	print("PASS: test_rich_enum_c_array");
+	return 0;
 }

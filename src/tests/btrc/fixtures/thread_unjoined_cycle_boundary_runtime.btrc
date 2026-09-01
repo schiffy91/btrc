@@ -4,36 +4,36 @@ int threadCycleAlive = 0;
 int threadCycleDestroyed = 0;
 
 class ThreadCycleNode {
-    public ThreadCycleNode next;
+	public ThreadCycleNode next;
 
-    public ThreadCycleNode() {
-        self.next = null;
-        threadCycleAlive++;
-    }
+	public ThreadCycleNode() {
+		self.next = null;
+		threadCycleAlive++;
+	}
 
-    public void __del__() {
-        threadCycleAlive--;
-        threadCycleDestroyed++;
-    }
+	public void __del__() {
+		threadCycleAlive--;
+		threadCycleDestroyed++;
+	}
 }
 
 ThreadCycleNode makeThreadCycle() {
-    ThreadCycleNode first = new ThreadCycleNode();
-    ThreadCycleNode second = new ThreadCycleNode();
-    first.next = second;
-    second.next = first;
-    return first;
+	ThreadCycleNode first = new ThreadCycleNode();
+	ThreadCycleNode second = new ThreadCycleNode();
+	first.next = second;
+	second.next = first;
+	return first;
 }
 
 int main() {
-    {
-        /* The unjoined handle is the only external owner of this two-node
+	{
+		/* The unjoined handle is the only external owner of this two-node
          * SCC after the worker returns. Its hidden result disposer must force
          * a cycle pass; a thresholded poll cannot observe enough suspects. */
-        Thread<ThreadCycleNode> worker = spawn(() => makeThreadCycle());
-    }
+		Thread<ThreadCycleNode> worker = spawn(() => makeThreadCycle());
+	}
 
-    assert(threadCycleAlive == 0);
-    assert(threadCycleDestroyed == 2);
-    return 0;
+	assert(threadCycleAlive == 0);
+	assert(threadCycleDestroyed == 2);
+	return 0;
 }

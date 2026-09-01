@@ -4,53 +4,49 @@
 #include <assert.h>
 
 class Vec2 {
-    public int x;
-    public int y;
-    public Vec2(int x, int y) {
-        self.x = x;
-        self.y = y;
-    }
-    public Vec2 __add__(Vec2 other) {
-        return Vec2(self.x + other.x, self.y + other.y);
-    }
-    public Vec2 __sub__(Vec2 other) {
-        return Vec2(self.x - other.x, self.y - other.y);
-    }
-    public Vec2 __neg__() {
-        return Vec2(-self.x, -self.y);
-    }
-    public bool __eq__(Vec2 other) {
-        return self.x == other.x && self.y == other.y;
-    }
+	public int x;
+	public int y;
+	public Vec2(int x, int y) {
+		self.x = x;
+		self.y = y;
+	}
+
+	public Vec2 __add__(Vec2 other) { return Vec2(self.x + other.x, self.y + other.y); }
+
+	public Vec2 __sub__(Vec2 other) { return Vec2(self.x - other.x, self.y - other.y); }
+
+	public Vec2 __neg__() { return Vec2(-self.x, -self.y); }
+
+	public bool __eq__(Vec2 other) { return self.x == other.x && self.y == other.y; }
 }
 
 int main() {
-    Vec2 a = Vec2(1, 2);
-    Vec2 b = Vec2(3, 4);
-    Vec2 c = Vec2(10, 20);
+	Vec2 a = Vec2(1, 2);
+	Vec2 b = Vec2(3, 4);
+	Vec2 c = Vec2(10, 20);
 
-    // Chained add: (a + b) + c feeds the result of the first into the second.
-    Vec2 chain = a + b + c;
-    assert(chain == Vec2(14, 26));
+	// Chained add: (a + b) + c feeds the result of the first into the second.
+	Vec2 chain = a + b + c;
+	assert(chain == Vec2(14, 26));
 
-    // Negation of a composite expression.
-    Vec2 negSum = -(a + b);
-    assert(negSum == Vec2(-4, -6));
+	// Negation of a composite expression.
+	Vec2 negSum = -(a + b);
+	assert(negSum == Vec2(-4, -6));
 
-    // Add with a negated operand.
-    Vec2 mixed = a + (-b);
-    assert(mixed == Vec2(-2, -2));
+	// Add with a negated operand.
+	Vec2 mixed = a + (-b);
+	assert(mixed == Vec2(-2, -2));
 
-    // Sub then neg.
-    Vec2 d = -(a - b);
-    assert(d == Vec2(2, 2));
+	// Sub then neg.
+	Vec2 d = -(a - b);
+	assert(d == Vec2(2, 2));
 
-    // Overloaded == results combined with logical &&.
-    bool both = (a == Vec2(1, 2)) && (b == Vec2(3, 4));
-    assert(both);
-    bool either = (a == b) && (c == c);
-    assert(!either);
+	// Overloaded == results combined with logical &&.
+	bool both = (a == Vec2(1, 2)) && (b == Vec2(3, 4));
+	assert(both);
+	bool either = (a == b) && (c == c);
+	assert(!either);
 
-    print("PASS: test_operator_overload_compose");
-    return 0;
+	print("PASS: test_operator_overload_compose");
+	return 0;
 }
