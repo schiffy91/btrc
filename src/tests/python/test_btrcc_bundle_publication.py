@@ -538,7 +538,7 @@ def test_generation_validator_rejects_noncanonical_bundle_mode(tmp_path: Path) -
         ("posix", False, True, 0o755),
         ("posix", False, False, 0o644),
         ("nt", True, False, 0o777),
-        ("nt", False, True, 0o666),
+        ("nt", False, True, 0o777),
         ("nt", False, False, 0o666),
     ],
 )
@@ -555,6 +555,36 @@ def test_generation_validator_uses_host_staging_mode_contract(
             host_os_name=host_os_name,
         )
         == expected
+    )
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires native Windows stat modes")
+def test_generation_validator_matches_native_windows_staging_modes(tmp_path: Path) -> None:
+    directory = tmp_path / "bin"
+    directory.mkdir()
+    executable = directory / "btrcc.exe"
+    executable.write_bytes(b"binary")
+    regular = tmp_path / "README.md"
+    regular.write_bytes(b"readme")
+    directory.chmod(0o755)
+    executable.chmod(0o755)
+    regular.chmod(0o644)
+    validator = SelfhostBundleValidator()
+
+    assert stat.S_IMODE(directory.lstat().st_mode) == validator._expected_staged_mode(
+        is_directory=True,
+        is_executable=False,
+        host_os_name=os.name,
+    )
+    assert stat.S_IMODE(executable.lstat().st_mode) == validator._expected_staged_mode(
+        is_directory=False,
+        is_executable=True,
+        host_os_name=os.name,
+    )
+    assert stat.S_IMODE(regular.lstat().st_mode) == validator._expected_staged_mode(
+        is_directory=False,
+        is_executable=False,
+        host_os_name=os.name,
     )
 
 

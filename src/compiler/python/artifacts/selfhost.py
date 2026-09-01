@@ -451,7 +451,7 @@ class SelfhostBundleValidator:
         """Return the mode exposed by the host for a canonical staged entry."""
 
         if host_os_name == "nt":
-            return 0o777 if is_directory else 0o666
+            return 0o777 if is_directory or is_executable else 0o666
         return 0o755 if is_directory or is_executable else 0o644
 
     def _safe_relative(self, path: str) -> bool:

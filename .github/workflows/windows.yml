@@ -63,7 +63,11 @@ jobs:
           PY
 
       - name: Prove native artifact storage portability
-        run: python -m pytest -q src/tests/python/test_artifact_storage.py
+        run: |
+          python -m pytest -q \
+            src/tests/python/test_artifact_storage.py \
+            src/tests/python/test_btrcc_bundle_publication.py::test_generation_validator_uses_host_staging_mode_contract \
+            src/tests/python/test_btrcc_bundle_publication.py::test_generation_validator_matches_native_windows_staging_modes
 
       # Install zig directly from ziglang.org (no setup action — its mirror 404s
       # for some releases). 0.16.0 matches the project's flake and bundles the
