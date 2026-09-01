@@ -436,6 +436,22 @@ def test_toolchain_observation_and_behavior_commands_do_not_leak_absolute_paths(
     assert diagnostic == b"  --> $REPOSITORY/build/fixture/program.btrc:2:3\n"
     session.execution_repository = tmp_path
 
+    class ContainerRepository:
+        @staticmethod
+        def resolve() -> PurePosixPath:
+            return PurePosixPath("/workspace")
+
+    session.execution_repository = ContainerRepository()
+    diagnostic = session._canonical_diagnostics(
+        b"  --> build/verification/compiler-boundaries/workspace/sources/relative.btrc:2:3\n"
+        b"  --> /workspace/build/verification/compiler-boundaries/workspace/sources/absolute.btrc:4:5\n"
+    )
+    assert diagnostic == (
+        b"  --> build/verification/compiler-boundaries/workspace/sources/relative.btrc:2:3\n"
+        b"  --> $REPOSITORY/build/verification/compiler-boundaries/workspace/sources/absolute.btrc:4:5\n"
+    )
+    session.execution_repository = tmp_path
+
     commands = []
     behavior = BoundaryCapability(
         id="python.behavior-gcc",

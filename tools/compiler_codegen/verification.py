@@ -1212,10 +1212,17 @@ class _BoundaryCaptureSession:
         repository = str(self.execution_repository.resolve())
         prefixes = {repository, repository.replace("\\", "/")}
         canonical = stderr
+        marker = b"--> "
         for prefix in prefixes:
             encoded = prefix.rstrip("/\\").encode("utf-8")
-            canonical = canonical.replace(encoded + b"/", b"$REPOSITORY/")
-            canonical = canonical.replace(encoded + b"\\", b"$REPOSITORY/")
+            canonical = canonical.replace(
+                marker + encoded + b"/",
+                marker + b"$REPOSITORY/",
+            )
+            canonical = canonical.replace(
+                marker + encoded + b"\\",
+                marker + b"$REPOSITORY/",
+            )
         return re.sub(
             rb"\$REPOSITORY/[^\r\n]*?(?=:[0-9]+:[0-9]+(?:\r?\n|$))",
             lambda match: match.group().replace(b"\\", b"/"),
