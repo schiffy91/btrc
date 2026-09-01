@@ -90,7 +90,7 @@ int main() {
         .error().kind() == FS_INVALID_ARGUMENT);
     assert(!FileSystem.openRegularFileSnapshot("source.psarc", 1LL).ok());
     assert(FileSystem.openRegularFileSnapshot("source.psarc", 1LL)
-        .error().kind() == FS_UNSUPPORTED);
+        .error().kind() == FS_NOT_FOUND);
 
     assert(FileSystemCloseOutcome.closed().ok());
     assert(FileSystemCloseOutcome.alreadyClosed().ok());

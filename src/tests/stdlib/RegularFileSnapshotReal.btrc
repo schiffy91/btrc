@@ -1,0 +1,172 @@
+/* Real read-only snapshot budget, exact-read, replacement, mutation, and
+ * lifecycle coverage. POSIX calls are confined to test setup and races. */
+import std.bytes;
+import std.FileSystem;
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+int descriptorCount() {
+    int count = 0;
+    for (int descriptor = 0; descriptor < 4096; descriptor++) {
+        errno = 0;
+        if (fcntl(descriptor, F_GETFD) != -1 || errno != EBADF) {
+            count++;
+        }
+    }
+    return count;
+}
+
+void writeBytes(string path, Bytes content) {
+    int descriptor = open(
+        path,
+        (int)O_WRONLY | (int)O_CREAT | (int)O_EXCL | (int)O_CLOEXEC,
+        (mode_t)0600
+    );
+    assert(descriptor >= 0);
+    int written = 0;
+    while (written < content.length()) {
+        ssize_t count = write(
+            descriptor,
+            content.data + written,
+            (size_t)(content.length() - written)
+        );
+        assert(count > (ssize_t)0);
+        written = written + (int)count;
+    }
+    assert(fsync(descriptor) == 0);
+    assert(close(descriptor) == 0);
+}
+
+int main() {
+    TemporaryDirectoryOpenOutcome temporaryOpen =
+        FileSystem.createTemporaryDirectory("btrc_regular_snapshot_real");
+    assert(temporaryOpen.ok());
+    TemporaryDirectory temporary = temporaryOpen.directory();
+    string root = temporary.path();
+    string path = PathTools.join(root, "source.psarc");
+
+    Bytes content = Bytes();
+    content.append(65);
+    content.append(0);
+    content.append(66);
+    content.append(67);
+    content.append(68);
+    writeBytes(path, content);
+
+    RegularFileSnapshotOpenOutcome overBudget =
+        FileSystem.openRegularFileSnapshot(path, 4LL);
+    assert(!overBudget.ok());
+    assert(overBudget.error().kind() == FS_RESOURCE_EXHAUSTED);
+
+    RegularFileSnapshotOpenOutcome opened =
+        FileSystem.openRegularFileSnapshot(path, 5LL);
+    assert(opened.ok());
+    RegularFileSnapshot snapshot = opened.snapshot();
+    assert(snapshot.isOpen());
+    assert(snapshot.path().equals(path));
+    assert(snapshot.size() == 5LL);
+    assert(snapshot.revision().kind() == FILE_REGULAR);
+    assert(snapshot.revision().size() == 5LL);
+    assert(snapshot.revision().cacheToken().equals(
+        snapshot.revision().cacheToken()));
+
+    ExactFileReadOutcome whole = snapshot.readExactAt(0LL, 5);
+    assert(whole.ok());
+    assert(whole.bytes().equals(content));
+    ExactFileReadOutcome middle = snapshot.readExactAt(1LL, 3);
+    assert(middle.ok());
+    assert(middle.bytes().length() == 3);
+    assert(middle.bytes().get(0) == 0);
+    assert(middle.bytes().get(1) == 66);
+    assert(middle.bytes().get(2) == 67);
+    ExactFileReadOutcome empty = snapshot.readExactAt(5LL, 0);
+    assert(empty.ok());
+    assert(empty.bytes().isEmpty());
+    assert(!snapshot.readExactAt(5LL, 1).ok());
+    assert(snapshot.readExactAt(5LL, 1).error().kind()
+        == FS_INVALID_ARGUMENT);
+    assert(!snapshot.readExactAt(-1LL, 1).ok());
+
+    /* Changing the held object's size invalidates the opened revision. */
+    int appender = open(path, (int)O_WRONLY | (int)O_APPEND | (int)O_CLOEXEC);
+    assert(appender >= 0);
+    assert(write(appender, "!", (size_t)1) == (ssize_t)1);
+    assert(fsync(appender) == 0);
+    assert(close(appender) == 0);
+    ExactFileReadOutcome mutated = snapshot.readExactAt(0LL, 1);
+    assert(!mutated.ok());
+    assert(mutated.error().kind() == FS_CHANGED);
+    assert(snapshot.close().kind() == FS_CLOSED_NOW);
+
+    string mutatedPath = PathTools.join(root, "mutated.psarc");
+    assert(rename(path, mutatedPath) == 0);
+    writeBytes(path, content);
+    RegularFileSnapshotOpenOutcome replacementOpen =
+        FileSystem.openRegularFileSnapshot(path, 5LL);
+    assert(replacementOpen.ok());
+    RegularFileSnapshot replacementSnapshot = replacementOpen.snapshot();
+    FileSnapshot replacementRevision = replacementSnapshot.revision();
+    string movedPath = PathTools.join(root, "moved.psarc");
+    assert(rename(path, movedPath) == 0);
+    writeBytes(path, content);
+    assert(!replacementRevision.sameObject(
+        FileSystem.inspectExact(path).snapshot()));
+    ExactFileReadOutcome replaced = replacementSnapshot.readExactAt(0LL, 1);
+    assert(!replaced.ok());
+    assert(replaced.error().kind() == FS_CHANGED);
+    assert(replacementSnapshot.close().kind() == FS_CLOSED_NOW);
+
+    RegularFileSnapshotOpenOutcome removedOpen =
+        FileSystem.openRegularFileSnapshot(path, 5LL);
+    assert(removedOpen.ok());
+    RegularFileSnapshot removedSnapshot = removedOpen.snapshot();
+    assert(unlink(path) == 0);
+    ExactFileReadOutcome removed = removedSnapshot.readExactAt(0LL, 1);
+    assert(!removed.ok());
+    assert(removed.error().kind() == FS_CHANGED);
+    assert(removedSnapshot.close().kind() == FS_CLOSED_NOW);
+
+    string directoryPath = PathTools.join(root, "directory.psarc");
+    assert(FileSystem.mkdir(directoryPath, 448) == 0);
+    assert(!FileSystem.openRegularFileSnapshot(directoryPath, 32LL).ok());
+    assert(FileSystem.openRegularFileSnapshot(directoryPath, 32LL)
+        .error().kind() == FS_WRONG_TYPE);
+    string linkPath = PathTools.join(root, "link.psarc");
+    assert(FileSystem.symlink(movedPath, linkPath) == 0);
+    assert(!FileSystem.openRegularFileSnapshot(linkPath, 32LL).ok());
+    assert(FileSystem.openRegularFileSnapshot(linkPath, 32LL)
+        .error().kind() == FS_SYMLINK);
+
+    string emptyPath = PathTools.join(root, "empty.psarc");
+    writeBytes(emptyPath, Bytes());
+    RegularFileSnapshotOpenOutcome emptyOpen =
+        FileSystem.openRegularFileSnapshot(emptyPath, 0LL);
+    assert(emptyOpen.ok());
+    RegularFileSnapshot emptySnapshot = emptyOpen.snapshot();
+    assert(emptySnapshot.readExactAt(0LL, 0).ok());
+    RegularFileSnapshot alias = emptySnapshot;
+    assert(emptySnapshot.close().kind() == FS_CLOSED_NOW);
+    assert(!alias.isOpen());
+    assert(alias.readExactAt(0LL, 0).error().kind() == FS_CLOSED);
+    assert(alias.close().kind() == FS_ALREADY_CLOSED);
+
+    int descriptorBaseline = descriptorCount();
+    for i in range(32) {
+        RegularFileSnapshotOpenOutcome repeated =
+            FileSystem.openRegularFileSnapshot(movedPath, 5LL);
+        assert(repeated.ok());
+        assert(repeated.snapshot().readExactAt(0LL, 5).ok());
+        assert(repeated.snapshot().close().kind() == FS_CLOSED_NOW);
+    }
+    assert(descriptorCount() == descriptorBaseline);
+
+    assert(temporary.close().kind() == FS_CLOSED_NOW);
+    assert(!FileSystem.exists(root));
+    print("PASS: regular file snapshot budgets and races");
+    return 0;
+}

@@ -861,9 +861,40 @@ class RegularFileSnapshot {
             return RegularFileSnapshotOpenOutcome.failed(
                 FileSystemError.invalid("open regular file snapshot", path));
         }
-        return RegularFileSnapshotOpenOutcome.failed(
-            FileSystemError.unsupported(
-                "open regular file snapshot", path));
+        if (Platform.isWindows()) {
+            return RegularFileSnapshotOpenOutcome.failed(
+                FileSystemError.unsupported(
+                    "open regular file snapshot", path));
+        }
+        FileOpenOutcome opened = FileHandle.openExact(path);
+        if (!opened.ok()) {
+            return RegularFileSnapshotOpenOutcome.failed(opened.error());
+        }
+        FileHandle file = opened.file();
+        FileSnapshot revision = file.openedSnapshot();
+        if (revision.size() < 0LL || revision.size() > maximumBytes) {
+            file.close();
+            return RegularFileSnapshotOpenOutcome.failed(FileSystemError(
+                FS_RESOURCE_EXHAUSTED,
+                "open regular file snapshot",
+                path,
+                EFBIG,
+                "regular file exceeds the caller's open budget"
+            ));
+        }
+        RegularFileSnapshot snapshot = RegularFileSnapshot(
+            file,
+            revision,
+            Strings.copy(path),
+            maximumBytes
+        );
+        FileSystemError? validation = snapshot.currentVersionError(
+            "validate regular file snapshot");
+        if (validation != null) {
+            snapshot.close();
+            return RegularFileSnapshotOpenOutcome.failed(validation);
+        }
+        return RegularFileSnapshotOpenOutcome.opened(snapshot);
     }
 
     public bool isOpen() {
@@ -890,6 +921,36 @@ class RegularFileSnapshot {
         return self._revision;
     }
 
+    private FileSystemError? currentVersionError(string operation) {
+        if (!self.isOpen() || self._file == null
+                || self._revision == null) {
+            return FileSystemError.closed(operation, self._path);
+        }
+        FileSnapshotOutcome pinned = self._file.snapshot();
+        if (!pinned.ok()) { return pinned.error(); }
+        FileSnapshot expected = self.revision();
+        if (!expected.sameVersion(pinned.snapshot())) {
+            return FileSystemError.changed(operation, self._path);
+        }
+        FileSnapshotOutcome named = FileHandle.inspectExact(self._path);
+        if (!named.ok()) {
+            FileSystemError namedError = named.error();
+            if (namedError.kind() == FS_NOT_FOUND
+                    || namedError.kind() == FS_SYMLINK
+                    || namedError.kind() == FS_WRONG_TYPE) {
+                return FileSystemError.changed(
+                    operation,
+                    self._path,
+                    namedError.nativeCode());
+            }
+            return namedError;
+        }
+        if (!expected.sameVersion(named.snapshot())) {
+            return FileSystemError.changed(operation, self._path);
+        }
+        return null;
+    }
+
     public ExactFileReadOutcome readExactAt(
         long long offset,
         int byteCount
@@ -904,9 +965,68 @@ class RegularFileSnapshot {
                 FileSystemError.closed(
                     "read regular file snapshot", self._path));
         }
-        return ExactFileReadOutcome.failed(
-            FileSystemError.unsupported(
-                "read regular file snapshot", self._path));
+        long long exactLength = (long long)byteCount;
+        long long snapshotSize = self.size();
+        if (offset > snapshotSize
+                || exactLength > snapshotSize - offset
+                || snapshotSize > self._maximumBytes) {
+            return ExactFileReadOutcome.failed(
+                FileSystemError.invalid(
+                    "read regular file snapshot", self._path));
+        }
+        FileSystemError? before = self.currentVersionError(
+            "validate regular file snapshot before read");
+        if (before != null) {
+            return ExactFileReadOutcome.failed(before);
+        }
+
+        Bytes result = Bytes();
+        long long cursor = offset;
+        int remaining = byteCount;
+        while (remaining > 0) {
+            if (self._file == null) {
+                return ExactFileReadOutcome.failed(
+                    FileSystemError.closed(
+                        "read regular file snapshot", self._path));
+            }
+            FileReadOutcome part = self._file.readAt(cursor, remaining);
+            if (!part.ok()) {
+                FileSystemError? afterFailure = self.currentVersionError(
+                    "validate regular file snapshot after failed read");
+                return ExactFileReadOutcome.failed(
+                    afterFailure == null ? part.error() : afterFailure);
+            }
+            if (part.kind() == FILE_READ_END) {
+                FileSystemError? afterEnd = self.currentVersionError(
+                    "validate regular file snapshot after short read");
+                return ExactFileReadOutcome.failed(
+                    afterEnd == null
+                        ? FileSystemError.changed(
+                            "read regular file snapshot", self._path)
+                        : afterEnd);
+            }
+            Bytes bytes = part.bytes();
+            int length = bytes.length();
+            if (length <= 0 || length > remaining) {
+                return ExactFileReadOutcome.failed(FileSystemError(
+                    FS_IO,
+                    "read regular file snapshot",
+                    self._path,
+                    EIO,
+                    "regular file returned an invalid partial read"
+                ));
+            }
+            result.appendBytes(bytes);
+            remaining = remaining - length;
+            cursor = cursor + (long long)length;
+        }
+
+        FileSystemError? after = self.currentVersionError(
+            "validate regular file snapshot after read");
+        if (after != null) {
+            return ExactFileReadOutcome.failed(after);
+        }
+        return ExactFileReadOutcome.data(result);
     }
 
     public FileSystemCloseOutcome close() {
