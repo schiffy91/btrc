@@ -27,6 +27,7 @@ class StyleConfig:
     blank_lines_between_fields: int = 0
     blank_lines_after_class_opening: int = 0
     blank_lines_before_class_closing: int = 0
+    group_imports: bool = True
     blank_lines_between_import_groups: int = 1
     blank_lines_within_import_groups: int = 0
 

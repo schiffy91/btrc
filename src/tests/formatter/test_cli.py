@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -35,6 +37,7 @@ def test_every_style_default_has_a_cli_override() -> None:
             "1",
             "--blank-lines-before-class-closing",
             "1",
+            "--no-group-imports",
             "--blank-lines-between-import-groups",
             "2",
             "--blank-lines-within-import-groups",
@@ -57,6 +60,7 @@ def test_every_style_default_has_a_cli_override() -> None:
     assert arguments.blank_lines_between_fields == 1
     assert arguments.blank_lines_after_class_opening == 1
     assert arguments.blank_lines_before_class_closing == 1
+    assert not arguments.group_imports
     assert arguments.blank_lines_between_import_groups == 2
     assert arguments.blank_lines_within_import_groups == 1
 
@@ -106,3 +110,18 @@ def test_standard_input_check(monkeypatch: pytest.MonkeyPatch, capsys: pytest.Ca
 
     assert main(["check", "-"]) == 0
     assert capsys.readouterr().err == ""
+
+
+def test_cli_module_executes_instead_of_silently_returning(tmp_path: Path) -> None:
+    source = tmp_path / "Demo.btrc"
+    source.write_text("class Demo {\n    public int value;\n}\n", encoding="utf-8")
+
+    result = subprocess.run(
+        [sys.executable, "-m", "src.devex.formatter.cli", "check", os.fspath(source)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 1
+    assert "BTRC-FMT001" in result.stderr

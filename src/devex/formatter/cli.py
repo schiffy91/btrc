@@ -61,6 +61,12 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--blank-lines-between-fields", type=_nonnegative_integer, default=0, metavar="N")
     common.add_argument("--blank-lines-after-class-opening", type=_nonnegative_integer, default=0, metavar="N")
     common.add_argument("--blank-lines-before-class-closing", type=_nonnegative_integer, default=0, metavar="N")
+    common.add_argument(
+        "--group-imports",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="stable-partition std imports before user BTRC and C imports",
+    )
     common.add_argument("--blank-lines-between-import-groups", type=_nonnegative_integer, default=1, metavar="N")
     common.add_argument("--blank-lines-within-import-groups", type=_nonnegative_integer, default=0, metavar="N")
 
@@ -93,6 +99,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         blank_lines_between_fields=arguments.blank_lines_between_fields,
         blank_lines_after_class_opening=arguments.blank_lines_after_class_opening,
         blank_lines_before_class_closing=arguments.blank_lines_before_class_closing,
+        group_imports=arguments.group_imports,
         blank_lines_between_import_groups=arguments.blank_lines_between_import_groups,
         blank_lines_within_import_groups=arguments.blank_lines_within_import_groups,
     )
@@ -225,3 +232,7 @@ def _nonnegative_integer(value: str) -> int:
     if parsed < 0:
         raise argparse.ArgumentTypeError("cannot be negative")
     return parsed
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

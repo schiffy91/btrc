@@ -478,7 +478,7 @@ class BtrcFormatter:
         if call is not None:
             open_index, close_index = call
             prefix = self._collapse_lexemes(
-                view.lexemes_between(tokens[statement.start_index].start, tokens[open_index].end),
+                view.lexemes_between(tokens[statement.start_index].start, tokens[open_index].start),
                 "statement",
             )
             contents = tuple(tokens[open_index + 1 : close_index])
@@ -490,7 +490,9 @@ class BtrcFormatter:
                 view.lexemes_between(tokens[close_index].end, tokens[statement.end_index].end),
                 "statement",
             )
-            lines = [prefix]
+            lines = [prefix + "(" if self.style.opening_paren == "same-line" else prefix]
+            if self.style.opening_paren == "next-line":
+                lines.append("(")
             lines.extend(self._collapse_lexemes(segment, "statement") for segment in segments if segment)
             closing = ")" + suffix
             if self.style.multiline_closing_paren == "own-line":
@@ -567,6 +569,9 @@ class BtrcFormatter:
         standalone comment lines is left in place because moving a comment
         independently of its declaration would destroy its ownership.
         """
+
+        if not self.style.group_imports:
+            return source
 
         view = SourceView(source)
         imports: list[tuple[int, int, str]] = []

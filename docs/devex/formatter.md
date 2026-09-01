@@ -58,6 +58,7 @@ Every default is a command-line option and applies identically in `check` and
 --blank-lines-between-fields N
 --blank-lines-after-class-opening N
 --blank-lines-before-class-closing N
+--[no-]group-imports
 --blank-lines-between-import-groups N
 --blank-lines-within-import-groups N
 ```

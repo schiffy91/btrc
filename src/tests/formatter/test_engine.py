@@ -287,6 +287,36 @@ class Demo {
     assert "\t\treturn combine(\n\t\t\tfirstCondition,\n\t\t\tsecondCondition\n\t\t);" in result
 
 
+def test_statement_call_parentheses_follow_placement_overrides() -> None:
+    source = """\
+class Demo {
+    public bool evaluate(bool firstCondition, bool secondCondition) {
+        return combine(firstCondition, secondCondition);
+    }
+}
+"""
+
+    result = formatted(
+        source,
+        line_width=38,
+        opening_paren="next-line",
+        multiline_closing_paren="same-line",
+        compact_trivial_functions=False,
+    )
+
+    assert "\t\treturn combine\n\t\t(\n\t\t\tfirstCondition,\n\t\t\tsecondCondition);" in result
+    assert (
+        formatted(
+            result,
+            line_width=38,
+            opening_paren="next-line",
+            multiline_closing_paren="same-line",
+            compact_trivial_functions=False,
+        )
+        == result
+    )
+
+
 def test_trivial_compaction_can_be_disabled() -> None:
     source = """\
 class Demo {
@@ -420,6 +450,19 @@ class Demo {}
     assert result.startswith(
         "import std.map;\n\nimport std.vector;\n\n\nimport user.alpha;\n\n#include <second.btrc>\n"
     )
+
+
+def test_import_partitioning_can_be_disabled() -> None:
+    source = """\
+import user.alpha;
+import std.vector;
+
+class Demo {}
+"""
+
+    result = formatted(source, group_imports=False)
+
+    assert result.startswith("import user.alpha;\n\nimport std.vector;\n")
 
 
 def test_spaces_and_indent_width_override_tabs() -> None:
