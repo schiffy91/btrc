@@ -8,6 +8,7 @@ NON_CORPUS_DIRECTORIES = frozenset(
     {
         "python",
         "btrc",
+        "native",
         "__pycache__",
         "expected",
     }
@@ -32,7 +33,8 @@ def language_test_files(test_directory: str | Path) -> list[str]:
     """Return convention-named runnable paths relative to ``test_directory``.
 
     The legacy corpus uses ``test_*.btrc``. New type/capability-focused tests
-    use UpperCamelCase filenames matching their primary contract.
+    use UpperCamelCase filenames matching their primary contract. Native
+    programs have dedicated harnesses that provide their required ABI units.
     """
     root = Path(test_directory)
     tests = []

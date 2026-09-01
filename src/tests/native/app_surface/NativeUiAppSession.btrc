@@ -44,6 +44,8 @@ int main() {
         .column("library")
         .className("root")
         .child(NativeUiElement.text("heading", "Albums"))
+        .child(NativeUiElement.textInput(
+            "query", "a", "Search albums", 16))
         .child(NativeUiElement
             .button("album:one", "Album One")
             .className("card")
@@ -65,11 +67,51 @@ int main() {
     assert(unchanged.kind == NATIVE_UI_PRESENTED);
     assert(fake_native_ui_upload_count() == 1);
 
+    NativeUiLayoutBox query = session.input()
+        .currentFrame().boxFor("query");
+    AppWindowEvent focusQuery = AppWindowEvent(APP_EVENT_POINTER);
+    focusQuery.pointer = AppPointerEvent(
+        APP_POINTER_PRESSED,
+        APP_POINTER_BUTTON_PRIMARY,
+        (float)(query.bounds.x + 2),
+        (float)(query.bounds.y + 2),
+        AppKeyModifiers(false, false, false, false)
+    );
+    assert(session.dispatch(focusQuery).eventCount() <= 1);
+    assert(session.input().focusedId() == "query");
+
+    fake_platform_push_text("\xc3\xa9");
+    AppWindowEvent enteredText = application.poll();
+    assert(enteredText.kind == APP_EVENT_TEXT);
+    NativeUiEventBatch entered = session.dispatch(enteredText);
+    assert(entered.eventCount() == 1);
+    assert(entered.eventAt(0).kind() == NATIVE_UI_VALUE_CHANGED);
+    assert(entered.eventAt(0).elementId() == "query");
+    assert(entered.eventAt(0).value() == "a\xc3\xa9");
+
+    fake_platform_push_keyboard(
+        APP_KEY_PRESSED, APP_KEY_LEFT, 0);
+    assert(session.dispatch(application.poll()).eventCount() == 0);
+    fake_platform_push_text("Z");
+    NativeUiEventBatch inserted = session.dispatch(application.poll());
+    assert(inserted.eventCount() == 1);
+    assert(inserted.eventAt(0).value() == "aZ\xc3\xa9");
+    fake_platform_push_keyboard(
+        APP_KEY_PRESSED, APP_KEY_BACKSPACE, 0);
+    NativeUiEventBatch removed = session.dispatch(application.poll());
+    assert(removed.eventCount() == 1);
+    assert(removed.eventAt(0).value() == "a\xc3\xa9");
+    fake_platform_push_text("\xc3");
+    assert(session.dispatch(application.poll()).eventCount() == 0);
+    assert(session.input().focusedValue() == "a\xc3\xa9");
+
     artwork.setRGBA(0, 0, 10, 200, 30, 255);
     NativeUiElement revisedRoot = NativeUiElement
         .column("library")
         .className("root")
         .child(NativeUiElement.text("heading", "Albums"))
+        .child(NativeUiElement.textInput(
+            "query", "a\xc3\xa9", "Search albums", 16))
         .child(NativeUiElement
             .button("album:one", "Album One")
             .className("card")
@@ -78,6 +120,16 @@ int main() {
                 .imageRevision(2ULL)));
     assert(session.present(revisedRoot).kind == NATIVE_UI_PRESENTED);
     assert(fake_native_ui_upload_count() == 2);
+    assert(session.input().focusedId() == "query");
+    assert(session.input().focusedValue() == "a\xc3\xa9");
+    fake_platform_push_keyboard(
+        APP_KEY_PRESSED, APP_KEY_ESCAPE, 0);
+    assert(session.dispatch(application.poll()).eventCount() == 0);
+    assert(session.input().focusedId().isEmpty());
+    fake_platform_push_keyboard(
+        APP_KEY_PRESSED, APP_KEY_TAB, 0);
+    assert(session.dispatch(application.poll()).eventCount() == 0);
+    assert(session.input().focusedId() == "query");
 
     NativeUiLayoutBox button = session.input()
         .currentFrame().boxFor("album:one");
@@ -92,7 +144,7 @@ int main() {
         AppKeyModifiers(false, false, false, false)
     );
     NativeUiEventBatch pressed = session.dispatch(press);
-    assert(pressed.eventCount() <= 1);
+    assert(pressed.eventCount() <= 2);
     AppWindowEvent releasedEvent = AppWindowEvent(APP_EVENT_POINTER);
     releasedEvent.pointer = AppPointerEvent(
         APP_POINTER_RELEASED,
@@ -115,6 +167,12 @@ int main() {
     NativeUiPresentOutcome rejected = session.present(duplicate);
     assert(rejected.kind == NATIVE_UI_PRESENT_PREPARE_REJECTED);
     assert(rejected.frame.status == NATIVE_UI_FRAME_INVALID_TREE);
+    assert(fake_gpu_frame_begin_count() == framesBeforeReject);
+
+    NativeUiPresentOutcome invalidInput = session.present(
+        NativeUiElement.textInput("invalid-input", "\xc3", "", 8));
+    assert(invalidInput.kind == NATIVE_UI_PRESENT_PREPARE_REJECTED);
+    assert(invalidInput.frame.status == NATIVE_UI_FRAME_INVALID_TREE);
     assert(fake_gpu_frame_begin_count() == framesBeforeReject);
 
     fake_gpu_set_next_frame(GPU_FRAME_OUTDATED);

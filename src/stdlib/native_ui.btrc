@@ -18,7 +18,8 @@ enum NativeUiElementKind {
     NATIVE_UI_TEXT = 2,
     NATIVE_UI_IMAGE = 3,
     NATIVE_UI_BUTTON = 4,
-    NATIVE_UI_VIRTUAL_GRID = 5
+    NATIVE_UI_VIRTUAL_GRID = 5,
+    NATIVE_UI_TEXT_INPUT = 6
 };
 
 enum NativeUiEventKind {
@@ -26,7 +27,8 @@ enum NativeUiEventKind {
     NATIVE_UI_HOVER_ENTERED = 1,
     NATIVE_UI_HOVER_LEFT = 2,
     NATIVE_UI_SCROLLED = 3,
-    NATIVE_UI_VIEWPORT_CHANGED = 4
+    NATIVE_UI_VIEWPORT_CHANGED = 4,
+    NATIVE_UI_VALUE_CHANGED = 5
 };
 
 enum NativeUiStyleErrorCode {
@@ -419,19 +421,22 @@ class NativeUiEvent {
     private NativeUiViewportMetrics viewportValue;
     private NativeUiScrollDelta scrollValue;
     private NativeUiVirtualGridViewport? virtualGridViewportValue;
+    private string inputValue;
 
     private NativeUiEvent(
         NativeUiEventKind kind,
         string elementId,
         NativeUiViewportMetrics viewport,
         NativeUiScrollDelta scroll,
-        NativeUiVirtualGridViewport? virtualGridViewport
+        NativeUiVirtualGridViewport? virtualGridViewport,
+        string value
     ) {
         self.eventKind = kind;
         self.targetIdentity = elementId;
         self.viewportValue = viewport;
         self.scrollValue = scroll;
         self.virtualGridViewportValue = virtualGridViewport;
+        self.inputValue = value;
     }
 
     class NativeUiEvent clicked(string elementId) {
@@ -440,7 +445,8 @@ class NativeUiEvent {
             elementId,
             NativeUiViewportMetrics(0, 0, 0, 0),
             NativeUiScrollDelta(0, 0),
-            null
+            null,
+            ""
         );
     }
 
@@ -450,7 +456,8 @@ class NativeUiEvent {
             elementId,
             NativeUiViewportMetrics(0, 0, 0, 0),
             NativeUiScrollDelta(0, 0),
-            null
+            null,
+            ""
         );
     }
 
@@ -460,7 +467,8 @@ class NativeUiEvent {
             elementId,
             NativeUiViewportMetrics(0, 0, 0, 0),
             NativeUiScrollDelta(0, 0),
-            null
+            null,
+            ""
         );
     }
 
@@ -471,7 +479,7 @@ class NativeUiEvent {
         NativeUiVirtualGridViewport? virtualGridViewport = null
     ) {
         return NativeUiEvent(NATIVE_UI_SCROLLED, elementId,
-            resultingViewport, delta, virtualGridViewport);
+            resultingViewport, delta, virtualGridViewport, "");
     }
 
     class NativeUiEvent viewportChanged(
@@ -484,7 +492,19 @@ class NativeUiEvent {
             elementId,
             metrics,
             NativeUiScrollDelta(0, 0),
-            virtualGridViewport
+            virtualGridViewport,
+            ""
+        );
+    }
+
+    class NativeUiEvent valueChanged(string elementId, string value) {
+        return NativeUiEvent(
+            NATIVE_UI_VALUE_CHANGED,
+            elementId,
+            NativeUiViewportMetrics(0, 0, 0, 0),
+            NativeUiScrollDelta(0, 0),
+            null,
+            value
         );
     }
 
@@ -495,6 +515,7 @@ class NativeUiEvent {
     public NativeUiVirtualGridViewport? virtualGridViewport() {
         return self.virtualGridViewportValue;
     }
+    public string value() { return self.inputValue; }
 }
 
 class NativeUiElement {
@@ -509,6 +530,8 @@ class NativeUiElement {
     private Vector<NativeUiElement> childValues;
     private NativeUiStyleError styleErrorValue;
     private NativeUiVirtualGrid? virtualGridValue;
+    private string placeholderValue;
+    private int textInputMaxBytesValue;
 
     private NativeUiElement(
         NativeUiElementKind kind,
@@ -528,6 +551,8 @@ class NativeUiElement {
         self.childValues = [];
         self.styleErrorValue = NativeUiStyleError.valid();
         self.virtualGridValue = null;
+        self.placeholderValue = "";
+        self.textInputMaxBytesValue = 0;
     }
 
     class NativeUiElement column(string id) {
@@ -558,6 +583,19 @@ class NativeUiElement {
 
     class NativeUiElement button(string id, string label) {
         return NativeUiElement(NATIVE_UI_BUTTON, id, label, null, "");
+    }
+
+    class NativeUiElement textInput(
+        string id,
+        string value,
+        string placeholder = "",
+        int maxBytes = 4096
+    ) {
+        NativeUiElement element = NativeUiElement(
+            NATIVE_UI_TEXT_INPUT, id, value, null, "");
+        element.placeholderValue = placeholder;
+        element.textInputMaxBytesValue = maxBytes;
+        return element;
     }
 
     public NativeUiElement className(string value) {
@@ -596,10 +634,12 @@ class NativeUiElement {
     public NativeUiVirtualGrid? virtualGridDescriptor() {
         return self.virtualGridValue;
     }
+    public string placeholderText() { return self.placeholderValue; }
+    public int textInputMaxBytes() { return self.textInputMaxBytesValue; }
     public int childCount() { return self.childValues.len; }
     public NativeUiElement childAt(int index) {
         return self.childValues.get(index);
     }
 }
 
-#include "native_ui/render.btrc"
+#include "native_ui/Render.btrc"

@@ -21,6 +21,12 @@ def test_upper_camel_contract_programs_are_runnable_corpus_entries():
     assert "stdlib/FileSystemHandlesReal.btrc" in selected
 
 
+def test_native_programs_are_owned_by_their_dedicated_harnesses():
+    selected = set(language_test_files(TESTS))
+
+    assert "native/app_surface/NativeUiAppSession.btrc" not in selected
+
+
 def test_textual_include_fixtures_are_not_standalone_corpus_programs():
     selected = set(language_test_files(TESTS))
 

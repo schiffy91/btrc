@@ -7,13 +7,12 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[3]
 APP = ROOT / "src" / "stdlib" / "app"
 GPU = ROOT / "src" / "stdlib" / "gpu"
 FIXTURE = ROOT / "src" / "tests" / "native" / "app_surface"
-CONFORMANCE = FIXTURE / "native_ui_app_conformance.btrc"
-EXPECTED = FIXTURE / "native_ui_app_conformance.expected"
+CONFORMANCE = FIXTURE / "NativeUiAppSession.btrc"
+EXPECTED = FIXTURE / "NativeUiAppSession.expected"
 COMPILE_TIMEOUT = 180
 RUN_TIMEOUT = 90
 

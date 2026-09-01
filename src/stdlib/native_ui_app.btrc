@@ -259,7 +259,8 @@ class NativeUiAppSession {
         int viewportWidth
     ) {
         float cursor = x;
-        for (int index = 0; index < text.len(); index++) {
+        int index = 0;
+        while (index < text.len()) {
             if (cursor >= (float)viewportWidth) { break; }
             unsigned long long glyph = NativeUiRaster.glyph(text[index]);
             if (glyph != 0ULL) {
@@ -279,6 +280,7 @@ class NativeUiAppSession {
                     );
                 }
             }
+            index = NativeUiTextInput.nextBoundary(text, index);
             cursor += 12.0f;
         }
         return GPUResourceOutcome(GPU_RESOURCE_READY, "");
@@ -310,6 +312,7 @@ class NativeUiAppSession {
         }
         string hovered = self.renderer.hoveredId();
         string pressed = self.renderer.pressedId();
+        string focused = self.renderer.focusedId();
         for box in frame.boxes {
             if (!self.visible(box, frame.viewport)) { continue; }
             int x = box.bounds.x - frame.viewport.scrollX();
@@ -317,7 +320,66 @@ class NativeUiAppSession {
             NativeUiResolvedStyle style = box.style;
             bool highlighted = box.id().equals(hovered)
                 || box.id().equals(pressed);
-            if (box.kind() == NATIVE_UI_BUTTON) {
+            if (box.kind() == NATIVE_UI_TEXT_INPUT) {
+                bool hasFocus = box.id().equals(focused);
+                GPUResourceOutcome border = self.addRect(
+                    (float)x,
+                    (float)y,
+                    (float)box.bounds.width,
+                    (float)box.bounds.height,
+                    hasFocus ? self.theme.accent : self.theme.border,
+                    (float)style.radius
+                );
+                if (border.kind != GPU_RESOURCE_READY) { return border; }
+                if (box.bounds.width > 2 && box.bounds.height > 2) {
+                    GPUResourceOutcome field = self.addRect(
+                        (float)(x + 1),
+                        (float)(y + 1),
+                        (float)(box.bounds.width - 2),
+                        (float)(box.bounds.height - 2),
+                        style.hasBackground
+                            ? style.background : self.theme.panel,
+                        (float)(style.radius > 0 ? style.radius - 1 : 0)
+                    );
+                    if (field.kind != GPU_RESOURCE_READY) { return field; }
+                }
+                string value = self.renderer.displayValue(box.element);
+                bool placeholder = value.isEmpty();
+                string visibleValue = placeholder
+                    ? box.element.placeholderText() : value;
+                GPUResourceOutcome text = self.addText(
+                    visibleValue,
+                    (float)(x + style.padding),
+                    (float)(y + (box.bounds.height - 14) / 2),
+                    placeholder
+                        ? self.theme.mutedText
+                        : (style.hasForeground
+                            ? style.foreground : self.theme.text),
+                    frame.viewport.width()
+                );
+                if (text.kind != GPU_RESOURCE_READY) { return text; }
+                if (hasFocus) {
+                    int caretX = x + style.padding
+                        + NativeUiTextInput.scalarCount(
+                            value, self.renderer.focusedCaret()) * 12;
+                    if (caretX >= x + style.padding
+                            && caretX < x + box.bounds.width
+                                - style.padding + 1) {
+                        GPUResourceOutcome caret = self.addRect(
+                            (float)caretX,
+                            (float)(y + (box.bounds.height - 16) / 2),
+                            2.0f,
+                            16.0f,
+                            style.hasForeground
+                                ? style.foreground : self.theme.text,
+                            0.0f
+                        );
+                        if (caret.kind != GPU_RESOURCE_READY) {
+                            return caret;
+                        }
+                    }
+                }
+            } else if (box.kind() == NATIVE_UI_BUTTON) {
                 NativeUiColor fill = highlighted
                     ? self.theme.accent : self.theme.panel;
                 GPUResourceOutcome rectangle = self.addRect(
@@ -547,6 +609,33 @@ class NativeUiAppSession {
                 (int)(-scroll.deltaX * 40.0f),
                 (int)(-scroll.deltaY * 40.0f)
             );
+        }
+        if (event.kind == APP_EVENT_TEXT) {
+            return self.renderer.textEntered(event.text);
+        }
+        if (event.kind == APP_EVENT_KEYBOARD && event.keyboard != null) {
+            AppKeyboardEvent keyboard = event.keyboard;
+            bool active = keyboard.action == APP_KEY_PRESSED
+                || keyboard.action == APP_KEY_REPEATED;
+            if (!active) { return self.noEvents(); }
+            if (keyboard.key == APP_KEY_BACKSPACE) {
+                return self.renderer.backspace();
+            }
+            if (keyboard.key == APP_KEY_LEFT) {
+                return self.renderer.moveCaretLeft();
+            }
+            if (keyboard.key == APP_KEY_RIGHT) {
+                return self.renderer.moveCaretRight();
+            }
+            if (keyboard.key == APP_KEY_TAB
+                    && keyboard.action == APP_KEY_PRESSED) {
+                return self.renderer.focusNext(keyboard.modifiers.shift);
+            }
+            if (keyboard.key == APP_KEY_ESCAPE
+                    && keyboard.action == APP_KEY_PRESSED) {
+                return self.renderer.blur();
+            }
+            return self.noEvents();
         }
         if ((event.kind == APP_EVENT_RESIZED
                 || event.kind == APP_EVENT_DPI_CHANGED)

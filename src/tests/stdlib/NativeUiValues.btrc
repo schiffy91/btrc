@@ -35,6 +35,17 @@ int main() {
     assert(button.childAt(0).contentImageRevision() == 7ULL);
     assert(button.childAt(0).imageAlt() == "First album");
 
+    NativeUiElement query = NativeUiElement.textInput(
+        "library-query", "caf\xc3\xa9", "Search albums", 64)
+        .className("library-query")
+        .style("height: 40px; border-radius: 6px");
+    assert(query.kind() == NATIVE_UI_TEXT_INPUT);
+    assert(query.id() == "library-query");
+    assert(query.contentText() == "caf\xc3\xa9");
+    assert(query.placeholderText() == "Search albums");
+    assert(query.textInputMaxBytes() == 64);
+    assert(query.styleError().ok());
+
     NativeUiElement rejected = NativeUiElement
         .text("unsafe", "No browser CSS")
         .style("position: fixed");
@@ -101,7 +112,12 @@ int main() {
         == NATIVE_UI_HOVER_LEFT);
     assert(NativeUiEvent.viewportChanged("albums", viewport).kind()
         == NATIVE_UI_VIEWPORT_CHANGED);
+    NativeUiEvent changed = NativeUiEvent.valueChanged(
+        "library-query", "new query");
+    assert(changed.kind() == NATIVE_UI_VALUE_CHANGED);
+    assert(changed.elementId() == "library-query");
+    assert(changed.value() == "new query");
 
-    print("PASS: native UI value contract");
+    print("PASS: native UI values");
     return 0;
 }

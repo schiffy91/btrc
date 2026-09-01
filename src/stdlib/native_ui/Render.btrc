@@ -6,6 +6,106 @@
  * styles on std.app's sole window/device/surface/present cycle.
  */
 
+/* Text-input limits are byte limits; editing and rendering advance only at
+ * validated UTF-8 scalar boundaries. */
+class NativeUiTextInput {
+    class int byteAt(string value, int index) {
+        return (int)(unsigned char)value[index];
+    }
+
+    class bool continuation(int value) {
+        return value >= 0x80 && value <= 0xBF;
+    }
+
+    class int scalarWidth(string value, int index) {
+        if (value == null || index < 0 || index >= value.len()) { return 0; }
+        int remaining = value.len() - index;
+        int first = NativeUiTextInput.byteAt(value, index);
+        if (first <= 0x7F) { return 1; }
+        if (first >= 0xC2 && first <= 0xDF && remaining >= 2
+                && NativeUiTextInput.continuation(
+                    NativeUiTextInput.byteAt(value, index + 1))) {
+            return 2;
+        }
+        if (remaining >= 3) {
+            int second = NativeUiTextInput.byteAt(value, index + 1);
+            int third = NativeUiTextInput.byteAt(value, index + 2);
+            bool validSecond = (first == 0xE0
+                    && second >= 0xA0 && second <= 0xBF)
+                || (first >= 0xE1 && first <= 0xEC
+                    && NativeUiTextInput.continuation(second))
+                || (first == 0xED && second >= 0x80 && second <= 0x9F)
+                || (first >= 0xEE && first <= 0xEF
+                    && NativeUiTextInput.continuation(second));
+            if (validSecond && NativeUiTextInput.continuation(third)) {
+                return 3;
+            }
+        }
+        if (remaining >= 4) {
+            int second = NativeUiTextInput.byteAt(value, index + 1);
+            int third = NativeUiTextInput.byteAt(value, index + 2);
+            int fourth = NativeUiTextInput.byteAt(value, index + 3);
+            bool validSecond = (first == 0xF0
+                    && second >= 0x90 && second <= 0xBF)
+                || (first >= 0xF1 && first <= 0xF3
+                    && NativeUiTextInput.continuation(second))
+                || (first == 0xF4 && second >= 0x80 && second <= 0x8F);
+            if (validSecond
+                    && NativeUiTextInput.continuation(third)
+                    && NativeUiTextInput.continuation(fourth)) {
+                return 4;
+            }
+        }
+        return 0;
+    }
+
+    class bool validUtf8(string value) {
+        if (value == null) { return false; }
+        int index = 0;
+        while (index < value.len()) {
+            int width = NativeUiTextInput.scalarWidth(value, index);
+            if (width == 0) { return false; }
+            index += width;
+        }
+        return true;
+    }
+
+    class int previousBoundary(string value, int offset) {
+        if (value == null || offset <= 0) { return 0; }
+        int bounded = offset > value.len() ? value.len() : offset;
+        int index = bounded - 1;
+        while (index > 0 && NativeUiTextInput.continuation(
+                NativeUiTextInput.byteAt(value, index))) {
+            index--;
+        }
+        return index;
+    }
+
+    class int nextBoundary(string value, int offset) {
+        if (value == null || offset >= value.len()) {
+            return value == null ? 0 : value.len();
+        }
+        int bounded = offset < 0 ? 0 : offset;
+        int width = NativeUiTextInput.scalarWidth(value, bounded);
+        return width == 0 ? bounded : bounded + width;
+    }
+
+    class int scalarCount(string value, int endOffset) {
+        if (value == null) { return 0; }
+        int end = endOffset < value.len() ? endOffset : value.len();
+        if (end < 0) { end = 0; }
+        int index = 0;
+        int count = 0;
+        while (index < end) {
+            int next = NativeUiTextInput.nextBoundary(value, index);
+            if (next <= index || next > end) { break; }
+            index = next;
+            count++;
+        }
+        return count;
+    }
+}
+
 enum NativeUiFrameStatus {
     NATIVE_UI_FRAME_READY = 0,
     NATIVE_UI_FRAME_INVALID_VIEWPORT = 1,
@@ -133,7 +233,12 @@ class NativeUiLayoutBox {
     public string id() { return self.element.id(); }
     public NativeUiElementKind kind() { return self.element.kind(); }
     public bool interactive() {
-        return self.element.kind() == NATIVE_UI_BUTTON;
+        return self.element.kind() == NATIVE_UI_BUTTON
+            || self.element.kind() == NATIVE_UI_TEXT_INPUT;
+    }
+    public bool clickable() { return self.element.kind() == NATIVE_UI_BUTTON; }
+    public bool focusable() {
+        return self.element.kind() == NATIVE_UI_TEXT_INPUT;
     }
 }
 
@@ -260,11 +365,36 @@ class NativeUiFrame {
     }
 
     public string hitId(int x, int y, bool interactiveOnly = false) {
+        NativeUiLayoutBox? optionalBox = self.hitBox(
+            x, y, interactiveOnly);
+        if (optionalBox == null) { return ""; }
+        NativeUiLayoutBox box = optionalBox;
+        return box.id();
+    }
+
+    public NativeUiLayoutBox? hitBox(
+        int x,
+        int y,
+        bool interactiveOnly = false
+    ) {
         int contentX = x + self.viewport.scrollX();
         int contentY = y + self.viewport.scrollY();
         for (int index = self.boxes.len - 1; index >= 0; index--) {
             NativeUiLayoutBox box = self.boxes.get(index);
             if ((!interactiveOnly || box.interactive())
+                    && box.bounds.contains(contentX, contentY)) {
+                return box;
+            }
+        }
+        return null;
+    }
+
+    public string clickableId(int x, int y) {
+        int contentX = x + self.viewport.scrollX();
+        int contentY = y + self.viewport.scrollY();
+        for (int index = self.boxes.len - 1; index >= 0; index--) {
+            NativeUiLayoutBox box = self.boxes.get(index);
+            if (box.clickable()
                     && box.bounds.contains(contentX, contentY)) {
                 return box.id();
             }
@@ -306,8 +436,11 @@ class NativeUiResolvedStyle {
         self.padding = kind == NATIVE_UI_COLUMN || kind == NATIVE_UI_GRID
                 || kind == NATIVE_UI_VIRTUAL_GRID
             ? 12
-            : (kind == NATIVE_UI_BUTTON ? 10 : 2);
-        self.radius = kind == NATIVE_UI_BUTTON ? 8 : 0;
+            : (kind == NATIVE_UI_BUTTON || kind == NATIVE_UI_TEXT_INPUT
+                ? 10 : 2);
+        self.radius = kind == NATIVE_UI_BUTTON
+                || kind == NATIVE_UI_TEXT_INPUT
+            ? 8 : 0;
         self.width = 0;
         self.height = 0;
         self.hasBackground = false;
@@ -498,9 +631,20 @@ class NativeUiLayout {
                 return null;
             }
         }
+        if (element.kind() == NATIVE_UI_TEXT_INPUT
+                && (element.contentText() == null
+                    || element.placeholderText() == null)) {
+            context.fail(
+                NATIVE_UI_FRAME_INVALID_TREE,
+                f"native UI text input requires non-null UTF-8 text: "
+                    + f"{element.id()}"
+            );
+            return null;
+        }
         if (element.inlineStyle().len() > 4096
                 || element.cssClass().len() > 128
                 || element.contentText().len() > 4096
+                || element.placeholderText().len() > 4096
                 || element.imageAlt().len() > 4096) {
             context.fail(
                 NATIVE_UI_FRAME_LIMIT_EXCEEDED,
@@ -508,10 +652,26 @@ class NativeUiLayout {
             );
             return null;
         }
+        if (element.kind() == NATIVE_UI_TEXT_INPUT
+                && (element.textInputMaxBytes() < 1
+                    || element.textInputMaxBytes() > 4096
+                    || element.contentText().len()
+                        > element.textInputMaxBytes()
+                    || !NativeUiTextInput.validUtf8(element.contentText())
+                    || !NativeUiTextInput.validUtf8(
+                        element.placeholderText()))) {
+            context.fail(
+                NATIVE_UI_FRAME_INVALID_TREE,
+                f"native UI text input is invalid or exceeds its byte bound: "
+                    + f"{element.id()}"
+            );
+            return null;
+        }
         context.metadataBytes += (long long)element.id().len()
             + (long long)element.inlineStyle().len()
             + (long long)element.cssClass().len()
             + (long long)element.contentText().len()
+            + (long long)element.placeholderText().len()
             + (long long)element.imageAlt().len();
         if (context.metadataBytes > 4194304LL) {
             context.fail(
@@ -531,9 +691,14 @@ class NativeUiLayout {
         if (element.kind() == NATIVE_UI_TEXT) {
             measured.width = NativeUiLayout.minimum(
                 availableWidth,
-                element.contentText().len() * 12 + inset
+                NativeUiTextInput.scalarCount(
+                    element.contentText(), element.contentText().len())
+                    * 12 + inset
             );
             measured.height = 14 + inset;
+        } else if (element.kind() == NATIVE_UI_TEXT_INPUT) {
+            measured.width = availableWidth;
+            measured.height = NativeUiLayout.maximum(36, 14 + inset);
         } else if (element.kind() == NATIVE_UI_IMAGE) {
             Image? optionalImage = element.contentImage();
             if (optionalImage == null || optionalImage.isEmpty()) {
@@ -992,7 +1157,8 @@ class NativeUiRaster {
         NativeUiColor color
     ) {
         int cursor = x;
-        for (int index = 0; index < value.len(); index++) {
+        int index = 0;
+        while (index < value.len()) {
             unsigned long long glyph = NativeUiRaster.glyph(value[index]);
             for (int row = 0; row < 7; row++) {
                 for (int column = 0; column < 5; column++) {
@@ -1009,6 +1175,7 @@ class NativeUiRaster {
                     }
                 }
             }
+            index = NativeUiTextInput.nextBoundary(value, index);
             cursor += 12;
             if (cursor >= image.width) { return; }
         }
@@ -1056,6 +1223,9 @@ class NativeUiRaster {
         Vector<NativeUiLayoutBox> boxes,
         NativeUiTheme theme,
         string hovered,
+        string focused,
+        string focusedValue,
+        int caretByteOffset,
         int scrollX,
         int scrollY
     ) {
@@ -1065,7 +1235,57 @@ class NativeUiRaster {
             NativeUiResolvedStyle style = box.style;
             int x = box.bounds.x - scrollX;
             int y = box.bounds.y - scrollY;
-            if (box.element.kind() == NATIVE_UI_BUTTON) {
+            if (box.element.kind() == NATIVE_UI_TEXT_INPUT) {
+                bool hasFocus = box.id().equals(focused);
+                NativeUiRaster.fillRect(
+                    image, x, y, box.bounds.width, box.bounds.height,
+                    hasFocus ? theme.accent : theme.border,
+                    style.radius);
+                NativeUiColor fill = style.hasBackground
+                    ? style.background : theme.panel;
+                if (box.bounds.width > 2 && box.bounds.height > 2) {
+                    NativeUiRaster.fillRect(
+                        image,
+                        x + 1,
+                        y + 1,
+                        box.bounds.width - 2,
+                        box.bounds.height - 2,
+                        fill,
+                        style.radius > 0 ? style.radius - 1 : 0);
+                }
+                string value = hasFocus
+                    ? focusedValue : box.element.contentText();
+                bool placeholder = value.isEmpty();
+                string visibleValue = placeholder
+                    ? box.element.placeholderText() : value;
+                NativeUiRaster.text(
+                    image,
+                    x + style.padding,
+                    y + (box.bounds.height - 14) / 2,
+                    visibleValue,
+                    placeholder
+                        ? theme.mutedText
+                        : (style.hasForeground
+                            ? style.foreground : theme.text)
+                );
+                if (hasFocus) {
+                    int caretX = x + style.padding
+                        + NativeUiTextInput.scalarCount(
+                            value, caretByteOffset) * 12;
+                    if (caretX >= x + style.padding
+                            && caretX < x + box.bounds.width
+                                - style.padding + 1) {
+                        NativeUiRaster.fillRect(
+                            image,
+                            caretX,
+                            y + (box.bounds.height - 16) / 2,
+                            2,
+                            16,
+                            style.hasForeground
+                                ? style.foreground : theme.text);
+                    }
+                }
+            } else if (box.element.kind() == NATIVE_UI_BUTTON) {
                 NativeUiColor fill = box.id().equals(hovered)
                     ? theme.accent
                     : theme.panel;
@@ -1131,6 +1351,10 @@ class NativeUiRenderer {
     private int pointerYValue;
     private string hoveredIdentity;
     private string pressedIdentity;
+    private string focusedIdentity;
+    private string focusedInputValue;
+    private int focusedCaretByteOffset;
+    private int focusedMaxBytes;
     private bool proofRasterValue;
 
     public NativeUiRenderer(
@@ -1152,6 +1376,10 @@ class NativeUiRenderer {
         self.pointerYValue = -1;
         self.hoveredIdentity = "";
         self.pressedIdentity = "";
+        self.focusedIdentity = "";
+        self.focusedInputValue = "";
+        self.focusedCaretByteOffset = 0;
+        self.focusedMaxBytes = 0;
         self.proofRasterValue = false;
         self.frameValue = NativeUiFrame.failed(
             NATIVE_UI_FRAME_INVALID_VIEWPORT,
@@ -1168,12 +1396,61 @@ class NativeUiRenderer {
     public NativeUiFrame currentFrame() { return self.frameValue; }
     public string hoveredId() { return self.hoveredIdentity; }
     public string pressedId() { return self.pressedIdentity; }
+    public string focusedId() { return self.focusedIdentity; }
+    public string focusedValue() { return self.focusedInputValue; }
+    public int focusedCaret() { return self.focusedCaretByteOffset; }
+
+    public string displayValue(NativeUiElement element) {
+        if (element.kind() == NATIVE_UI_TEXT_INPUT
+                && element.id().equals(self.focusedIdentity)) {
+            return self.focusedInputValue;
+        }
+        return element.contentText();
+    }
+
+    private void clearFocus() {
+        self.focusedIdentity = "";
+        self.focusedInputValue = "";
+        self.focusedCaretByteOffset = 0;
+        self.focusedMaxBytes = 0;
+    }
+
+    private void focus(NativeUiLayoutBox box) {
+        if (!box.focusable()) {
+            self.clearFocus();
+            return;
+        }
+        if (!box.id().equals(self.focusedIdentity)) {
+            self.focusedIdentity = box.id();
+            self.focusedInputValue = box.element.contentText();
+            self.focusedCaretByteOffset = self.focusedInputValue.len();
+        }
+        self.focusedMaxBytes = box.element.textInputMaxBytes();
+    }
+
+    private void synchronizeFocus(Vector<NativeUiLayoutBox> boxes) {
+        if (self.focusedIdentity.isEmpty()) { return; }
+        for box in boxes {
+            if (box.focusable() && box.id().equals(self.focusedIdentity)) {
+                self.focusedMaxBytes = box.element.textInputMaxBytes();
+                if (!box.element.contentText().equals(
+                        self.focusedInputValue)) {
+                    self.focusedInputValue = box.element.contentText();
+                    self.focusedCaretByteOffset =
+                        self.focusedInputValue.len();
+                }
+                return;
+            }
+        }
+        self.clearFocus();
+    }
 
     private NativeUiFrame buildFrame(
         NativeUiElement root,
         int width,
         int height,
-        bool proofRaster
+        bool proofRaster,
+        bool synchronizeInput
     ) {
         self.proofRasterValue = proofRaster;
         self.rootValue = root;
@@ -1222,6 +1499,7 @@ class NativeUiRenderer {
         self.scrollXValue = 0;
         Vector<NativeUiLayoutBox> boxes = [];
         NativeUiLayout.place(measured, 0, 0, width, 0, boxes);
+        if (synchronizeInput) { self.synchronizeFocus(boxes); }
         Image image = proofRaster ? Image(width, height) : Image.empty();
         if (proofRaster) {
             NativeUiRaster.frame(
@@ -1229,6 +1507,9 @@ class NativeUiRenderer {
                 boxes,
                 self.themeValue,
                 self.hoveredIdentity,
+                self.focusedIdentity,
+                self.focusedInputValue,
+                self.focusedCaretByteOffset,
                 self.scrollXValue,
                 self.scrollYValue
             );
@@ -1261,7 +1542,7 @@ class NativeUiRenderer {
         int width,
         int height
     ) {
-        return self.buildFrame(root, width, height, true);
+        return self.buildFrame(root, width, height, true, true);
     }
 
     /* Validate and publish boxes/styles without allocating an RGBA frame. */
@@ -1270,7 +1551,7 @@ class NativeUiRenderer {
         int width,
         int height
     ) {
-        return self.buildFrame(root, width, height, false);
+        return self.buildFrame(root, width, height, false, true);
     }
 
     private NativeUiFrame rerender() {
@@ -1280,7 +1561,8 @@ class NativeUiRenderer {
             optionalRoot,
             self.widthValue,
             self.heightValue,
-            self.proofRasterValue
+            self.proofRasterValue,
+            false
         );
     }
 
@@ -1313,9 +1595,20 @@ class NativeUiRenderer {
         self.pointerYValue = y;
         Vector<NativeUiEvent> events = [];
         self.hoverEvents(events);
-        self.pressedIdentity = self.frameValue.ok()
-            ? self.frameValue.hitId(x, y, true)
-            : "";
+        NativeUiLayoutBox? optionalTarget = self.frameValue.ok()
+            ? self.frameValue.hitBox(x, y, true)
+            : null;
+        if (optionalTarget != null && optionalTarget.focusable()) {
+            NativeUiLayoutBox target = optionalTarget;
+            self.focus(target);
+            self.pressedIdentity = "";
+        } else {
+            self.clearFocus();
+            self.pressedIdentity = self.frameValue.ok()
+                ? self.frameValue.clickableId(x, y)
+                : "";
+        }
+        self.rerender();
         return NativeUiEventBatch(self.frameValue, events);
     }
 
@@ -1325,7 +1618,7 @@ class NativeUiRenderer {
         Vector<NativeUiEvent> events = [];
         self.hoverEvents(events);
         string target = self.frameValue.ok()
-            ? self.frameValue.hitId(x, y, true)
+            ? self.frameValue.clickableId(x, y)
             : "";
         if (!self.pressedIdentity.isEmpty()
                 && target.equals(self.pressedIdentity)) {
@@ -1339,6 +1632,107 @@ class NativeUiRenderer {
         self.pressedIdentity = "";
         Vector<NativeUiEvent> events = [];
         return NativeUiEventBatch(self.frameValue, events);
+    }
+
+    private NativeUiEventBatch inputBatch(
+        Vector<NativeUiEvent> events
+    ) {
+        self.rerender();
+        return NativeUiEventBatch(self.frameValue, events);
+    }
+
+    public NativeUiEventBatch textEntered(string text) {
+        Vector<NativeUiEvent> events = [];
+        if (self.focusedIdentity.isEmpty() || text == null || text.isEmpty()
+                || !NativeUiTextInput.validUtf8(text)
+                || (long long)self.focusedInputValue.len()
+                    + (long long)text.len()
+                    > (long long)self.focusedMaxBytes) {
+            return NativeUiEventBatch(self.frameValue, events);
+        }
+        string prefix = self.focusedInputValue.substring(
+            0, self.focusedCaretByteOffset);
+        string suffix = self.focusedInputValue.substring(
+            self.focusedCaretByteOffset,
+            self.focusedInputValue.len() - self.focusedCaretByteOffset);
+        self.focusedInputValue = prefix + text + suffix;
+        self.focusedCaretByteOffset += text.len();
+        events.push(NativeUiEvent.valueChanged(
+            self.focusedIdentity, self.focusedInputValue));
+        return self.inputBatch(events);
+    }
+
+    public NativeUiEventBatch backspace() {
+        Vector<NativeUiEvent> events = [];
+        if (self.focusedIdentity.isEmpty()
+                || self.focusedCaretByteOffset <= 0) {
+            return NativeUiEventBatch(self.frameValue, events);
+        }
+        int previous = NativeUiTextInput.previousBoundary(
+            self.focusedInputValue, self.focusedCaretByteOffset);
+        string prefix = self.focusedInputValue.substring(0, previous);
+        string suffix = self.focusedInputValue.substring(
+            self.focusedCaretByteOffset,
+            self.focusedInputValue.len() - self.focusedCaretByteOffset);
+        self.focusedInputValue = prefix + suffix;
+        self.focusedCaretByteOffset = previous;
+        events.push(NativeUiEvent.valueChanged(
+            self.focusedIdentity, self.focusedInputValue));
+        return self.inputBatch(events);
+    }
+
+    public NativeUiEventBatch moveCaretLeft() {
+        Vector<NativeUiEvent> events = [];
+        if (!self.focusedIdentity.isEmpty()) {
+            self.focusedCaretByteOffset =
+                NativeUiTextInput.previousBoundary(
+                    self.focusedInputValue,
+                    self.focusedCaretByteOffset);
+            self.rerender();
+        }
+        return NativeUiEventBatch(self.frameValue, events);
+    }
+
+    public NativeUiEventBatch moveCaretRight() {
+        Vector<NativeUiEvent> events = [];
+        if (!self.focusedIdentity.isEmpty()) {
+            self.focusedCaretByteOffset = NativeUiTextInput.nextBoundary(
+                self.focusedInputValue,
+                self.focusedCaretByteOffset);
+            self.rerender();
+        }
+        return NativeUiEventBatch(self.frameValue, events);
+    }
+
+    public NativeUiEventBatch focusNext(bool reverse = false) {
+        Vector<NativeUiEvent> events = [];
+        Vector<NativeUiLayoutBox> fields = [];
+        for box in self.frameValue.boxes {
+            if (box.focusable()) { fields.push(box); }
+        }
+        if (fields.len == 0) {
+            self.clearFocus();
+            return self.inputBatch(events);
+        }
+        int current = -1;
+        for (int index = 0; index < fields.len; index++) {
+            if (fields.get(index).id().equals(self.focusedIdentity)) {
+                current = index;
+                break;
+            }
+        }
+        int next = reverse
+            ? (current <= 0 ? fields.len - 1 : current - 1)
+            : (current < 0 || current + 1 >= fields.len
+                ? 0 : current + 1);
+        self.focus(fields.get(next));
+        return self.inputBatch(events);
+    }
+
+    public NativeUiEventBatch blur() {
+        Vector<NativeUiEvent> events = [];
+        self.clearFocus();
+        return self.inputBatch(events);
     }
 
     public NativeUiEventBatch scrollBy(int x, int y) {
@@ -1377,7 +1771,7 @@ class NativeUiRenderer {
             return NativeUiEventBatch(self.frameValue, events);
         }
         self.buildFrame(
-            optionalRoot, width, height, self.proofRasterValue);
+            optionalRoot, width, height, self.proofRasterValue, false);
         if (self.frameValue.virtualGridCount() == 0) {
             events.push(NativeUiEvent.viewportChanged(
                 optionalRoot.id(), self.frameValue.viewport));

@@ -74,6 +74,62 @@ int main() {
     assert(layoutScroll.frame.image.isEmpty());
     assert(layoutScroll.frame.boxCount() == 19);
 
+    NativeUiRenderer inputRenderer = NativeUiRenderer();
+    NativeUiElement inputTree = NativeUiElement.column("query-root")
+        .child(NativeUiElement.textInput(
+            "query", "a\xc3\xa9", "Search albums", 5))
+        .child(NativeUiElement.textInput(
+            "secondary-query", "", "Second", 16));
+    NativeUiFrame inputFrame = inputRenderer.render(inputTree, 240, 120);
+    assert(inputFrame.ok());
+    NativeUiLayoutBox inputBox = inputFrame.boxFor("query");
+    inputRenderer.pointerPressed(
+        inputBox.bounds.x + 2, inputBox.bounds.y + 2);
+    assert(inputRenderer.focusedId() == "query");
+    assert(inputRenderer.focusedValue() == "a\xc3\xa9");
+    assert(inputRenderer.focusedCaret() == 3);
+    inputRenderer.moveCaretLeft();
+    assert(inputRenderer.focusedCaret() == 1);
+    NativeUiEventBatch inserted = inputRenderer.textEntered("Z");
+    assert(inserted.eventCount() == 1);
+    assert(inserted.eventAt(0).kind() == NATIVE_UI_VALUE_CHANGED);
+    assert(inserted.eventAt(0).elementId() == "query");
+    assert(inserted.eventAt(0).value() == "aZ\xc3\xa9");
+    NativeUiEventBatch removed = inputRenderer.backspace();
+    assert(removed.eventCount() == 1);
+    assert(removed.eventAt(0).value() == "a\xc3\xa9");
+    inputRenderer.moveCaretRight();
+    NativeUiEventBatch appended = inputRenderer.textEntered("!");
+    assert(appended.eventCount() == 1);
+    assert(appended.eventAt(0).value() == "a\xc3\xa9!");
+    assert(inputRenderer.textEntered("\xf0\x9f\x98\x80")
+        .eventCount() == 0);
+    assert(inputRenderer.focusedValue() == "a\xc3\xa9!");
+    assert(inputRenderer.textEntered("\xc3").eventCount() == 0);
+    assert(inputRenderer.focusedValue() == "a\xc3\xa9!");
+    inputRenderer.focusNext();
+    assert(inputRenderer.focusedId() == "secondary-query");
+    inputRenderer.focusNext(true);
+    assert(inputRenderer.focusedId() == "query");
+    inputRenderer.blur();
+    assert(inputRenderer.focusedId().isEmpty());
+
+    NativeUiRenderer controlledRenderer = NativeUiRenderer();
+    NativeUiFrame controlledFrame = controlledRenderer.layout(
+        NativeUiElement.textInput("controlled", "old", "", 16),
+        200,
+        48);
+    NativeUiLayoutBox controlledBox = controlledFrame.boxFor("controlled");
+    controlledRenderer.pointerPressed(
+        controlledBox.bounds.x + 2, controlledBox.bounds.y + 2);
+    assert(controlledRenderer.textEntered("!").eventAt(0).value() == "old!");
+    controlledRenderer.layout(
+        NativeUiElement.textInput("controlled", "server", "", 16),
+        200,
+        48);
+    assert(controlledRenderer.focusedValue() == "server");
+    assert(controlledRenderer.focusedCaret() == 6);
+
     NativeUiEventBatch deepScroll = renderer.scrollBy(0, 1000000000);
     assert(deepScroll.frame.ok());
     assert(deepScroll.frame.boxCount() == 19);
@@ -190,6 +246,38 @@ int main() {
         NativeUiRenderer().render(
             NativeUiElement.text("viewport", "bad"), 0, 80),
         NATIVE_UI_FRAME_INVALID_VIEWPORT);
+
+    assertRejected(
+        NativeUiRenderer().render(
+            NativeUiElement.textInput("bad-utf8", "\xc3", "", 8),
+            80,
+            80),
+        NATIVE_UI_FRAME_INVALID_TREE);
+    assertRejected(
+        NativeUiRenderer().render(
+            NativeUiElement.textInput("bad-bound", "four", "", 3),
+            80,
+            80),
+        NATIVE_UI_FRAME_INVALID_TREE);
+    assertRejected(
+        NativeUiRenderer().render(
+            NativeUiElement.textInput("bad-max", "", "", 0),
+            80,
+            80),
+        NATIVE_UI_FRAME_INVALID_TREE);
+    assertRejected(
+        NativeUiRenderer().render(
+            NativeUiElement.textInput(
+                "bad-placeholder", "", "\xc3", 8),
+            80,
+            80),
+        NATIVE_UI_FRAME_INVALID_TREE);
+    assertRejected(
+        NativeUiRenderer().render(
+            NativeUiElement.textInput("too-large-max", "", "", 4097),
+            80,
+            80),
+        NATIVE_UI_FRAME_INVALID_TREE);
 
     Image tooWide = Image(4097, 1);
     assertRejected(
