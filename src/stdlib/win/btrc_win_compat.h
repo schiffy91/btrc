@@ -14,6 +14,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <locale.h>
 #include <sys/stat.h>
 #include <stdint.h>
 #include <stdarg.h>
@@ -25,6 +26,17 @@
 #include <direct.h>  /* _mkdir   */
 
 #include "btrc_win_errors.h"
+
+/* Generated extern declarations cannot repeat MinGW CRT declarations without
+   their dllimport attribute. Route the language-visible locale function
+   through an internal wrapper before generated declarations are parsed. */
+static inline struct lconv* btrc_win_localeconv(void) {
+    return localeconv();
+}
+#ifdef localeconv
+#undef localeconv
+#endif
+#define localeconv btrc_win_localeconv
 
 /* MinGW exposes popen/pclose as object-like macros naming imported UCRT
    symbols. A later portable `extern popen(...)` declaration then loses the
@@ -46,6 +58,15 @@ static inline int btrc_win_pclose(FILE* stream) {
 #undef pclose
 #endif
 #define pclose btrc_win_pclose
+
+/* UCRT's descriptor durability primitive is named `_commit`. */
+static inline int btrc_win_fsync(int descriptor) {
+    return _commit(descriptor);
+}
+#ifdef fsync
+#undef fsync
+#endif
+#define fsync btrc_win_fsync
 
 /* Keep the forced-include boundary narrow: importing windows.h here would
    inject thousands of unrelated typedefs and macros into every generated

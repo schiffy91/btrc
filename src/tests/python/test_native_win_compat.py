@@ -51,6 +51,10 @@ def test_windows_filesystem_shims_never_follow_reparse_points() -> None:
     assert "#define popen btrc_win_popen" in source
     assert "btrc_win_pclose" in source
     assert "#define pclose btrc_win_pclose" in source
+    assert "btrc_win_localeconv" in source
+    assert "#define localeconv btrc_win_localeconv" in source
+    assert "btrc_win_fsync" in source
+    assert "#define fsync btrc_win_fsync" in source
 
 
 def test_windows_orphan_header_shims_cover_emitted_stdlib_includes() -> None:

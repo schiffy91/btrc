@@ -2,10 +2,15 @@
 #include <string.h>
 
 extern char* mkdtemp(char* template_path);
+extern struct lconv* localeconv(void);
 extern FILE* popen(const char* command, const char* mode);
 extern int pclose(FILE* stream);
+extern int fsync(int descriptor);
 
 int btrc_win_compat_helper(void) {
+    if (localeconv() == NULL) { return 0; }
+    errno = 0;
+    if (fsync(-1) != -1 || errno != EBADF) { return 0; }
     errno = 0;
     if (openat(-1, "must-not-open", 0) != -1 || errno != ENOTSUP) {
         return 0;
