@@ -162,9 +162,7 @@ def test_import_emits_and_links_compiler_owned_runtime(
     project.mkdir()
     source = project / "main.btrc"
     source.write_text(PLANNED_CONSUMER)
-    (project / "btrc.toml").write_text(
-        'manifest-version = 1\n\n[package]\nname = "planned_jobs"\n'
-    )
+    (project / "btrc.toml").write_text('manifest-version = 1\n\n[package]\nname = "planned_jobs"\n')
     generated = tmp_path / f"planned-{compiler}.c"
     plan = tmp_path / f"planned-{compiler}.json"
     environment = {
@@ -244,11 +242,7 @@ def test_import_emits_and_links_compiler_owned_runtime(
         assert reference.returncode == 0, reference.stderr
         assert plan.read_bytes() == reference_plan.read_bytes()
     payload = json.loads(plan.read_text())
-    runtime_units = [
-        unit
-        for unit in payload["units"]
-        if unit["package"] == "btrc_stdlib_runtime"
-    ]
+    runtime_units = [unit for unit in payload["units"] if unit["package"] == "btrc_stdlib_runtime"]
     assert runtime_units == [
         {
             "language": "c",

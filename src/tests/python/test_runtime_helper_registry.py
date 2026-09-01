@@ -160,13 +160,13 @@ def test_manifest_rejects_an_undeclared_helper_source_reference(tmp_path: Path) 
     shutil.copytree(RUNTIME_ROOT, runtime_root)
     manifest_path = runtime_root / "manifest.toml"
     source = manifest_path.read_text()
-    with_dependency = '''name = "__btrc_arc_retain_edge"
+    with_dependency = """name = "__btrc_arc_retain_edge"
 category = "cycles"
 asset = "cycles.c"
 dependencies = [
   "__btrc_arc_register_incoming",
   "__btrc_arc_validate",
-  "__btrc_arc_mutation_lock",'''
+  "__btrc_arc_mutation_lock","""
     without_dependency = with_dependency.replace('  "__btrc_arc_validate",\n', "")
     assert source.count(with_dependency) == 1
     manifest_path.write_text(source.replace(with_dependency, without_dependency, 1))
@@ -186,10 +186,10 @@ def test_manifest_rejects_an_unreachable_provided_type(tmp_path: Path) -> None:
     shutil.copytree(RUNTIME_ROOT, runtime_root)
     manifest_path = runtime_root / "manifest.toml"
     source = manifest_path.read_text()
-    with_dependency = '''name = "__btrc_cycle_collector_state"
+    with_dependency = """name = "__btrc_cycle_collector_state"
 category = "cycles"
 asset = "cycles.c"
-dependencies = ["__btrc_arc_callback_types"]'''
+dependencies = ["__btrc_arc_callback_types"]"""
     without_dependency = with_dependency.replace(
         'dependencies = ["__btrc_arc_callback_types"]',
         "dependencies = []",
