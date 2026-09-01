@@ -3,23 +3,67 @@
 import std.background_jobs;
 
 void job_probe_reset();
-void* job_probe_create(int identity, int behavior);
-int job_probe_run(void* context, void* cancellation);
-void job_probe_dispose(void* context);
 void job_probe_release();
+int job_probe_released();
+void job_probe_mark_started(int identity);
+void job_probe_mark_finished(int identity);
+void job_probe_record_disposal(int identity);
 int job_probe_started(int identity);
 int job_probe_finished(int identity);
 int job_probe_runs(int identity);
 int job_probe_disposals(int identity);
-int job_probe_identity(void* context);
 void job_probe_yield();
 
 enum JobProbeBehavior {
     JOB_PROBE_COMPLETE = 0,
     JOB_PROBE_HOLD = 1,
     JOB_PROBE_CANCEL = 2,
-    JOB_PROBE_FAIL = 3
+    JOB_PROBE_FAIL = 3,
+    JOB_PROBE_THROW = 4
 };
+
+class JobProbeWork extends BackgroundJobWork {
+    private int _identity;
+    private JobProbeBehavior _behavior;
+
+    public JobProbeWork(int identity, JobProbeBehavior behavior) {
+        self._identity = identity;
+        self._behavior = behavior;
+    }
+
+    public int identity() { return self._identity; }
+
+    public BackgroundJobCompletionKind run(
+        BackgroundJobCancellation cancellation
+    ) {
+        job_probe_mark_started(self._identity);
+        if (self._behavior == JOB_PROBE_HOLD) {
+            while (job_probe_released() == 0) { job_probe_yield(); }
+        } else if (self._behavior == JOB_PROBE_CANCEL) {
+            while (!cancellation.requested()) { job_probe_yield(); }
+        } else if (self._behavior == JOB_PROBE_THROW) {
+            throw "background job probe failure";
+        }
+        job_probe_mark_finished(self._identity);
+        if (self._behavior == JOB_PROBE_CANCEL) {
+            return BACKGROUND_JOB_CANCELLED;
+        }
+        return self._behavior == JOB_PROBE_FAIL
+            ? BACKGROUND_JOB_FAILED
+            : BACKGROUND_JOB_COMPLETED;
+    }
+
+    public void __del__() {
+        job_probe_record_disposal(self._identity);
+    }
+}
+
+BackgroundJobCompletionKind runProbe(
+    BackgroundJobWork work,
+    BackgroundJobCancellation cancellation
+) {
+    return ((JobProbeWork)work).run(cancellation);
+}
 
 BackgroundJobExecutor openExecutor(int workers, int capacity) {
     BackgroundJobsOpenOutcome opened = BackgroundJobExecutor.open(
@@ -63,16 +107,15 @@ BackgroundJobSubmitOutcome submitProbe(
     BackgroundJobExecutor executor,
     BackgroundJobGeneration generation,
     int identity,
-    int behavior
+    JobProbeBehavior behavior
 ) {
-    void* context = job_probe_create(identity, behavior);
-    assert(context != null);
-    return executor.submit(
-        generation,
-        job_probe_run,
-        context,
-        job_probe_dispose
-    );
+    JobProbeWork work = JobProbeWork(identity, behavior);
+    return executor.submit(generation, work, runProbe);
+}
+
+int completionIdentity(BackgroundJobCompletion completion) {
+    JobProbeWork work = (JobProbeWork)completion.work();
+    return work.identity();
 }
 
 int main() {
@@ -86,6 +129,7 @@ int main() {
     assert(first.ticket != null);
     BackgroundJobTicket firstTicket = first.ticket;
     waitStarted(1);
+    assert(job_probe_disposals(1) == 0);
 
     BackgroundJobSubmitOutcome queued = submitProbe(
         executor, firstGeneration, 2, JOB_PROBE_COMPLETE);
@@ -94,41 +138,23 @@ int main() {
     BackgroundJobTicket queuedTicket = queued.ticket;
     assert(executor.outstanding() == 2);
 
-    /* Capacity includes running, queued, and terminal-unpolled work. Rejection
-     * retains context ownership with the caller. */
-    void* rejectedContext = job_probe_create(9, JOB_PROBE_COMPLETE);
-    BackgroundJobSubmitOutcome rejected = executor.submit(
-        firstGeneration,
-        job_probe_run,
-        rejectedContext,
-        job_probe_dispose
-    );
+    /* Rejection retains no stdlib envelope or managed work reference. */
+    BackgroundJobSubmitOutcome rejected = submitProbe(
+        executor, firstGeneration, 9, JOB_PROBE_COMPLETE);
     assert(rejected.kind == BACKGROUND_JOB_QUEUE_FULL);
     assert(rejected.ticket == null);
-    assert(job_probe_disposals(9) == 0);
-    job_probe_dispose(rejectedContext);
     assert(job_probe_disposals(9) == 1);
 
-    BackgroundJobCancelOutcome cancelledQueued = executor.cancel(
-        queuedTicket);
+    BackgroundJobCancelOutcome cancelledQueued = executor.cancel(queuedTicket);
     assert(cancelledQueued.kind == BACKGROUND_JOB_CANCEL_REQUESTED);
     assert(cancelledQueued.requested == 1);
 
-    /* Every executor mutation is owner-only. Rejected submission keeps its
-     * context with the caller even when rejection happens on another thread. */
-    void* wrongSubmitContext = job_probe_create(14, JOB_PROBE_COMPLETE);
     Thread<int> wrongSubmit = spawn(() => {
-        BackgroundJobSubmitOutcome outcome = executor.submit(
-            firstGeneration,
-            job_probe_run,
-            wrongSubmitContext,
-            job_probe_dispose
-        );
+        BackgroundJobSubmitOutcome outcome = submitProbe(
+            executor, firstGeneration, 14, JOB_PROBE_COMPLETE);
         return outcome.kind == BACKGROUND_JOB_SUBMIT_NOT_OWNER ? 0 : 1;
     });
     assert(wrongSubmit.join() == 0);
-    assert(job_probe_disposals(14) == 0);
-    job_probe_dispose(wrongSubmitContext);
     assert(job_probe_disposals(14) == 1);
 
     Thread<int> wrongCancel = spawn(() => {
@@ -137,7 +163,6 @@ int main() {
     });
     assert(wrongCancel.join() == 0);
 
-    /* Poll is owner-only and returns immediately on the wrong thread. */
     Thread<int> wrongOwner = spawn(() => {
         BackgroundJobPollOutcome outcome = executor.poll();
         return outcome.kind == BACKGROUND_JOB_POLL_NOT_OWNER ? 0 : 1;
@@ -155,23 +180,20 @@ int main() {
     BackgroundJobCompletion completed = waitCompletion(executor);
     assert(completed.ticket.sequence() == firstTicket.sequence());
     assert(completed.kind == BACKGROUND_JOB_COMPLETED);
-    void* completedContext = completed.takeContext();
-    assert(completedContext != null);
-    assert(job_probe_identity(completedContext) == 1);
-    delete completed;
+    assert(completionIdentity(completed) == 1);
     assert(job_probe_disposals(1) == 0);
-    job_probe_dispose(completedContext);
+    delete completed;
     assert(job_probe_disposals(1) == 1);
 
     BackgroundJobCompletion skipped = waitCompletion(executor);
     assert(skipped.ticket.sequence() == queuedTicket.sequence());
     assert(skipped.kind == BACKGROUND_JOB_CANCELLED);
+    assert(completionIdentity(skipped) == 2);
     assert(job_probe_runs(2) == 0);
-    assert(skipped.close());
     delete skipped;
     assert(job_probe_disposals(2) == 1);
 
-    /* A running job observes cooperative cancellation through its token. */
+    /* A running job observes cooperative cancellation through the typed view. */
     BackgroundJobSubmitOutcome running = submitProbe(
         executor, BackgroundJobGeneration(2ULL), 3, JOB_PROBE_CANCEL);
     assert(running.kind == BACKGROUND_JOB_SUBMITTED);
@@ -181,14 +203,11 @@ int main() {
     assert(cancelledRunning.kind == BACKGROUND_JOB_CANCEL_REQUESTED);
     BackgroundJobCompletion runningCompletion = waitCompletion(executor);
     assert(runningCompletion.kind == BACKGROUND_JOB_CANCELLED);
-    assert(runningCompletion.close());
     delete runningCompletion;
     assert(job_probe_runs(3) == 1);
     assert(job_probe_disposals(3) == 1);
 
-    /* A typed generation cancellation reaches both running and queued work. */
-    BackgroundJobGeneration groupedGeneration =
-        BackgroundJobGeneration(7ULL);
+    BackgroundJobGeneration groupedGeneration = BackgroundJobGeneration(7ULL);
     assert(submitProbe(
         executor, groupedGeneration, 5, JOB_PROBE_CANCEL).kind
         == BACKGROUND_JOB_SUBMITTED);
@@ -200,20 +219,17 @@ int main() {
         groupedGeneration);
     assert(grouped.kind == BACKGROUND_JOB_CANCEL_REQUESTED);
     assert(grouped.requested == 2);
-    BackgroundJobCompletion groupedRunning = waitCompletion(executor);
-    BackgroundJobCompletion groupedQueued = waitCompletion(executor);
-    assert(groupedRunning.kind == BACKGROUND_JOB_CANCELLED);
-    assert(groupedQueued.kind == BACKGROUND_JOB_CANCELLED);
-    assert(groupedRunning.close());
-    assert(groupedQueued.close());
-    delete groupedRunning;
-    delete groupedQueued;
+    BackgroundJobCompletion groupedFirst = waitCompletion(executor);
+    BackgroundJobCompletion groupedSecond = waitCompletion(executor);
+    assert(groupedFirst.kind == BACKGROUND_JOB_CANCELLED);
+    assert(groupedSecond.kind == BACKGROUND_JOB_CANCELLED);
+    delete groupedFirst;
+    delete groupedSecond;
     assert(job_probe_runs(5) == 1);
     assert(job_probe_runs(6) == 0);
     assert(job_probe_disposals(5) == 1);
     assert(job_probe_disposals(6) == 1);
 
-    /* Dropping a polled completion without taking its envelope disposes once. */
     BackgroundJobSubmitOutcome failed = submitProbe(
         executor, BackgroundJobGeneration(3ULL), 4, JOB_PROBE_FAIL);
     assert(failed.kind == BACKGROUND_JOB_SUBMITTED);
@@ -221,6 +237,15 @@ int main() {
     assert(failureCompletion.kind == BACKGROUND_JOB_FAILED);
     delete failureCompletion;
     assert(job_probe_disposals(4) == 1);
+
+    /* Managed exceptions are normalized before reaching the C worker ABI. */
+    BackgroundJobSubmitOutcome throwing = submitProbe(
+        executor, BackgroundJobGeneration(8ULL), 15, JOB_PROBE_THROW);
+    assert(throwing.kind == BACKGROUND_JOB_SUBMITTED);
+    BackgroundJobCompletion thrownCompletion = waitCompletion(executor);
+    assert(thrownCompletion.kind == BACKGROUND_JOB_FAILED);
+    delete thrownCompletion;
+    assert(job_probe_disposals(15) == 1);
     assert(executor.outstanding() == 0);
     assert(executor.poll().kind == BACKGROUND_JOB_POLL_EMPTY);
 
@@ -230,7 +255,6 @@ int main() {
     assert(emptyClose.disposed == 0);
     assert(executor.close().kind == BACKGROUND_JOBS_ALREADY_CLOSED);
 
-    /* An unpolled completion remains executor-owned and is reclaimed by close. */
     BackgroundJobExecutor unclaimed = openExecutor(1, 1);
     BackgroundJobSubmitOutcome unclaimedJob = submitProbe(
         unclaimed, BackgroundJobGeneration(4ULL), 8, JOB_PROBE_COMPLETE);
@@ -244,8 +268,6 @@ int main() {
     assert(unclaimedClose.disposed == 1);
     assert(job_probe_disposals(8) == 1);
 
-    /* CANCEL_PENDING handles running cooperative and queued cancellation, and
-     * owner-disposes both envelopes after all workers join. */
     BackgroundJobExecutor cancelling = openExecutor(1, 2);
     BackgroundJobGeneration cancelGeneration = BackgroundJobGeneration(5ULL);
     assert(submitProbe(
@@ -265,7 +287,6 @@ int main() {
     assert(job_probe_disposals(10) == 1);
     assert(job_probe_disposals(11) == 1);
 
-    /* DRAIN reports callback success/failure separately and owns reclamation. */
     BackgroundJobExecutor draining = openExecutor(2, 2);
     BackgroundJobGeneration drainGeneration = BackgroundJobGeneration(6ULL);
     assert(submitProbe(
@@ -274,8 +295,7 @@ int main() {
     assert(submitProbe(
         draining, drainGeneration, 13, JOB_PROBE_FAIL).kind
         == BACKGROUND_JOB_SUBMITTED);
-    BackgroundJobsCloseOutcome drained = draining.close(
-        BACKGROUND_JOBS_DRAIN);
+    BackgroundJobsCloseOutcome drained = draining.close(BACKGROUND_JOBS_DRAIN);
     assert(drained.kind == BACKGROUND_JOBS_CLOSED);
     assert(drained.completed == 1);
     assert(drained.failed == 1);

@@ -1,23 +1,20 @@
 /* A bounded, owned background executor for serialized applications.
  *
- * Jobs are exact noncapturing C callbacks plus one heap-owned context envelope.
- * An accepted submission transfers that context to the executor. A rejected
- * submission leaves it with the caller. Workers mutate the envelope; the app
- * owner receives it only through nonblocking poll(), which establishes the
- * publication handoff. A completion owns its envelope until takeContext() or
- * destruction. Context disposers always run exactly once unless ownership was
- * explicitly transferred with takeContext().
+ * Product code submits a managed BackgroundJobWork and a typed action. This
+ * module alone adapts that pair to the native {run, void*, dispose} ABI. An
+ * accepted submission owns the work until poll() publishes a typed completion
+ * or close() reclaims it. A rejected submission retains nothing.
  */
 
-typedef CFunction<int, void*, void*> BackgroundJobRun;
-typedef CFunction<void, void*> BackgroundJobDispose;
+typedef CFunction<int, void*, void*> BtrcBackgroundJobNativeRun;
+typedef CFunction<void, void*> BtrcBackgroundJobNativeDispose;
 
 struct BtrcBackgroundJobNativeCompletion {
     int kind;
     unsigned long long sequence;
     unsigned long long generation;
     void* context;
-    BackgroundJobDispose disposeContext;
+    BtrcBackgroundJobNativeDispose disposeContext;
 };
 
 int std_background_jobs_open(
@@ -25,9 +22,9 @@ int std_background_jobs_open(
 int std_background_jobs_submit(
     void* executor,
     unsigned long long generation,
-    BackgroundJobRun run,
+    BtrcBackgroundJobNativeRun run,
     void* context,
-    BackgroundJobDispose disposeContext,
+    BtrcBackgroundJobNativeDispose disposeContext,
     unsigned long long* sequenceOut);
 int std_background_jobs_cancel(
     void* executor,
@@ -64,7 +61,8 @@ enum BackgroundJobSubmitKind {
     BACKGROUND_JOB_SUBMIT_CLOSED = 2,
     BACKGROUND_JOB_SUBMIT_INVALID = 3,
     BACKGROUND_JOB_SUBMIT_NOT_OWNER = 4,
-    BACKGROUND_JOB_TICKETS_EXHAUSTED = 5
+    BACKGROUND_JOB_TICKETS_EXHAUSTED = 5,
+    BACKGROUND_JOB_SUBMIT_OUT_OF_MEMORY = 6
 };
 
 enum BackgroundJobCancelKind {
@@ -104,6 +102,82 @@ enum BackgroundJobsCloseKind {
     BACKGROUND_JOBS_CLOSE_SYNC_FAILED = 6
 };
 
+class BackgroundJobWork {
+    public BackgroundJobWork() {}
+}
+
+class BackgroundJobCancellation {
+    private void* nativeCancellation;
+
+    public BackgroundJobCancellation(void* nativeCancellation) {
+        self.nativeCancellation = nativeCancellation;
+    }
+
+    public bool requested() {
+        return self.nativeCancellation != null
+            && std_background_jobs_cancel_requested(
+                self.nativeCancellation) != 0;
+    }
+}
+
+typedef CFunction<
+    BackgroundJobCompletionKind,
+    BackgroundJobWork,
+    BackgroundJobCancellation
+> BackgroundJobAction;
+
+struct BtrcBackgroundJobOwnedEnvelope {
+    BackgroundJobWork? work;
+    BackgroundJobAction action;
+};
+
+struct BtrcBackgroundJobOwnedEnvelope* backgroundJobOwnedEnvelopeCreate(
+    BackgroundJobWork work,
+    BackgroundJobAction action
+) {
+    if (work == null || action == null) { return null; }
+    struct BtrcBackgroundJobOwnedEnvelope* envelope =
+        (struct BtrcBackgroundJobOwnedEnvelope*)calloc(
+            1, sizeof(struct BtrcBackgroundJobOwnedEnvelope));
+    if (envelope == null) { return null; }
+    keep work;
+    envelope->work = work;
+    envelope->action = action;
+    return envelope;
+}
+
+int backgroundJobOwnedEnvelopeRun(void* context, void* cancellation) {
+    if (context == null || cancellation == null) {
+        return BACKGROUND_JOB_FAILED;
+    }
+    struct BtrcBackgroundJobOwnedEnvelope* envelope =
+        (struct BtrcBackgroundJobOwnedEnvelope*)context;
+    BackgroundJobWork? work = envelope->work;
+    if (work == null || envelope->action == null) {
+        return BACKGROUND_JOB_FAILED;
+    }
+    try {
+        BackgroundJobCompletionKind kind = envelope->action(
+            work,
+            BackgroundJobCancellation(cancellation)
+        );
+        return kind >= BACKGROUND_JOB_COMPLETED
+                && kind <= BACKGROUND_JOB_CANCELLED
+            ? (int)kind
+            : BACKGROUND_JOB_FAILED;
+    } catch (string error) {
+        return BACKGROUND_JOB_FAILED;
+    }
+}
+
+void backgroundJobOwnedEnvelopeDispose(void* context) {
+    if (context == null) { return; }
+    struct BtrcBackgroundJobOwnedEnvelope* envelope =
+        (struct BtrcBackgroundJobOwnedEnvelope*)context;
+    release envelope->work;
+    free(envelope);
+}
+
 class BackgroundJobGeneration {
     private unsigned long long identity;
 
@@ -141,46 +215,22 @@ class BackgroundJobTicket {
 class BackgroundJobCompletion {
     public BackgroundJobCompletionKind kind;
     public BackgroundJobTicket ticket;
-    private void* ownedContext;
-    private BackgroundJobDispose disposeContext;
+    private BackgroundJobWork ownedWork;
 
     public BackgroundJobCompletion(
         BackgroundJobCompletionKind kind,
         BackgroundJobTicket ticket,
-        void* context,
-        BackgroundJobDispose disposeContext
+        BackgroundJobWork work
     ) {
-        if (ticket == null || context == null || disposeContext == null) {
+        if (ticket == null || work == null) {
             throw "invalid background job completion";
         }
         self.kind = kind;
         self.ticket = ticket;
-        self.ownedContext = context;
-        self.disposeContext = disposeContext;
+        self.ownedWork = work;
     }
 
-    public bool hasContext() { return self.ownedContext != null; }
-
-    /* Transfer the domain envelope to the app owner. Its matching disposer is
-     * now the caller's responsibility. */
-    public void* takeContext() {
-        void* result = self.ownedContext;
-        self.ownedContext = null;
-        self.disposeContext = (BackgroundJobDispose)null;
-        return result;
-    }
-
-    public bool close() {
-        if (self.ownedContext == null) { return false; }
-        void* context = self.ownedContext;
-        BackgroundJobDispose dispose = self.disposeContext;
-        self.ownedContext = null;
-        self.disposeContext = (BackgroundJobDispose)null;
-        dispose(context);
-        return true;
-    }
-
-    public void __del__() { self.close(); }
+    public BackgroundJobWork work() { return self.ownedWork; }
 }
 
 class BackgroundJobsOpenOutcome {
@@ -272,12 +322,6 @@ class BackgroundJobsCloseOutcome {
     }
 }
 
-class BackgroundJobWork {
-    class bool cancellationRequested(void* cancellation) {
-        return std_background_jobs_cancel_requested(cancellation) != 0;
-    }
-}
-
 class BackgroundJobExecutor {
     private void* nativeHandle;
     private int closingMode;
@@ -325,9 +369,8 @@ class BackgroundJobExecutor {
 
     public BackgroundJobSubmitOutcome submit(
         BackgroundJobGeneration generation,
-        BackgroundJobRun run,
-        void* context,
-        BackgroundJobDispose disposeContext
+        BackgroundJobWork work,
+        BackgroundJobAction action
     ) {
         if (!self.isOpen()) {
             return BackgroundJobSubmitOutcome(
@@ -336,21 +379,29 @@ class BackgroundJobExecutor {
                 "background job executor is closed"
             );
         }
-        if (generation == null || run == null || context == null
-                || disposeContext == null) {
+        if (generation == null || work == null || action == null) {
             return BackgroundJobSubmitOutcome(
                 BACKGROUND_JOB_SUBMIT_INVALID,
                 null,
                 "background job submission is incomplete"
             );
         }
+        struct BtrcBackgroundJobOwnedEnvelope* envelope =
+            backgroundJobOwnedEnvelopeCreate(work, action);
+        if (envelope == null) {
+            return BackgroundJobSubmitOutcome(
+                BACKGROUND_JOB_SUBMIT_OUT_OF_MEMORY,
+                null,
+                "background job envelope allocation failed"
+            );
+        }
         unsigned long long sequence = 0ULL;
         int status = std_background_jobs_submit(
             self.nativeHandle,
             generation.value(),
-            run,
-            context,
-            disposeContext,
+            backgroundJobOwnedEnvelopeRun,
+            envelope,
+            backgroundJobOwnedEnvelopeDispose,
             &sequence
         );
         BackgroundJobSubmitKind kind = status >= BACKGROUND_JOB_SUBMITTED
@@ -358,6 +409,7 @@ class BackgroundJobExecutor {
             ? (BackgroundJobSubmitKind)status
             : BACKGROUND_JOB_SUBMIT_CLOSED;
         if (kind != BACKGROUND_JOB_SUBMITTED || sequence == 0ULL) {
+            backgroundJobOwnedEnvelopeDispose(envelope);
             string error = kind == BACKGROUND_JOB_QUEUE_FULL
                 ? "background job queue is full"
                 : (kind == BACKGROUND_JOB_SUBMIT_NOT_OWNER
@@ -466,6 +518,8 @@ class BackgroundJobExecutor {
         }
         if (native.sequence == 0ULL || native.generation == 0ULL
                 || native.context == null || native.disposeContext == null
+                || native.disposeContext
+                    != backgroundJobOwnedEnvelopeDispose
                 || native.kind < BACKGROUND_JOB_COMPLETED
                 || native.kind > BACKGROUND_JOB_CANCELLED) {
             if (native.context != null && native.disposeContext != null) {
@@ -477,16 +531,28 @@ class BackgroundJobExecutor {
                 "background job completion was malformed"
             );
         }
+        struct BtrcBackgroundJobOwnedEnvelope* envelope =
+            (struct BtrcBackgroundJobOwnedEnvelope*)native.context;
+        BackgroundJobWork? work = envelope->work;
+        if (work == null) {
+            native.disposeContext(native.context);
+            return BackgroundJobPollOutcome(
+                BACKGROUND_JOB_POLL_CLOSED,
+                null,
+                "background job completion lost its work"
+            );
+        }
         BackgroundJobGeneration generation = BackgroundJobGeneration(
             native.generation);
+        BackgroundJobCompletion completion = BackgroundJobCompletion(
+            (BackgroundJobCompletionKind)native.kind,
+            BackgroundJobTicket(native.sequence, generation),
+            work
+        );
+        native.disposeContext(native.context);
         return BackgroundJobPollOutcome(
             BACKGROUND_JOB_POLL_READY,
-            BackgroundJobCompletion(
-                (BackgroundJobCompletionKind)native.kind,
-                BackgroundJobTicket(native.sequence, generation),
-                native.context,
-                native.disposeContext
-            ),
+            completion,
             ""
         );
     }
