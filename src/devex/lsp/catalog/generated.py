@@ -355,6 +355,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("openDirectoryExact", "DirectoryOpenOutcome", "method", (("string", "path"),), "openDirectoryExact"),
         BuiltinMemberSpec("createTemporaryDirectory", "TemporaryDirectoryOpenOutcome", "method", (("string", "prefix"),), "createTemporaryDirectory"),
         BuiltinMemberSpec("openPrivateDirectory", "PrivateDirectoryOpenOutcome", "method", (("string", "absolutePath"),), "openPrivateDirectory"),
+        BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
         BuiltinMemberSpec("exists", "bool", "method", (("string", "path"),), "exists"),
         BuiltinMemberSpec("isDir", "bool", "method", (("string", "path"),), "isDir"),
         BuiltinMemberSpec("isFile", "bool", "method", (("string", "path"),), "isFile"),
@@ -371,6 +372,9 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("listDir", "Vector<string>", "method", (("string", "path"),), "listDir"),
         BuiltinMemberSpec("readText", "string", "method", (("string", "path"),), "readText"),
         BuiltinMemberSpec("writeText", "bool", "method", (("string", "path"), ("string", "content"),), "writeText"),
+    )),
+    ("FileSystemDiagnostics", (
+        BuiltinMemberSpec("ownedHandleInventory", "FileSystemHandleInventory", "method", (), "ownedHandleInventory"),
     )),
     ("BackgroundJobWork", (
         BuiltinMemberSpec("cancellationRequested", "bool", "method", (("void*", "cancellation"),), "cancellationRequested"),

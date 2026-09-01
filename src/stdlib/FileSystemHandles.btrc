@@ -23,6 +23,30 @@ import std.strings;
 
 extern char* mkdtemp(char* templatePath);
 
+/* Counts only the long-lived FileHandle and DirectoryHandle capabilities
+ * owned by this generated program. It never probes native descriptor tables,
+ * so the diagnostic has identical semantics on every supported platform.
+ * Static Atomic<T> storage is zero-initialized before program entry. */
+static Atomic<int> btrcOwnedExactFileSystemHandles;
+
+static void btrcOwnExactFileSystemHandle() {
+    int previous = btrcOwnedExactFileSystemHandles.fetchAdd(
+        1, MemoryOrder.RELAXED);
+    if (previous < 0) {
+        fprintf(stderr, "filesystem handle inventory overflowed\n");
+        abort();
+    }
+}
+
+static void btrcReleaseExactFileSystemHandle() {
+    int previous = btrcOwnedExactFileSystemHandles.fetchSub(
+        1, MemoryOrder.RELAXED);
+    if (previous <= 0) {
+        fprintf(stderr, "filesystem handle inventory underflowed\n");
+        abort();
+    }
+}
+
 enum FileKind {
     FILE_REGULAR = 0,
     FILE_DIRECTORY = 1,
@@ -621,6 +645,41 @@ class FileSystemCloseOutcome {
     }
 }
 
+/* An immutable process-local diagnostic value for the exact file and
+ * directory handles owned by BTRC's typed filesystem API. Wrappers such as
+ * TemporaryDirectory and RegularFileSnapshot are represented by the exact
+ * DirectoryHandle or FileHandle they own. Native descriptors used transiently
+ * inside an operation and resources owned by unrelated libraries are excluded.
+ */
+class FileSystemHandleInventory {
+    private int _openCount;
+
+    public FileSystemHandleInventory(int openCount) {
+        if (openCount < 0) {
+            throw "filesystem handle inventory cannot be negative";
+        }
+        self._openCount = openCount;
+    }
+
+    public int openCount() { return self._openCount; }
+
+    public bool sameAs(FileSystemHandleInventory other) {
+        return other != null && self._openCount == other._openCount;
+    }
+}
+
+class FileSystemDiagnostics {
+    class FileSystemHandleInventory ownedHandleInventory() {
+        int count = btrcOwnedExactFileSystemHandles.load(
+            MemoryOrder.RELAXED);
+        if (count < 0) {
+            fprintf(stderr, "filesystem handle inventory is negative\n");
+            abort();
+        }
+        return FileSystemHandleInventory(count);
+    }
+}
+
 class FileHandle {
     private int _descriptor;
     private string _path;
@@ -634,6 +693,7 @@ class FileHandle {
         self._descriptor = descriptor;
         self._path = path;
         self._openedSnapshot = openedSnapshot;
+        btrcOwnExactFileSystemHandle();
     }
 
     class FileSnapshotOutcome inspectExact(string path) {
@@ -809,6 +869,7 @@ class FileHandle {
         }
         int descriptor = self._descriptor;
         self._descriptor = -1;
+        btrcReleaseExactFileSystemHandle();
         errno = 0;
         if (close(descriptor) != 0) {
             int nativeCode = errno;
@@ -1056,6 +1117,7 @@ class DirectoryHandle {
         self._directory = directory;
         self._path = path;
         self._openedSnapshot = openedSnapshot;
+        btrcOwnExactFileSystemHandle();
     }
 
     class DirectoryOpenOutcome openExact(string path) {
@@ -1380,6 +1442,7 @@ class DirectoryHandle {
         }
         DIR* directory = self._directory;
         self._directory = null;
+        btrcReleaseExactFileSystemHandle();
         errno = 0;
         if (closedir(directory) != 0) {
             int nativeCode = errno;

@@ -1,0 +1,44 @@
+import std.FileSystem;
+
+#include <assert.h>
+
+int main() {
+    FileSystemHandleInventory initial =
+        FileSystem.ownedHandleInventory();
+
+    TemporaryDirectoryOpenOutcome temporary =
+        FileSystem.createTemporaryDirectory("btrc-handle-inventory");
+    assert(temporary.ok());
+    TemporaryDirectory root = temporary.directory();
+    FileSystemHandleInventory withTemporary =
+        FileSystem.ownedHandleInventory();
+    assert(withTemporary.openCount() == initial.openCount() + 1);
+    assert(FileSystem.writeText(root.path() + "/value.bin", "value"));
+
+    FileOpenOutcome fileOpen = FileSystem.openFileExact(
+        root.path() + "/value.bin");
+    DirectoryOpenOutcome directoryOpen = FileSystem.openDirectoryExact(
+        root.path());
+    assert(fileOpen.ok() && directoryOpen.ok());
+    FileHandle file = fileOpen.file();
+    DirectoryHandle directory = directoryOpen.directory();
+    FileSystemHandleInventory withExactHandles =
+        FileSystem.ownedHandleInventory();
+    assert(withExactHandles.openCount() == initial.openCount() + 3);
+    assert(withTemporary.openCount() == initial.openCount() + 1);
+
+    assert(file.close().ok());
+    assert(file.close().kind() == FS_ALREADY_CLOSED);
+    assert(FileSystem.ownedHandleInventory().openCount()
+        == initial.openCount() + 2);
+    assert(directory.close().ok());
+    assert(directory.close().kind() == FS_ALREADY_CLOSED);
+    assert(FileSystem.ownedHandleInventory().sameAs(withTemporary));
+
+    assert(root.close().ok());
+    assert(root.close().kind() == FS_ALREADY_CLOSED);
+    assert(FileSystem.ownedHandleInventory().sameAs(initial));
+
+    print("PASS: typed filesystem handle inventory lifecycle");
+    return 0;
+}

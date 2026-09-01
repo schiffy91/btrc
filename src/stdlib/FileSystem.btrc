@@ -779,6 +779,10 @@ class FileSystem {
         return PrivateDirectory.openAbsoluteLeaf(absolutePath);
     }
 
+    class FileSystemHandleInventory ownedHandleInventory() {
+        return FileSystemDiagnostics.ownedHandleInventory();
+    }
+
     class bool exists(string path) {
         FileStatus status = FileStatus(path);
         bool result = status.exists();

@@ -92,6 +92,16 @@ int main() {
     assert(FileSystem.openRegularFileSnapshot("source.psarc", 1LL)
         .error().kind() == FS_NOT_FOUND);
 
+    FileSystemHandleInventory emptyInventory =
+        FileSystemHandleInventory(0);
+    FileSystemHandleInventory twoHandles =
+        FileSystemHandleInventory(2);
+    assert(emptyInventory.openCount() == 0);
+    assert(twoHandles.openCount() == 2);
+    assert(emptyInventory.sameAs(FileSystemHandleInventory(0)));
+    assert(!emptyInventory.sameAs(twoHandles));
+    assert(FileSystem.ownedHandleInventory().openCount() >= 0);
+
     assert(FileSystemCloseOutcome.closed().ok());
     assert(FileSystemCloseOutcome.alreadyClosed().ok());
     assert(!FileSystemCloseOutcome.failed(denied).ok());
