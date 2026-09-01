@@ -29,13 +29,19 @@ INCLUDE_FIXTURES = frozenset(
 
 
 def language_test_files(test_directory: str | Path) -> list[str]:
-    """Return runnable ``test_*.btrc`` paths relative to ``test_directory``."""
+    """Return convention-named runnable paths relative to ``test_directory``.
+
+    The legacy corpus uses ``test_*.btrc``. New type/capability-focused tests
+    use UpperCamelCase filenames matching their primary contract.
+    """
     root = Path(test_directory)
     tests = []
-    for path in root.rglob("test_*.btrc"):
+    for path in root.rglob("*.btrc"):
         relative = path.relative_to(root)
         relative_posix = relative.as_posix()
         if relative.parts[0] in NON_CORPUS_DIRECTORIES:
+            continue
+        if not path.name.startswith("test_") and not path.name[0].isupper():
             continue
         if relative_posix in INCLUDE_FIXTURES:
             continue

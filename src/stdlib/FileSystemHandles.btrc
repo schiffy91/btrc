@@ -6,6 +6,21 @@
  */
 
 import std.bytes;
+import std.platform;
+import std.strings;
+
+#include <dirent.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <time.h>
+#include <unistd.h>
+
+extern char* mkdtemp(char* templatePath);
 
 enum FileKind {
     FILE_REGULAR = 0,
@@ -89,6 +104,55 @@ class FileSystemError {
             "exact filesystem handles are unsupported");
     }
 
+    class FileSystemError changed(
+        string operation,
+        string path,
+        int nativeCode = 0
+    ) {
+        return FileSystemError(
+            FS_CHANGED, operation, path, nativeCode,
+            "filesystem entry changed during the operation");
+    }
+
+    class FileSystemError symlink(string operation, string path) {
+        return FileSystemError(
+            FS_SYMLINK, operation, path, ELOOP,
+            "filesystem operation refuses a symbolic link");
+    }
+
+    class FileSystemError wrongType(string operation, string path) {
+        return FileSystemError(
+            FS_WRONG_TYPE, operation, path, 0,
+            "filesystem entry has the wrong type");
+    }
+
+    class FileSystemError fromNative(
+        string operation,
+        string path,
+        int nativeCode
+    ) {
+        FileSystemErrorKind kind = FS_IO;
+        if (nativeCode == EINVAL || nativeCode == ENAMETOOLONG) {
+            kind = FS_INVALID_ARGUMENT;
+        } else if (nativeCode == ENOENT) {
+            kind = FS_NOT_FOUND;
+        } else if (nativeCode == EACCES || nativeCode == EPERM) {
+            kind = FS_ACCESS_DENIED;
+        } else if (nativeCode == ELOOP) {
+            kind = FS_SYMLINK;
+        } else if (nativeCode == ENOTDIR || nativeCode == EISDIR) {
+            kind = FS_WRONG_TYPE;
+        } else if (nativeCode == EMFILE || nativeCode == ENFILE
+                || nativeCode == ENOMEM || nativeCode == EOVERFLOW) {
+            kind = FS_RESOURCE_EXHAUSTED;
+        } else if (nativeCode == ENOSYS || nativeCode == ENOTSUP) {
+            kind = FS_UNSUPPORTED;
+        }
+        return FileSystemError(
+            kind, operation, path, nativeCode,
+            Strings.copy(strerror(nativeCode)));
+    }
+
     public FileSystemErrorKind kind() { return self._kind; }
     public string operation() { return self._operation; }
     public string path() { return self._path; }
@@ -127,6 +191,37 @@ class FileSnapshot {
         self._modifiedNanoseconds = modifiedNanoseconds;
         self._changedSeconds = changedSeconds;
         self._changedNanoseconds = changedNanoseconds;
+    }
+
+    class FileSnapshot fromStatus(struct stat* status) {
+        FileKind kind = FILE_OTHER;
+        if (S_ISREG(status->st_mode)) {
+            kind = FILE_REGULAR;
+        } else if (S_ISDIR(status->st_mode)) {
+            kind = FILE_DIRECTORY;
+        } else if (S_ISLNK(status->st_mode)) {
+            kind = FILE_SYMLINK;
+        }
+        /* st_mtime/st_ctime are the portable POSIX aliases for the tv_sec
+         * member of the platform's embedded timespec. POSIX places tv_sec
+         * first, so converting its address back to struct timespec preserves
+         * the native nanosecond precision on both Darwin and Linux without
+         * exposing either platform's differently named stat members. */
+        struct timespec* modified =
+            (struct timespec*)&status->st_mtime;
+        struct timespec* changed =
+            (struct timespec*)&status->st_ctime;
+        return FileSnapshot(
+            kind,
+            (long long)status->st_size,
+            (unsigned long long)status->st_dev,
+            (unsigned long long)status->st_ino,
+            (unsigned long long)status->st_mode,
+            (unsigned long long)modified->tv_sec,
+            (unsigned long long)modified->tv_nsec,
+            (unsigned long long)changed->tv_sec,
+            (unsigned long long)changed->tv_nsec
+        );
     }
 
     public FileKind kind() { return self._kind; }
@@ -447,8 +542,15 @@ class FileHandle {
             return FileSnapshotOutcome.failed(
                 FileSystemError.invalid("inspect", path));
         }
-        return FileSnapshotOutcome.failed(
-            FileSystemError.unsupported("inspect", path));
+        struct stat status;
+        errno = 0;
+        if (lstat(path, &status) != 0) {
+            int nativeCode = errno;
+            return FileSnapshotOutcome.failed(
+                FileSystemError.fromNative("inspect", path, nativeCode));
+        }
+        return FileSnapshotOutcome.available(
+            FileSnapshot.fromStatus(&status));
     }
 
     class FileOpenOutcome openExact(string path) {
@@ -456,8 +558,77 @@ class FileHandle {
             return FileOpenOutcome.failed(
                 FileSystemError.invalid("open file", path));
         }
-        return FileOpenOutcome.failed(
-            FileSystemError.unsupported("open file", path));
+        struct stat before;
+        errno = 0;
+        if (lstat(path, &before) != 0) {
+            int nativeCode = errno;
+            return FileOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "open file", path, nativeCode));
+        }
+        if (S_ISLNK(before.st_mode)) {
+            return FileOpenOutcome.failed(
+                FileSystemError.symlink("open file", path));
+        }
+        if (!S_ISREG(before.st_mode)) {
+            return FileOpenOutcome.failed(
+                FileSystemError.wrongType("open file", path));
+        }
+
+        errno = 0;
+        int descriptor = open(
+            path,
+            (int)O_RDONLY | (int)O_CLOEXEC
+                | (int)O_NOFOLLOW | (int)O_NONBLOCK
+        );
+        if (descriptor < 0) {
+            int nativeCode = errno;
+            return FileOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "open file", path, nativeCode));
+        }
+
+        struct stat opened;
+        struct stat after;
+        errno = 0;
+        if (fstat(descriptor, &opened) != 0) {
+            int nativeCode = errno;
+            close(descriptor);
+            return FileOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "inspect opened file", path, nativeCode));
+        }
+        if (!S_ISREG(opened.st_mode)) {
+            close(descriptor);
+            return FileOpenOutcome.failed(
+                FileSystemError.wrongType("open file", path));
+        }
+        FileSnapshot beforeSnapshot = FileSnapshot.fromStatus(&before);
+        FileSnapshot openedSnapshot = FileSnapshot.fromStatus(&opened);
+        if (!openedSnapshot.sameVersion(beforeSnapshot)) {
+            close(descriptor);
+            return FileOpenOutcome.failed(
+                FileSystemError.changed("open file", path));
+        }
+        errno = 0;
+        if (lstat(path, &after) != 0) {
+            int nativeCode = errno;
+            close(descriptor);
+            return FileOpenOutcome.failed(
+                nativeCode == ENOENT
+                    ? FileSystemError.changed(
+                        "validate opened file", path, nativeCode)
+                    : FileSystemError.fromNative(
+                        "validate opened file", path, nativeCode));
+        }
+        if (!openedSnapshot.sameVersion(
+                FileSnapshot.fromStatus(&after))) {
+            close(descriptor);
+            return FileOpenOutcome.failed(
+                FileSystemError.changed("validate opened file", path));
+        }
+        return FileOpenOutcome.opened(FileHandle(
+            descriptor, Strings.copy(path), openedSnapshot));
     }
 
     public bool isOpen() { return self._descriptor >= 0; }
@@ -470,8 +641,20 @@ class FileHandle {
     }
 
     public FileSnapshotOutcome snapshot() {
-        return FileSnapshotOutcome.failed(
-            FileSystemError.closed("inspect open file", self._path));
+        if (!self.isOpen()) {
+            return FileSnapshotOutcome.failed(
+                FileSystemError.closed("inspect open file", self._path));
+        }
+        struct stat status;
+        errno = 0;
+        if (fstat(self._descriptor, &status) != 0) {
+            int nativeCode = errno;
+            return FileSnapshotOutcome.failed(
+                FileSystemError.fromNative(
+                    "inspect open file", self._path, nativeCode));
+        }
+        return FileSnapshotOutcome.available(
+            FileSnapshot.fromStatus(&status));
     }
 
     public FileReadOutcome readAt(long long offset, int maximumBytes) {
@@ -479,24 +662,74 @@ class FileHandle {
             return FileReadOutcome.failed(
                 FileSystemError.invalid("read file", self._path));
         }
-        return FileReadOutcome.failed(
-            FileSystemError.closed("read file", self._path));
+        if (!self.isOpen()) {
+            return FileReadOutcome.failed(
+                FileSystemError.closed("read file", self._path));
+        }
+        off_t nativeOffset = (off_t)offset;
+        if ((long long)nativeOffset != offset) {
+            return FileReadOutcome.failed(
+                FileSystemError.invalid("read file", self._path));
+        }
+        char* buffer = (char*)malloc((size_t)maximumBytes);
+        if (buffer == null) {
+            return FileReadOutcome.failed(FileSystemError(
+                FS_RESOURCE_EXHAUSTED,
+                "read file",
+                self._path,
+                ENOMEM,
+                "filesystem read buffer allocation failed"
+            ));
+        }
+        errno = 0;
+        ssize_t length = pread(
+            self._descriptor,
+            buffer,
+            (size_t)maximumBytes,
+            nativeOffset
+        );
+        if (length < (ssize_t)0) {
+            int nativeCode = errno;
+            free(buffer);
+            return FileReadOutcome.failed(
+                FileSystemError.fromNative(
+                    "read file", self._path, nativeCode));
+        }
+        if (length == (ssize_t)0) {
+            free(buffer);
+            return FileReadOutcome.end();
+        }
+        Bytes bytes = Bytes.fromRaw(buffer, (int)length);
+        free(buffer);
+        return FileReadOutcome.data(bytes);
     }
 
     public FileSystemCloseOutcome close() {
-        return FileSystemCloseOutcome.alreadyClosed();
+        if (!self.isOpen()) {
+            return FileSystemCloseOutcome.alreadyClosed();
+        }
+        int descriptor = self._descriptor;
+        self._descriptor = -1;
+        errno = 0;
+        if (close(descriptor) != 0) {
+            int nativeCode = errno;
+            return FileSystemCloseOutcome.failed(
+                FileSystemError.fromNative(
+                    "close file", self._path, nativeCode));
+        }
+        return FileSystemCloseOutcome.closed();
     }
 
     public void __del__() { self.close(); }
 }
 
 class DirectoryHandle {
-    private void* _directory;
+    private DIR* _directory;
     private string _path;
     private FileSnapshot? _openedSnapshot;
 
     private DirectoryHandle(
-        void* directory,
+        DIR* directory,
         string path,
         FileSnapshot openedSnapshot
     ) {
@@ -510,8 +743,87 @@ class DirectoryHandle {
             return DirectoryOpenOutcome.failed(
                 FileSystemError.invalid("open directory", path));
         }
-        return DirectoryOpenOutcome.failed(
-            FileSystemError.unsupported("open directory", path));
+        struct stat before;
+        errno = 0;
+        if (lstat(path, &before) != 0) {
+            int nativeCode = errno;
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "open directory", path, nativeCode));
+        }
+        if (S_ISLNK(before.st_mode)) {
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.symlink("open directory", path));
+        }
+        if (!S_ISDIR(before.st_mode)) {
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.wrongType("open directory", path));
+        }
+
+        errno = 0;
+        int descriptor = open(
+            path,
+            (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC
+                | (int)O_NOFOLLOW | (int)O_NONBLOCK
+        );
+        if (descriptor < 0) {
+            int nativeCode = errno;
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "open directory", path, nativeCode));
+        }
+
+        struct stat opened;
+        struct stat after;
+        errno = 0;
+        if (fstat(descriptor, &opened) != 0) {
+            int nativeCode = errno;
+            close(descriptor);
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "inspect opened directory", path, nativeCode));
+        }
+        if (!S_ISDIR(opened.st_mode)) {
+            close(descriptor);
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.wrongType("open directory", path));
+        }
+        FileSnapshot beforeSnapshot = FileSnapshot.fromStatus(&before);
+        FileSnapshot openedSnapshot = FileSnapshot.fromStatus(&opened);
+        if (!openedSnapshot.sameVersion(beforeSnapshot)) {
+            close(descriptor);
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.changed("open directory", path));
+        }
+        errno = 0;
+        if (lstat(path, &after) != 0) {
+            int nativeCode = errno;
+            close(descriptor);
+            return DirectoryOpenOutcome.failed(
+                nativeCode == ENOENT
+                    ? FileSystemError.changed(
+                        "validate opened directory", path, nativeCode)
+                    : FileSystemError.fromNative(
+                        "validate opened directory", path, nativeCode));
+        }
+        if (!openedSnapshot.sameVersion(
+                FileSnapshot.fromStatus(&after))) {
+            close(descriptor);
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.changed(
+                    "validate opened directory", path));
+        }
+        errno = 0;
+        DIR* directory = fdopendir(descriptor);
+        if (directory == null) {
+            int nativeCode = errno;
+            close(descriptor);
+            return DirectoryOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "stream directory", path, nativeCode));
+        }
+        return DirectoryOpenOutcome.opened(DirectoryHandle(
+            directory, Strings.copy(path), openedSnapshot));
     }
 
     public bool isOpen() { return self._directory != null; }
@@ -523,45 +835,239 @@ class DirectoryHandle {
         return self._openedSnapshot;
     }
 
+    private bool validEntry(DirectoryEntry entry) {
+        return entry != null
+            && entry.belongsTo(self)
+            && !entry.name().isEmpty()
+            && !entry.name().equals(".")
+            && !entry.name().equals("..")
+            && !entry.name().contains("/");
+    }
+
+    private string entryPath(DirectoryEntry entry) {
+        return self._path.endsWith("/")
+            ? self._path + entry.name()
+            : self._path + "/" + entry.name();
+    }
+
     public FileSnapshotOutcome snapshot() {
-        return FileSnapshotOutcome.failed(
-            FileSystemError.closed("inspect open directory", self._path));
+        if (!self.isOpen()) {
+            return FileSnapshotOutcome.failed(
+                FileSystemError.closed(
+                    "inspect open directory", self._path));
+        }
+        struct stat status;
+        errno = 0;
+        if (fstat(dirfd(self._directory), &status) != 0) {
+            int nativeCode = errno;
+            return FileSnapshotOutcome.failed(
+                FileSystemError.fromNative(
+                    "inspect open directory", self._path, nativeCode));
+        }
+        return FileSnapshotOutcome.available(
+            FileSnapshot.fromStatus(&status));
     }
 
     public DirectoryStepOutcome next() {
-        return DirectoryStepOutcome.failed(
-            FileSystemError.closed("read directory", self._path));
+        if (!self.isOpen()) {
+            return DirectoryStepOutcome.failed(
+                FileSystemError.closed("read directory", self._path));
+        }
+        int skipped = 0;
+        while (skipped <= 2) {
+            errno = 0;
+            struct dirent* nativeEntry = readdir(self._directory);
+            if (nativeEntry == null) {
+                int nativeCode = errno;
+                if (nativeCode == 0) { return DirectoryStepOutcome.end(); }
+                return DirectoryStepOutcome.failed(
+                    FileSystemError.fromNative(
+                        "read directory", self._path, nativeCode));
+            }
+            string borrowedName = nativeEntry->d_name;
+            if (borrowedName.equals(".") || borrowedName.equals("..")) {
+                skipped++;
+                continue;
+            }
+            string name = Strings.copy(borrowedName);
+            string childPath = self._path.endsWith("/")
+                ? self._path + name : self._path + "/" + name;
+            struct stat status;
+            errno = 0;
+            if (fstatat(
+                    dirfd(self._directory),
+                    name,
+                    &status,
+                    AT_SYMLINK_NOFOLLOW) != 0) {
+                int nativeCode = errno;
+                return DirectoryStepOutcome.failed(
+                    nativeCode == ENOENT
+                        ? FileSystemError.changed(
+                            "inspect directory entry",
+                            childPath,
+                            nativeCode)
+                        : FileSystemError.fromNative(
+                            "inspect directory entry",
+                            childPath,
+                            nativeCode));
+            }
+            return DirectoryStepOutcome.withEntry(DirectoryEntry(
+                self,
+                name,
+                childPath,
+                FileSnapshot.fromStatus(&status)
+            ));
+        }
+        return DirectoryStepOutcome.failed(FileSystemError(
+            FS_IO,
+            "read directory",
+            self._path,
+            EIO,
+            "directory returned too many dot entries"
+        ));
     }
 
     public FileSnapshotOutcome inspect(DirectoryEntry entry) {
-        if (entry == null || !entry.belongsTo(self)) {
+        if (!self.validEntry(entry)) {
             return FileSnapshotOutcome.failed(
                 FileSystemError.invalid("inspect directory entry", self._path));
         }
-        return FileSnapshotOutcome.failed(
-            FileSystemError.closed("inspect directory entry", entry.path()));
+        if (!self.isOpen()) {
+            return FileSnapshotOutcome.failed(
+                FileSystemError.closed(
+                    "inspect directory entry", entry.path()));
+        }
+        struct stat status;
+        errno = 0;
+        if (fstatat(
+                dirfd(self._directory),
+                entry.name(),
+                &status,
+                AT_SYMLINK_NOFOLLOW) != 0) {
+            int nativeCode = errno;
+            return FileSnapshotOutcome.failed(
+                nativeCode == ENOENT
+                    ? FileSystemError.changed(
+                        "inspect directory entry",
+                        entry.path(),
+                        nativeCode)
+                    : FileSystemError.fromNative(
+                        "inspect directory entry",
+                        entry.path(),
+                        nativeCode));
+        }
+        FileSnapshot current = FileSnapshot.fromStatus(&status);
+        if (!current.sameVersion(entry.snapshot())) {
+            return FileSnapshotOutcome.failed(
+                FileSystemError.changed(
+                    "inspect directory entry", entry.path()));
+        }
+        return FileSnapshotOutcome.available(current);
     }
 
     public FileOpenOutcome openFile(DirectoryEntry entry) {
-        if (entry == null || !entry.belongsTo(self)) {
+        if (!self.validEntry(entry)) {
             return FileOpenOutcome.failed(
                 FileSystemError.invalid("open directory file", self._path));
         }
-        return FileOpenOutcome.failed(
-            FileSystemError.closed("open directory file", entry.path()));
+        if (!self.isOpen()) {
+            return FileOpenOutcome.failed(
+                FileSystemError.closed(
+                    "open directory file", entry.path()));
+        }
+        if (entry.snapshot().kind() != FILE_REGULAR) {
+            return FileOpenOutcome.failed(
+                entry.snapshot().kind() == FILE_SYMLINK
+                    ? FileSystemError.symlink(
+                        "open directory file", entry.path())
+                    : FileSystemError.wrongType(
+                        "open directory file", entry.path()));
+        }
+        FileSnapshotOutcome validation = self.inspect(entry);
+        if (!validation.ok()) {
+            return FileOpenOutcome.failed(validation.error());
+        }
+        string childPath = self.entryPath(entry);
+        FileOpenOutcome opened = FileHandle.openExact(childPath);
+        if (!opened.ok()) {
+            FileSystemError error = opened.error();
+            if (error.kind() == FS_NOT_FOUND
+                    || error.kind() == FS_SYMLINK
+                    || error.kind() == FS_WRONG_TYPE) {
+                return FileOpenOutcome.failed(FileSystemError.changed(
+                    "open directory file",
+                    childPath,
+                    error.nativeCode()));
+            }
+            return opened;
+        }
+        FileHandle file = opened.file();
+        if (!file.openedSnapshot().sameVersion(entry.snapshot())) {
+            file.close();
+            return FileOpenOutcome.failed(FileSystemError.changed(
+                "open directory file", entry.path()));
+        }
+        return opened;
     }
 
     public DirectoryOpenOutcome openDirectory(DirectoryEntry entry) {
-        if (entry == null || !entry.belongsTo(self)) {
+        if (!self.validEntry(entry)) {
             return DirectoryOpenOutcome.failed(FileSystemError.invalid(
                 "open child directory", self._path));
         }
-        return DirectoryOpenOutcome.failed(FileSystemError.closed(
-            "open child directory", entry.path()));
+        if (!self.isOpen()) {
+            return DirectoryOpenOutcome.failed(FileSystemError.closed(
+                "open child directory", entry.path()));
+        }
+        if (entry.snapshot().kind() != FILE_DIRECTORY) {
+            return DirectoryOpenOutcome.failed(
+                entry.snapshot().kind() == FILE_SYMLINK
+                    ? FileSystemError.symlink(
+                        "open child directory", entry.path())
+                    : FileSystemError.wrongType(
+                        "open child directory", entry.path()));
+        }
+        FileSnapshotOutcome validation = self.inspect(entry);
+        if (!validation.ok()) {
+            return DirectoryOpenOutcome.failed(validation.error());
+        }
+        string childPath = self.entryPath(entry);
+        DirectoryOpenOutcome opened = DirectoryHandle.openExact(childPath);
+        if (!opened.ok()) {
+            FileSystemError error = opened.error();
+            if (error.kind() == FS_NOT_FOUND
+                    || error.kind() == FS_SYMLINK
+                    || error.kind() == FS_WRONG_TYPE) {
+                return DirectoryOpenOutcome.failed(FileSystemError.changed(
+                    "open child directory",
+                    childPath,
+                    error.nativeCode()));
+            }
+            return opened;
+        }
+        DirectoryHandle directory = opened.directory();
+        if (!directory.openedSnapshot().sameVersion(entry.snapshot())) {
+            directory.close();
+            return DirectoryOpenOutcome.failed(FileSystemError.changed(
+                "open child directory", entry.path()));
+        }
+        return opened;
     }
 
     public FileSystemCloseOutcome close() {
-        return FileSystemCloseOutcome.alreadyClosed();
+        if (!self.isOpen()) {
+            return FileSystemCloseOutcome.alreadyClosed();
+        }
+        DIR* directory = self._directory;
+        self._directory = null;
+        errno = 0;
+        if (closedir(directory) != 0) {
+            int nativeCode = errno;
+            return FileSystemCloseOutcome.failed(
+                FileSystemError.fromNative(
+                    "close directory", self._path, nativeCode));
+        }
+        return FileSystemCloseOutcome.closed();
     }
 
     public void __del__() { self.close(); }
@@ -612,10 +1118,12 @@ class TemporaryDirectoryOpenOutcome {
 class TemporaryDirectory {
     private string _path;
     private bool _open;
+    private DirectoryHandle _lease;
 
-    private TemporaryDirectory(string path) {
+    private TemporaryDirectory(string path, DirectoryHandle lease) {
         self._path = path;
         self._open = true;
+        self._lease = lease;
     }
 
     class TemporaryDirectoryOpenOutcome create(string prefix) {
@@ -626,17 +1134,237 @@ class TemporaryDirectory {
             return TemporaryDirectoryOpenOutcome.failed(
                 FileSystemError.invalid("create temporary directory", prefix));
         }
-        return TemporaryDirectoryOpenOutcome.failed(
-            FileSystemError.unsupported(
-                "create temporary directory", prefix));
+        string base = Environment.get("TMPDIR", "/tmp");
+        string templatePath = base.endsWith("/")
+            ? base + prefix + ".XXXXXX"
+            : base + "/" + prefix + ".XXXXXX";
+        size_t length = strlen(templatePath);
+        char* raw = (char*)malloc(length + (size_t)1);
+        if (raw == null) {
+            return TemporaryDirectoryOpenOutcome.failed(FileSystemError(
+                FS_RESOURCE_EXHAUSTED,
+                "create temporary directory",
+                templatePath,
+                ENOMEM,
+                "temporary directory template allocation failed"
+            ));
+        }
+        memcpy(raw, templatePath, length + (size_t)1);
+        errno = 0;
+        if (mkdtemp(raw) == null) {
+            int nativeCode = errno;
+            free(raw);
+            return TemporaryDirectoryOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "create temporary directory",
+                    templatePath,
+                    nativeCode));
+        }
+        errno = 0;
+        char* canonical = realpath(raw, null);
+        if (canonical == null) {
+            int nativeCode = errno;
+            rmdir(raw);
+            free(raw);
+            return TemporaryDirectoryOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "canonicalize temporary directory",
+                    templatePath,
+                    nativeCode));
+        }
+        string path = __btrc_str_track(canonical);
+        free(raw);
+        DirectoryOpenOutcome opened = DirectoryHandle.openExact(path);
+        if (!opened.ok()) {
+            rmdir(path);
+            return TemporaryDirectoryOpenOutcome.failed(opened.error());
+        }
+        return TemporaryDirectoryOpenOutcome.opened(
+            TemporaryDirectory(path, opened.directory()));
     }
 
     public bool isOpen() { return self._open; }
     public string path() { return self._path; }
 
+    private string parentPath() {
+        int separator = self._path.lastIndexOf("/");
+        if (separator < 0) { return "."; }
+        if (separator == 0) { return "/"; }
+        return self._path.substring(0, separator);
+    }
+
+    private string baseName() {
+        int separator = self._path.lastIndexOf("/");
+        if (separator < 0) { return Strings.copy(self._path); }
+        return self._path.substring(
+            separator + 1,
+            self._path.len() - separator - 1
+        );
+    }
+
+    /* POSIX has no unlink-by-descriptor operation. Each directory is opened
+     * without following its final component and its identity is revalidated
+     * immediately before unlinkat(). Holding the root lease prevents inode
+     * reuse; callers must still serialize concurrent renames in the parent. */
+    private int removeAt(
+        int parentDescriptor,
+        string name,
+        FileSnapshot? expected
+    ) {
+        struct stat named;
+        errno = 0;
+        if (fstatat(
+                parentDescriptor,
+                name,
+                &named,
+                AT_SYMLINK_NOFOLLOW) != 0) {
+            return errno == ENOENT ? 0 : -1;
+        }
+        FileSnapshot namedSnapshot = FileSnapshot.fromStatus(&named);
+        if (expected != null && !namedSnapshot.sameObject(expected)) {
+            return -2;
+        }
+        if (!S_ISDIR(named.st_mode)) {
+            return unlinkat(parentDescriptor, name, 0) == 0 ? 0 : -1;
+        }
+
+        errno = 0;
+        int descriptor = openat(
+            parentDescriptor,
+            name,
+            (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC
+                | (int)O_NOFOLLOW | (int)O_NONBLOCK
+        );
+        if (descriptor < 0) { return -1; }
+        struct stat opened;
+        struct stat root;
+        if (fstat(descriptor, &opened) != 0
+                || stat("/", &root) != 0
+                || !S_ISDIR(opened.st_mode)
+                || opened.st_dev != named.st_dev
+                || opened.st_ino != named.st_ino
+                || (opened.st_dev == root.st_dev
+                    && opened.st_ino == root.st_ino)) {
+            close(descriptor);
+            return -2;
+        }
+        mode_t required = (mode_t)S_IWUSR | (mode_t)S_IXUSR;
+        if ((((mode_t)opened.st_mode) & required) != required
+                && fchmod(
+                    descriptor,
+                    ((mode_t)opened.st_mode) | required) != 0) {
+            close(descriptor);
+            return -1;
+        }
+        DIR* directory = fdopendir(descriptor);
+        if (directory == null) {
+            close(descriptor);
+            return -1;
+        }
+
+        int result = 0;
+        while (true) {
+            errno = 0;
+            struct dirent* entry = readdir(directory);
+            if (entry == null) {
+                if (errno != 0) { result = -1; }
+                break;
+            }
+            string borrowedName = entry->d_name;
+            if (borrowedName.equals(".") || borrowedName.equals("..")) {
+                continue;
+            }
+            string childName = Strings.copy(borrowedName);
+            result = self.removeAt(
+                dirfd(directory), childName, null);
+            if (result != 0) { break; }
+        }
+        if (closedir(directory) != 0 && result == 0) { result = -1; }
+        if (result != 0) { return result; }
+
+        struct stat finalStatus;
+        if (fstatat(
+                parentDescriptor,
+                name,
+                &finalStatus,
+                AT_SYMLINK_NOFOLLOW) != 0
+                || !S_ISDIR(finalStatus.st_mode)
+                || finalStatus.st_dev != opened.st_dev
+                || finalStatus.st_ino != opened.st_ino) {
+            return -2;
+        }
+        return unlinkat(parentDescriptor, name, AT_REMOVEDIR) == 0
+            ? 0 : -1;
+    }
+
     public FileSystemCloseOutcome close() {
         if (!self._open) { return FileSystemCloseOutcome.alreadyClosed(); }
         self._open = false;
+        struct stat named;
+        errno = 0;
+        if (lstat(self._path, &named) != 0) {
+            int nativeCode = errno;
+            FileSystemCloseOutcome leaseClose = self._lease.close();
+            if (nativeCode == ENOENT && leaseClose.ok()) {
+                return FileSystemCloseOutcome.closed();
+            }
+            if (!leaseClose.ok()) { return leaseClose; }
+            return FileSystemCloseOutcome.failed(
+                FileSystemError.fromNative(
+                    "remove temporary directory",
+                    self._path,
+                    nativeCode));
+        }
+        FileSnapshot current = FileSnapshot.fromStatus(&named);
+        if (!S_ISDIR(named.st_mode)
+                || !current.sameObject(self._lease.openedSnapshot())) {
+            self._lease.close();
+            return FileSystemCloseOutcome.failed(
+                FileSystemError.changed(
+                    "remove temporary directory", self._path));
+        }
+        string parent = self.parentPath();
+        string name = self.baseName();
+        errno = 0;
+        int parentDescriptor = open(
+            parent,
+            (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC
+                | (int)O_NOFOLLOW | (int)O_NONBLOCK
+        );
+        if (parentDescriptor < 0) {
+            int nativeCode = errno;
+            self._lease.close();
+            return FileSystemCloseOutcome.failed(
+                FileSystemError.fromNative(
+                    "open temporary directory parent",
+                    parent,
+                    nativeCode));
+        }
+        int removed = self.removeAt(
+            parentDescriptor,
+            name,
+            self._lease.openedSnapshot()
+        );
+        int nativeCode = errno;
+        close(parentDescriptor);
+        FileSystemCloseOutcome leaseClose = self._lease.close();
+        if (removed == -2) {
+            return FileSystemCloseOutcome.failed(
+                FileSystemError.changed(
+                    "remove temporary directory",
+                    self._path,
+                    nativeCode));
+        }
+        if (removed != 0) {
+            return FileSystemCloseOutcome.failed(FileSystemError(
+                FS_IO,
+                "remove temporary directory",
+                self._path,
+                nativeCode,
+                "temporary directory cleanup failed"
+            ));
+        }
+        if (!leaseClose.ok()) { return leaseClose; }
         return FileSystemCloseOutcome.closed();
     }
 

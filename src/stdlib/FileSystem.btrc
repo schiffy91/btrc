@@ -17,8 +17,6 @@ import std.vector;
 #include <stdlib.h>
 #include <unistd.h>
 
-extern char* mkdtemp(char* templatePath);
-
 class FileStatus {
     public string path;
     public int mode;

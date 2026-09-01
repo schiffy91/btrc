@@ -14,6 +14,13 @@ def test_helper_named_programs_are_not_mistaken_for_include_fixtures():
     assert "stdlib/test_stdlib_math_float_helpers.btrc" in selected
 
 
+def test_upper_camel_contract_programs_are_runnable_corpus_entries():
+    selected = set(language_test_files(TESTS))
+
+    assert "stdlib/FileSystemHandlesContract.btrc" in selected
+    assert "stdlib/FileSystemHandlesReal.btrc" in selected
+
+
 def test_textual_include_fixtures_are_not_standalone_corpus_programs():
     selected = set(language_test_files(TESTS))
 
