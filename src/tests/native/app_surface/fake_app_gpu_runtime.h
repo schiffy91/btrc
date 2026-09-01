@@ -24,6 +24,9 @@ void fake_gpu_set_next_draw(int status);
 void fake_gpu_set_device_lost(int lost);
 void fake_gpu_set_next_resource_result(
     int status, int publish_identity, int publish_receipt);
+int fake_native_ui_upload_count(void);
+int fake_gpu_frame_begin_count(void);
+int fake_gpu_frame_present_count(void);
 char* fake_platform_lifecycle(void);
 int fake_platform_live_resources(void);
 void fake_platform_worker_hold(void);

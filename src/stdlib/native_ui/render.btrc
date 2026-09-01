@@ -1166,6 +1166,8 @@ class NativeUiRenderer {
     }
 
     public NativeUiFrame currentFrame() { return self.frameValue; }
+    public string hoveredId() { return self.hoveredIdentity; }
+    public string pressedId() { return self.pressedIdentity; }
 
     private NativeUiFrame buildFrame(
         NativeUiElement root,

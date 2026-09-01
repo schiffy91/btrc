@@ -13,6 +13,7 @@
 #include "btrc_gpu_compute_singleton.h"
 #include "btrc_gpu_pending_list.h"
 #include "btrc_gpu_surface.h"
+#include "btrc_gpu_native_ui_internal.h"
 #include "btrc_app_surface_internal.h"
 #include <webgpu.h>
 #include <GLFW/glfw3.h>
@@ -79,6 +80,7 @@ enum {
     GPU_RENDER_RESOURCE_SHADER = 1,
     GPU_RENDER_RESOURCE_PIPELINE = 2,
     GPU_RENDER_RESOURCE_UNIFORM = 3,
+    GPU_RENDER_RESOURCE_NATIVE_UI = 4,
 };
 
 static GPURenderResource_* render_resources = NULL;
@@ -1498,6 +1500,9 @@ static void destroy_render_resource_value(GPURenderResource_* entry) {
         case GPU_RENDER_RESOURCE_UNIFORM:
             btrc_gpu_uniform_destroy(entry->resource);
             break;
+        case GPU_RENDER_RESOURCE_NATIVE_UI:
+            btrc_gpu_native_ui_destroy(entry->resource);
+            break;
         default:
             break;
     }
@@ -1888,4 +1893,262 @@ int std_gpu_draw_uniform(
     render_lock_leave();
     return result
         ? BTRC_GPU_DRAW_RECORDED : BTRC_GPU_DRAW_BACKEND_FAILURE;
+}
+
+/* ================================================================
+ * Native UI display-list resource
+ * ================================================================ */
+
+static int native_ui_resource_locked(
+        unsigned long long compositor_id,
+        GPU_** gpu_out,
+        GPURenderResource_** resource_out) {
+    if (gpu_out) { *gpu_out = NULL; }
+    if (resource_out) { *resource_out = NULL; }
+    if (!gpu_out || !resource_out || compositor_id == 0) {
+        return BTRC_GPU_RESOURCE_INVALID_RESOURCE;
+    }
+    GPURenderResource_* resource = render_resources;
+    while (resource && (resource->id != compositor_id ||
+           resource->kind != GPU_RENDER_RESOURCE_NATIVE_UI)) {
+        resource = resource->next;
+    }
+    if (!resource || !resource->owner ||
+        resource->owner != active_render_gpu ||
+        !resource->owner->app_surface) {
+        return BTRC_GPU_RESOURCE_INVALID_RESOURCE;
+    }
+    if (!std_app_surface_glfw(resource->owner->app_surface)) {
+        return BTRC_GPU_RESOURCE_NOT_OWNER_THREAD;
+    }
+    if (device_is_lost(resource->owner)) {
+        return BTRC_GPU_RESOURCE_DEVICE_LOST;
+    }
+    *gpu_out = resource->owner;
+    *resource_out = resource;
+    return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_native_ui_create(
+        unsigned long long gpu_id,
+        unsigned long long* compositor_out,
+        unsigned long long* owner_receipt_out) {
+    if (!compositor_out || !owner_receipt_out) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    *compositor_out = 0;
+    *owner_receipt_out = 0;
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    int status = render_gpu_resource_status_locked(gpu_id, &gpu);
+    if (status != BTRC_GPU_RESOURCE_READY) {
+        render_lock_leave();
+        return status;
+    }
+    void* compositor = btrc_gpu_native_ui_create(
+        gpu->device, gpu->queue, gpu->surface_format);
+    if (!compositor) {
+        render_lock_leave();
+        return BTRC_GPU_RESOURCE_CREATION_FAILED;
+    }
+    unsigned long long identity = register_render_resource(
+        gpu, GPU_RENDER_RESOURCE_NATIVE_UI,
+        compositor, owner_receipt_out);
+    if (identity == 0) {
+        btrc_gpu_native_ui_destroy(compositor);
+        render_lock_leave();
+        return BTRC_GPU_RESOURCE_OUT_OF_MEMORY;
+    }
+    *compositor_out = identity;
+    render_lock_leave();
+    return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_native_ui_begin(
+        unsigned long long compositor_id,
+        int logical_width,
+        int logical_height) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        !btrc_gpu_native_ui_begin(
+            resource->resource, logical_width, logical_height)) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    render_lock_leave();
+    return status;
+}
+
+int std_gpu_native_ui_add_rect(
+        unsigned long long compositor_id,
+        float x,
+        float y,
+        float width,
+        float height,
+        float red,
+        float green,
+        float blue,
+        float alpha,
+        float radius) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        !btrc_gpu_native_ui_add_rect(
+            resource->resource, x, y, width, height,
+            red, green, blue, alpha, radius)) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    render_lock_leave();
+    return status;
+}
+
+int std_gpu_native_ui_add_glyph(
+        unsigned long long compositor_id,
+        float x,
+        float y,
+        float width,
+        float height,
+        float red,
+        float green,
+        float blue,
+        float alpha,
+        unsigned long long glyph_bits) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        !btrc_gpu_native_ui_add_glyph(
+            resource->resource, x, y, width, height,
+            red, green, blue, alpha, (uint64_t)glyph_bits)) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    render_lock_leave();
+    return status;
+}
+
+int std_gpu_native_ui_add_image(
+        unsigned long long compositor_id,
+        char* identity,
+        unsigned char* rgba,
+        int source_width,
+        int source_height,
+        unsigned long long source_revision,
+        float x,
+        float y,
+        float width,
+        float height) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    if (status == BTRC_GPU_RESOURCE_READY &&
+        !btrc_gpu_native_ui_add_image(
+            resource->resource, identity, rgba,
+            source_width, source_height, (uint64_t)source_revision,
+            x, y, width, height)) {
+        status = BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    render_lock_leave();
+    return status;
+}
+
+int std_gpu_native_ui_draw(
+        unsigned long long gpu_id,
+        unsigned long long compositor_id) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    int gpu_status = render_gpu_resource_status_locked(gpu_id, &gpu);
+    if (gpu_status != BTRC_GPU_RESOURCE_READY) {
+        render_lock_leave();
+        switch (gpu_status) {
+            case BTRC_GPU_RESOURCE_INVALID_GPU:
+                return BTRC_GPU_DRAW_INVALID_GPU;
+            case BTRC_GPU_RESOURCE_NOT_OWNER_THREAD:
+                return BTRC_GPU_DRAW_NOT_OWNER_THREAD;
+            case BTRC_GPU_RESOURCE_DEVICE_LOST:
+                return BTRC_GPU_DRAW_DEVICE_LOST;
+            default:
+                return BTRC_GPU_DRAW_BACKEND_FAILURE;
+        }
+    }
+    GPURenderResource_* resource = find_render_resource(
+        compositor_id, gpu, GPU_RENDER_RESOURCE_NATIVE_UI);
+    if (!resource) {
+        render_lock_leave();
+        return BTRC_GPU_DRAW_INVALID_RESOURCE;
+    }
+    if (!gpu->pass) {
+        render_lock_leave();
+        return BTRC_GPU_DRAW_NO_ACTIVE_FRAME;
+    }
+    bool recorded = btrc_gpu_native_ui_draw(
+        resource->resource, gpu->pass);
+    render_lock_leave();
+    return recorded
+        ? BTRC_GPU_DRAW_RECORDED : BTRC_GPU_DRAW_BACKEND_FAILURE;
+}
+
+int std_gpu_native_ui_destroy(
+        unsigned long long compositor,
+        unsigned long long owner_receipt) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    int result = close_render_resource(
+        compositor, owner_receipt, GPU_RENDER_RESOURCE_NATIVE_UI);
+    render_lock_leave();
+    return result;
+}
+
+void std_gpu_native_ui_finalize(
+        unsigned long long compositor,
+        unsigned long long owner_receipt) {
+    finalize_render_resource(
+        compositor, owner_receipt, GPU_RENDER_RESOURCE_NATIVE_UI);
+}
+
+int std_gpu_native_ui_command_count(unsigned long long compositor_id) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    int result = status == BTRC_GPU_RESOURCE_READY
+        ? btrc_gpu_native_ui_command_count(resource->resource) : -1;
+    render_lock_leave();
+    return result;
+}
+
+int std_gpu_native_ui_image_count(unsigned long long compositor_id) {
+    render_lock_enter();
+    drain_gpu_finalizers_locked();
+    GPU_* gpu = NULL;
+    GPURenderResource_* resource = NULL;
+    int status = native_ui_resource_locked(
+        compositor_id, &gpu, &resource);
+    (void)gpu;
+    int result = status == BTRC_GPU_RESOURCE_READY
+        ? btrc_gpu_native_ui_image_count(resource->resource) : -1;
+    render_lock_leave();
+    return result;
 }

@@ -185,7 +185,7 @@ gpu: app ## Build GPU runtime library (skips if deps missing)
 		mkdir -p "$$O" && \
 		rm -f "$$O/libbtrc_gpu.a" && \
 		probe_ok=1 && \
-		for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c; do \
+		for source in btrc_gpu.c btrc_gpu_async.c btrc_gpu_surface.c btrc_gpu_native_ui.c; do \
 			$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) -std=c11 -Isrc/stdlib/app -I"$$D" \
 				-E "$$D/$$source" -o /dev/null 2>/dev/null || probe_ok=0; \
 		done && \
@@ -197,9 +197,10 @@ gpu: app ## Build GPU runtime library (skips if deps missing)
 			echo "GPU runtime skipped (missing windowing/WebGPU headers)"; exit 0; \
 		fi && \
 		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(GPU_THREAD_FLAGS) $(NATIVE_CFLAGS) -Isrc/stdlib/app -I"$$D" -O2 -c "$$D/btrc_gpu.c" -o "$$O/btrc_gpu.o" && \
+		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_native_ui.c" -o "$$O/btrc_gpu_native_ui.o" && \
 		$(CC) $$GPU_CFLAGS $(GPU_BACKEND_CFLAGS) $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_async.c" -o "$$O/btrc_gpu_async.o" && \
 		$(CC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -I"$$D" -O2 -c "$$D/btrc_gpu_surface.c" -o "$$O/btrc_gpu_surface.o" && \
-		objects="$$O/btrc_gpu.o $$O/btrc_gpu_async.o $$O/btrc_gpu_surface.o" && \
+		objects="$$O/btrc_gpu.o $$O/btrc_gpu_native_ui.o $$O/btrc_gpu_async.o $$O/btrc_gpu_surface.o" && \
 		if [ "$$(uname -s)" = Darwin ]; then \
 			$(GPU_OBJC) $$GPU_CFLAGS $(NATIVE_CFLAGS) -x objective-c -I"$$D" -O2 \
 				-c "$$D/btrc_gpu_surface_macos.m" -o "$$O/btrc_gpu_surface_macos.o" && \

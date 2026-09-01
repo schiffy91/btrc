@@ -12,6 +12,15 @@
 #include <string.h>
 
 enum { EVENT_CAPACITY = 64, LIFECYCLE_CAPACITY = 1024 };
+enum { FAKE_UI_IMAGE_CAPACITY = 64 };
+
+typedef struct {
+    char identity[129];
+    unsigned char* source;
+    unsigned long long revision;
+    int width;
+    int height;
+} FakeUiImage;
 
 typedef struct {
     int kind;
@@ -41,6 +50,8 @@ static bool gpu_open;
 static bool shader_open;
 static bool pipeline_open;
 static bool uniform_open;
+static bool native_ui_open;
+static bool native_ui_begun;
 static bool frame_active;
 static bool device_lost;
 static unsigned long long gpu_id;
@@ -54,7 +65,14 @@ static unsigned long long surface_owner_receipt;
 static unsigned long long shader_owner_receipt;
 static unsigned long long pipeline_owner_receipt;
 static unsigned long long uniform_owner_receipt;
+static unsigned long long native_ui_owner_receipt;
 static int uniform_float_count;
+static int native_ui_command_count;
+static int native_ui_image_count;
+static int native_ui_upload_count;
+static int frame_begin_count;
+static int frame_present_count;
+static FakeUiImage native_ui_images[FAKE_UI_IMAGE_CAPACITY];
 static unsigned long long generation;
 static unsigned long long next_capability;
 static int last_error;
@@ -190,6 +208,8 @@ void fake_platform_reset(void) {
     shader_open = false;
     pipeline_open = false;
     uniform_open = false;
+    native_ui_open = false;
+    native_ui_begun = false;
     frame_active = false;
     device_lost = false;
     gpu_id = 0;
@@ -203,7 +223,14 @@ void fake_platform_reset(void) {
     shader_owner_receipt = 0;
     pipeline_owner_receipt = 0;
     uniform_owner_receipt = 0;
+    native_ui_owner_receipt = 0;
     uniform_float_count = 0;
+    native_ui_command_count = 0;
+    native_ui_image_count = 0;
+    native_ui_upload_count = 0;
+    frame_begin_count = 0;
+    frame_present_count = 0;
+    memset(native_ui_images, 0, sizeof(native_ui_images));
     generation = 0;
     next_capability = UINT64_C(100);
     last_error = BTRC_APP_ERROR_NONE;
@@ -355,13 +382,17 @@ void fake_gpu_set_next_resource_result(
     resource_result_publish_identity = publish_identity != 0;
     resource_result_publish_receipt = publish_receipt != 0;
 }
+int fake_native_ui_upload_count(void) { return native_ui_upload_count; }
+int fake_gpu_frame_begin_count(void) { return frame_begin_count; }
+int fake_gpu_frame_present_count(void) { return frame_present_count; }
 char* fake_platform_lifecycle(void) { return lifecycle; }
 
 int fake_platform_live_resources(void) {
     return (application_open ? 1 : 0) + (window_open ? 1 : 0) +
         (surface_owner ? 1 : 0) + (surface_attached ? 1 : 0) +
         (gpu_open ? 1 : 0) + (shader_open ? 1 : 0) +
-        (pipeline_open ? 1 : 0) + (uniform_open ? 1 : 0);
+        (pipeline_open ? 1 : 0) + (uniform_open ? 1 : 0) +
+        (native_ui_open ? 1 : 0);
 }
 
 unsigned long long std_app_create(
@@ -752,6 +783,14 @@ int std_gpu_close(
         return BTRC_GPU_CLOSE_INVALID;
     }
     if (!on_owner_thread()) { return BTRC_GPU_CLOSE_NOT_OWNER_THREAD; }
+    if (native_ui_open) {
+        native_ui_open = false;
+        native_ui_begun = false;
+        native_ui_owner_receipt = 0;
+        native_ui_command_count = 0;
+        native_ui_image_count = 0;
+        record("native-ui");
+    }
     if (uniform_open) {
         uniform_open = false;
         uniform_float_count = 0;
@@ -976,6 +1015,7 @@ int std_gpu_begin_frame(unsigned long long gpu, float r, float g, float b, float
     if (gpu != gpu_id || !gpu_open) { return BTRC_GPU_FRAME_REJECTED; }
     if (!on_owner_thread()) { return BTRC_GPU_FRAME_REJECTED; }
     if (device_lost) { return BTRC_GPU_FRAME_DEVICE_LOST; }
+    frame_begin_count++;
     int status = next_frame_status;
     next_frame_status = BTRC_GPU_FRAME_READY;
     frame_active = status == BTRC_GPU_FRAME_READY;
@@ -1019,5 +1059,204 @@ int std_gpu_end_frame(unsigned long long gpu) {
             ? BTRC_GPU_FRAME_DEVICE_LOST : BTRC_GPU_FRAME_REJECTED;
     }
     frame_active = false;
+    frame_present_count++;
     return BTRC_GPU_FRAME_PRESENTED;
+}
+
+int std_gpu_native_ui_create(
+        unsigned long long gpu,
+        unsigned long long* compositor_out,
+        unsigned long long* owner_receipt_out) {
+    if (!compositor_out || !owner_receipt_out) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    *compositor_out = 0;
+    *owner_receipt_out = 0;
+    if (gpu != gpu_id || !gpu_open) {
+        return BTRC_GPU_RESOURCE_INVALID_GPU;
+    }
+    if (!on_owner_thread()) { return BTRC_GPU_RESOURCE_NOT_OWNER_THREAD; }
+    if (device_lost) { return BTRC_GPU_RESOURCE_DEVICE_LOST; }
+    if (resource_result_override) {
+        int status = resource_result_status;
+        bool publish_identity = resource_result_publish_identity;
+        bool publish_receipt = resource_result_publish_receipt;
+        resource_result_override = false;
+        resource_result_publish_identity = false;
+        resource_result_publish_receipt = false;
+        if (publish_identity) { *compositor_out = UINT64_C(404); }
+        if (publish_receipt) {
+            native_ui_owner_receipt = next_capability++;
+            *owner_receipt_out = native_ui_owner_receipt;
+        }
+        native_ui_open = publish_identity && publish_receipt;
+        return status;
+    }
+    if (native_ui_open) { return BTRC_GPU_RESOURCE_CREATION_FAILED; }
+    native_ui_open = true;
+    native_ui_owner_receipt = next_capability++;
+    *compositor_out = UINT64_C(404);
+    *owner_receipt_out = native_ui_owner_receipt;
+    return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_native_ui_begin(
+        unsigned long long compositor,
+        int logical_width,
+        int logical_height) {
+    if (compositor != UINT64_C(404) || !native_ui_open) {
+        return BTRC_GPU_RESOURCE_INVALID_RESOURCE;
+    }
+    if (!on_owner_thread()) { return BTRC_GPU_RESOURCE_NOT_OWNER_THREAD; }
+    if (device_lost) { return BTRC_GPU_RESOURCE_DEVICE_LOST; }
+    if (logical_width <= 0 || logical_height <= 0 ||
+        logical_width > 4096 || logical_height > 4096) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    native_ui_begun = true;
+    native_ui_command_count = 0;
+    return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_native_ui_add_rect(
+        unsigned long long compositor,
+        float x,
+        float y,
+        float width,
+        float height,
+        float red,
+        float green,
+        float blue,
+        float alpha,
+        float radius) {
+    (void)x; (void)y; (void)red; (void)green; (void)blue; (void)alpha;
+    if (compositor != UINT64_C(404) || !native_ui_open) {
+        return BTRC_GPU_RESOURCE_INVALID_RESOURCE;
+    }
+    if (!on_owner_thread()) { return BTRC_GPU_RESOURCE_NOT_OWNER_THREAD; }
+    if (device_lost) { return BTRC_GPU_RESOURCE_DEVICE_LOST; }
+    if (!native_ui_begun || width <= 0.0f || height <= 0.0f ||
+        radius < 0.0f || native_ui_command_count >= 16384) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    native_ui_command_count++;
+    return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_native_ui_add_glyph(
+        unsigned long long compositor,
+        float x,
+        float y,
+        float width,
+        float height,
+        float red,
+        float green,
+        float blue,
+        float alpha,
+        unsigned long long glyph_bits) {
+    (void)glyph_bits;
+    return std_gpu_native_ui_add_rect(
+        compositor, x, y, width, height,
+        red, green, blue, alpha, 0.0f);
+}
+
+int std_gpu_native_ui_add_image(
+        unsigned long long compositor,
+        char* identity,
+        unsigned char* rgba,
+        int source_width,
+        int source_height,
+        unsigned long long source_revision,
+        float x,
+        float y,
+        float width,
+        float height) {
+    (void)x; (void)y;
+    if (compositor != UINT64_C(404) || !native_ui_open) {
+        return BTRC_GPU_RESOURCE_INVALID_RESOURCE;
+    }
+    if (!on_owner_thread()) { return BTRC_GPU_RESOURCE_NOT_OWNER_THREAD; }
+    if (device_lost) { return BTRC_GPU_RESOURCE_DEVICE_LOST; }
+    if (!native_ui_begun || !identity || identity[0] == '\0' || !rgba ||
+        source_width <= 0 || source_height <= 0 ||
+        width <= 0.0f || height <= 0.0f) {
+        return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+    }
+    int found = -1;
+    for (int index = 0; index < native_ui_image_count; index++) {
+        if (strcmp(native_ui_images[index].identity, identity) == 0) {
+            found = index;
+            break;
+        }
+    }
+    if (found < 0) {
+        if (native_ui_image_count >= FAKE_UI_IMAGE_CAPACITY ||
+            strlen(identity) >= sizeof(native_ui_images[0].identity)) {
+            return BTRC_GPU_RESOURCE_INVALID_DESCRIPTOR;
+        }
+        found = native_ui_image_count++;
+        strcpy(native_ui_images[found].identity, identity);
+    }
+    FakeUiImage* image = &native_ui_images[found];
+    if (image->source != rgba || image->revision != source_revision ||
+        image->width != source_width || image->height != source_height) {
+        native_ui_upload_count++;
+        image->source = rgba;
+        image->revision = source_revision;
+        image->width = source_width;
+        image->height = source_height;
+    }
+    return BTRC_GPU_RESOURCE_READY;
+}
+
+int std_gpu_native_ui_draw(
+        unsigned long long gpu, unsigned long long compositor) {
+    if (gpu != gpu_id || !gpu_open) { return BTRC_GPU_DRAW_INVALID_GPU; }
+    if (!on_owner_thread()) { return BTRC_GPU_DRAW_NOT_OWNER_THREAD; }
+    if (device_lost) { return BTRC_GPU_DRAW_DEVICE_LOST; }
+    if (compositor != UINT64_C(404) || !native_ui_open) {
+        return BTRC_GPU_DRAW_INVALID_RESOURCE;
+    }
+    if (!native_ui_begun || !frame_active) {
+        return BTRC_GPU_DRAW_NO_ACTIVE_FRAME;
+    }
+    int status = next_draw_status;
+    next_draw_status = BTRC_GPU_DRAW_RECORDED;
+    return status;
+}
+
+int std_gpu_native_ui_destroy(
+        unsigned long long compositor,
+        unsigned long long owner_receipt) {
+    if (compositor != UINT64_C(404) || !native_ui_open ||
+        owner_receipt == 0 || owner_receipt != native_ui_owner_receipt) {
+        return BTRC_GPU_CLOSE_INVALID;
+    }
+    if (!on_owner_thread()) { return BTRC_GPU_CLOSE_NOT_OWNER_THREAD; }
+    native_ui_open = false;
+    native_ui_begun = false;
+    native_ui_owner_receipt = 0;
+    native_ui_command_count = 0;
+    native_ui_image_count = 0;
+    memset(native_ui_images, 0, sizeof(native_ui_images));
+    record("native-ui");
+    return BTRC_GPU_CLOSE_CLOSED;
+}
+
+void std_gpu_native_ui_finalize(
+        unsigned long long compositor,
+        unsigned long long owner_receipt) {
+    if (on_owner_thread()) {
+        (void)std_gpu_native_ui_destroy(compositor, owner_receipt);
+    }
+}
+
+int std_gpu_native_ui_command_count(unsigned long long compositor) {
+    return compositor == UINT64_C(404) && native_ui_open
+        ? native_ui_command_count : -1;
+}
+
+int std_gpu_native_ui_image_count(unsigned long long compositor) {
+    return compositor == UINT64_C(404) && native_ui_open
+        ? native_ui_image_count : -1;
 }

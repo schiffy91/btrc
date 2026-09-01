@@ -18,7 +18,8 @@ int main() {
                 .button("album:first", "First")
                 .style("border-radius: 8px")
                 .child(NativeUiElement.image(
-                    "album-art:first", artwork, "First album"))));
+                    "album-art:first", artwork, "First album")
+                    .imageRevision(7ULL))));
 
     assert(tree.kind() == NATIVE_UI_COLUMN);
     assert(tree.id() == "library");
@@ -31,6 +32,7 @@ int main() {
     assert(button.kind() == NATIVE_UI_BUTTON);
     assert(button.contentText() == "First");
     assert(button.childAt(0).contentImage() == artwork);
+    assert(button.childAt(0).contentImageRevision() == 7ULL);
     assert(button.childAt(0).imageAlt() == "First album");
 
     NativeUiElement rejected = NativeUiElement

@@ -119,4 +119,41 @@ int std_gpu_draw_uniform(
     unsigned long long gpu, unsigned long long pipeline,
     int vertex_count, unsigned long long uniform);
 
+/* Bounded native-UI display-list resource. It records into the active frame
+ * of the supplied GPU capability and cannot create/acquire/present a surface. */
+int std_gpu_native_ui_create(
+    unsigned long long gpu,
+    unsigned long long* compositor_out,
+    unsigned long long* owner_receipt_out);
+int std_gpu_native_ui_begin(
+    unsigned long long compositor, int logical_width, int logical_height);
+int std_gpu_native_ui_add_rect(
+    unsigned long long compositor,
+    float x, float y, float width, float height,
+    float red, float green, float blue, float alpha, float radius);
+int std_gpu_native_ui_add_glyph(
+    unsigned long long compositor,
+    float x, float y, float width, float height,
+    float red, float green, float blue, float alpha,
+    unsigned long long glyph_bits);
+int std_gpu_native_ui_add_image(
+    unsigned long long compositor,
+    char* identity,
+    unsigned char* rgba,
+    int source_width,
+    int source_height,
+    unsigned long long source_revision,
+    float x,
+    float y,
+    float width,
+    float height);
+int std_gpu_native_ui_draw(
+    unsigned long long gpu, unsigned long long compositor);
+int std_gpu_native_ui_destroy(
+    unsigned long long compositor, unsigned long long owner_receipt);
+void std_gpu_native_ui_finalize(
+    unsigned long long compositor, unsigned long long owner_receipt);
+int std_gpu_native_ui_command_count(unsigned long long compositor);
+int std_gpu_native_ui_image_count(unsigned long long compositor);
+
 #endif /* BTRC_GPU_H */

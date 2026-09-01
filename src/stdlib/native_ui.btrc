@@ -504,6 +504,7 @@ class NativeUiElement {
     private string styleValue;
     private string textValue;
     private Image? imageValue;
+    private unsigned long long imageRevisionValue;
     private string altValue;
     private Vector<NativeUiElement> childValues;
     private NativeUiStyleError styleErrorValue;
@@ -522,6 +523,7 @@ class NativeUiElement {
         self.styleValue = "";
         self.textValue = text;
         self.imageValue = image;
+        self.imageRevisionValue = 0ULL;
         self.altValue = alt;
         self.childValues = [];
         self.styleErrorValue = NativeUiStyleError.valid();
@@ -569,6 +571,12 @@ class NativeUiElement {
         return self;
     }
 
+    /* Increment when mutating/replacing pixels under the same stable ID. */
+    public NativeUiElement imageRevision(unsigned long long revision) {
+        self.imageRevisionValue = revision;
+        return self;
+    }
+
     public NativeUiElement child(NativeUiElement value) {
         self.childValues.push(value);
         return self;
@@ -580,6 +588,9 @@ class NativeUiElement {
     public string inlineStyle() { return self.styleValue; }
     public string contentText() { return self.textValue; }
     public Image? contentImage() { return self.imageValue; }
+    public unsigned long long contentImageRevision() {
+        return self.imageRevisionValue;
+    }
     public string imageAlt() { return self.altValue; }
     public NativeUiStyleError styleError() { return self.styleErrorValue; }
     public NativeUiVirtualGrid? virtualGridDescriptor() {
