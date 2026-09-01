@@ -1081,7 +1081,10 @@ class CallAnalyzer:
             )
             self._collect_method_instance(expr, cls, method, None, substitutions)
             return
-        if not receiver_type or receiver_type.base not in self.index.class_table:
+        if not receiver_type:
+            return
+        if receiver_type.base not in self.index.class_table:
+            self.generics.record_class_method_use(receiver_type, callee.field)
             return
         cls = self.index.class_table[receiver_type.base]
         method = cls.methods.get(callee.field)

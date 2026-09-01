@@ -1,0 +1,25 @@
+#include <assert.h>
+
+class NestedReceiver<ValueT> {
+	private ValueT _value;
+
+	public NestedReceiver(ValueT value) { self._value = value; }
+
+	public ValueT value() { return self._value; }
+}
+
+class GenericCaller<ReceiverT> {
+	private ReceiverT _receiver;
+
+	public GenericCaller(ReceiverT receiver) { self._receiver = receiver; }
+
+	public int call() { return self._receiver.value(); }
+}
+
+int main() {
+	NestedReceiver<int> receiver = new NestedReceiver<int>(7);
+	GenericCaller<NestedReceiver<int>> caller = new GenericCaller<NestedReceiver<int>>(receiver);
+	assert(caller.call() == 7);
+	print("PASS: nested generic method reachability");
+	return 0;
+}

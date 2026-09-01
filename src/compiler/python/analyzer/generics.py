@@ -181,8 +181,24 @@ class GenericAnalyzer:
     ) -> None:
         """Record one method or property-accessor demand on a generic instance."""
         receiver = self.types.canonical_type(receiver_type)
+        bucket = self._active_template_dependency_bucket()
         cls = self.index.class_table.get(receiver.base) if receiver is not None else None
-        if cls is None or not cls.generic_params:
+        if cls is None:
+            active_parameters = self._active_template_parameter_names()
+            if (
+                receiver is not None
+                and bucket is not None
+                and self.types.type_references_names(receiver, active_parameters)
+            ):
+                self._append_dependency(
+                    bucket,
+                    GenericClassCallableDependency(
+                        receiver,
+                        ClassCallableIdentity(receiver.base, kind, callable_name),
+                    ),
+                )
+            return
+        if not cls.generic_params:
             return
         callable_identity = ClassCallableIdentity(receiver.base, kind, callable_name)
         if kind == "method":
@@ -200,11 +216,18 @@ class GenericAnalyzer:
         else:
             raise ValueError(f"unknown class callable kind: {kind}")
         dependency = GenericClassCallableDependency(receiver, callable_identity)
-        bucket = self._active_template_dependency_bucket()
         if bucket is not None:
             self._append_dependency(bucket, dependency)
             return
         self._select_class_callable(receiver, callable_identity)
+
+    def _active_template_parameter_names(self) -> frozenset[str]:
+        names: set[str] = set()
+        if self.session.current_class is not None:
+            names.update(self.session.current_class.generic_params)
+        if self.session.current_method is not None:
+            names.update(self.session.current_method.generic_params)
+        return frozenset(names)
 
     def _active_template_dependency_bucket(self) -> list[GenericTemplateDependency] | None:
         """Return the dependency list owned by the active generic template body."""

@@ -354,6 +354,35 @@ def test_inherited_generic_method_dependencies_close_with_concrete_method_argume
     assert use_definition.params[1].c_type.text == "btrc_Bucket_int*"
 
 
+def test_template_parameter_receiver_method_dependency_closes_after_substitution() -> None:
+    analyzed = _analyze(
+        """
+        class NestedReceiver<T> {
+            private T value;
+            public NestedReceiver(T value) { self.value = value; }
+            public T get() { return self.value; }
+        }
+        class GenericCaller<ReceiverT> {
+            private ReceiverT receiver;
+            public GenericCaller(ReceiverT receiver) { self.receiver = receiver; }
+            public int call() { return self.receiver.get(); }
+        }
+        int main() {
+            NestedReceiver<int> receiver = new NestedReceiver<int>(7);
+            GenericCaller<NestedReceiver<int>> caller =
+                new GenericCaller<NestedReceiver<int>>(receiver);
+            return caller.call();
+        }
+        """
+    )
+
+    identity = ClassCallableIdentity.method("NestedReceiver", "get")
+    assert identity in analyzed.generic_class_callable_instances
+    assert analyzed.generic_class_callable_instances[identity] == [(TypeExpr(base="int"),)]
+    module = IRLowerer(analyzed).lower()
+    _assert_call_abi_is_materialized(module, "btrc_NestedReceiver_int_get")
+
+
 def test_callable_dependency_identity_does_not_parse_legal_source_method_names() -> None:
     analyzed = _analyze(
         """
