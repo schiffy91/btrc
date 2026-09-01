@@ -314,6 +314,9 @@ MEMBER_TABLES: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
 
 # Generated from stdlib .btrc files
 STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
+    ("BackgroundJobWork", (
+        BuiltinMemberSpec("cancellationRequested", "bool", "method", (("void*", "cancellation"),), "cancellationRequested"),
+    )),
     ("Console", (
         BuiltinMemberSpec("log", "void", "method", (("string", "msg"),), "log"),
         BuiltinMemberSpec("error", "void", "method", (("string", "msg"),), "error"),
