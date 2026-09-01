@@ -100,8 +100,9 @@ def test_fsync_artifact_reports_the_failing_path(
         raise OSError(9, "injected bad descriptor")
 
     monkeypatch.setattr(storage_module.os, "fsync", fail_fsync)
-    with pytest.raises(OSError, match=rf"cannot flush publication artifact: {artifact}"):
+    with pytest.raises(OSError) as raised:
         ArtifactStorage().fsync_artifact(artifact, is_directory=False)
+    assert f"cannot flush publication artifact: {artifact}" in str(raised.value)
 
 
 @pytest.mark.skipif(os.name != "nt", reason="requires the native Windows CRT")
@@ -117,22 +118,30 @@ def test_fsync_artifact_flushes_native_windows_file_and_tree(tmp_path: Path) -> 
     storage.fsync_artifact(tree, is_directory=True)
 
 
-def test_fsync_directory_does_not_swallow_windows_identity_failure(
+def test_fsync_directory_does_not_swallow_windows_identity_failure_after_open(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     directory = tmp_path / "artifact"
     directory.mkdir()
+    opened = tmp_path / "opened"
+    opened.write_bytes(b"payload")
+    descriptor = os.open(opened, os.O_RDONLY)
+
+    def open_directory(path: Path, flags: int) -> int:
+        return descriptor
 
     def fail_fstat(descriptor: int):
         raise OSError("injected identity failure")
 
     monkeypatch.setattr(storage_module.os, "name", "nt")
+    monkeypatch.setattr(storage_module.os, "open", open_directory)
     monkeypatch.setattr(storage_module.os, "fstat", fail_fstat)
     with pytest.raises(OSError, match="injected identity failure"):
         ArtifactStorage().fsync_directory(directory)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX no-follow utime")
 def test_normalize_timestamp_uses_no_follow_posix_utime(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
