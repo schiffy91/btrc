@@ -756,6 +756,13 @@ class FileSystem {
         return FileHandle.openExact(path);
     }
 
+    class RegularFileSnapshotOpenOutcome openRegularFileSnapshot(
+        string path,
+        long long maximumBytes
+    ) {
+        return RegularFileSnapshot.open(path, maximumBytes);
+    }
+
     class DirectoryOpenOutcome openDirectoryExact(string path) {
         return DirectoryHandle.openExact(path);
     }

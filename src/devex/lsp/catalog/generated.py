@@ -351,6 +351,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
     ("FileSystem", (
         BuiltinMemberSpec("inspectExact", "FileSnapshotOutcome", "method", (("string", "path"),), "inspectExact"),
         BuiltinMemberSpec("openFileExact", "FileOpenOutcome", "method", (("string", "path"),), "openFileExact"),
+        BuiltinMemberSpec("openRegularFileSnapshot", "RegularFileSnapshotOpenOutcome", "method", (("string", "path"), ("long long", "maximumBytes"),), "openRegularFileSnapshot"),
         BuiltinMemberSpec("openDirectoryExact", "DirectoryOpenOutcome", "method", (("string", "path"),), "openDirectoryExact"),
         BuiltinMemberSpec("createTemporaryDirectory", "TemporaryDirectoryOpenOutcome", "method", (("string", "prefix"),), "createTemporaryDirectory"),
         BuiltinMemberSpec("openPrivateDirectory", "PrivateDirectoryOpenOutcome", "method", (("string", "absolutePath"),), "openPrivateDirectory"),

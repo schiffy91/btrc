@@ -63,12 +63,34 @@ int main() {
     assert(!readFailure.ok());
     assert(readFailure.error() == denied);
 
+    Bytes exactEmptyBytes = Bytes();
+    ExactFileReadOutcome exactEmpty =
+        ExactFileReadOutcome.data(exactEmptyBytes);
+    assert(exactEmpty.ok());
+    assert(exactEmpty.bytes().isEmpty());
+    ExactFileReadOutcome exactFailure = ExactFileReadOutcome.failed(denied);
+    assert(!exactFailure.ok());
+    assert(exactFailure.error() == denied);
+    RegularFileSnapshotOpenOutcome regularFailure =
+        RegularFileSnapshotOpenOutcome.failed(denied);
+    assert(!regularFailure.ok());
+    assert(regularFailure.error() == denied);
+
     assert(!FileSystem.openFileExact("").ok());
     assert(FileSystem.openFileExact("").error().kind()
         == FS_INVALID_ARGUMENT);
     assert(!FileSystem.openDirectoryExact("").ok());
     assert(!FileSystem.inspectExact("").ok());
     assert(!FileSystem.createTemporaryDirectory("../escape").ok());
+    assert(!FileSystem.openRegularFileSnapshot("", 1LL).ok());
+    assert(FileSystem.openRegularFileSnapshot("", 1LL)
+        .error().kind() == FS_INVALID_ARGUMENT);
+    assert(!FileSystem.openRegularFileSnapshot("source.psarc", -1LL).ok());
+    assert(FileSystem.openRegularFileSnapshot("source.psarc", -1LL)
+        .error().kind() == FS_INVALID_ARGUMENT);
+    assert(!FileSystem.openRegularFileSnapshot("source.psarc", 1LL).ok());
+    assert(FileSystem.openRegularFileSnapshot("source.psarc", 1LL)
+        .error().kind() == FS_UNSUPPORTED);
 
     assert(FileSystemCloseOutcome.closed().ok());
     assert(FileSystemCloseOutcome.alreadyClosed().ok());

@@ -435,6 +435,90 @@ class FileReadOutcome {
     }
 }
 
+/* An exact positional read has only a byte value or a typed failure. Empty
+ * Bytes are a valid value when byteCount is zero; short reads never escape as
+ * partial success.
+ */
+class ExactFileReadOutcome {
+    private FileSystemOutcomeKind _kind;
+    private Bytes? _bytes;
+    private FileSystemError? _error;
+
+    private ExactFileReadOutcome(
+        FileSystemOutcomeKind kind,
+        Bytes? bytes,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._bytes = bytes;
+        self._error = error;
+    }
+
+    class ExactFileReadOutcome data(Bytes bytes) {
+        if (bytes == null) { throw "exact file read bytes are null"; }
+        return ExactFileReadOutcome(FS_VALUE, bytes, null);
+    }
+
+    class ExactFileReadOutcome failed(FileSystemError error) {
+        if (error == null) { throw "exact file read error is null"; }
+        return ExactFileReadOutcome(FS_ERROR, null, error);
+    }
+
+    public bool ok() { return self._kind == FS_VALUE; }
+    public Bytes bytes() {
+        if (self._bytes == null) { throw "exact file read has no data"; }
+        return self._bytes;
+    }
+    public FileSystemError error() {
+        if (self._error == null) { throw "exact file read has no error"; }
+        return self._error;
+    }
+}
+
+class RegularFileSnapshotOpenOutcome {
+    private FileSystemOutcomeKind _kind;
+    private RegularFileSnapshot? _snapshot;
+    private FileSystemError? _error;
+
+    private RegularFileSnapshotOpenOutcome(
+        FileSystemOutcomeKind kind,
+        RegularFileSnapshot? snapshot,
+        FileSystemError? error
+    ) {
+        self._kind = kind;
+        self._snapshot = snapshot;
+        self._error = error;
+    }
+
+    class RegularFileSnapshotOpenOutcome opened(
+        RegularFileSnapshot snapshot
+    ) {
+        if (snapshot == null) { throw "regular file snapshot is null"; }
+        return RegularFileSnapshotOpenOutcome(FS_VALUE, snapshot, null);
+    }
+
+    class RegularFileSnapshotOpenOutcome failed(FileSystemError error) {
+        if (error == null) {
+            throw "regular file snapshot open error is null";
+        }
+        return RegularFileSnapshotOpenOutcome(FS_ERROR, null, error);
+    }
+
+    public bool ok() { return self._kind == FS_VALUE; }
+    public RegularFileSnapshot snapshot() {
+        if (self._snapshot == null) {
+            throw "regular file snapshot unavailable";
+        }
+        return self._snapshot;
+    }
+    public FileSystemError error() {
+        if (self._error == null) {
+            throw "regular file snapshot open has no error";
+        }
+        return self._error;
+    }
+}
+
 class DirectoryEntry {
     private DirectoryHandle _owner;
     private string _name;
@@ -733,6 +817,107 @@ class FileHandle {
                     "close file", self._path, nativeCode));
         }
         return FileSystemCloseOutcome.closed();
+    }
+
+    public void __del__() { self.close(); }
+}
+
+/* Immutable-version, read-only regular-file capability for format packages.
+ * maximumBytes is fixed at open. Every successful read is exact-length and,
+ * in the POSIX backend, is correlated with both the pinned descriptor and the
+ * named path before and after I/O. Native descriptors never cross this API.
+ */
+class RegularFileSnapshot {
+    private FileHandle? _file;
+    private FileSnapshot? _revision;
+    private string _path;
+    private long long _maximumBytes;
+    private int _generation;
+    private int _openGeneration;
+
+    private RegularFileSnapshot(
+        FileHandle file,
+        FileSnapshot revision,
+        string path,
+        long long maximumBytes
+    ) {
+        if (file == null || revision == null || path == null
+                || path.isEmpty() || maximumBytes < 0LL) {
+            throw "invalid regular file snapshot";
+        }
+        self._file = file;
+        self._revision = revision;
+        self._path = path;
+        self._maximumBytes = maximumBytes;
+        self._generation = 1;
+        self._openGeneration = 1;
+    }
+
+    class RegularFileSnapshotOpenOutcome open(
+        string path,
+        long long maximumBytes
+    ) {
+        if (path == null || path.isEmpty() || maximumBytes < 0LL) {
+            return RegularFileSnapshotOpenOutcome.failed(
+                FileSystemError.invalid("open regular file snapshot", path));
+        }
+        return RegularFileSnapshotOpenOutcome.failed(
+            FileSystemError.unsupported(
+                "open regular file snapshot", path));
+    }
+
+    public bool isOpen() {
+        return self._file != null
+            && self._generation == self._openGeneration
+            && self._file.isOpen();
+    }
+
+    public string path() { return self._path; }
+
+    public long long size() {
+        if (self._revision == null) {
+            throw "regular file snapshot has no revision";
+        }
+        return self._revision.size();
+    }
+
+    /* FileSnapshot is immutable; cacheToken() returns fresh opaque bytes when
+     * a package needs a persistent or hashed revision representation. */
+    public FileSnapshot revision() {
+        if (self._revision == null) {
+            throw "regular file snapshot has no revision";
+        }
+        return self._revision;
+    }
+
+    public ExactFileReadOutcome readExactAt(
+        long long offset,
+        int byteCount
+    ) {
+        if (offset < 0LL || byteCount < 0) {
+            return ExactFileReadOutcome.failed(
+                FileSystemError.invalid(
+                    "read regular file snapshot", self._path));
+        }
+        if (!self.isOpen()) {
+            return ExactFileReadOutcome.failed(
+                FileSystemError.closed(
+                    "read regular file snapshot", self._path));
+        }
+        return ExactFileReadOutcome.failed(
+            FileSystemError.unsupported(
+                "read regular file snapshot", self._path));
+    }
+
+    public FileSystemCloseOutcome close() {
+        if (!self.isOpen()) {
+            return FileSystemCloseOutcome.alreadyClosed();
+        }
+        self._generation++;
+        if (self._file == null) {
+            return FileSystemCloseOutcome.alreadyClosed();
+        }
+        return self._file.close();
     }
 
     public void __del__() { self.close(); }
