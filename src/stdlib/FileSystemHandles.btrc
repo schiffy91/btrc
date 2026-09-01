@@ -15,6 +15,7 @@ import std.strings;
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/file.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
@@ -155,7 +156,9 @@ class FileSystemError {
         } else if (nativeCode == ENOTDIR || nativeCode == EISDIR) {
             kind = FS_WRONG_TYPE;
         } else if (nativeCode == EMFILE || nativeCode == ENFILE
-                || nativeCode == ENOMEM || nativeCode == EOVERFLOW) {
+                || nativeCode == ENOMEM || nativeCode == EOVERFLOW
+                || nativeCode == EAGAIN || nativeCode == ENOSPC
+                || nativeCode == EFBIG) {
             kind = FS_RESOURCE_EXHAUSTED;
         } else if (nativeCode == ENOSYS || nativeCode == ENOTSUP) {
             kind = FS_UNSUPPORTED;
@@ -1543,12 +1546,25 @@ class DurableReplaceOutcome {
     }
 }
 
+/* A descriptor-pinned absolute directory owned by the current user with mode
+ * 0700. Opening may create the final leaf only; every existing ancestor is
+ * traversed without following links. The handle remains bound to the opened
+ * directory even if its pathname is subsequently replaced.
+ */
 class PrivateDirectory {
-    private bool _open;
+    private int _descriptor;
+    private int _leaseDirectoryDescriptor;
+    private int _leaseLockDescriptor;
+    private int _leaseGeneration;
+    private string _leaseName;
     private string _path;
 
-    private PrivateDirectory(string path) {
-        self._open = true;
+    private PrivateDirectory(int descriptor, string path) {
+        self._descriptor = descriptor;
+        self._leaseDirectoryDescriptor = -1;
+        self._leaseLockDescriptor = -1;
+        self._leaseGeneration = 0;
+        self._leaseName = "";
         self._path = path;
     }
 
@@ -1559,14 +1575,323 @@ class PrivateDirectory {
                 FileSystemError.invalid(
                     "open private directory", absolutePath));
         }
+        if (Platform.isWindows()) {
+            return PrivateDirectoryOpenOutcome.failed(
+                FileSystemError.unsupported(
+                    "open private directory", absolutePath));
+        }
+        int length = Strings.checkedLength(absolutePath);
+        if (length < 2 || absolutePath[length - 1] == '/') {
+            return PrivateDirectoryOpenOutcome.failed(
+                FileSystemError.invalid(
+                    "open private directory", absolutePath));
+        }
+
+        errno = 0;
+        int parent = open(
+            "/",
+            (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC
+                | (int)O_NOFOLLOW
+        );
+        if (parent < 0) {
+            int nativeCode = errno;
+            return PrivateDirectoryOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "open private directory root",
+                    absolutePath,
+                    nativeCode));
+        }
+
+        int start = 1;
+        while (start < length) {
+            int end = start;
+            while (end < length && absolutePath[end] != '/') { end++; }
+            if (end == start) {
+                close(parent);
+                return PrivateDirectoryOpenOutcome.failed(
+                    FileSystemError.invalid(
+                        "open private directory", absolutePath));
+            }
+            string component = absolutePath.substring(start, end - start);
+            if (component.equals(".") || component.equals("..")) {
+                close(parent);
+                return PrivateDirectoryOpenOutcome.failed(
+                    FileSystemError.invalid(
+                        "open private directory", absolutePath));
+            }
+
+            bool leaf = end == length;
+            if (!leaf) {
+                struct stat before;
+                errno = 0;
+                if (fstatat(
+                        parent,
+                        component,
+                        &before,
+                        AT_SYMLINK_NOFOLLOW) != 0) {
+                    int nativeCode = errno;
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "inspect private directory ancestor",
+                            absolutePath,
+                            nativeCode));
+                }
+                if (S_ISLNK(before.st_mode)) {
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.symlink(
+                            "open private directory ancestor",
+                            absolutePath));
+                }
+                if (!S_ISDIR(before.st_mode)) {
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.wrongType(
+                            "open private directory ancestor",
+                            absolutePath));
+                }
+
+                errno = 0;
+                int next = openat(
+                    parent,
+                    component,
+                    (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC
+                        | (int)O_NOFOLLOW
+                );
+                if (next < 0) {
+                    int nativeCode = errno;
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "open private directory ancestor",
+                            absolutePath,
+                            nativeCode));
+                }
+                struct stat opened;
+                struct stat after;
+                errno = 0;
+                if (fstat(next, &opened) != 0
+                        || fstatat(
+                            parent,
+                            component,
+                            &after,
+                            AT_SYMLINK_NOFOLLOW) != 0) {
+                    int nativeCode = errno;
+                    close(next);
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "validate private directory ancestor",
+                            absolutePath,
+                            nativeCode));
+                }
+                if (!S_ISDIR(opened.st_mode)
+                        || !S_ISDIR(after.st_mode)) {
+                    close(next);
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.changed(
+                            "validate private directory ancestor",
+                            absolutePath));
+                }
+                if (opened.st_dev != before.st_dev
+                        || opened.st_ino != before.st_ino
+                        || opened.st_dev != after.st_dev
+                        || opened.st_ino != after.st_ino) {
+                    close(next);
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.changed(
+                            "validate private directory ancestor",
+                            absolutePath));
+                }
+                errno = 0;
+                if (close(parent) != 0) {
+                    int nativeCode = errno;
+                    close(next);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "close private directory ancestor",
+                            absolutePath,
+                            nativeCode));
+                }
+                parent = next;
+                start = end + 1;
+                continue;
+            }
+
+            bool created = false;
+            struct stat named;
+            errno = 0;
+            if (fstatat(
+                    parent,
+                    component,
+                    &named,
+                    AT_SYMLINK_NOFOLLOW) != 0) {
+                int inspectCode = errno;
+                if (inspectCode != ENOENT) {
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "inspect private directory",
+                            absolutePath,
+                            inspectCode));
+                }
+                errno = 0;
+                if (mkdirat(parent, component, (mode_t)0700) == 0) {
+                    created = true;
+                } else if (errno != EEXIST) {
+                    int nativeCode = errno;
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "create private directory",
+                            absolutePath,
+                            nativeCode));
+                }
+                errno = 0;
+                if (fstatat(
+                        parent,
+                        component,
+                        &named,
+                        AT_SYMLINK_NOFOLLOW) != 0) {
+                    int nativeCode = errno;
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        nativeCode == ENOENT
+                            ? FileSystemError.changed(
+                                "inspect created private directory",
+                                absolutePath,
+                                nativeCode)
+                            : FileSystemError.fromNative(
+                                "inspect created private directory",
+                                absolutePath,
+                                nativeCode));
+                }
+            }
+            if (S_ISLNK(named.st_mode)) {
+                close(parent);
+                return PrivateDirectoryOpenOutcome.failed(
+                    FileSystemError.symlink(
+                        "open private directory", absolutePath));
+            }
+            if (!S_ISDIR(named.st_mode)) {
+                close(parent);
+                return PrivateDirectoryOpenOutcome.failed(
+                    FileSystemError.wrongType(
+                        "open private directory", absolutePath));
+            }
+
+            errno = 0;
+            int descriptor = openat(
+                parent,
+                component,
+                (int)O_RDONLY | (int)O_DIRECTORY | (int)O_CLOEXEC
+                    | (int)O_NOFOLLOW
+            );
+            if (descriptor < 0) {
+                int nativeCode = errno;
+                close(parent);
+                return PrivateDirectoryOpenOutcome.failed(
+                    FileSystemError.fromNative(
+                        "open private directory", absolutePath, nativeCode));
+            }
+            struct stat openedLeaf;
+            struct stat currentLeaf;
+            errno = 0;
+            if (fstat(descriptor, &openedLeaf) != 0
+                    || fstatat(
+                        parent,
+                        component,
+                        &currentLeaf,
+                        AT_SYMLINK_NOFOLLOW) != 0) {
+                int nativeCode = errno;
+                close(descriptor);
+                close(parent);
+                return PrivateDirectoryOpenOutcome.failed(
+                    FileSystemError.fromNative(
+                        "validate private directory",
+                        absolutePath,
+                        nativeCode));
+            }
+            if (!S_ISDIR(openedLeaf.st_mode)
+                    || !S_ISDIR(currentLeaf.st_mode)
+                    || openedLeaf.st_dev != named.st_dev
+                    || openedLeaf.st_ino != named.st_ino
+                    || openedLeaf.st_dev != currentLeaf.st_dev
+                    || openedLeaf.st_ino != currentLeaf.st_ino) {
+                close(descriptor);
+                close(parent);
+                return PrivateDirectoryOpenOutcome.failed(
+                    FileSystemError.changed(
+                        "validate private directory", absolutePath));
+            }
+            if (created) {
+                errno = 0;
+                if (fchmod(descriptor, (mode_t)0700) != 0) {
+                    int nativeCode = errno;
+                    close(descriptor);
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "secure private directory",
+                            absolutePath,
+                            nativeCode));
+                }
+                errno = 0;
+                if (fstat(descriptor, &openedLeaf) != 0) {
+                    int nativeCode = errno;
+                    close(descriptor);
+                    close(parent);
+                    return PrivateDirectoryOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "validate private directory permissions",
+                            absolutePath,
+                            nativeCode));
+                }
+            }
+            if ((unsigned long long)openedLeaf.st_uid
+                    != (unsigned long long)geteuid()
+                    || (openedLeaf.st_mode & (mode_t)0777)
+                        != (mode_t)0700) {
+                close(descriptor);
+                close(parent);
+                return PrivateDirectoryOpenOutcome.failed(FileSystemError(
+                    FS_ACCESS_DENIED,
+                    "validate private directory permissions",
+                    absolutePath,
+                    EPERM,
+                    "private directory must be owned by the current user with mode 0700"
+                ));
+            }
+            errno = 0;
+            if (close(parent) != 0) {
+                int nativeCode = errno;
+                close(descriptor);
+                return PrivateDirectoryOpenOutcome.failed(
+                    FileSystemError.fromNative(
+                        "close private directory parent",
+                        absolutePath,
+                        nativeCode));
+            }
+            return PrivateDirectoryOpenOutcome.opened(
+                PrivateDirectory(descriptor, Strings.copy(absolutePath)));
+        }
+
+        close(parent);
         return PrivateDirectoryOpenOutcome.failed(
-            FileSystemError.unsupported(
+            FileSystemError.invalid(
                 "open private directory", absolutePath));
     }
 
-    public bool isOpen() { return self._open; }
+    public bool isOpen() { return self._descriptor >= 0; }
     public string path() { return self._path; }
 
+    /* Performs one non-blocking advisory-lock attempt. Contention and a second
+     * live lease from this handle report FS_RESOURCE_EXHAUSTED so the caller
+     * owns its retry, cancellation, and time budgets.
+     */
     public ExclusiveFileLeaseOpenOutcome acquireExclusiveLease(
         string childName
     ) {
@@ -1580,14 +1905,282 @@ class PrivateDirectory {
                 FileSystemError.invalid(
                     "acquire exclusive file lease", childName));
         }
-        return ExclusiveFileLeaseOpenOutcome.failed(
-            FileSystemError.unsupported(
-                "acquire exclusive file lease", childName));
+        if (self._leaseLockDescriptor >= 0) {
+            return ExclusiveFileLeaseOpenOutcome.failed(FileSystemError(
+                FS_RESOURCE_EXHAUSTED,
+                "acquire exclusive file lease",
+                self._path + "/" + childName,
+                EAGAIN,
+                "this private directory already owns an exclusive file lease"
+            ));
+        }
+        string childPath = self._path + "/" + childName;
+        struct stat before;
+        bool existed = false;
+        errno = 0;
+        if (fstatat(
+                self._descriptor,
+                childName,
+                &before,
+                AT_SYMLINK_NOFOLLOW) == 0) {
+            existed = true;
+            if (S_ISLNK(before.st_mode)) {
+                return ExclusiveFileLeaseOpenOutcome.failed(
+                    FileSystemError.symlink(
+                        "open exclusive lease file", childPath));
+            }
+            if (!S_ISREG(before.st_mode)) {
+                return ExclusiveFileLeaseOpenOutcome.failed(
+                    FileSystemError.wrongType(
+                        "open exclusive lease file", childPath));
+            }
+            if (!self.secureRegular(&before)) {
+                return ExclusiveFileLeaseOpenOutcome.failed(
+                    self.insecureRegular(
+                        "validate exclusive lease file", childPath));
+            }
+        } else if (errno != ENOENT) {
+            int nativeCode = errno;
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "inspect exclusive lease file",
+                    childPath,
+                    nativeCode));
+        }
+
+        errno = 0;
+        int directoryDescriptor = dup(self._descriptor);
+        if (directoryDescriptor < 0) {
+            int nativeCode = errno;
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "retain private directory", childPath, nativeCode));
+        }
+        errno = 0;
+        if (fcntl(directoryDescriptor, F_SETFD, FD_CLOEXEC) != 0) {
+            int nativeCode = errno;
+            close(directoryDescriptor);
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "retain private directory", childPath, nativeCode));
+        }
+
+        bool created = false;
+        int lockDescriptor = -1;
+        if (!existed) {
+            errno = 0;
+            lockDescriptor = openat(
+                directoryDescriptor,
+                childName,
+                (int)O_RDWR | (int)O_CREAT | (int)O_EXCL
+                    | (int)O_CLOEXEC | (int)O_NOFOLLOW,
+                (mode_t)0600
+            );
+            if (lockDescriptor >= 0) {
+                created = true;
+            } else if (errno == EEXIST) {
+                errno = 0;
+                if (fstatat(
+                        directoryDescriptor,
+                        childName,
+                        &before,
+                        AT_SYMLINK_NOFOLLOW) != 0) {
+                    int nativeCode = errno;
+                    close(directoryDescriptor);
+                    return ExclusiveFileLeaseOpenOutcome.failed(
+                        FileSystemError.fromNative(
+                            "inspect raced exclusive lease file",
+                            childPath,
+                            nativeCode));
+                }
+                existed = true;
+                if (S_ISLNK(before.st_mode)) {
+                    close(directoryDescriptor);
+                    return ExclusiveFileLeaseOpenOutcome.failed(
+                        FileSystemError.symlink(
+                            "open exclusive lease file", childPath));
+                }
+                if (!S_ISREG(before.st_mode)) {
+                    close(directoryDescriptor);
+                    return ExclusiveFileLeaseOpenOutcome.failed(
+                        FileSystemError.wrongType(
+                            "open exclusive lease file", childPath));
+                }
+                if (!self.secureRegular(&before)) {
+                    close(directoryDescriptor);
+                    return ExclusiveFileLeaseOpenOutcome.failed(
+                        self.insecureRegular(
+                            "validate exclusive lease file", childPath));
+                }
+            } else {
+                int nativeCode = errno;
+                close(directoryDescriptor);
+                return ExclusiveFileLeaseOpenOutcome.failed(
+                    FileSystemError.fromNative(
+                        "create exclusive lease file",
+                        childPath,
+                        nativeCode));
+            }
+        }
+        if (lockDescriptor < 0) {
+            errno = 0;
+            lockDescriptor = openat(
+                directoryDescriptor,
+                childName,
+                (int)O_RDWR | (int)O_CLOEXEC | (int)O_NOFOLLOW
+            );
+            if (lockDescriptor < 0) {
+                int nativeCode = errno;
+                close(directoryDescriptor);
+                return ExclusiveFileLeaseOpenOutcome.failed(
+                    FileSystemError.fromNative(
+                        "open exclusive lease file",
+                        childPath,
+                        nativeCode));
+            }
+        }
+        if (created) {
+            errno = 0;
+            if (fchmod(lockDescriptor, (mode_t)0600) != 0) {
+                int nativeCode = errno;
+                close(lockDescriptor);
+                close(directoryDescriptor);
+                return ExclusiveFileLeaseOpenOutcome.failed(
+                    FileSystemError.fromNative(
+                        "secure exclusive lease file",
+                        childPath,
+                        nativeCode));
+            }
+        }
+
+        struct stat opened;
+        struct stat current;
+        errno = 0;
+        if (fstat(lockDescriptor, &opened) != 0
+                || fstatat(
+                    directoryDescriptor,
+                    childName,
+                    &current,
+                    AT_SYMLINK_NOFOLLOW) != 0) {
+            int nativeCode = errno;
+            close(lockDescriptor);
+            close(directoryDescriptor);
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "validate exclusive lease file",
+                    childPath,
+                    nativeCode));
+        }
+        if (!self.secureRegular(&opened)
+                || !self.secureRegular(&current)) {
+            close(lockDescriptor);
+            close(directoryDescriptor);
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                self.insecureRegular(
+                    "validate exclusive lease file", childPath));
+        }
+        if (opened.st_dev != current.st_dev
+                || opened.st_ino != current.st_ino
+                || (existed && (opened.st_dev != before.st_dev
+                    || opened.st_ino != before.st_ino))) {
+            close(lockDescriptor);
+            close(directoryDescriptor);
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.changed(
+                    "validate exclusive lease file", childPath));
+        }
+
+        int lockResult = -1;
+        do {
+            errno = 0;
+            lockResult = flock(
+                lockDescriptor,
+                (int)LOCK_EX | (int)LOCK_NB);
+        } while (lockResult != 0 && errno == EINTR);
+        if (lockResult != 0) {
+            int nativeCode = errno;
+            close(lockDescriptor);
+            close(directoryDescriptor);
+            if (nativeCode == EAGAIN) {
+                return ExclusiveFileLeaseOpenOutcome.failed(FileSystemError(
+                    FS_RESOURCE_EXHAUSTED,
+                    "acquire exclusive file lease",
+                    childPath,
+                    nativeCode,
+                    "exclusive file lease is already held"
+                ));
+            }
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.fromNative(
+                    "acquire exclusive file lease",
+                    childPath,
+                    nativeCode));
+        }
+
+        errno = 0;
+        if (fstatat(
+                directoryDescriptor,
+                childName,
+                &current,
+                AT_SYMLINK_NOFOLLOW) != 0) {
+            int nativeCode = errno;
+            flock(lockDescriptor, (int)LOCK_UN);
+            close(lockDescriptor);
+            close(directoryDescriptor);
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                nativeCode == ENOENT
+                    ? FileSystemError.changed(
+                        "validate acquired exclusive file lease",
+                        childPath,
+                        nativeCode)
+                    : FileSystemError.fromNative(
+                        "validate acquired exclusive file lease",
+                        childPath,
+                        nativeCode));
+        }
+        if (!self.secureRegular(&current)
+                || opened.st_dev != current.st_dev
+                || opened.st_ino != current.st_ino) {
+            flock(lockDescriptor, (int)LOCK_UN);
+            close(lockDescriptor);
+            close(directoryDescriptor);
+            return ExclusiveFileLeaseOpenOutcome.failed(
+                FileSystemError.changed(
+                    "validate acquired exclusive file lease", childPath));
+        }
+        self._leaseGeneration++;
+        if (self._leaseGeneration <= 0) { self._leaseGeneration = 1; }
+        self._leaseDirectoryDescriptor = directoryDescriptor;
+        self._leaseLockDescriptor = lockDescriptor;
+        self._leaseName = Strings.copy(childName);
+        return ExclusiveFileLeaseOpenOutcome.opened(ExclusiveFileLease(
+            self,
+            self._leaseGeneration,
+            Strings.copy(childName)));
     }
 
     public FileSystemCloseOutcome close() {
-        if (!self._open) { return FileSystemCloseOutcome.alreadyClosed(); }
-        self._open = false;
+        if (!self.isOpen()) {
+            return FileSystemCloseOutcome.alreadyClosed();
+        }
+        if (self._leaseLockDescriptor >= 0) {
+            return FileSystemCloseOutcome.failed(FileSystemError(
+                FS_RESOURCE_EXHAUSTED,
+                "close private directory",
+                self._path,
+                EAGAIN,
+                "private directory still owns an exclusive file lease"
+            ));
+        }
+        int descriptor = self._descriptor;
+        self._descriptor = -1;
+        errno = 0;
+        if (close(descriptor) != 0) {
+            int nativeCode = errno;
+            return FileSystemCloseOutcome.failed(
+                FileSystemError.fromNative(
+                    "close private directory", self._path, nativeCode));
+        }
         return FileSystemCloseOutcome.closed();
     }
 
@@ -1597,19 +2190,604 @@ class PrivateDirectory {
             && !childName.contains("/") && !childName.contains("\\");
     }
 
+    private bool secureRegular(struct stat* status) {
+        return S_ISREG(status->st_mode)
+            && (unsigned long long)status->st_uid
+                == (unsigned long long)geteuid()
+            && status->st_nlink == 1
+            && (status->st_mode & (mode_t)0777) == (mode_t)0600;
+    }
+
+    private FileSystemError insecureRegular(
+        string operation,
+        string path
+    ) {
+        return FileSystemError(
+            FS_ACCESS_DENIED,
+            operation,
+            path,
+            EPERM,
+            "private file must be owned by the current user, have one link, and use mode 0600"
+        );
+    }
+
+    public PrivateFileReadOutcome readRegularChildForLease(
+        int generation,
+        string lockName,
+        string childName,
+        int maximumBytes
+    ) {
+        if (!self.leaseActive(generation, lockName)) {
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.closed("read private file", self._path));
+        }
+        if (!self.validDataChildNameForLease(childName, lockName)
+                || maximumBytes < 0) {
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.invalid("read private file", childName));
+        }
+        string childPath = self._path + "/" + childName;
+        struct stat before;
+        errno = 0;
+        if (fstatat(
+                self._leaseDirectoryDescriptor,
+                childName,
+                &before,
+                AT_SYMLINK_NOFOLLOW) != 0) {
+            int nativeCode = errno;
+            if (nativeCode == ENOENT) {
+                return PrivateFileReadOutcome.missing();
+            }
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.fromNative(
+                    "inspect private file", childPath, nativeCode));
+        }
+        if (S_ISLNK(before.st_mode)) {
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.symlink("read private file", childPath));
+        }
+        if (!S_ISREG(before.st_mode)) {
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.wrongType("read private file", childPath));
+        }
+        if (!self.secureRegular(&before)) {
+            return PrivateFileReadOutcome.failed(
+                self.insecureRegular("validate private file", childPath));
+        }
+        long long byteCount = (long long)before.st_size;
+        if (byteCount < 0LL || byteCount > (long long)maximumBytes
+                || byteCount > 2147483646LL) {
+            return PrivateFileReadOutcome.failed(FileSystemError(
+                FS_RESOURCE_EXHAUSTED,
+                "read private file",
+                childPath,
+                EFBIG,
+                "private file exceeds the caller's byte budget"
+            ));
+        }
+
+        errno = 0;
+        int descriptor = openat(
+            self._leaseDirectoryDescriptor,
+            childName,
+            (int)O_RDONLY | (int)O_CLOEXEC | (int)O_NOFOLLOW
+                | (int)O_NONBLOCK
+        );
+        if (descriptor < 0) {
+            int nativeCode = errno;
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.fromNative(
+                    "open private file", childPath, nativeCode));
+        }
+        struct stat opened;
+        errno = 0;
+        if (fstat(descriptor, &opened) != 0) {
+            int nativeCode = errno;
+            close(descriptor);
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.fromNative(
+                    "validate opened private file",
+                    childPath,
+                    nativeCode));
+        }
+        if (!self.secureRegular(&opened)) {
+            close(descriptor);
+            return PrivateFileReadOutcome.failed(
+                self.insecureRegular(
+                    "validate opened private file", childPath));
+        }
+        if (!self.sameVersion(&before, &opened)) {
+            close(descriptor);
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.changed(
+                    "validate opened private file", childPath));
+        }
+
+        int count = (int)byteCount;
+        char* buffer = null;
+        if (count > 0) {
+            buffer = (char*)malloc((size_t)count);
+            if (buffer == null) {
+                close(descriptor);
+                return PrivateFileReadOutcome.failed(FileSystemError(
+                    FS_RESOURCE_EXHAUSTED,
+                    "read private file",
+                    childPath,
+                    ENOMEM,
+                    "private file read buffer allocation failed"
+                ));
+            }
+        }
+        int offset = 0;
+        while (offset < count) {
+            errno = 0;
+            ssize_t received = read(
+                descriptor,
+                buffer + offset,
+                (size_t)(count - offset)
+            );
+            if (received > (ssize_t)0) {
+                offset = offset + (int)received;
+                continue;
+            }
+            if (received < (ssize_t)0 && errno == EINTR) { continue; }
+            if (buffer != null) { free(buffer); }
+            if (received == (ssize_t)0) {
+                close(descriptor);
+                return PrivateFileReadOutcome.failed(
+                    FileSystemError.changed(
+                        "read private file", childPath));
+            }
+            int nativeCode = errno;
+            close(descriptor);
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.fromNative(
+                    "read private file", childPath, nativeCode));
+        }
+
+        char trailing = '\0';
+        ssize_t extra = -1;
+        do {
+            errno = 0;
+            extra = read(descriptor, &trailing, (size_t)1);
+        } while (extra < (ssize_t)0 && errno == EINTR);
+        if (extra != (ssize_t)0) {
+            int nativeCode = errno;
+            if (buffer != null) { free(buffer); }
+            close(descriptor);
+            return PrivateFileReadOutcome.failed(
+                extra > (ssize_t)0
+                    ? FileSystemError.changed(
+                        "read private file", childPath)
+                    : FileSystemError.fromNative(
+                        "read private file", childPath, nativeCode));
+        }
+
+        struct stat openedAfter;
+        struct stat namedAfter;
+        errno = 0;
+        if (fstat(descriptor, &openedAfter) != 0
+                || fstatat(
+                    self._leaseDirectoryDescriptor,
+                    childName,
+                    &namedAfter,
+                    AT_SYMLINK_NOFOLLOW) != 0) {
+            int nativeCode = errno;
+            if (buffer != null) { free(buffer); }
+            close(descriptor);
+            return PrivateFileReadOutcome.failed(
+                nativeCode == ENOENT
+                    ? FileSystemError.changed(
+                        "validate read private file",
+                        childPath,
+                        nativeCode)
+                    : FileSystemError.fromNative(
+                        "validate read private file",
+                        childPath,
+                        nativeCode));
+        }
+        if (!self.sameVersion(&before, &openedAfter)
+                || !self.sameVersion(&before, &namedAfter)) {
+            if (buffer != null) { free(buffer); }
+            close(descriptor);
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.changed(
+                    "validate read private file", childPath));
+        }
+        errno = 0;
+        if (close(descriptor) != 0) {
+            int nativeCode = errno;
+            if (buffer != null) { free(buffer); }
+            return PrivateFileReadOutcome.failed(
+                FileSystemError.fromNative(
+                    "close private file", childPath, nativeCode));
+        }
+        Bytes bytes = count == 0
+            ? Bytes()
+            : Bytes.fromRaw(buffer, count);
+        if (buffer != null) { free(buffer); }
+        return PrivateFileReadOutcome.data(bytes);
+    }
+
+    public DurableReplaceOutcome replaceRegularChildDurablyForLease(
+        int generation,
+        string lockName,
+        string childName,
+        Bytes content
+    ) {
+        if (!self.leaseActive(generation, lockName)) {
+            return DurableReplaceOutcome.failed(
+                FileSystemError.closed("replace private file", self._path));
+        }
+        if (!self.validDataChildNameForLease(childName, lockName) || content == null) {
+            return DurableReplaceOutcome.failed(
+                FileSystemError.invalid("replace private file", childName));
+        }
+        string childPath = self._path + "/" + childName;
+        struct stat expected;
+        bool expectedPresent = false;
+        errno = 0;
+        if (fstatat(
+                self._leaseDirectoryDescriptor,
+                childName,
+                &expected,
+                AT_SYMLINK_NOFOLLOW) == 0) {
+            expectedPresent = true;
+            if (S_ISLNK(expected.st_mode)) {
+                return DurableReplaceOutcome.failed(
+                    FileSystemError.symlink(
+                        "replace private file", childPath));
+            }
+            if (!S_ISREG(expected.st_mode)) {
+                return DurableReplaceOutcome.failed(
+                    FileSystemError.wrongType(
+                        "replace private file", childPath));
+            }
+            if (!self.secureRegular(&expected)) {
+                return DurableReplaceOutcome.failed(
+                    self.insecureRegular(
+                        "validate replaced private file", childPath));
+            }
+        } else if (errno != ENOENT) {
+            int nativeCode = errno;
+            return DurableReplaceOutcome.failed(
+                FileSystemError.fromNative(
+                    "inspect replaced private file",
+                    childPath,
+                    nativeCode));
+        }
+
+        struct timespec now;
+        int seed = 0;
+        if (clock_gettime(CLOCK_MONOTONIC, &now) == 0) {
+            seed = (int)now.tv_nsec;
+        }
+        int temporaryDescriptor = -1;
+        string temporaryName = "";
+        for attempt in range(128) {
+            string candidate = ".btrc-tmp-"
+                + Strings.fromInt((int)getpid()) + "-"
+                + Strings.fromInt(seed) + "-"
+                + Strings.fromInt(attempt);
+            if (candidate.equals(childName)) { continue; }
+            errno = 0;
+            int candidateDescriptor = openat(
+                self._leaseDirectoryDescriptor,
+                candidate,
+                (int)O_WRONLY | (int)O_CREAT | (int)O_EXCL
+                    | (int)O_CLOEXEC | (int)O_NOFOLLOW,
+                (mode_t)0600
+            );
+            if (candidateDescriptor >= 0) {
+                temporaryDescriptor = candidateDescriptor;
+                temporaryName = Strings.copy(candidate);
+                break;
+            }
+            if (errno != EEXIST) {
+                int nativeCode = errno;
+                return DurableReplaceOutcome.failed(
+                    FileSystemError.fromNative(
+                        "create durable replacement",
+                        childPath,
+                        nativeCode));
+            }
+        }
+        if (temporaryDescriptor < 0) {
+            return DurableReplaceOutcome.failed(FileSystemError(
+                FS_RESOURCE_EXHAUSTED,
+                "create durable replacement",
+                childPath,
+                EEXIST,
+                "durable replacement temporary-name budget was exhausted"
+            ));
+        }
+
+        errno = 0;
+        if (fchmod(temporaryDescriptor, (mode_t)0600) != 0) {
+            int nativeCode = errno;
+            return self.abandonTemporary(
+                temporaryDescriptor,
+                temporaryName,
+                FileSystemError.fromNative(
+                    "secure durable replacement",
+                    childPath,
+                    nativeCode));
+        }
+        struct stat temporaryStatus;
+        struct stat namedTemporary;
+        errno = 0;
+        if (fstat(temporaryDescriptor, &temporaryStatus) != 0
+                || fstatat(
+                    self._leaseDirectoryDescriptor,
+                    temporaryName,
+                    &namedTemporary,
+                    AT_SYMLINK_NOFOLLOW) != 0) {
+            int nativeCode = errno;
+            return self.abandonTemporary(
+                temporaryDescriptor,
+                temporaryName,
+                FileSystemError.fromNative(
+                    "validate durable replacement",
+                    childPath,
+                    nativeCode));
+        }
+        if (!self.secureRegular(&temporaryStatus)
+                || !self.secureRegular(&namedTemporary)) {
+            return self.abandonTemporary(
+                temporaryDescriptor,
+                temporaryName,
+                self.insecureRegular(
+                    "validate durable replacement", childPath));
+        }
+        if (temporaryStatus.st_dev != namedTemporary.st_dev
+                || temporaryStatus.st_ino != namedTemporary.st_ino) {
+            return self.abandonTemporary(
+                temporaryDescriptor,
+                temporaryName,
+                FileSystemError.changed(
+                    "validate durable replacement", childPath));
+        }
+
+        int contentLength = content.length();
+        int written = 0;
+        while (written < contentLength) {
+            errno = 0;
+            ssize_t step = write(
+                temporaryDescriptor,
+                content.data + written,
+                (size_t)(contentLength - written)
+            );
+            if (step > (ssize_t)0) {
+                written = written + (int)step;
+                continue;
+            }
+            if (step < (ssize_t)0 && errno == EINTR) { continue; }
+            int nativeCode = step == (ssize_t)0 ? EIO : errno;
+            return self.abandonTemporary(
+                temporaryDescriptor,
+                temporaryName,
+                FileSystemError.fromNative(
+                    "write durable replacement",
+                    childPath,
+                    nativeCode));
+        }
+        errno = 0;
+        if (!self.syncDescriptor(temporaryDescriptor)) {
+            int nativeCode = errno;
+            return self.abandonTemporary(
+                temporaryDescriptor,
+                temporaryName,
+                FileSystemError.fromNative(
+                    "sync durable replacement",
+                    childPath,
+                    nativeCode));
+        }
+        errno = 0;
+        if (close(temporaryDescriptor) != 0) {
+            int nativeCode = errno;
+            return self.abandonTemporary(
+                -1,
+                temporaryName,
+                FileSystemError.fromNative(
+                    "close durable replacement",
+                    childPath,
+                    nativeCode));
+        }
+        temporaryDescriptor = -1;
+
+        struct stat current;
+        errno = 0;
+        int targetInspect = fstatat(
+            self._leaseDirectoryDescriptor,
+            childName,
+            &current,
+            AT_SYMLINK_NOFOLLOW
+        );
+        if (expectedPresent) {
+            if (targetInspect != 0) {
+                int nativeCode = errno;
+                return self.abandonTemporary(
+                    -1,
+                    temporaryName,
+                    nativeCode == ENOENT
+                        ? FileSystemError.changed(
+                            "validate durable replacement target",
+                            childPath,
+                            nativeCode)
+                        : FileSystemError.fromNative(
+                            "validate durable replacement target",
+                            childPath,
+                            nativeCode));
+            }
+            if (!self.sameVersion(&expected, &current)) {
+                return self.abandonTemporary(
+                    -1,
+                    temporaryName,
+                    FileSystemError.changed(
+                        "validate durable replacement target", childPath));
+            }
+        } else if (targetInspect == 0) {
+            return self.abandonTemporary(
+                -1,
+                temporaryName,
+                FileSystemError.changed(
+                    "validate durable replacement target", childPath));
+        } else if (errno != ENOENT) {
+            int nativeCode = errno;
+            return self.abandonTemporary(
+                -1,
+                temporaryName,
+                FileSystemError.fromNative(
+                    "validate durable replacement target",
+                    childPath,
+                    nativeCode));
+        }
+
+        errno = 0;
+        if (renameat(
+                self._leaseDirectoryDescriptor,
+                temporaryName,
+                self._leaseDirectoryDescriptor,
+                childName) != 0) {
+            int nativeCode = errno;
+            return self.abandonTemporary(
+                -1,
+                temporaryName,
+                FileSystemError.fromNative(
+                    "publish durable replacement",
+                    childPath,
+                    nativeCode));
+        }
+        errno = 0;
+        if (!self.syncDescriptor(self._leaseDirectoryDescriptor)) {
+            int nativeCode = errno;
+            return DurableReplaceOutcome.durabilityUncertain(
+                FileSystemError.fromNative(
+                    "sync durable replacement directory",
+                    childPath,
+                    nativeCode));
+        }
+        return DurableReplaceOutcome.succeeded();
+    }
+
+
+    public bool leaseActive(int generation, string lockName) {
+        return self.isOpen()
+            && self._leaseDirectoryDescriptor >= 0
+            && self._leaseLockDescriptor >= 0
+            && generation == self._leaseGeneration
+            && lockName != null
+            && lockName.equals(self._leaseName);
+    }
+
+    public FileSystemCloseOutcome releaseExclusiveLease(
+        int generation,
+        string lockName
+    ) {
+        if (!self.leaseActive(generation, lockName)) {
+            return FileSystemCloseOutcome.alreadyClosed();
+        }
+        int directoryDescriptor = self._leaseDirectoryDescriptor;
+        int lockDescriptor = self._leaseLockDescriptor;
+        self._leaseDirectoryDescriptor = -1;
+        self._leaseLockDescriptor = -1;
+        self._leaseName = "";
+        int firstError = 0;
+        int unlockResult = -1;
+        do {
+            errno = 0;
+            unlockResult = flock(lockDescriptor, (int)LOCK_UN);
+        } while (unlockResult != 0 && errno == EINTR);
+        if (unlockResult != 0) { firstError = errno; }
+        errno = 0;
+        if (close(lockDescriptor) != 0 && firstError == 0) {
+            firstError = errno;
+        }
+        errno = 0;
+        if (close(directoryDescriptor) != 0 && firstError == 0) {
+            firstError = errno;
+        }
+        if (firstError != 0) {
+            return FileSystemCloseOutcome.failed(
+                FileSystemError.fromNative(
+                    "close exclusive file lease",
+                    self._path + "/" + lockName,
+                    firstError));
+        }
+        return FileSystemCloseOutcome.closed();
+    }
+
+    private bool validDataChildNameForLease(
+        string childName,
+        string lockName
+    ) {
+        return childName != null && !childName.isEmpty()
+            && !childName.equals(".") && !childName.equals("..")
+            && !childName.contains("/") && !childName.contains("\\")
+            && lockName != null && !childName.equals(lockName);
+    }
+
+    private bool sameVersion(struct stat* left, struct stat* right) {
+        FileSnapshot expected = FileSnapshot.fromStatus(left);
+        FileSnapshot actual = FileSnapshot.fromStatus(right);
+        return expected.sameVersion(actual);
+    }
+
+    private bool syncDescriptor(int descriptor) {
+        int result = -1;
+        do {
+            errno = 0;
+            result = fsync(descriptor);
+        } while (result != 0 && errno == EINTR);
+        return result == 0;
+    }
+
+    private DurableReplaceOutcome abandonTemporary(
+        int descriptor,
+        string temporaryName,
+        FileSystemError error
+    ) {
+        if (descriptor >= 0) { close(descriptor); }
+        if (temporaryName != null && !temporaryName.isEmpty()) {
+            unlinkat(self._leaseDirectoryDescriptor, temporaryName, 0);
+        }
+        return DurableReplaceOutcome.failed(error);
+    }
+
     public void __del__() { self.close(); }
 }
 
+/* An exclusive lease over one owner-only 0600 lock child. Reads and durable
+ * replacements are relative to the pinned directory, reject links and unsafe
+ * files, and are generation-checked against this lease. A read's maximumBytes
+ * is a hard caller-owned bound. Durable replacement reports uncertainty only
+ * when rename succeeded but the subsequent directory sync failed. close() is
+ * idempotent and releases both the advisory lock and retained directory.
+ */
 class ExclusiveFileLease {
+    private PrivateDirectory _owner;
+    private int _generation;
+    private string _lockName;
     private bool _open;
-    private string _path;
 
-    private ExclusiveFileLease(string path) {
+    public ExclusiveFileLease(
+        PrivateDirectory owner,
+        int generation,
+        string lockName
+    ) {
+        if (owner == null || lockName == null || lockName.isEmpty()) {
+            throw "invalid exclusive file lease";
+        }
+        self._owner = owner;
+        self._generation = generation;
+        self._lockName = lockName;
         self._open = true;
-        self._path = path;
     }
 
-    public bool isOpen() { return self._open; }
+    public bool isOpen() {
+        return self._open
+            && self._owner.leaseActive(self._generation, self._lockName);
+    }
 
     public PrivateFileReadOutcome readRegularChild(
         string childName,
@@ -1617,15 +2795,14 @@ class ExclusiveFileLease {
     ) {
         if (!self.isOpen()) {
             return PrivateFileReadOutcome.failed(
-                FileSystemError.closed("read private file", self._path));
+                FileSystemError.closed(
+                    "read private file", self._owner.path()));
         }
-        if (!self.validChildName(childName)
-                || maximumBytes < 0) {
-            return PrivateFileReadOutcome.failed(
-                FileSystemError.invalid("read private file", childName));
-        }
-        return PrivateFileReadOutcome.failed(
-            FileSystemError.unsupported("read private file", childName));
+        return self._owner.readRegularChildForLease(
+            self._generation,
+            self._lockName,
+            childName,
+            maximumBytes);
     }
 
     public DurableReplaceOutcome replaceRegularChildDurably(
@@ -1634,26 +2811,23 @@ class ExclusiveFileLease {
     ) {
         if (!self.isOpen()) {
             return DurableReplaceOutcome.failed(
-                FileSystemError.closed("replace private file", self._path));
+                FileSystemError.closed(
+                    "replace private file", self._owner.path()));
         }
-        if (!self.validChildName(childName) || content == null) {
-            return DurableReplaceOutcome.failed(
-                FileSystemError.invalid("replace private file", childName));
-        }
-        return DurableReplaceOutcome.failed(
-            FileSystemError.unsupported("replace private file", childName));
+        return self._owner.replaceRegularChildDurablyForLease(
+            self._generation,
+            self._lockName,
+            childName,
+            content);
     }
 
     public FileSystemCloseOutcome close() {
-        if (!self._open) { return FileSystemCloseOutcome.alreadyClosed(); }
+        if (!self._open) {
+            return FileSystemCloseOutcome.alreadyClosed();
+        }
         self._open = false;
-        return FileSystemCloseOutcome.closed();
-    }
-
-    private bool validChildName(string childName) {
-        return childName != null && !childName.isEmpty()
-            && !childName.equals(".") && !childName.equals("..")
-            && !childName.contains("/") && !childName.contains("\\");
+        return self._owner.releaseExclusiveLease(
+            self._generation, self._lockName);
     }
 
     public void __del__() { self.close(); }

@@ -138,6 +138,9 @@ static inline int btrc_unlink(const char *path) {
 #undef O_NOFOLLOW
 #endif
 #define O_NOFOLLOW 0x20000000
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 0
+#endif
 
 static inline int btrc_open(const char *path, int flags, ...) {
     if (!path) { errno = EINVAL; return -1; }
@@ -159,6 +162,20 @@ static inline int btrc_open(const char *path, int flags, ...) {
 #endif
 #define open(...) btrc_open(__VA_ARGS__)
 
+/* Descriptor-relative permission hardening has no faithful UCRT equivalent.
+   Exact private-directory capabilities reject Windows before reaching this
+   seam, so retained POSIX bodies must fail closed rather than silently omit
+   their permission check. */
+static inline int btrc_fchmod(int descriptor, mode_t mode) {
+    (void)descriptor; (void)mode;
+    errno = ENOTSUP;
+    return -1;
+}
+#ifdef fchmod
+#undef fchmod
+#endif
+#define fchmod(descriptor, mode) btrc_fchmod((descriptor), (mode))
+
 static inline int btrc_openat(int directory, const char *path, int flags, ...) {
     (void)directory; (void)path; (void)flags;
     errno = ENOTSUP;
@@ -175,11 +192,30 @@ static inline int btrc_unlinkat(int directory, const char *path, int flags) {
     errno = ENOTSUP;
     return -1;
 }
+static inline int btrc_mkdirat(
+        int directory, const char *path, mode_t mode) {
+    (void)directory; (void)path; (void)mode;
+    errno = ENOTSUP;
+    return -1;
+}
+static inline int btrc_renameat(
+        int old_directory, const char *old_path,
+        int new_directory, const char *new_path) {
+    (void)old_directory; (void)old_path;
+    (void)new_directory; (void)new_path;
+    errno = ENOTSUP;
+    return -1;
+}
 #define openat(...) btrc_openat(__VA_ARGS__)
 #define fstatat(directory, path, status, flags) \
     btrc_fstatat((directory), (path), (status), (flags))
 #define unlinkat(directory, path, flags) \
     btrc_unlinkat((directory), (path), (flags))
+#define mkdirat(directory, path, mode) \
+    btrc_mkdirat((directory), (path), (mode))
+#define renameat(old_directory, old_path, new_directory, new_path) \
+    btrc_renameat((old_directory), (old_path), \
+        (new_directory), (new_path))
 #define fdopendir(descriptor) ((void)(descriptor), (DIR *)0)
 #define dirfd(directory) ((void)(directory), -1)
 

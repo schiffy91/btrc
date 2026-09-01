@@ -1,0 +1,238 @@
+/* Real private-directory security, publication, contention, and path-race
+ * coverage. POSIX calls below are test setup/inspection only; assertions use
+ * the typed mutable filesystem capability for product behavior. */
+import std.bytes;
+import std.FileSystem;
+
+#include <assert.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
+
+int descriptorCount() {
+    int count = 0;
+    for (int descriptor = 0; descriptor < 4096; descriptor++) {
+        errno = 0;
+        if (fcntl(descriptor, F_GETFD) != -1 || errno != EBADF) {
+            count++;
+        }
+    }
+    return count;
+}
+
+int exactMode(string path) {
+    struct stat status;
+    if (lstat(path, &status) != 0) { return -1; }
+    return (int)(status.st_mode & (mode_t)0777);
+}
+
+void createRegular(string path, string content, int mode) {
+    int descriptor = open(
+        path,
+        (int)O_WRONLY | (int)O_CREAT | (int)O_EXCL | (int)O_CLOEXEC,
+        (mode_t)mode
+    );
+    assert(descriptor >= 0);
+    int length = content.len();
+    assert(write(descriptor, content, (size_t)length) == (ssize_t)length);
+    assert(close(descriptor) == 0);
+    assert(chmod(path, (mode_t)mode) == 0);
+}
+
+int main() {
+    TemporaryDirectoryOpenOutcome temporaryOpen =
+        FileSystem.createTemporaryDirectory("btrc_private_directory_real");
+    assert(temporaryOpen.ok());
+    TemporaryDirectory temporary = temporaryOpen.directory();
+    string parent = temporary.path();
+    string privatePath = PathTools.join(parent, "private");
+
+    PrivateDirectoryOpenOutcome privateOpen =
+        FileSystem.openPrivateDirectory(privatePath);
+    assert(privateOpen.ok());
+    PrivateDirectory privateDirectory = privateOpen.directory();
+    assert(privateDirectory.isOpen());
+    assert(privateDirectory.path().equals(privatePath));
+    assert(exactMode(privatePath) == 448);
+
+    PrivateDirectoryOpenOutcome secondOpen =
+        FileSystem.openPrivateDirectory(privatePath);
+    assert(secondOpen.ok());
+    PrivateDirectory secondDirectory = secondOpen.directory();
+
+    assert(!privateDirectory.acquireExclusiveLease("../escape").ok());
+    assert(privateDirectory.acquireExclusiveLease("../escape")
+        .error().kind() == FS_INVALID_ARGUMENT);
+
+    mode_t priorMask = umask((mode_t)0777);
+    ExclusiveFileLeaseOpenOutcome firstLeaseOpen =
+        privateDirectory.acquireExclusiveLease("state.lock");
+    umask(priorMask);
+    assert(firstLeaseOpen.ok());
+    ExclusiveFileLease firstLease = firstLeaseOpen.lease();
+    assert(firstLease.isOpen());
+    assert(exactMode(PathTools.join(privatePath, "state.lock")) == 384);
+
+    ExclusiveFileLeaseOpenOutcome contended =
+        secondDirectory.acquireExclusiveLease("state.lock");
+    assert(!contended.ok());
+    assert(contended.error().kind() == FS_RESOURCE_EXHAUSTED);
+
+    PrivateFileReadOutcome missing =
+        firstLease.readRegularChild("state.bin", 4);
+    assert(missing.ok());
+    assert(!missing.found());
+    assert(missing.kind() == PRIVATE_FILE_MISSING);
+
+    Bytes firstBytes = Bytes();
+    firstBytes.append(65);
+    firstBytes.append(0);
+    firstBytes.append(66);
+    firstBytes.append(67);
+    priorMask = umask((mode_t)0777);
+    DurableReplaceOutcome firstReplace =
+        firstLease.replaceRegularChildDurably("state.bin", firstBytes);
+    umask(priorMask);
+    assert(firstReplace.committed());
+    assert(firstReplace.mayHaveCommitted());
+    string statePath = PathTools.join(privatePath, "state.bin");
+    assert(exactMode(statePath) == 384);
+
+    PrivateFileReadOutcome overBudget =
+        firstLease.readRegularChild("state.bin", 3);
+    assert(!overBudget.ok());
+    assert(overBudget.error().kind() == FS_RESOURCE_EXHAUSTED);
+    PrivateFileReadOutcome readFirst =
+        firstLease.readRegularChild("state.bin", 4);
+    assert(readFirst.ok());
+    assert(readFirst.found());
+    assert(readFirst.bytes().equals(firstBytes));
+
+    FileOpenOutcome pinnedOldOpen = FileSystem.openFileExact(statePath);
+    assert(pinnedOldOpen.ok());
+    FileHandle pinnedOld = pinnedOldOpen.file();
+    Bytes secondBytes = Bytes.fromString("replacement");
+    assert(firstLease.replaceRegularChildDurably(
+        "state.bin", secondBytes).committed());
+    FileReadOutcome pinnedRead = pinnedOld.readAt(0LL, 32);
+    assert(pinnedRead.kind() == FILE_READ_DATA);
+    assert(pinnedRead.bytes().equals(firstBytes));
+    assert(pinnedOld.close().kind() == FS_CLOSED_NOW);
+    PrivateFileReadOutcome readSecond =
+        firstLease.readRegularChild("state.bin", 32);
+    assert(readSecond.ok());
+    assert(readSecond.bytes().equals(secondBytes));
+
+    string symlinkTarget = PathTools.join(privatePath, "target.bin");
+    createRegular(symlinkTarget, "target", 384);
+    string symlinkChild = PathTools.join(privatePath, "symlink.bin");
+    assert(FileSystem.symlink(symlinkTarget, symlinkChild) == 0);
+    assert(!firstLease.readRegularChild("symlink.bin", 64).ok());
+    assert(firstLease.readRegularChild("symlink.bin", 64)
+        .error().kind() == FS_SYMLINK);
+    assert(!firstLease.replaceRegularChildDurably(
+        "symlink.bin", secondBytes).committed());
+    assert(firstLease.replaceRegularChildDurably(
+        "symlink.bin", secondBytes).error().kind() == FS_SYMLINK);
+
+    string directoryChild = PathTools.join(privatePath, "directory.bin");
+    assert(FileSystem.mkdir(directoryChild, 448) == 0);
+    assert(!firstLease.readRegularChild("directory.bin", 64).ok());
+    assert(firstLease.readRegularChild("directory.bin", 64)
+        .error().kind() == FS_WRONG_TYPE);
+
+    string unsafeChild = PathTools.join(privatePath, "unsafe.bin");
+    createRegular(unsafeChild, "unsafe", 420);
+    assert(!firstLease.readRegularChild("unsafe.bin", 64).ok());
+    assert(firstLease.readRegularChild("unsafe.bin", 64)
+        .error().kind() == FS_ACCESS_DENIED);
+    assert(!firstLease.replaceRegularChildDurably(
+        "unsafe.bin", secondBytes).committed());
+    assert(firstLease.replaceRegularChildDurably(
+        "unsafe.bin", secondBytes).error().kind() == FS_ACCESS_DENIED);
+    assert(!firstLease.readRegularChild("state.lock", 64).ok());
+    assert(firstLease.readRegularChild("state.lock", 64)
+        .error().kind() == FS_INVALID_ARGUMENT);
+
+    FileSystemCloseOutcome activeDirectoryClose = privateDirectory.close();
+    assert(activeDirectoryClose.kind() == FS_CLOSE_FAILED);
+    assert(activeDirectoryClose.error().kind() == FS_RESOURCE_EXHAUSTED);
+    assert(privateDirectory.isOpen());
+
+    assert(firstLease.close().kind() == FS_CLOSED_NOW);
+    assert(firstLease.close().kind() == FS_ALREADY_CLOSED);
+    assert(!firstLease.readRegularChild("state.bin", 64).ok());
+    assert(firstLease.readRegularChild("state.bin", 64)
+        .error().kind() == FS_CLOSED);
+
+    ExclusiveFileLeaseOpenOutcome afterRelease =
+        secondDirectory.acquireExclusiveLease("state.lock");
+    assert(afterRelease.ok());
+    assert(afterRelease.lease().close().kind() == FS_CLOSED_NOW);
+
+    string unsafeDirectory = PathTools.join(parent, "unsafe-directory");
+    assert(FileSystem.mkdir(unsafeDirectory, 493) == 0);
+    assert(!FileSystem.openPrivateDirectory(unsafeDirectory).ok());
+    assert(FileSystem.openPrivateDirectory(unsafeDirectory)
+        .error().kind() == FS_ACCESS_DENIED);
+    assert(FileSystem.chmod(unsafeDirectory, 448) == 0);
+
+    string ordinaryLeaf = PathTools.join(parent, "ordinary-leaf");
+    createRegular(ordinaryLeaf, "file", 384);
+    assert(!FileSystem.openPrivateDirectory(ordinaryLeaf).ok());
+    assert(FileSystem.openPrivateDirectory(ordinaryLeaf)
+        .error().kind() == FS_WRONG_TYPE);
+
+    string realAncestor = PathTools.join(parent, "real-ancestor");
+    assert(FileSystem.mkdir(realAncestor, 448) == 0);
+    string linkedAncestor = PathTools.join(parent, "linked-ancestor");
+    assert(FileSystem.symlink(realAncestor, linkedAncestor) == 0);
+    assert(!FileSystem.openPrivateDirectory(
+        PathTools.join(linkedAncestor, "leaf")).ok());
+    assert(FileSystem.openPrivateDirectory(
+        PathTools.join(linkedAncestor, "leaf")).error().kind()
+        == FS_SYMLINK);
+
+    assert(secondDirectory.close().kind() == FS_CLOSED_NOW);
+    string movedPrivate = PathTools.join(parent, "private-moved");
+    string outside = PathTools.join(parent, "outside");
+    assert(FileSystem.mkdir(outside, 448) == 0);
+    assert(rename(privatePath, movedPrivate) == 0);
+    assert(FileSystem.symlink(outside, privatePath) == 0);
+    assert(!FileSystem.openPrivateDirectory(privatePath).ok());
+    assert(FileSystem.openPrivateDirectory(privatePath)
+        .error().kind() == FS_SYMLINK);
+
+    ExclusiveFileLeaseOpenOutcome pinnedLeaseOpen =
+        privateDirectory.acquireExclusiveLease("pinned.lock");
+    assert(pinnedLeaseOpen.ok());
+    ExclusiveFileLease pinnedLease = pinnedLeaseOpen.lease();
+    Bytes pinnedBytes = Bytes.fromString("pinned");
+    assert(pinnedLease.replaceRegularChildDurably(
+        "pinned.bin", pinnedBytes).committed());
+    assert(FileSystem.exists(PathTools.join(movedPrivate, "pinned.bin")));
+    assert(!FileSystem.exists(PathTools.join(outside, "pinned.bin")));
+    assert(pinnedLease.close().kind() == FS_CLOSED_NOW);
+    assert(privateDirectory.close().kind() == FS_CLOSED_NOW);
+    assert(privateDirectory.close().kind() == FS_ALREADY_CLOSED);
+
+    int descriptorBaseline = descriptorCount();
+    for i in range(32) {
+        PrivateDirectoryOpenOutcome repeated =
+            FileSystem.openPrivateDirectory(movedPrivate);
+        assert(repeated.ok());
+        ExclusiveFileLeaseOpenOutcome repeatedLease =
+            repeated.directory().acquireExclusiveLease("repeat.lock");
+        assert(repeatedLease.ok());
+        assert(repeatedLease.lease().close().kind() == FS_CLOSED_NOW);
+        assert(repeated.directory().close().kind() == FS_CLOSED_NOW);
+    }
+    assert(descriptorCount() == descriptorBaseline);
+
+    assert(temporary.close().kind() == FS_CLOSED_NOW);
+    assert(!FileSystem.exists(parent));
+    print("PASS: private directory durability and races");
+    return 0;
+}

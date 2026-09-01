@@ -353,6 +353,7 @@ STDLIB_STATIC_METHODS: tuple[tuple[str, tuple[BuiltinMemberSpec, ...]], ...] = (
         BuiltinMemberSpec("openFileExact", "FileOpenOutcome", "method", (("string", "path"),), "openFileExact"),
         BuiltinMemberSpec("openDirectoryExact", "DirectoryOpenOutcome", "method", (("string", "path"),), "openDirectoryExact"),
         BuiltinMemberSpec("createTemporaryDirectory", "TemporaryDirectoryOpenOutcome", "method", (("string", "prefix"),), "createTemporaryDirectory"),
+        BuiltinMemberSpec("openPrivateDirectory", "PrivateDirectoryOpenOutcome", "method", (("string", "absolutePath"),), "openPrivateDirectory"),
         BuiltinMemberSpec("exists", "bool", "method", (("string", "path"),), "exists"),
         BuiltinMemberSpec("isDir", "bool", "method", (("string", "path"),), "isDir"),
         BuiltinMemberSpec("isFile", "bool", "method", (("string", "path"),), "isFile"),

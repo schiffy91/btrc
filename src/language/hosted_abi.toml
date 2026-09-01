@@ -860,6 +860,7 @@ functions = [
   "remquof",
   "remquol",
   "rename",
+  "renameat",
   "revoke",
   "rewind",
   "rewinddir",
@@ -7782,6 +7783,7 @@ owned = [
   "remquof",
   "remquol",
   "rename",
+  "renameat",
   "revoke",
   "rewind",
   "rewinddir",
@@ -14201,6 +14203,19 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "flock"
+origin = "posix"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
 name = "flockfile"
 origin = "stdio"
 result = { base = "void", pointer_depth = 0, is_const = false }
@@ -15382,6 +15397,20 @@ return_effect = "value"
 raw_lifetime = false
 
 [[functions]]
+name = "mkdirat"
+origin = "posix"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "mode_t", pointer_depth = 0, is_const = false, effect = "value" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
 name = "mkdtemp"
 origin = "stdlib"
 result = { base = "char", pointer_depth = 1, is_const = false }
@@ -15996,6 +16025,21 @@ result = { base = "int", pointer_depth = 0, is_const = false }
 parameters_known = true
 parameters = [
   { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+]
+variadic = false
+return_effect = "value"
+raw_lifetime = false
+
+[[functions]]
+name = "renameat"
+origin = "posix"
+result = { base = "int", pointer_depth = 0, is_const = false }
+parameters_known = true
+parameters = [
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
+  { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
+  { base = "int", pointer_depth = 0, is_const = false, effect = "value" },
   { base = "char", pointer_depth = 1, is_const = true, effect = "read" },
 ]
 variadic = false

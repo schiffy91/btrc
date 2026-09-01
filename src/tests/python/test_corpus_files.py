@@ -19,6 +19,7 @@ def test_upper_camel_contract_programs_are_runnable_corpus_entries():
 
     assert "stdlib/FileSystemHandlesContract.btrc" in selected
     assert "stdlib/FileSystemHandlesReal.btrc" in selected
+    assert "stdlib/PrivateDirectoryReal.btrc" in selected
 
 
 def test_native_programs_are_owned_by_their_dedicated_harnesses():

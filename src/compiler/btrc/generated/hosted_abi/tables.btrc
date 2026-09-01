@@ -196,7 +196,7 @@ class GeneratedHostedAbiData {
         self.push_platform_typedef_names0();
         self.stdlib_source_marker = "compiler:stdlib";
         self.user_source_marker = "compiler:user";
-        self.fingerprint = "12ba5195ea25ce05e24b93a302312dd2e60fb2f3f686637d3fd0654e26ea60a4";
+        self.fingerprint = "c1709606ea7f45f0d4c3efeb885f2097bcfae1e1d0c679fe204c33c920bb4bc4";
     }
 
     private void pushFunctions0() {
@@ -3977,6 +3977,27 @@ class GeneratedHostedAbiData {
             "",
             "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
+            "flock",
+            "posix",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
             "flockfile",
             "stdio",
             GeneratedAbiTypeRow("void", 0, false, self.emptyTypes()),
@@ -4311,6 +4332,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions5() {
         self.functions.push(GeneratedHostedFunctionRow(
             "fnmatch",
             "posix",
@@ -4333,9 +4357,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions5() {
         self.functions.push(GeneratedHostedFunctionRow(
             "fopen",
             "stdio",
@@ -5139,6 +5160,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions6() {
         self.functions.push(GeneratedHostedFunctionRow(
             "isupper",
             "ctype",
@@ -5159,9 +5183,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions6() {
         self.functions.push(GeneratedHostedFunctionRow(
             "isxdigit",
             "ctype",
@@ -5861,6 +5882,28 @@ class GeneratedHostedAbiData {
             "",
             "unknown"));
         self.functions.push(GeneratedHostedFunctionRow(
+            "mkdirat",
+            "posix",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("mode_t", 0, false, self.emptyTypes()), "value", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
             "mkdtemp",
             "stdlib",
             GeneratedAbiTypeRow("char", 1, false, self.emptyTypes()),
@@ -5941,6 +5984,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions7() {
         self.functions.push(GeneratedHostedFunctionRow(
             "nearbyintl",
             "math",
@@ -5982,9 +6028,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions7() {
         self.functions.push(GeneratedHostedFunctionRow(
             "nextafterf",
             "math",
@@ -6779,6 +6822,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions8() {
         self.functions.push(GeneratedHostedFunctionRow(
             "remainderl",
             "math",
@@ -6820,9 +6866,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions8() {
         self.functions.push(GeneratedHostedFunctionRow(
             "rename",
             "stdio",
@@ -6830,6 +6873,29 @@ class GeneratedHostedAbiData {
             true,
             [
                 GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+            ],
+            false,
+            false,
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            "value",
+            -1,
+            "",
+            false,
+            "",
+            "",
+            "",
+            "",
+            "unknown"));
+        self.functions.push(GeneratedHostedFunctionRow(
+            "renameat",
+            "posix",
+            GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()),
+            true,
+            [
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
+                GeneratedHostedParameterRow(GeneratedAbiTypeRow("int", 0, false, self.emptyTypes()), "value", ""),
                 GeneratedHostedParameterRow(GeneratedAbiTypeRow("char", 1, true, self.emptyTypes()), "read", ""),
             ],
             false,
@@ -7589,6 +7655,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions9() {
         self.functions.push(GeneratedHostedFunctionRow(
             "std_app_error_code",
             "native_app",
@@ -7649,9 +7718,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions9() {
         self.functions.push(GeneratedHostedFunctionRow(
             "std_app_event_framebuffer_width",
             "native_app",
@@ -8421,6 +8487,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions10() {
         self.functions.push(GeneratedHostedFunctionRow(
             "std_gpu_pipeline_finalize",
             "native_gpu",
@@ -8486,9 +8555,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions10() {
         self.functions.push(GeneratedHostedFunctionRow(
             "std_gpu_shader_finalize",
             "native_gpu",
@@ -9269,6 +9335,9 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
+    }
+
+    private void pushFunctions11() {
         self.functions.push(GeneratedHostedFunctionRow(
             "tanh",
             "math",
@@ -9329,9 +9398,6 @@ class GeneratedHostedAbiData {
             "",
             "",
             "unknown"));
-    }
-
-    private void pushFunctions11() {
         self.functions.push(GeneratedHostedFunctionRow(
             "tanl",
             "math",
@@ -10583,6 +10649,7 @@ class GeneratedHostedAbiData {
         self.function_names.push("remquof");
         self.function_names.push("remquol");
         self.function_names.push("rename");
+        self.function_names.push("renameat");
         self.function_names.push("revoke");
         self.function_names.push("rewind");
         self.function_names.push("rewinddir");
@@ -10731,10 +10798,10 @@ class GeneratedHostedAbiData {
         self.function_names.push("std_app_event_logical_width");
         self.function_names.push("std_app_event_modifiers");
         self.function_names.push("std_app_event_pointer_action");
-        self.function_names.push("std_app_event_pointer_button");
     }
 
     private void push_function_names4() {
+        self.function_names.push("std_app_event_pointer_button");
         self.function_names.push("std_app_event_pointer_x");
         self.function_names.push("std_app_event_pointer_y");
         self.function_names.push("std_app_event_scale_x");
@@ -17588,6 +17655,7 @@ class GeneratedHostedAbiData {
         self.owned_names.push("remquof");
         self.owned_names.push("remquol");
         self.owned_names.push("rename");
+        self.owned_names.push("renameat");
         self.owned_names.push("revoke");
         self.owned_names.push("rewind");
         self.owned_names.push("rewinddir");
@@ -17833,10 +17901,10 @@ class GeneratedHostedAbiData {
         self.owned_names.push("std_app_surface_detach");
         self.owned_names.push("std_app_surface_finalize");
         self.owned_names.push("std_app_surface_generation");
-        self.owned_names.push("std_app_surface_glfw");
     }
 
     private void push_owned_names15() {
+        self.owned_names.push("std_app_surface_glfw");
         self.owned_names.push("std_app_surface_lease_generation");
         self.owned_names.push("std_app_surface_release");
         self.owned_names.push("std_app_window_close");
@@ -18086,10 +18154,10 @@ class GeneratedHostedAbiData {
         self.owned_names.push("wait4");
         self.owned_names.push("waitid");
         self.owned_names.push("waitpid");
-        self.owned_names.push("wchar_t");
     }
 
     private void push_owned_names16() {
+        self.owned_names.push("wchar_t");
         self.owned_names.push("wcstombs");
         self.owned_names.push("wctomb");
         self.owned_names.push("winsize");
