@@ -1,5 +1,5 @@
-/* Math rounding methods: ceil/floor return float; floorDouble preserves
- * double precision; round/truncate cast a libc result to int. */
+/* Math rounding methods: float and double helpers preserve their declared
+ * precision; round/truncate cast a libc result to int. */
 import std.math;
 
 #include <assert.h>
@@ -19,8 +19,12 @@ int main() {
     // double helpers retain values that cannot round-trip through float
     assert(Math.floorDouble(16777217.75) == 16777217.0);
     assert(Math.floorDouble(-2.1) == -3.0);
+    assert(Math.ceilDouble(16777217.25) == 16777218.0);
+    assert(Math.ceilDouble(-2.1) == -2.0);
     assert(Math.isFinite(0.0));
     assert(Math.isFinite(16777217.75));
+    assert(Math.isFinite(Math.maximumFiniteFloat()));
+    assert(Math.maximumFiniteFloat() > 3.0e38);
     assert(!Math.isFinite((double)INFINITY));
     assert(!Math.isFinite((double)NAN));
 
