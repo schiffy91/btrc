@@ -1,5 +1,8 @@
 // String-heavy: build and join 100k segments. Exercises the string pool +
 // allocation-heavy join path.
+import std.strings;
+import std.vector;
+
 int main() {
 	Vector<string> parts = [];
 	for i in range(100000) { parts.push("segment"); }

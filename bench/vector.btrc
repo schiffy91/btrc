@@ -1,4 +1,6 @@
 // Collection-heavy: push 2M ints then iterate. Exercises Vector growth + ARC.
+import std.vector;
+
 int main() {
 	Vector<int> v = [];
 	for i in range(2000000) { v.push(i); }
