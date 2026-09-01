@@ -1,3 +1,5 @@
+* text=auto eol=lf
+
 src/runtime/c/* text eol=lf
 src/tests/fixtures/compiler_boundaries/manifest.toml text eol=lf
 src/tests/fixtures/compiler_boundaries/sources/* text eol=lf
