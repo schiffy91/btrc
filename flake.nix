@@ -43,6 +43,10 @@
           program = "${self.packages.${system}.btrcpy}/bin/btrcpy";
         };
         btrcpy = self.apps.${system}.btrc;
+        btrcc = {
+          type = "app";
+          program = "${self.packages.${system}.btrcc}/bin/btrcc";
+        };
         default = self.apps.${system}.btrc;
         btrc-lsp = {
           type = "app";
@@ -110,6 +114,23 @@
           prefixes = runtimePrefixes;
           excludedPrefixes = [ ];
         };
+        selfhostCompilerSource = sourceSubset {
+          prefixes = [
+            "src/compiler/btrc/"
+            "src/language/"
+            "src/runtime/c/"
+            "src/stdlib/"
+          ];
+          excludedPrefixes = [ ];
+        };
+        selfhostBundleSource = sourceSubset {
+          prefixes = [
+            "src/language/"
+            "src/stdlib/"
+          ];
+          files = [ "LICENSE" ];
+          excludedPrefixes = [ ];
+        };
         nativePlanSource = sourceSubset {
           prefixes = [ "tools/native_plan.py" ];
           excludedPrefixes = [ ];
@@ -134,6 +155,43 @@
             exec ${pkgs.python314}/bin/python3 -m src.compiler.python.main "$@"
           '';
         };
+        btrccExecutable = pkgs.stdenv.mkDerivation {
+          pname = "btrcc-binary";
+          version = "0";
+          src = selfhostCompilerSource;
+          strictDeps = true;
+          nativeBuildInputs = [ btrcpy ];
+          buildPhase = ''
+            runHook preBuild
+            btrcpy --strict-imports --no-cache \
+              src/compiler/btrc/btrcc_main.btrc -o btrcc.c
+            $CC -std=c11 -Wall -Wextra -Werror -pedantic -O2 \
+              btrcc.c -o btrcc -lm -lpthread
+            runHook postBuild
+          '';
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out/bin"
+            install -m 0755 btrcc "$out/bin/btrcc"
+            runHook postInstall
+          '';
+        };
+        btrcc = pkgs.stdenvNoCC.mkDerivation {
+          pname = "btrcc";
+          version = "0";
+          src = selfhostBundleSource;
+          strictDeps = true;
+          dontBuild = true;
+          installPhase = ''
+            runHook preInstall
+            mkdir -p "$out/bin" "$out/share/btrc/language"
+            install -m 0755 ${btrccExecutable}/bin/btrcc "$out/bin/btrcc"
+            install -m 0644 src/language/grammar.ebnf \
+              "$out/share/btrc/language/grammar.ebnf"
+            cp -R src/stdlib "$out/share/btrc/stdlib"
+            runHook postInstall
+          '';
+        };
         btrc-lsp = pkgs.writeShellApplication {
           name = "btrc-lsp";
           # LSP composition resolves the same locked Git dependencies as the
@@ -154,7 +212,7 @@
         };
         btrc = pkgs.symlinkJoin {
           name = "btrc-tools";
-          paths = [ btrcpy nativePlan ];
+          paths = [ btrcpy btrcc nativePlan ];
         };
         btrc-vscode = pkgs.buildNpmPackage {
           pname = "vscode-extension-btrc";
@@ -191,7 +249,7 @@
           };
         };
       in {
-        inherit btrcpy btrc-lsp btrc-vscode;
+        inherit btrcpy btrcc btrc-lsp btrc-vscode;
         btrc-native-plan = nativePlan;
         btrc-vscode-extension = btrc-vscode;
         inherit btrc;
