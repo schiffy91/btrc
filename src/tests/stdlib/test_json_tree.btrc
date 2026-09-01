@@ -130,6 +130,9 @@ int main() {
     assert(JsonValue.parse("\"unterminated").isError());
     assert(JsonValue.parse("{} junk").isError());      /* trailing garbage */
     assert(JsonValue.parse("").isError());             /* empty */
+    assert(JsonValue.parse("{\"a\":1,\"a\":2}").isError());
+    assert(JsonValue.parse(
+        "{\"outer\":{\"a\":1,\"a\":2}}").isError());
     /* error sentinel is also "null" for isNull-only callers */
     assert(JsonValue.parse("[1,2").isNull());
     print("PASS: malformed");

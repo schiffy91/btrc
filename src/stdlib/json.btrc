@@ -666,6 +666,10 @@ class JsonParser {
             }
             var key = self.readString();
             if (!self.ok) { return obj; }
+            if (obj.has(key)) {
+                self.ok = false;
+                return obj;
+            }
             self.skipWs();
             if (self.pos >= self.len || self.text[self.pos] != ':') {
                 self.ok = false; return obj;
