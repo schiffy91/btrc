@@ -5,67 +5,67 @@
 
 int fails = 0;
 void check(bool c, string label) {
-    if (c) { print(f"  ok   {label}"); } else { print(f"  FAIL {label}"); fails++; }
+	if (c) { print(f"  ok   {label}"); } else { print(f"  FAIL {label}"); fails++; }
 }
 
 View build() {
-    return View.column().pad(16).withGap(8).kids([
-        View.text("Hello — héllo"),               /* UTF-8: em dash + é */
-        View.button("Increment", "inc"),
-        View.checkbox("Word wrap", "wrap", true),
-        View.spacer(),
-        View.row().withGap(8).kids([
-            View.button("Save", "save"),
-            View.button("Quit", "quit"),
-        ]),
-    ]);
+	return View.column().pad(16).withGap(8).kids([
+		View.text("Hello — héllo"),               /* UTF-8: em dash + é */
+		View.button("Increment", "inc"),
+		View.checkbox("Word wrap", "wrap", true),
+		View.spacer(),
+		View.row().withGap(8).kids([
+		View.button("Save", "save"),
+		View.button("Quit", "quit"),
+	]),
+	]);
 }
 
 int main() {
-    Surface s = Surface(300, 200);
-    Theme theme = Theme();
-    GuiInput input = GuiInput();
-    View root = build();
+	Surface s = Surface(300, 200);
+	Theme theme = Theme();
+	GuiInput input = GuiInput();
+	View root = build();
 
-    /* Frame 1: pointer off-screen — no events; tree fills the surface. */
-    input.mouseX = -1; input.mouseY = -1; input.mousePressed = false;
-    GuiEvents e1 = Ui.frame(s, input, theme, root);
-    check(e1.clicked.isEmpty(), "no spurious click");
-    check(root.w == 300 && root.h == 200, "root fills surface");
-    View firstText = root.children.get(0);
-    check(firstText.x == 16 && firstText.y == 16, "child laid out at padding");
+	/* Frame 1: pointer off-screen — no events; tree fills the surface. */
+	input.mouseX = -1; input.mouseY = -1; input.mousePressed = false;
+	GuiEvents e1 = Ui.frame(s, input, theme, root);
+	check(e1.clicked.isEmpty(), "no spurious click");
+	check(root.w == 300 && root.h == 200, "root fills surface");
+	View firstText = root.children.get(0);
+	check(firstText.x == 16 && firstText.y == 16, "child laid out at padding");
 
-    /* Frame 2: click the Increment button at its laid-out center. */
-    View incBtn = root.children.get(1);
-    input.mouseX = incBtn.x + incBtn.w / 2;
-    input.mouseY = incBtn.y + incBtn.h / 2;
-    input.mousePressed = true;
-    GuiEvents e2 = Ui.frame(s, input, theme, root);
-    check(e2.wasClicked("inc"), "increment button clicked by id");
-    check(!e2.wasClicked("save"), "other buttons not clicked");
+	/* Frame 2: click the Increment button at its laid-out center. */
+	View incBtn = root.children.get(1);
+	input.mouseX = incBtn.x + incBtn.w / 2;
+	input.mouseY = incBtn.y + incBtn.h / 2;
+	input.mousePressed = true;
+	GuiEvents e2 = Ui.frame(s, input, theme, root);
+	check(e2.wasClicked("inc"), "increment button clicked by id");
+	check(!e2.wasClicked("save"), "other buttons not clicked");
 
-    /* Resizing: same tree reflows to a larger surface. */
-    Surface big = Surface(640, 480);
-    input.mouseX = -1; input.mouseY = -1; input.mousePressed = false;
-    Ui.frame(big, input, theme, root);
-    check(root.w == 640 && root.h == 480, "reflows on resize");
+	/* Resizing: same tree reflows to a larger surface. */
+	Surface big = Surface(640, 480);
+	input.mouseX = -1; input.mouseY = -1; input.mousePressed = false;
+	Ui.frame(big, input, theme, root);
+	check(root.w == 640 && root.h == 480, "reflows on resize");
 
-    /* In-place surface resize (what window resizing uses each frame). */
-    Surface rs = Surface(100, 50);
-    rs.resize(200, 80);
-    check(rs.width() == 200 && rs.height() == 80, "surface resizes in place");
-    rs.clear(theme.bg);
-    Color red = Color.rgb(255, 0, 0);
-    rs.fillRect(10, 10, 5, 5, red);
-    check(rs.pixel(12, 12) == red.packed(), "draws correctly after resize");
+	/* In-place surface resize (what window resizing uses each frame). */
+	Surface rs = Surface(100, 50);
+	rs.resize(200, 80);
+	check(rs.width() == 200 && rs.height() == 80, "surface resizes in place");
+	rs.clear(theme.bg);
+	Color red = Color.rgb(255, 0, 0);
+	rs.fillRect(10, 10, 5, 5, red);
+	check(rs.pixel(12, 12) == red.packed(), "draws correctly after resize");
 
-    /* UTF-8: 'é' (2 bytes) measures as one glyph, like one of "aa". */
-    View ue = View.text("é"); Ui.measure(ue);
-    View aa = View.text("aa"); Ui.measure(aa);
-    check(ue.mW == aa.mW / 2, "utf-8 width counts codepoints");
+	/* UTF-8: 'é' (2 bytes) measures as one glyph, like one of "aa". */
+	View ue = View.text("é"); Ui.measure(ue);
+	View aa = View.text("aa"); Ui.measure(aa);
+	check(ue.mW == aa.mW / 2, "utf-8 width counts codepoints");
 
-    s.savePpm("/tmp/gui_declarative.ppm");
-    if (fails == 0) { print("DECLARATIVE GUI TESTS PASSED"); return 0; }
-    print(f"{fails} FAILURES");
-    return 1;
+	s.savePpm("/tmp/gui_declarative.ppm");
+	if (fails == 0) { print("DECLARATIVE GUI TESTS PASSED"); return 0; }
+	print(f"{fails} FAILURES");
+	return 1;
 }

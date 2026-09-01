@@ -5,9 +5,9 @@
 #include "gui/font.btrc"
 
 int main() {
-    Font missing = Font("/no/such/font.ttf", 16);
-    if (missing.ok()) { print("FAIL: bogus font reported ok"); return 1; }
-    Font.useBitmap();   /* exercises the set-font symbol */
-    print("FONT SMOKE TEST PASSED");
-    return 0;
+	Font missing = Font("/no/such/font.ttf", 16);
+	if (missing.ok()) { print("FAIL: bogus font reported ok"); return 1; }
+	Font.useBitmap();   /* exercises the set-font symbol */
+	print("FONT SMOKE TEST PASSED");
+	return 0;
 }

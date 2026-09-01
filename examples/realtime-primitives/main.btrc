@@ -1,30 +1,30 @@
 import std.spsc;
 
 int main() {
-    int samples[4] = [1, 2, 3, 4];
-    Span<int> view = Span(samples);
-    int sample = -1;
-    if (!view.tryGet(2u, &sample) || sample != 3) { return 1; }
-    if (!view.trySet(2u, 30) || samples[2] != 30) { return 2; }
+	int samples[4] = [1, 2, 3, 4];
+	Span<int> view = Span(samples);
+	int sample = -1;
+	if (!view.tryGet(2u, &sample) || sample != 3) { return 1; }
+	if (!view.trySet(2u, 30) || samples[2] != 30) { return 2; }
 
-    Atomic<uint> published = Atomic(0u);
-    published.store(1u, MemoryOrder.RELEASE);
-    if (published.load(MemoryOrder.ACQUIRE) != 1u) { return 3; }
+	Atomic<uint> published = Atomic(0u);
+	published.store(1u, MemoryOrder.RELEASE);
+	if (published.load(MemoryOrder.ACQUIRE) != 1u) { return 3; }
 
-    SpscQueue<int> queue = new SpscQueue<int>(4u);
-    if (!queue.tryPush(samples[0]) || !queue.tryPush(samples[2])) {
-        delete queue;
-        return 4;
-    }
-    int first = 0;
-    int second = 0;
-    if (!queue.tryPop(&first) || !queue.tryPop(&second)) {
-        delete queue;
-        return 5;
-    }
-    delete queue;
-    if (first != 1 || second != 30) { return 6; }
+	SpscQueue<int> queue = new SpscQueue<int>(4u);
+	if (!queue.tryPush(samples[0]) || !queue.tryPush(samples[2])) {
+		delete queue;
+		return 4;
+	}
+	int first = 0;
+	int second = 0;
+	if (!queue.tryPop(&first) || !queue.tryPop(&second)) {
+		delete queue;
+		return 5;
+	}
+	delete queue;
+	if (first != 1 || second != 30) { return 6; }
 
-    print("PASS realtime-primitives");
-    return 0;
+	print("PASS realtime-primitives");
+	return 0;
 }

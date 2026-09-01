@@ -1,13 +1,11 @@
 // Collection-heavy: push 2M ints then iterate. Exercises Vector growth + ARC.
 int main() {
-    Vector<int> v = [];
-    for i in range(2000000) {
-        v.push(i);
-    }
-    long sum = 0;
-    for x in v {
-        sum = sum + (long)x;
-    }
-    print(f"count={v.len} sum={sum}");
-    return 0;
+	Vector<int> v = [];
+	for i in range(2000000) { v.push(i); }
+	long sum = 0;
+	for x in v {
+		sum = sum + (long)x;
+	}
+	print(f"count={v.len} sum={sum}");
+	return 0;
 }

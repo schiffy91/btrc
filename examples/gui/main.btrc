@@ -4,104 +4,104 @@
 #include "gui/gui.btrc"
 
 int main() {
-    Surface surf = Surface(360, 240);
-    Gui ui = Gui(surf);
-    int checks = 0;
-    int fails = 0;
+	Surface surf = Surface(360, 240);
+	Gui ui = Gui(surf);
+	int checks = 0;
+	int fails = 0;
 
-    /* Frame A: pointer off-screen — the button must NOT be clicked. */
-    ui.input.mouseX = -1;
-    ui.input.mouseY = -1;
-    ui.input.mousePressed = false;
-    ui.input.mouseDown = false;
-    ui.beginFrame();
-    bool a = ui.button("OK");
-    if (!a) { checks++; } else { fails++; print("FAIL: button clicked with no hover"); }
+	/* Frame A: pointer off-screen — the button must NOT be clicked. */
+	ui.input.mouseX = -1;
+	ui.input.mouseY = -1;
+	ui.input.mousePressed = false;
+	ui.input.mouseDown = false;
+	ui.beginFrame();
+	bool a = ui.button("OK");
+	if (!a) { checks++; } else { fails++; print("FAIL: button clicked with no hover"); }
 
-    /* Frame B: hover + press the OK button (laid out at pad=16,16). */
-    ui.input.mouseX = 20;
-    ui.input.mouseY = 22;
-    ui.input.mousePressed = true;
-    ui.input.mouseDown = true;
-    ui.beginFrame();
-    bool b = ui.button("OK");
-    if (b) { checks++; } else { fails++; print("FAIL: hovered+pressed button not clicked"); }
-    Color accent = ui.theme.accent;
-    if (surf.pixel(18, 20) == accent.packed()) { checks++; } else { fails++; print("FAIL: button not accent-filled when hovered"); }
+	/* Frame B: hover + press the OK button (laid out at pad=16,16). */
+	ui.input.mouseX = 20;
+	ui.input.mouseY = 22;
+	ui.input.mousePressed = true;
+	ui.input.mouseDown = true;
+	ui.beginFrame();
+	bool b = ui.button("OK");
+	if (b) { checks++; } else { fails++; print("FAIL: hovered+pressed button not clicked"); }
+	Color accent = ui.theme.accent;
+	if (surf.pixel(18, 20) == accent.packed()) { checks++; } else { fails++; print("FAIL: button not accent-filled when hovered"); }
 
-    /* Frame C: a checkbox toggles when hovered + pressed. */
-    ui.input.mouseX = 18;
-    ui.input.mouseY = 18;
-    ui.input.mousePressed = true;
-    ui.beginFrame();
-    bool checked = ui.checkbox("Wrap", false);
-    if (checked) { checks++; } else { fails++; print("FAIL: checkbox not toggled"); }
+	/* Frame C: a checkbox toggles when hovered + pressed. */
+	ui.input.mouseX = 18;
+	ui.input.mouseY = 18;
+	ui.input.mousePressed = true;
+	ui.beginFrame();
+	bool checked = ui.checkbox("Wrap", false);
+	if (checked) { checks++; } else { fails++; print("FAIL: checkbox not toggled"); }
 
-    /* Renderer primitives. */
-    Surface r = Surface(40, 20);
-    Color black = Color.rgb(0, 0, 0);
-    Color red = Color.rgb(255, 0, 0);
-    r.clear(black);
-    r.fillRect(5, 5, 10, 10, red);
-    if (r.pixel(8, 8) == red.packed()) { checks++; } else { fails++; print("FAIL: fillRect color"); }
-    if (r.pixel(0, 0) == black.packed()) { checks++; } else { fails++; print("FAIL: clear color"); }
-    r.blendRect(0, 0, 4, 4, Color(255, 255, 255, 128));   /* ~50% white over black */
-    unsigned int blended = r.pixel(1, 1);
-    int rr = (int)((blended >> 24) & 255);
-    if (rr >= 120 && rr <= 135) { checks++; } else { fails++; print("FAIL: blendRect ~50%"); }
+	/* Renderer primitives. */
+	Surface r = Surface(40, 20);
+	Color black = Color.rgb(0, 0, 0);
+	Color red = Color.rgb(255, 0, 0);
+	r.clear(black);
+	r.fillRect(5, 5, 10, 10, red);
+	if (r.pixel(8, 8) == red.packed()) { checks++; } else { fails++; print("FAIL: fillRect color"); }
+	if (r.pixel(0, 0) == black.packed()) { checks++; } else { fails++; print("FAIL: clear color"); }
+	r.blendRect(0, 0, 4, 4, Color(255, 255, 255, 128));   /* ~50% white over black */
+	unsigned int blended = r.pixel(1, 1);
+	int rr = (int)((blended >> 24) & 255);
+	if (rr >= 120 && rr <= 135) { checks++; } else { fails++; print("FAIL: blendRect ~50%"); }
 
-    Surface tx = Surface(40, 12);
-    tx.clear(black);
-    tx.text(1, 1, "A", Color.rgb(255, 255, 255), 1);
-    int lit = 0;
-    for (int yy = 0; yy < 12; yy++) {
-        for (int xx = 0; xx < 12; xx++) {
-            if (tx.pixel(xx, yy) != black.packed()) { lit++; }
-        }
-    }
-    if (lit > 0) { checks++; } else { fails++; print("FAIL: drawText renders glyph"); }
+	Surface tx = Surface(40, 12);
+	tx.clear(black);
+	tx.text(1, 1, "A", Color.rgb(255, 255, 255), 1);
+	int lit = 0;
+	for (int yy = 0; yy < 12; yy++) {
+		for (int xx = 0; xx < 12; xx++) {
+			if (tx.pixel(xx, yy) != black.packed()) { lit++; }
+		}
+	}
+	if (lit > 0) { checks++; } else { fails++; print("FAIL: drawText renders glyph"); }
 
-    Gui sg = Gui(Surface(200, 40));
-    sg.input.mouseDown = false;
-    sg.beginFrame();
-    if (sg.slider(50, 100) == 50) { checks++; } else { fails++; print("FAIL: slider holds value"); }
+	Gui sg = Gui(Surface(200, 40));
+	sg.input.mouseDown = false;
+	sg.beginFrame();
+	if (sg.slider(50, 100) == 50) { checks++; } else { fails++; print("FAIL: slider holds value"); }
 
-    /* Threaded by default: drive the GUI loop on a background thread and
+	/* Threaded by default: drive the GUI loop on a background thread and
      * coordinate via the thread-safe `alive` flag + a Mutex frame counter. */
-    GuiApp app = GuiApp(120, 60);
-    Mutex<int> frames = Mutex(0);
-    Thread<int> worker = spawn(() => {
-        while (app.running()) {
-            app.ui.beginFrame();
-            app.ui.button("Threaded");
-            int n = frames.get();
-            frames.set(n + 1);
-            if (n + 1 >= 30) { app.stop(); }
-        }
-        return 99;
-    });
-    int ret = worker.join();
-    if (ret == 99 && frames.get() >= 30) { checks++; } else { fails++; print("FAIL: threaded GUI loop did not run"); }
-    if (app.surface.pixel(2, 2) == app.ui.theme.bg.packed()) { checks++; } else { fails++; print("FAIL: threaded render did not draw a frame"); }
+	GuiApp app = GuiApp(120, 60);
+	Mutex<int> frames = Mutex(0);
+	Thread<int> worker = spawn(() => {
+			while (app.running()) {
+				app.ui.beginFrame();
+				app.ui.button("Threaded");
+				int n = frames.get();
+				frames.set(n + 1);
+				if (n + 1 >= 30) { app.stop(); }
+			}
+			return 99;
+		});
+	int ret = worker.join();
+	if (ret == 99 && frames.get() >= 30) { checks++; } else { fails++; print("FAIL: threaded GUI loop did not run"); }
+	if (app.surface.pixel(2, 2) == app.ui.theme.bg.packed()) { checks++; } else { fails++; print("FAIL: threaded render did not draw a frame"); }
 
-    /* Showcase frame -> PPM for inspection. */
-    ui.input.mouseX = -1;
-    ui.input.mouseY = -1;
-    ui.input.mousePressed = false;
-    ui.input.mouseDown = false;
-    ui.beginFrame();
-    ui.heading("BTRC GUI");
-    ui.label("Immediate-mode native UI.");
-    ui.button("Save");
-    ui.button("Cancel");
-    ui.checkbox("Word wrap", true);
-    ui.slider(60, 100);
-    surf.savePpm("/tmp/gui_demo.ppm");
+	/* Showcase frame -> PPM for inspection. */
+	ui.input.mouseX = -1;
+	ui.input.mouseY = -1;
+	ui.input.mousePressed = false;
+	ui.input.mouseDown = false;
+	ui.beginFrame();
+	ui.heading("BTRC GUI");
+	ui.label("Immediate-mode native UI.");
+	ui.button("Save");
+	ui.button("Cancel");
+	ui.checkbox("Word wrap", true);
+	ui.slider(60, 100);
+	surf.savePpm("/tmp/gui_demo.ppm");
 
-    print(f"checks={checks} fails={fails}");
-    if (fails == 0) {
-        print("GUI TESTS PASSED");
-        return 0;
-    }
-    return 1;
+	print(f"checks={checks} fails={fails}");
+	if (fails == 0) {
+		print("GUI TESTS PASSED");
+		return 0;
+	}
+	return 1;
 }

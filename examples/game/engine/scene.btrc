@@ -15,36 +15,36 @@ int U_SKY      = 24;
 int U_COUNT    = 32;
 
 enum SceneAcquisitionStage {
-    SCENE_ACQUIRED_NOTHING,
-    SCENE_ACQUIRED_SHADER,
-    SCENE_ACQUIRED_PIPELINE,
-    SCENE_ACQUIRED_UNIFORM
+	SCENE_ACQUIRED_NOTHING,
+	SCENE_ACQUIRED_SHADER,
+	SCENE_ACQUIRED_PIPELINE,
+	SCENE_ACQUIRED_UNIFORM
 };
 
 class Scene {
-    public Camera camera;
-    public Light light;
-    public Material ballMaterial;
-    public Ground ground;
-    public Sky sky;
-    public GPUShader _shader;
-    public GPURenderPipeline _pipeline;
-    public GPUUniform _uniform;
-    public int width;
-    public int height;
-    private SceneAcquisitionStage acquisitionStage;
+	public Camera camera;
+	public Light light;
+	public Material ballMaterial;
+	public Ground ground;
+	public Sky sky;
+	public GPUShader _shader;
+	public GPURenderPipeline _pipeline;
+	public GPUUniform _uniform;
+	public int width;
+	public int height;
+	private SceneAcquisitionStage acquisitionStage;
 
-    public Scene(GPU gpu, int w, int h) {
-        self.acquisitionStage = SCENE_ACQUIRED_NOTHING;
-        self.width = w;
-        self.height = h;
-        self.camera = new Camera();
-        self.light = new Light();
-        self.ballMaterial = new Material(0.95, 0.25, 0.12);
-        self.ground = new Ground();
-        self.sky = new Sky();
+	public Scene(GPU gpu, int w, int h) {
+		self.acquisitionStage = SCENE_ACQUIRED_NOTHING;
+		self.width = w;
+		self.height = h;
+		self.camera = new Camera();
+		self.light = new Light();
+		self.ballMaterial = new Material(0.95, 0.25, 0.12);
+		self.ground = new Ground();
+		self.sky = new Sky();
 
-        string shaderSource = """
+		string shaderSource = """
             struct VsOut {
                 @builtin(position) pos: vec4f,
                 @location(0) uv: vec2f,
@@ -165,93 +165,86 @@ class Scene {
                 return vec4f(col, 1.0);
             }
         """;
-        GPUShaderOutcome shaderCreated = gpu.createShader(shaderSource);
-        if (shaderCreated.kind != GPU_RESOURCE_READY
-                || shaderCreated.shader == null) {
-            throw shaderCreated.error;
-        }
-        GPUShader shader = shaderCreated.shader;
-        self._shader = shader;
-        self.acquisitionStage = SCENE_ACQUIRED_SHADER;
+		GPUShaderOutcome shaderCreated = gpu.createShader(shaderSource);
+		if (shaderCreated.kind != GPU_RESOURCE_READY || shaderCreated.shader == null) {
+			throw shaderCreated.error;
+		}
+		GPUShader shader = shaderCreated.shader;
+		self._shader = shader;
+		self.acquisitionStage = SCENE_ACQUIRED_SHADER;
 
-        GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
-        if (pipelineCreated.kind != GPU_RESOURCE_READY
-                || pipelineCreated.pipeline == null) {
-            throw pipelineCreated.error;
-        }
-        self._pipeline = pipelineCreated.pipeline;
-        self.acquisitionStage = SCENE_ACQUIRED_PIPELINE;
+		GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
+		if (pipelineCreated.kind != GPU_RESOURCE_READY || pipelineCreated.pipeline == null) {
+			throw pipelineCreated.error;
+		}
+		self._pipeline = pipelineCreated.pipeline;
+		self.acquisitionStage = SCENE_ACQUIRED_PIPELINE;
 
-        GPUUniformOutcome uniformCreated = gpu.createUniform(U_COUNT);
-        if (uniformCreated.kind != GPU_RESOURCE_READY
-                || uniformCreated.uniform == null) {
-            throw uniformCreated.error;
-        }
-        self._uniform = uniformCreated.uniform;
-        self.acquisitionStage = SCENE_ACQUIRED_UNIFORM;
-    }
+		GPUUniformOutcome uniformCreated = gpu.createUniform(U_COUNT);
+		if (uniformCreated.kind != GPU_RESOURCE_READY || uniformCreated.uniform == null) {
+			throw uniformCreated.error;
+		}
+		self._uniform = uniformCreated.uniform;
+		self.acquisitionStage = SCENE_ACQUIRED_UNIFORM;
+	}
 
-    public GPUFrameKind render(GPU gpu, GameObject player, float time) {
-        if (self.width <= 0 || self.height <= 0) {
-            return GPU_FRAME_OUTDATED;
-        }
-        float aspect = 1.0 * self.width / self.height;
+	public GPUFrameKind render(GPU gpu, GameObject player, float time) {
+		if (self.width <= 0 || self.height <= 0) {
+			return GPU_FRAME_OUTDATED;
+		}
+		float aspect = 1.0 * self.width / self.height;
 
-        /* Camera */
-        self.camera.follow(
-            player.position.x, player.position.y,
-            player.position.z, 4.5, 5.5
-        );
-        self.camera.writeUniforms(self._uniform, U_CAMERA);
-        self._uniform.set(7, aspect);
+		/* Camera */
+		self.camera.follow(player.position.x, player.position.y, player.position.z, 4.5, 5.5);
+		self.camera.writeUniforms(self._uniform, U_CAMERA);
+		self._uniform.set(7, aspect);
 
-        /* Light */
-        self.light.writeUniforms(self._uniform, U_LIGHT);
+		/* Light */
+		self.light.writeUniforms(self._uniform, U_LIGHT);
 
-        /* Ball position + radius */
-        self._uniform.set(U_BALL + 0, player.position.x);
-        self._uniform.set(U_BALL + 1, player.position.y);
-        self._uniform.set(U_BALL + 2, player.position.z);
-        self._uniform.set(U_BALL + 3, BALL_RADIUS);
+		/* Ball position + radius */
+		self._uniform.set(U_BALL + 0, player.position.x);
+		self._uniform.set(U_BALL + 1, player.position.y);
+		self._uniform.set(U_BALL + 2, player.position.z);
+		self._uniform.set(U_BALL + 3, BALL_RADIUS);
 
-        /* Material + ground + time */
-        self.ballMaterial.writeUniforms(self._uniform, U_MATERIAL);
-        self.ground.writeUniforms(self._uniform, U_GROUND);
-        self._uniform.set(U_TIME, time);
+		/* Material + ground + time */
+		self.ballMaterial.writeUniforms(self._uniform, U_MATERIAL);
+		self.ground.writeUniforms(self._uniform, U_GROUND);
+		self._uniform.set(U_TIME, time);
 
-        /* Sky */
-        self.sky.writeUniforms(self._uniform, U_SKY);
+		/* Sky */
+		self.sky.writeUniforms(self._uniform, U_SKY);
 
-        GPUFrameOutcome frame = gpu.beginFrame(0.0f, 0.0f, 0.0f);
-        if (frame.kind != GPU_FRAME_READY) {
-            return frame.kind;
-        }
-        if (gpu.drawWithUniform(self._pipeline, 3, self._uniform).kind
-                != GPU_DRAW_RECORDED) {
-            return GPU_FRAME_REJECTED;
-        }
-        return gpu.endFrame().kind;
-    }
+		GPUFrameOutcome frame = gpu.beginFrame(0.0f, 0.0f, 0.0f);
+		if (frame.kind != GPU_FRAME_READY) {
+			return frame.kind;
+		}
+		if (gpu.drawWithUniform(self._pipeline, 3, self._uniform).kind != GPU_DRAW_RECORDED) {
+			return GPU_FRAME_REJECTED;
+		}
+		return gpu.endFrame().kind;
+	}
 
-    public void resize(int w, int h) {
-        self.width = w;
-        self.height = h;
-    }
+	public void resize(int w, int h) {
+		self.width = w;
+		self.height = h;
+	}
 
-    public void close() {
-        if (self.acquisitionStage >= SCENE_ACQUIRED_UNIFORM) {
-            self._uniform.close();
-            self.acquisitionStage = SCENE_ACQUIRED_PIPELINE;
-        }
-        if (self.acquisitionStage >= SCENE_ACQUIRED_PIPELINE) {
-            self._pipeline.close();
-            self.acquisitionStage = SCENE_ACQUIRED_SHADER;
-        }
-        if (self.acquisitionStage >= SCENE_ACQUIRED_SHADER) {
-            self._shader.close();
-            self.acquisitionStage = SCENE_ACQUIRED_NOTHING;
-        }
-    }
+	public void close() {
+		if (self.acquisitionStage >= SCENE_ACQUIRED_UNIFORM) {
+			self._uniform.close();
+			self.acquisitionStage = SCENE_ACQUIRED_PIPELINE;
+		}
+		if (self.acquisitionStage >= SCENE_ACQUIRED_PIPELINE) {
+			self._pipeline.close();
+			self.acquisitionStage = SCENE_ACQUIRED_SHADER;
+		}
+		if (self.acquisitionStage >= SCENE_ACQUIRED_SHADER) {
+			self._shader.close();
+			self.acquisitionStage = SCENE_ACQUIRED_NOTHING;
+		}
+	}
 
-    public void __del__() { self.close(); }
+	public void __del__() { self.close(); }
 }

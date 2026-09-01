@@ -12,22 +12,22 @@ import std.ui;
 #include "tray/tray.btrc"
 
 int main() {
-    SystemTray tray = SystemTray("btrc")
-        .tip("btrc native tray demo")
-        .icon("icon.png")                                  // falls back to text
-        .item("Open Anthropic", "open https://www.anthropic.com")
-        .item("Say hello", "osascript -e 'display notification \"hello from btrc\"'")
-        .add(TrayItem("Build (disabled)", "make").disabled())
-        .item("Quit", TraySignal.quit());
+	SystemTray tray = SystemTray("btrc")
+		.tip("btrc native tray demo")
+		.icon("icon.png")                                  // falls back to text
+		.item("Open Anthropic", "open https://www.anthropic.com")
+		.item("Say hello", "osascript -e 'display notification \"hello from btrc\"'")
+		.add(TrayItem("Build (disabled)", "make").disabled())
+		.item("Quit", TraySignal.quit());
 
-    if (!tray.show()) {
-        print("No native tray available (headless / no GUI session).");
-        print("On a desktop session this shows a clickable menu-bar icon.");
-        return 0;
-    }
+	if (!tray.show()) {
+		print("No native tray available (headless / no GUI session).");
+		print("On a desktop session this shows a clickable menu-bar icon.");
+		return 0;
+	}
 
-    print("btrc tray is live in the menu bar — click an item, or Quit to exit.");
-    tray.run();   // pump the native loop until Quit
-    print("tray closed");
-    return 0;
+	print("btrc tray is live in the menu bar — click an item, or Quit to exit.");
+	tray.run();   // pump the native loop until Quit
+	print("tray closed");
+	return 0;
 }

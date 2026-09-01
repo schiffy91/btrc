@@ -3,23 +3,23 @@
 import std.datetime;
 
 class Time {
-    public float deltaTime;
-    public float elapsed;
-    private float lastTime;
-    private Timer clock;
+	public float deltaTime;
+	public float elapsed;
+	private float lastTime;
+	private Timer clock;
 
-    public Time() {
-        self.clock = Timer();
-        self.clock.start();
-        self.lastTime = 0.0f;
-        self.deltaTime = 0.0f;
-        self.elapsed = 0.0f;
-    }
+	public Time() {
+		self.clock = Timer();
+		self.clock.start();
+		self.lastTime = 0.0f;
+		self.deltaTime = 0.0f;
+		self.elapsed = 0.0f;
+	}
 
-    public void update() {
-        float now = self.clock.elapsed();
-        self.deltaTime = now - self.lastTime;
-        self.lastTime = now;
-        self.elapsed = now;
-    }
+	public void update() {
+		float now = self.clock.elapsed();
+		self.deltaTime = now - self.lastTime;
+		self.lastTime = now;
+		self.elapsed = now;
+	}
 }

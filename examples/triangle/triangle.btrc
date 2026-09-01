@@ -4,22 +4,20 @@ import ../../src/stdlib/app/app.btrc;
 import ../../src/stdlib/gpu/gpu.btrc;
 
 int main() {
-    Application application = new Application();
-    AppWindowOpenOutcome opened = application.openWindow(
-        new AppWindowDescriptor("btrc Triangle", 800, 600));
-    if (opened.kind != APP_WINDOW_OPENED || opened.window == null) { return 1; }
-    ApplicationWindow window = opened.window;
+	Application application = new Application();
+	AppWindowOpenOutcome opened = application.openWindow(new AppWindowDescriptor("btrc Triangle", 800, 600));
+	if (opened.kind != APP_WINDOW_OPENED || opened.window == null) { return 1; }
+	ApplicationWindow window = opened.window;
 
-    AppSurfaceOpenOutcome surfaceOpened = window.surface();
-    if (surfaceOpened.kind != APP_SURFACE_OPENED
-            || surfaceOpened.surface == null) { return 2; }
-    AppSurfaceAttachment surface = surfaceOpened.surface;
+	AppSurfaceOpenOutcome surfaceOpened = window.surface();
+	if (surfaceOpened.kind != APP_SURFACE_OPENED || surfaceOpened.surface == null) { return 2; }
+	AppSurfaceAttachment surface = surfaceOpened.surface;
 
-    GPUAttachOutcome attached = GPU.attach(surface);
-    if (attached.kind != GPU_ATTACHED || attached.gpu == null) { return 3; }
-    GPU gpu = attached.gpu;
+	GPUAttachOutcome attached = GPU.attach(surface);
+	if (attached.kind != GPU_ATTACHED || attached.gpu == null) { return 3; }
+	GPU gpu = attached.gpu;
 
-    GPUShaderOutcome shaderCreated = gpu.createShader("""
+	GPUShaderOutcome shaderCreated = gpu.createShader("""
         @vertex fn vs_main(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
             var pos = array<vec2f, 3>(
                 vec2f( 0.0,  0.5),
@@ -33,38 +31,33 @@ int main() {
             return vec4f(1.0, 0.0, 0.0, 1.0);
         }
     """);
-    if (shaderCreated.kind != GPU_RESOURCE_READY
-            || shaderCreated.shader == null) { return 4; }
-    GPUShader shader = shaderCreated.shader;
-    GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
-    if (pipelineCreated.kind != GPU_RESOURCE_READY
-            || pipelineCreated.pipeline == null) { return 5; }
-    GPURenderPipeline pipeline = pipelineCreated.pipeline;
+	if (shaderCreated.kind != GPU_RESOURCE_READY || shaderCreated.shader == null) { return 4; }
+	GPUShader shader = shaderCreated.shader;
+	GPUPipelineOutcome pipelineCreated = gpu.createPipeline(shader);
+	if (pipelineCreated.kind != GPU_RESOURCE_READY || pipelineCreated.pipeline == null) { return 5; }
+	GPURenderPipeline pipeline = pipelineCreated.pipeline;
 
-    bool running = true;
-    while (running) {
-        AppWindowEvent event = application.poll();
-        if (event.kind == APP_EVENT_CLOSE_REQUESTED
-                || event.kind == APP_EVENT_CLOSED
-                || event.kind == APP_EVENT_FAILED) {
-            running = false;
-        }
-        if (!running) { break; }
-        GPUFrameOutcome frame = gpu.beginFrame(0.0f, 0.0f, 0.0f);
-        if (frame.kind == GPU_FRAME_READY) {
-            if (gpu.draw(pipeline, 3).kind != GPU_DRAW_RECORDED) { return 6; }
-            if (gpu.endFrame().kind != GPU_FRAME_PRESENTED) { return 7; }
-        } else if (frame.kind != GPU_FRAME_TIMEOUT
-                && frame.kind != GPU_FRAME_OUTDATED) {
-            running = false;
-        }
-    }
+	bool running = true;
+	while (running) {
+		AppWindowEvent event = application.poll();
+		if (event.kind == APP_EVENT_CLOSE_REQUESTED || event.kind == APP_EVENT_CLOSED || event.kind == APP_EVENT_FAILED) {
+			running = false;
+		}
+		if (!running) { break; }
+		GPUFrameOutcome frame = gpu.beginFrame(0.0f, 0.0f, 0.0f);
+		if (frame.kind == GPU_FRAME_READY) {
+			if (gpu.draw(pipeline, 3).kind != GPU_DRAW_RECORDED) { return 6; }
+			if (gpu.endFrame().kind != GPU_FRAME_PRESENTED) { return 7; }
+		} else if (frame.kind != GPU_FRAME_TIMEOUT && frame.kind != GPU_FRAME_OUTDATED) {
+			running = false;
+		}
+	}
 
-    pipeline.close();
-    shader.close();
-    gpu.close();
-    surface.close();
-    window.close();
-    application.close();
-    return 0;
+	pipeline.close();
+	shader.close();
+	gpu.close();
+	surface.close();
+	window.close();
+	application.close();
+	return 0;
 }

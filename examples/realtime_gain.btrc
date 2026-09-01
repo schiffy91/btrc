@@ -1,13 +1,13 @@
 /* A standalone realtime-safe source kernel: bounded scalar work over raw memory. */
 
 @realtime void applyGain(float* samples, int count, float gain) {
-    for (int index = 0; index < count; index++) {
-        samples[index] = samples[index] * gain;
-    }
+	for (int index = 0; index < count; index++) {
+		samples[index] = samples[index] * gain;
+	}
 }
 
 int main() {
-    float samples[4] = { 0.25f, 0.5f, -0.25f, 1.0f };
-    applyGain(samples, 4, 0.5f);
-    return samples[0] == 0.125f && samples[3] == 0.5f ? 0 : 1;
+	float samples[4] = { 0.25f, 0.5f, -0.25f, 1.0f };
+	applyGain(samples, 4, 0.5f);
+	return samples[0] == 0.125f && samples[3] == 0.5f ? 0 : 1;
 }
