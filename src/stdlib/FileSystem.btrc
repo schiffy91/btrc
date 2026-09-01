@@ -4,6 +4,7 @@
 
 import std.io;
 import std.FileSystemHandles;
+import std.FileTree;
 import std.platform;
 import std.process;
 import std.strings;
@@ -748,6 +749,17 @@ class PathTools {
 }
 
 class FileSystem {
+    class FileRevision revision(FileSnapshot snapshot) {
+        return FileRevision.fromSnapshot(snapshot);
+    }
+
+    class FileTreeSnapshotOpenOutcome openFileTreeSnapshot(
+        string path,
+        FileTreeLimits limits
+    ) {
+        return FileTreeSnapshot.open(path, limits);
+    }
+
     class FileSnapshotOutcome inspectExact(string path) {
         return FileHandle.inspectExact(path);
     }

@@ -20,6 +20,7 @@ def test_upper_camel_contract_programs_are_runnable_corpus_entries():
     assert "stdlib/FileSystemHandlesContract.btrc" in selected
     assert "stdlib/FileSystemHandlesReal.btrc" in selected
     assert "stdlib/FileSystemHandleInventoryReal.btrc" in selected
+    assert "stdlib/FileTreeSnapshotReal.btrc" in selected
     assert "stdlib/PrivateDirectoryReal.btrc" in selected
     assert "stdlib/RegularFileSnapshotReal.btrc" in selected
 
