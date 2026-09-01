@@ -168,6 +168,23 @@ def test_native_module_scopes_fail_closed(tmp_path: Path, modules: str, message:
         PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="linux-x64")
 
 
+def test_one_native_record_cannot_be_split_across_module_scopes(tmp_path: Path) -> None:
+    (tmp_path / "src").mkdir()
+    (tmp_path / "native").mkdir()
+    for module in ("Direct", "Other"):
+        (tmp_path / f"src/{module}.btrc").write_text("extern int seam();\n", encoding="utf-8")
+    (tmp_path / "native/Seam.c").write_text("int seam(void) { return 1; }\n")
+    declaration = '\n[[native.sources]]\npath = "native/Seam.c"\nlanguage = "c"\nstandard = "c11"\n'
+    _manifest(
+        tmp_path,
+        "app",
+        native=declaration + 'modules = ["Direct"]\n' + declaration + 'modules = ["Other"]\n',
+    )
+
+    with pytest.raises(ValueError, match="duplicates an earlier native declaration"):
+        PackageUniverse().resolve_manifest(str(tmp_path / "btrc.toml"), target="linux-x64")
+
+
 def _compile_plan(plan: dict, generated_c: Path, output: Path, temporary: Path) -> None:
     cc = shutil.which("cc") or shutil.which("clang") or shutil.which("gcc")
     cxx = shutil.which("c++") or shutil.which("clang++") or shutil.which("g++")

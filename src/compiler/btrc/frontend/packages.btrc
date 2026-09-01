@@ -70,12 +70,13 @@ class FeNativeDeclaration {
     public string standard;
     public Vector<string> operatingSystems;
     public Vector<string> architectures;
+    public Vector<string> modules;
 
     public FeNativeDeclaration(
             string kind, string packageName, string value, string detail,
             string language, string standard,
             Vector<string> operatingSystems,
-            Vector<string> architectures) {
+            Vector<string> architectures, Vector<string> modules) {
         self.kind = kind;
         self.packageName = packageName;
         self.value = value;
@@ -84,6 +85,7 @@ class FeNativeDeclaration {
         self.standard = standard;
         self.operatingSystems = operatingSystems;
         self.architectures = architectures;
+        self.modules = modules;
     }
 
     private bool contains(Vector<string> values, string expected) {
@@ -205,7 +207,8 @@ class FeNativeBlock {
     }
 
     private bool allowedField(string key) {
-        if (key.equals("os") || key.equals("arch")) { return true; }
+        if (key.equals("os") || key.equals("arch")
+                || key.equals("modules")) { return true; }
         if (self.tableName.equals("native.sources")) {
             return key.equals("path") || key.equals("language")
                 || key.equals("standard");
@@ -268,8 +271,7 @@ class FeNativeBlock {
         return true;
     }
 
-    private Vector<string> stringArray(
-            string key, Vector<string> allowed) {
+    private Vector<string> stringArray(string key) {
         Vector<string> values = [];
         if (!self.fields.has(key)) { return values; }
         string raw = self.fields.get(key).trim();
@@ -292,6 +294,28 @@ class FeNativeBlock {
                     f"{self.context()}.{key} must be an array of strings");
             }
             string value = Toml.unquote(part);
+            int prior = 0;
+            while (prior < values.len) {
+                if (values.get(prior).equals(value)) {
+                    FePackageFailure.fail(
+                        f"{self.context()}.{key} contains a duplicate value");
+                }
+                prior++;
+            }
+            values.push(value);
+            index++;
+        }
+        values.sortBy((string left, string right) =>
+            Strings.lessThan(left, right));
+        return values;
+    }
+
+    private Vector<string> targetArray(
+            string key, Vector<string> allowed) {
+        Vector<string> values = self.stringArray(key);
+        int index = 0;
+        while (index < values.len) {
+            string value = values.get(index);
             bool accepted = false;
             int allowedIndex = 0;
             while (allowedIndex < allowed.len) {
@@ -304,20 +328,68 @@ class FeNativeBlock {
                 FePackageFailure.fail(
                     f"{self.context()}.{key} contains unsupported value '{value}'");
             }
-            int prior = 0;
-            while (prior < values.len) {
-                if (values.get(prior).equals(value)) {
-                    FePackageFailure.fail(
-                        f"{self.context()}.{key} contains duplicate value '{value}'");
-                }
-                prior++;
-            }
-            values.push(value);
             index++;
         }
-        values.sortBy((string left, string right) =>
-            Strings.lessThan(left, right));
         return values;
+    }
+
+    private bool moduleName(string value) {
+        Vector<string> segments = Strings.split(value, ".");
+        if (segments.len == 0) { return false; }
+        int index = 0;
+        while (index < segments.len) {
+            if (!self.identifier(segments.get(index))) { return false; }
+            index++;
+        }
+        return true;
+    }
+
+    private Vector<string> modulePaths(string root) {
+        Vector<string> result = [];
+        if (!self.fields.has("modules")) { return result; }
+        Vector<string> modules = self.stringArray("modules");
+        if (modules.len == 0) {
+            FePackageFailure.fail(
+                f"{self.context()}.modules must not be empty");
+        }
+        string canonicalRoot = PathTools.absolute(root);
+        string prefix = canonicalRoot.endsWith(Platform.pathSeparator())
+            ? canonicalRoot : canonicalRoot + Platform.pathSeparator();
+        string comparedRoot = Platform.isWindows()
+            ? canonicalRoot.toLower() : canonicalRoot;
+        string comparedPrefix = Platform.isWindows()
+            ? prefix.toLower() : prefix;
+        int index = 0;
+        while (index < modules.len) {
+            string module = modules.get(index);
+            if (!self.moduleName(module)) {
+                FePackageFailure.fail(
+                    f"{self.context()}.modules contains invalid module '{module}'");
+            }
+            string relative = Strings.replace(
+                module, ".", Platform.pathSeparator()) + ".btrc";
+            string underSource = PathTools.join(
+                PathTools.join(root, "src"), relative);
+            string underRoot = PathTools.join(root, relative);
+            string selected = FileSystem.isFile(underSource)
+                ? underSource : (FileSystem.isFile(underRoot) ? underRoot : "");
+            if (selected.isEmpty()) {
+                FePackageFailure.fail(
+                    f"{self.context()}.modules names unknown module '{module}'");
+            }
+            string canonical = PathTools.absolute(selected);
+            string compared = Platform.isWindows()
+                ? canonical.toLower() : canonical;
+            if (!compared.equals(comparedRoot)
+                    && !compared.startsWith(comparedPrefix)) {
+                FePackageFailure.fail(
+                    f"{self.context()}.modules module '{module}' escapes "
+                    + f"package root '{canonicalRoot}'");
+            }
+            result.push(canonical);
+            index++;
+        }
+        return result;
     }
 
     private string packagePath(
@@ -366,10 +438,11 @@ class FeNativeBlock {
         }
         Vector<string> operatingSystemValues = ["linux", "macos", "windows"];
         Vector<string> architectureValues = ["x86_64", "aarch64"];
-        Vector<string> operatingSystems = self.stringArray(
+        Vector<string> operatingSystems = self.targetArray(
             "os", operatingSystemValues);
-        Vector<string> architectures = self.stringArray(
+        Vector<string> architectures = self.targetArray(
             "arch", architectureValues);
+        Vector<string> modules = self.modulePaths(root);
         if (self.tableName.equals("native.sources")) {
             string language = self.requiredText("language");
             string standard = self.requiredText("standard");
@@ -389,19 +462,19 @@ class FeNativeBlock {
             return FeNativeDeclaration(
                 "source", packageName,
                 self.packagePath(root, "path", false), "",
-                language, standard, operatingSystems, architectures);
+                language, standard, operatingSystems, architectures, modules);
         }
         if (self.tableName.equals("native.headers")) {
             return FeNativeDeclaration(
                 "header", packageName,
                 self.packagePath(root, "path", false), "", "", "",
-                operatingSystems, architectures);
+                operatingSystems, architectures, modules);
         }
         if (self.tableName.equals("native.include-directories")) {
             return FeNativeDeclaration(
                 "include-directory", packageName,
                 self.packagePath(root, "path", true), "", "", "",
-                operatingSystems, architectures);
+                operatingSystems, architectures, modules);
         }
         if (self.tableName.equals("native.defines")) {
             string name = self.requiredText("name");
@@ -412,7 +485,7 @@ class FeNativeBlock {
             string value = self.requiredText("value");
             return FeNativeDeclaration(
                 "define", packageName, name, value, "", "",
-                operatingSystems, architectures);
+                operatingSystems, architectures, modules);
         }
         string name = self.requiredText("name");
         if (!self.nativeName(name)) {
@@ -423,7 +496,7 @@ class FeNativeBlock {
             ? "framework" : "pkg-config";
         return FeNativeDeclaration(
             kind, packageName, name, "", "", "",
-            operatingSystems, architectures);
+            operatingSystems, architectures, modules);
     }
 }
 
@@ -671,6 +744,91 @@ class FeNativeLinkPlan {
         self.declarations = declarations;
     }
 
+    private bool sourceInside(string source, string root) {
+        string prefix = root.endsWith(Platform.pathSeparator())
+            ? root : root + Platform.pathSeparator();
+        return source.equals(root) || source.startsWith(prefix);
+    }
+
+    public void restrictToSources(Vector<string> sourcePaths) {
+        FeSourcePathPolicy sourcePolicy = FeSourcePathPolicy();
+        Map<string, string> roots = {};
+        int packageIndex = 0;
+        while (packageIndex < self.packages.len) {
+            FePackageNode package = self.packages.get(packageIndex);
+            roots.put(package.name, sourcePolicy.identity(package.root));
+            packageIndex++;
+        }
+        Map<string, bool> sources = {};
+        Map<string, bool> reached = {};
+        int sourceIndex = 0;
+        while (sourceIndex < sourcePaths.len) {
+            string source = sourcePolicy.identity(sourcePaths.get(sourceIndex));
+            sources.put(source, true);
+            FePackageNode owner = null;
+            int ownerLength = -1;
+            packageIndex = 0;
+            while (packageIndex < self.packages.len) {
+                FePackageNode candidate = self.packages.get(packageIndex);
+                string root = roots.get(candidate.name);
+                if (self.sourceInside(source, root)
+                        && root.length() > ownerLength) {
+                    owner = candidate;
+                    ownerLength = root.length();
+                }
+                packageIndex++;
+            }
+            if (owner != null) { reached.put(owner.name, true); }
+            sourceIndex++;
+        }
+
+        Vector<FePackageNode> selectedPackages = [];
+        packageIndex = 0;
+        while (packageIndex < self.packages.len) {
+            FePackageNode package = self.packages.get(packageIndex);
+            if (reached.has(package.name)) {
+                Map<string, string> dependencies = {};
+                Vector<string> aliases = package.dependencies.keys();
+                int aliasIndex = 0;
+                while (aliasIndex < aliases.len) {
+                    string alias = aliases.get(aliasIndex);
+                    string target = package.dependencies.get(alias);
+                    if (reached.has(target)) {
+                        dependencies.put(alias, target);
+                    }
+                    aliasIndex++;
+                }
+                selectedPackages.push(FePackageNode(
+                    package.name, package.root, dependencies,
+                    package.sourcePath, package.manifestHash,
+                    package.nativeDeclarations));
+            }
+            packageIndex++;
+        }
+
+        Vector<FeNativeDeclaration> selectedDeclarations = [];
+        int declarationIndex = 0;
+        while (declarationIndex < self.declarations.len) {
+            FeNativeDeclaration declaration =
+                self.declarations.get(declarationIndex);
+            bool moduleReached = declaration.modules.len == 0;
+            int moduleIndex = 0;
+            while (moduleIndex < declaration.modules.len) {
+                if (sources.has(sourcePolicy.identity(
+                        declaration.modules.get(moduleIndex)))) {
+                    moduleReached = true;
+                }
+                moduleIndex++;
+            }
+            if (reached.has(declaration.packageName) && moduleReached) {
+                selectedDeclarations.push(declaration);
+            }
+            declarationIndex++;
+        }
+        self.packages = selectedPackages;
+        self.declarations = selectedDeclarations;
+    }
+
     public void requireStdlibBackgroundJobs(string stdlibDirectory) {
         string packageName = "btrc_stdlib_runtime";
         int packageIndex = 0;
@@ -696,16 +854,17 @@ class FeNativeLinkPlan {
         }
         Vector<string> supported = ["linux", "macos"];
         Vector<string> architectures = [];
+        Vector<string> modules = [];
         Vector<FeNativeDeclaration> runtimeDeclarations = [
             FeNativeDeclaration(
                 "source", packageName, source, "", "c", "c11",
-                supported, architectures),
+                supported, architectures, modules),
             FeNativeDeclaration(
                 "header", packageName, header, "", "", "",
-                supported, architectures),
+                supported, architectures, modules),
             FeNativeDeclaration(
                 "include-directory", packageName, runtime, "", "", "",
-                supported, architectures)
+                supported, architectures, modules)
         ];
         Map<string, string> dependencies = {};
         self.packages.push(FePackageNode(

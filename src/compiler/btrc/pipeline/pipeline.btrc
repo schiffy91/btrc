@@ -48,6 +48,8 @@ class CompilerPipeline {
             self.grammar, self.stdlib,
             options.includeStdlib, options.strictImports, packages);
         FeResolvedSource resolved = resolver.resolve(source, sourcePath);
+        packages.linkPlan.restrictToSources(
+            resolved.dependencies.sourceIdentities());
         string backgroundJobsModule = PathTools.join(
             self.stdlib.directory(), "background_jobs.btrc");
         if (resolved.dependencies.hasSource(

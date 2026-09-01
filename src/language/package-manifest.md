@@ -52,6 +52,7 @@ or empty array matches every value.  Supported operating systems are `linux`,
 path = "native/example.cpp"
 language = "c++"
 standard = "c++17"
+modules = ["AudioDevice"]
 os = ["linux", "macos", "windows"]
 arch = ["x86_64", "aarch64"]
 
@@ -73,6 +74,14 @@ os = ["macos"]
 name = "dbus-1"
 os = ["linux"]
 ```
+
+Every native declaration may have a non-empty `modules` array of dotted module
+names relative to its declaring package. `AudioDevice` resolves as
+`src/AudioDevice.btrc` and `gui.Window` as `src/gui/Window.btrc`, with the
+package root as the fallback module directory. Missing, malformed, duplicate,
+or escaping module names are errors. A scoped declaration is emitted when any
+named module is loaded. An entry without `modules` is package-wide and is
+emitted when any module from that package is loaded; `modules = []` is invalid.
 
 Source languages and standards are closed sets:
 
@@ -115,6 +124,12 @@ pkg-config requirements, and final linker language.  Paths in a generated plan
 are absolute so a consumer can run from another working directory.  Package
 and unit ordering is deterministic.  If any selected C++ or Objective-C++ unit
 is present, `linker-language` is `c++`; otherwise it is `c`.
+
+Plan packages and dependency edges are a closed projection of the modules
+loaded from the compilation root. Native declarations are then selected from
+that projection by module scope and target predicates. Unrelated packages and
+native inputs remain validated and locked, but do not appear in the emitted
+plan.
 
 Compiler-owned standard-library modules use the same plan vocabulary. A graph
 that imports `std.background_jobs` gains one reserved `btrc_stdlib_runtime`

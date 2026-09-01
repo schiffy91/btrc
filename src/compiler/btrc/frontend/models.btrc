@@ -106,6 +106,10 @@ class FeDependencyGraph {
         return self.outgoing.has(sourceIdentity);
     }
 
+    public Vector<string> sourceIdentities() {
+        return self.outgoing.keys();
+    }
+
     public Vector<FeDependencyEdge> outgoingFrom(string sourceIdentity) {
         if (self.outgoing.has(sourceIdentity)) {
             return self.outgoing.get(sourceIdentity);

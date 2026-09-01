@@ -210,6 +210,29 @@ class NativeDeclaration:
             not self.architectures or target.architecture in self.architectures
         )
 
+    def same_identity(self, other: NativeDeclaration) -> bool:
+        """Whether two declarations would emit the same native plan record."""
+
+        return (
+            self.kind,
+            self.package,
+            self.value,
+            self.detail,
+            self.language,
+            self.standard,
+            self.operating_systems,
+            self.architectures,
+        ) == (
+            other.kind,
+            other.package,
+            other.value,
+            other.detail,
+            other.language,
+            other.standard,
+            other.operating_systems,
+            other.architectures,
+        )
+
 
 @dataclass(frozen=True)
 class PackageNode:
@@ -733,7 +756,7 @@ class PackageManifestValidator:
                         architectures=architectures,
                         modules=modules,
                     )
-                if declaration in declarations:
+                if any(declaration.same_identity(existing) for existing in declarations):
                     raise ValueError(f"{context} duplicates an earlier native declaration")
                 declarations.append(declaration)
         return tuple(sorted(declarations))

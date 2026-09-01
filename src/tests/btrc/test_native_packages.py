@@ -57,13 +57,149 @@ def _selfhost(
     return subprocess.run(command, cwd=REPO, capture_output=True, text=True, env=_environment())
 
 
-def _manifest(path: Path, name: str, dependencies: str = "") -> None:
+def _manifest(path: Path, name: str, dependencies: str = "", native: str = "") -> None:
     path.mkdir(parents=True, exist_ok=True)
     (path / "btrc.toml").write_text(
-        f'manifest-version = 1\n\n[package]\nname = "{name}"\n{dependencies}',
+        f'manifest-version = 1\n\n[package]\nname = "{name}"\n{dependencies}{native}',
         encoding="utf-8",
     )
     (path / "src").mkdir(exist_ok=True)
+
+
+def _module_projection_project(tmp_path: Path) -> Path:
+    app = tmp_path / "app"
+    dependency = app / "packages" / "seams"
+    (dependency / "native").mkdir(parents=True)
+    for module, source in (
+        ("Direct", "extern int direct_native();\n"),
+        ("Primary", 'import "./Secondary.btrc"\nextern int primary_native();\n'),
+        ("Secondary", "extern int secondary_native();\n"),
+    ):
+        (dependency / "src").mkdir(exist_ok=True)
+        (dependency / f"src/{module}.btrc").write_text(source, encoding="utf-8")
+        (dependency / f"native/{module}.c").write_text(
+            f"int {module.lower()}_native(void) {{ return 1; }}\n",
+            encoding="utf-8",
+        )
+    (dependency / "native/Common.h").write_text("#pragma once\n", encoding="utf-8")
+    _manifest(
+        dependency,
+        "seams",
+        native=(
+            '\n[[native.headers]]\npath = "native/Common.h"\n'
+            '\n[[native.include-directories]]\npath = "native"\n'
+            '\n[[native.sources]]\npath = "native/Direct.c"\nlanguage = "c"\nstandard = "c11"\n'
+            'modules = ["Direct"]\n'
+            '\n[[native.sources]]\npath = "native/Primary.c"\nlanguage = "c"\nstandard = "c11"\n'
+            'modules = ["Primary"]\n'
+            '\n[[native.sources]]\npath = "native/Secondary.c"\nlanguage = "c"\nstandard = "c11"\n'
+            'modules = ["Secondary"]\n'
+        ),
+    )
+    _manifest(app, "app", '\n[dependencies]\nseams = { path = "packages/seams" }\n')
+    return app / "src/Main.btrc"
+
+
+def test_selfhost_native_plan_is_exact_for_loaded_module_projection(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = _module_projection_project(tmp_path)
+    cases = (
+        ("pure", "int main() { return 0; }\n", [], ["app"]),
+        ("direct", "import seams.Direct\nint main() { return 0; }\n", ["Direct.c"], ["app", "seams"]),
+        (
+            "transitive",
+            "import seams.Primary\nint main() { return 0; }\n",
+            ["Primary.c", "Secondary.c"],
+            ["app", "seams"],
+        ),
+    )
+    for name, content, units, packages in cases:
+        source.write_text(content, encoding="utf-8")
+        reference_plan = tmp_path / f"{name}-reference.json"
+        selfhost_plan = tmp_path / f"{name}-selfhost.json"
+
+        reference = _reference(source, tmp_path / f"{name}-reference.c", reference_plan)
+        selfhost = _selfhost(semantic_btrcc, source, selfhost_plan)
+
+        assert reference.returncode == 0, reference.stderr
+        assert selfhost.returncode == 0, selfhost.stderr
+        assert selfhost_plan.read_bytes() == reference_plan.read_bytes()
+        payload = json.loads(selfhost_plan.read_text(encoding="utf-8"))
+        assert [package["name"] for package in payload["packages"]] == packages
+        assert [Path(unit["path"]).name for unit in payload["units"]] == units
+        expected_dependencies = {} if name == "pure" else {"seams": "seams"}
+        assert payload["packages"][0]["dependencies"] == expected_dependencies
+        if name == "pure":
+            for field in ("defines", "frameworks", "headers", "include-directories", "pkg-config"):
+                assert payload[field] == []
+        else:
+            assert [Path(header["path"]).name for header in payload["headers"]] == ["Common.h"]
+
+
+@pytest.mark.parametrize(
+    ("modules", "message"),
+    [
+        ("[]", "modules must not be empty"),
+        ('["Direct", "Direct"]', "modules contains a duplicate value"),
+        ('["bad..module"]', "contains invalid module"),
+        ('["Missing"]', "names unknown module"),
+    ],
+)
+def test_selfhost_native_module_scope_failures_match_reference(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+    modules: str,
+    message: str,
+) -> None:
+    source = tmp_path / "src/Main.btrc"
+    source.parent.mkdir()
+    source.write_text("int main() { return 0; }\n", encoding="utf-8")
+    (tmp_path / "native").mkdir()
+    (tmp_path / "native/Seam.c").write_text("int seam(void) { return 1; }\n", encoding="utf-8")
+    _manifest(
+        tmp_path,
+        "app",
+        native=(
+            f'\n[[native.sources]]\npath = "native/Seam.c"\nlanguage = "c"\nstandard = "c11"\nmodules = {modules}\n'
+        ),
+    )
+
+    reference = _reference(source, tmp_path / "reference.c")
+    selfhost = _selfhost(semantic_btrcc, source)
+
+    assert reference.returncode != 0
+    assert selfhost.returncode != 0
+    assert message in reference.stderr
+    assert message in selfhost.stderr
+
+
+def test_selfhost_rejects_one_native_record_split_across_scopes(
+    semantic_btrcc: Path,
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "src/Main.btrc"
+    source.parent.mkdir()
+    source.write_text("int main() { return 0; }\n", encoding="utf-8")
+    for module in ("Direct", "Other"):
+        (tmp_path / f"src/{module}.btrc").write_text("extern int seam();\n", encoding="utf-8")
+    (tmp_path / "native").mkdir()
+    (tmp_path / "native/Seam.c").write_text("int seam(void) { return 1; }\n", encoding="utf-8")
+    declaration = '\n[[native.sources]]\npath = "native/Seam.c"\nlanguage = "c"\nstandard = "c11"\n'
+    _manifest(
+        tmp_path,
+        "app",
+        native=declaration + 'modules = ["Direct"]\n' + declaration + 'modules = ["Other"]\n',
+    )
+
+    reference = _reference(source, tmp_path / "reference.c")
+    selfhost = _selfhost(semantic_btrcc, source)
+
+    assert reference.returncode != 0
+    assert selfhost.returncode != 0
+    assert "duplicates an earlier native declaration" in reference.stderr
+    assert "duplicates a native declaration" in selfhost.stderr
 
 
 def test_selfhost_plan_is_reference_exact_and_builds_native_package(
